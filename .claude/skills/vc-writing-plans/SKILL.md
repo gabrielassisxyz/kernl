@@ -197,7 +197,7 @@ For an independent review of the plan document, dispatch a reviewer subagent usi
 
 After the first draft is saved, trigger the Yegge Loop for iterative refinement.
 
-**Read the Yegge Loop protocol:** `../vc-orchestrator/references/yegge-loop.md`
+**Read the Yegge Loop protocol:** `../vibe-engineering-mastery/skills/vc-orchestrator/references/yegge-loop.md`
 
 The Yegge Loop reference defines:
 - **Creator:** Kimi K2.6 (that's you in this phase)
