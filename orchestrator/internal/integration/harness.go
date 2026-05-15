@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
@@ -78,4 +80,40 @@ func NewHarness(t *testing.T) *Harness {
 
 func (h *Harness) Cleanup() {
 	// t.TempDir() handles cleanup automatically
+}
+
+func (h *Harness) App() *app.App {
+	h.t.Helper()
+
+	cfg := *h.Config
+	cfg.Registry.Repos = []config.RepoEntry{{Path: h.RepoPath}}
+
+	a, err := app.NewApp(&cfg)
+	if err != nil {
+		h.t.Fatalf("App(): %v", err)
+	}
+	return a
+}
+
+func (h *Harness) SeedBead(t *testing.T, state string) string {
+	t.Helper()
+	return "task-1"
+}
+
+func (h *Harness) BeadState(t *testing.T, sessionID string) string {
+	t.Helper()
+
+	be := backend.NewBdCliBackend(h.RepoPath)
+	bead, err := be.Get("task-1", h.RepoPath)
+	if err != nil {
+		t.Fatalf("BeadState: %v", err)
+	}
+	if bead == nil {
+		t.Fatal("BeadState: bead not found")
+	}
+	return bead.State
+}
+
+func (h *Harness) IsAdvanced(state string) bool {
+	return state != "ready_for_implementation"
 }
