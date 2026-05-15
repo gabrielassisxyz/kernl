@@ -1,73 +1,79 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
-	"net/http"
 	"os"
-	"os/signal"
-	"strconv"
-	"syscall"
-	"time"
+)
 
-	"github.com/gabrielassisxyz/kernl/internal/api"
-	"github.com/gabrielassisxyz/kernl/internal/app"
-	"github.com/gabrielassisxyz/kernl/internal/config"
-	"github.com/gabrielassisxyz/kernl/internal/logging"
+var (
+	doctorFn func(configPath string) error = runDoctor
+	serveFn  func(configPath string) error = runServe
+	helpFn   func() error                  = printHelp
 )
 
 func main() {
-	logLevel := os.Getenv("KERNL_LOG_LEVEL")
-	logging.Init(logLevel)
-
-	cfg, err := config.Load("kernl.yaml")
-	if err != nil {
-		slog.Error("KERNL DISPATCH FAILURE: failed to load config", "error", err)
+	if err := Dispatch(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
 
-	port := strconv.Itoa(cfg.Server.Port)
-	if port == "0" {
-		port = "8080"
-	}
-
-	a, err := app.NewApp(cfg)
-	if err != nil {
-		slog.Error("KERNL DISPATCH FAILURE: failed to create app", "error", err)
-		os.Exit(1)
-	}
-
-	handler := api.NewRouter(a)
-
-	srv := &http.Server{
-		Addr:         ":" + port,
-		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	go func() {
-		slog.Info("kernl starting", "addr", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server error", "error", err)
-			os.Exit(1)
+func parseConfigPath(args []string) (configPath string, rest []string) {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--config" || args[i] == "-c" {
+			if i+1 < len(args) {
+				configPath = args[i+1]
+				rest = append(rest, args[:i]...)
+				rest = append(rest, args[i+2:]...)
+				return
+			}
 		}
-	}()
+	}
+	return "", args
+}
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-
-	slog.Info("shutting down")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		slog.Error("shutdown error", "error", err)
-		os.Exit(1)
+func Dispatch(args []string) error {
+	if len(args) == 0 {
+		return helpFn()
 	}
 
-	fmt.Println("kernl stopped")
+	configPath, args := parseConfigPath(args)
+	if configPath == "" {
+		configPath = "kernl.yaml"
+	}
+
+	switch args[0] {
+	case "serve":
+		return serveFn(configPath)
+	case "doctor":
+		return doctorFn(configPath)
+	case "epic":
+		return fmt.Errorf("KERNL DISPATCH FAILURE: 'epic' subcommand is not yet implemented")
+	case "bead":
+		return fmt.Errorf("KERNL DISPATCH FAILURE: 'bead' subcommand is not yet implemented")
+	case "--help", "-h", "help":
+		return helpFn()
+	default:
+		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown subcommand %q. Run: kernl --help", args[0])
+	}
+}
+
+func printHelp() error {
+	fmt.Println(`kernl — multi-agent orchestration runner
+
+Usage:
+  kernl [--config <path>] <subcommand> [args...]
+
+Subcommands:
+  serve        Start the HTTP API server
+  doctor       Run system checks (env, binaries, config)
+  epic         Manage epics (bead graphs)
+  bead         Manage individual beads
+
+Flags:
+  --config, -c Path to kernl.yaml (default: kernl.yaml)
+  --help, -h   Show this help
+
+Run 'kernl <subcommand> --help' for subcommand-specific help.`)
+	return nil
 }
