@@ -9,7 +9,7 @@ Multi-agent orchestration where humans only touch judgment points — the rest i
 ## Prerequisites
 
 - **Go 1.26+** — the orchestrator backend
-- **[bd](https://github.com/gastownhall/beads)** — issue tracking CLI (storage backend)
+- **[bd](https://github.com/gastownhall/beads) ≥ 1.0.4** — issue tracking CLI (storage backend)
 - **[opencode](https://github.com/anomalyco/opencode)** — agent CLI (or any Claude Code-compatible agent)
 
 ## Quickstart

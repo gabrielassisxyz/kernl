@@ -8,12 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"golang.org/x/mod/semver"
 )
 
 type Harness struct {
@@ -27,12 +29,45 @@ func packageDir() string {
 	return filepath.Dir(file)
 }
 
+const minBdVersion = "1.0.4"
+
+func parseBdVersion(raw string) string {
+	f := strings.Fields(raw)
+	for _, tok := range f {
+		tok = strings.TrimSpace(tok)
+		if len(tok) > 0 && tok[0] >= '0' && tok[0] <= '9' {
+			return tok
+		}
+	}
+	return ""
+}
+
+func ensureBdVersion(t *testing.T) {
+	t.Helper()
+
+	out, err := exec.Command("bd", "--version").CombinedOutput()
+	if err != nil {
+		t.Fatalf("bd CLI required (>= %s): %v\n%s", minBdVersion, err, out)
+	}
+	v := parseBdVersion(string(out))
+	if v == "" {
+		t.Fatalf("bd --version returned unrecognized output: %s", string(out))
+	}
+	if !semver.IsValid("v" + v) {
+		t.Fatalf("bd version %q is not valid semver — run: go install github.com/gastownhall/beads@v%s", v, minBdVersion)
+	}
+	if semver.Compare("v"+v, "v"+minBdVersion) < 0 {
+		t.Fatalf("bd version %s < required %s — run: go install github.com/gastownhall/beads@v%s", v, minBdVersion, minBdVersion)
+	}
+}
+
 func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 	t.Helper()
 
 	if _, err := exec.LookPath("bd"); err != nil {
 		t.Skip("integration test requires bd CLI in PATH")
 	}
+	ensureBdVersion(t)
 	if _, err := exec.LookPath("opencode"); err != nil {
 		t.Skip("integration test requires opencode CLI in PATH")
 	}

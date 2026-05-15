@@ -4,7 +4,7 @@
 > **Core Value:** The human touches only judgment gates; the rest is a dependency graph of beads executed in parallel without continuous supervision. Main metric: zero out-of-gate interventions per epic.
 
 ## 1. Stack & Commands
-- **Backend/CLI:** Go 1.26+, `bd` CLI (gastownhall/beads) with Dolt, SQLite (run-state), YAML config (`kernl.yaml`)
+- **Backend/CLI:** Go 1.26+, `bd` CLI (gastownhall/beads) ≥ 1.0.4, Dolt, SQLite (run-state), YAML config (`kernl.yaml`)
 - **Frontend (future):** Vue 3 (Composition API) + Vite
 - **UI (future):** TUI via Bubble Tea (deferred)
 - **API:** REST JSON + SSE (not gRPC/WebSocket)
