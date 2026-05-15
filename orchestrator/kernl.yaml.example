@@ -1,0 +1,7 @@
+settings:
+  agents: {}
+  pools: {}
+  defaults:
+    interactiveSessionTimeoutMinutes: 30
+registry:
+  repos: []
