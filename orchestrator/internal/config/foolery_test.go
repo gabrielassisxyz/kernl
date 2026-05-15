@@ -1,0 +1,101 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestLoadValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "foolery.yaml")
+	content := []byte(`
+settings:
+  agents:
+    claude:
+      command: claude
+      type: claude
+  pools:
+    implementation:
+      agents:
+        - agentId: claude
+          weight: 1
+  defaults:
+    interactiveSessionTimeoutMinutes: 30
+registry:
+  repos:
+    - path: /tmp/test-repo
+      memoryManager: beads
+server:
+  port: 9090
+`)
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Server.Port != 9090 {
+		t.Errorf("expected port 9090, got %d", cfg.Server.Port)
+	}
+	if cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes != 30 {
+		t.Errorf("expected timeout 30, got %d", cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes)
+	}
+	if len(cfg.Settings.Agents) != 1 {
+		t.Errorf("expected 1 agent, got %d", len(cfg.Settings.Agents))
+	}
+	if cfg.Settings.Agents["claude"].Command != "claude" {
+		t.Errorf("expected command 'claude', got %s", cfg.Settings.Agents["claude"].Command)
+	}
+}
+
+func TestLoadDefaultsPort(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "foolery.yaml")
+	content := []byte(`
+settings:
+  agents: {}
+  pools: {}
+registry:
+  repos: []
+`)
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	if cfg.Server.Port != 8080 {
+		t.Errorf("expected default port 8080, got %d", cfg.Server.Port)
+	}
+	if cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes != 10 {
+		t.Errorf("expected default timeout 10, got %d", cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes)
+	}
+}
+
+func TestLoadMissingFile(t *testing.T) {
+	_, err := Load("/nonexistent/path/foolery.yaml")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestLoadInvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "foolery.yaml")
+	content := []byte(`{invalid yaml [[[[`)
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}

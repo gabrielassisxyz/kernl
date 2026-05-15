@@ -1,0 +1,417 @@
+package backend
+
+import (
+	"fmt"
+	"strings"
+)
+
+type InvariantKind string
+
+const (
+	InvariantKindScope InvariantKind = "Scope"
+	InvariantKindState InvariantKind = "State"
+)
+
+type Invariant struct {
+	Kind      InvariantKind `json:"kind"`
+	Condition string        `json:"condition"`
+}
+
+type RawBead struct {
+	ID                 string         `json:"id"`
+	Aliases            []string       `json:"aliases,omitempty"`
+	Title              string         `json:"title"`
+	Description        string         `json:"description,omitempty"`
+	Notes              string         `json:"notes,omitempty"`
+	AcceptanceCriteria string         `json:"acceptance_criteria,omitempty"`
+	IssueType          string         `json:"issue_type,omitempty"`
+	Status             string         `json:"status,omitempty"`
+	Priority           int            `json:"priority,omitempty"`
+	Labels             []string       `json:"labels,omitempty"`
+	Assignee           string         `json:"assignee,omitempty"`
+	Owner              string         `json:"owner,omitempty"`
+	Parent             string         `json:"parent,omitempty"`
+	Due                string         `json:"due,omitempty"`
+	EstimatedMinutes   int            `json:"estimated_minutes,omitempty"`
+	CreatedAt          string         `json:"created_at,omitempty"`
+	CreatedBy          string         `json:"created_by,omitempty"`
+	UpdatedAt          string         `json:"updated_at,omitempty"`
+	ClosedAt           string         `json:"closed_at,omitempty"`
+	CloseReason        string         `json:"close_reason,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
+	Dependencies       []RawDependency `json:"dependencies,omitempty"`
+
+	Acceptance string `json:"acceptance,omitempty"`
+	Estimate   int    `json:"estimate,omitempty"`
+	Created    string `json:"created,omitempty"`
+	Updated    string `json:"updated,omitempty"`
+	Closed     string `json:"closed,omitempty"`
+}
+
+type RawDependency struct {
+	SourceID   string `json:"sourceId"`
+	TargetID   string `json:"targetId"`
+	DepType    string `json:"type"`
+}
+
+var validTypes = map[string]bool{
+	"bug": true, "feature": true, "task": true, "epic": true,
+	"chore": true, "merge-request": true, "molecule": true, "gate": true,
+}
+
+func isValidType(t string) bool {
+	return validTypes[t]
+}
+
+var workflowInitialStates = map[string]bool{
+	"ready_for_implementation": true,
+	"ready_for_planning":      true,
+	"ready_for_review":         true,
+}
+
+func defaultState(labels []string, rawStatus string) string {
+	for _, l := range labels {
+		if strings.HasPrefix(l, "wf:state:") {
+			return strings.TrimPrefix(l, "wf:state:")
+		}
+	}
+	if workflowInitialStates[rawStatus] {
+		return rawStatus
+	}
+	if rawStatus == "in_progress" || rawStatus == "implementation" || rawStatus == "planning" {
+		return rawStatus
+	}
+	if rawStatus == "shipped" || rawStatus == "closed" || rawStatus == "done" || rawStatus == "abandoned" {
+		return rawStatus
+	}
+	return "ready_for_implementation"
+}
+
+func inferParent(id string, explicitParent string, deps []RawDependency) string {
+	if explicitParent != "" {
+		return explicitParent
+	}
+	for _, d := range deps {
+		if d.DepType == "parent-child" {
+			return d.SourceID
+		}
+	}
+	dotIdx := strings.LastIndex(id, ".")
+	if dotIdx == -1 {
+		return ""
+	}
+	return id[:dotIdx]
+}
+
+func filterLabels(labels []string) []string {
+	if labels == nil {
+		return []string{}
+	}
+	filtered := make([]string, 0, len(labels))
+	for _, l := range labels {
+		if strings.TrimSpace(l) != "" {
+			filtered = append(filtered, l)
+		}
+	}
+	return filtered
+}
+
+func extractProfileID(labels []string, metadata map[string]any) string {
+	for _, l := range labels {
+		if strings.HasPrefix(l, "wf:profile:") {
+			return strings.TrimPrefix(l, "wf:profile:")
+		}
+	}
+	if metadata != nil {
+		if v, ok := metadata["profileId"].(string); ok && v != "" {
+			return v
+		}
+	}
+	return "autopilot_no_planning"
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+const invHeader = "[Invariants]"
+
+func parseInvariantsFromNotes(notes string) (invariants []Invariant, cleanNotes string, found bool) {
+	if notes == "" {
+		return nil, notes, false
+	}
+	headerIdx := strings.Index(notes, invHeader)
+	if headerIdx == -1 {
+		return nil, notes, false
+	}
+
+	before := strings.TrimRight(notes[:headerIdx], "\n\r ")
+	afterHeader := notes[headerIdx+len(invHeader):]
+	lines := strings.Split(afterHeader, "\n")
+
+	var parsed []Invariant
+	endIdx := 0
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			endIdx = i + 1
+			continue
+		}
+		colonIdx := strings.Index(trimmed, ":")
+		if colonIdx == -1 {
+			break
+		}
+		kind := strings.TrimSpace(trimmed[:colonIdx])
+		condition := strings.TrimSpace(trimmed[colonIdx+1:])
+		if kind != "Scope" && kind != "State" {
+			break
+		}
+		if condition != "" {
+			parsed = append(parsed, Invariant{Kind: InvariantKind(kind), Condition: condition})
+		}
+		endIdx = i + 1
+	}
+
+	if len(parsed) == 0 {
+		return nil, notes, false
+	}
+
+	remaining := strings.TrimSpace(strings.Join(lines[endIdx:], "\n"))
+	var clean string
+	if before != "" && remaining != "" {
+		clean = before + "\n\n" + remaining
+	} else if before != "" {
+		clean = before
+	} else if remaining != "" {
+		clean = remaining
+	}
+	return parsed, clean, true
+}
+
+func embedInvariantsInNotes(notes string, invariants []Invariant) string {
+	if len(invariants) == 0 {
+		return notes
+	}
+	var lines []string
+	lines = append(lines, invHeader)
+	for _, inv := range invariants {
+		cond := strings.TrimSpace(inv.Condition)
+		if cond == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", inv.Kind, cond))
+	}
+	if len(lines) == 1 {
+		return notes
+	}
+	section := strings.Join(lines, "\n")
+	if notes == "" {
+		return section
+	}
+	return notes + "\n\n" + section
+}
+
+func NormalizeBead(raw RawBead) Beat {
+	id := raw.ID
+	rawType := firstNonEmpty(raw.IssueType, "task")
+	bdType := rawType
+	if !isValidType(rawType) {
+		bdType = "task"
+	}
+
+	rawStatus := firstNonEmpty(raw.Status, "open")
+	labels := filterLabels(raw.Labels)
+
+	profileID := extractProfileID(labels, raw.Metadata)
+
+	state := defaultState(labels, rawStatus)
+
+	rawPriority := raw.Priority
+	priority := rawPriority
+	if priority < 0 || priority > 4 || priority == 0 {
+		priority = 2
+	}
+
+	parent := inferParent(id, raw.Parent, raw.Dependencies)
+
+	var invariants []Invariant
+	notes := raw.Notes
+	if inv, clean, found := parseInvariantsFromNotes(notes); found {
+		invariants = inv
+		notes = clean
+	}
+
+	acceptance := firstNonEmpty(raw.AcceptanceCriteria, raw.Acceptance)
+	estimate := raw.EstimatedMinutes
+	if estimate == 0 {
+		estimate = raw.Estimate
+	}
+
+	created := firstNonEmpty(raw.CreatedAt, raw.Created)
+	updated := firstNonEmpty(raw.UpdatedAt, raw.Updated)
+	closed := firstNonEmpty(raw.ClosedAt, raw.Closed)
+
+	metadata := raw.Metadata
+	if raw.CloseReason != "" {
+		if metadata == nil {
+			metadata = make(map[string]any)
+		}
+		metadata["close_reason"] = raw.CloseReason
+	}
+
+	deps := make([]BeatDependency, 0, len(raw.Dependencies))
+	for _, d := range raw.Dependencies {
+		deps = append(deps, BeatDependency{
+			SourceID: d.SourceID,
+			TargetID: d.TargetID,
+			Type:     d.DepType,
+		})
+	}
+
+	beat := Beat{
+		ID:           id,
+		Type:         bdType,
+		State:        state,
+		Title:        raw.Title,
+		Description:  raw.Description,
+		Notes:        notes,
+		Acceptance:   acceptance,
+		Priority:     priority,
+		Labels:       labels,
+		Assignee:     raw.Assignee,
+		Owner:        raw.Owner,
+		ParentID:     parent,
+		Due:          raw.Due,
+		Estimate:     estimate,
+		CreatedAt:    created,
+		UpdatedAt:    updated,
+		ClosedAt:     closed,
+		Metadata:     metadata,
+		Dependencies: deps,
+		ProfileID:    profileID,
+	}
+	if len(invariants) > 0 {
+		beat.Invariants = invariants
+	}
+	return beat
+}
+
+func DenormalizeBead(beat Beat) RawBead {
+	status := mapBeatStateToCompatStatus(beat.State)
+
+	labels := make([]string, len(beat.Labels))
+	copy(labels, beat.Labels)
+
+	hasStateLabel := false
+	hasProfileLabel := false
+	for _, l := range labels {
+		if strings.HasPrefix(l, "wf:state:") {
+			hasStateLabel = true
+		}
+		if strings.HasPrefix(l, "wf:profile:") {
+			hasProfileLabel = true
+		}
+	}
+	if !hasStateLabel && beat.State != "" {
+		labels = append(labels, "wf:state:"+beat.State)
+	}
+	profileID := "autopilot_no_planning"
+	if beat.ProfileID != "" {
+		profileID = beat.ProfileID
+	}
+	if !hasProfileLabel {
+		labels = append(labels, "wf:profile:"+profileID)
+	}
+
+	notesWithInvariants := embedInvariantsInNotes(beat.Notes, beat.Invariants)
+
+	raw := RawBead{
+		ID:       beat.ID,
+		Title:    beat.Title,
+		IssueType: beat.Type,
+		Status:   status,
+		Priority: beat.Priority,
+		Labels:   labels,
+		CreatedAt: beat.CreatedAt,
+		UpdatedAt: beat.UpdatedAt,
+	}
+	if beat.Description != "" {
+		raw.Description = beat.Description
+	}
+	if notesWithInvariants != "" {
+		raw.Notes = notesWithInvariants
+	}
+	if beat.Acceptance != "" {
+		raw.AcceptanceCriteria = beat.Acceptance
+	}
+	if beat.Assignee != "" {
+		raw.Assignee = beat.Assignee
+	}
+	if beat.Owner != "" {
+		raw.Owner = beat.Owner
+	}
+	if beat.ParentID != "" {
+		raw.Parent = beat.ParentID
+	}
+	if beat.Due != "" {
+		raw.Due = beat.Due
+	}
+	if beat.Estimate > 0 {
+		raw.EstimatedMinutes = beat.Estimate
+	}
+	if beat.ClosedAt != "" {
+		raw.ClosedAt = beat.ClosedAt
+	}
+	if beat.Metadata != nil {
+		if cr, ok := beat.Metadata["close_reason"].(string); ok && cr != "" {
+			raw.CloseReason = cr
+		}
+		raw.Metadata = beat.Metadata
+	}
+	for _, d := range beat.Dependencies {
+		raw.Dependencies = append(raw.Dependencies, RawDependency{
+			SourceID: d.SourceID,
+			TargetID: d.TargetID,
+			DepType:  d.Type,
+		})
+	}
+	return raw
+}
+
+func mapBeatStateToCompatStatus(state string) string {
+	switch state {
+	case "deferred":
+		return "deferred"
+	case "blocked", "rejected":
+		return "blocked"
+	case "shipped", "abandoned", "closed", "done", "approved":
+		return "closed"
+	case "ready_for_implementation", "ready_for_planning", "ready_for_review":
+		return "open"
+	case "planning", "implementation", "shipment_review", "plan_review":
+		return "in_progress"
+	default:
+		return "open"
+	}
+}
+
+func clampPriority(p int) int {
+	if p < 0 || p > 4 || p == 0 && false {
+		return 2
+	}
+	return p
+}
+
+func parentFromDeps(deps []RawDependency) string {
+	for _, d := range deps {
+		if d.DepType == "parent-child" {
+			return d.SourceID
+		}
+	}
+	return ""
+}
