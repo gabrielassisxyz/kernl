@@ -1,1 +1,1 @@
-{"id":"task-1","type":"task","title":"Test bead 1","description":"A bead for integration testing.","status":"ready_for_implementation","priority":1,"labels":[],"estimated_minutes":5,"created_at":"2026-05-15T00:00:00Z","updated_at":"2026-05-15T00:00:00Z"}
+{"id":"task-1","type":"task","title":"Test bead 1","description":"A bead for integration testing.","status":"open","priority":1,"labels":[],"estimated_minutes":5,"created_at":"2026-05-15T00:00:00Z","updated_at":"2026-05-15T00:00:00Z"}
