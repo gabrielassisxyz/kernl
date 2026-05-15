@@ -70,3 +70,36 @@ Itens diferidos, capturados com contexto suficiente pra serem retomados meses de
 - **Cons:** "Intervenções fora de gate" exige primeiro **definir "gate" e "intervenção" como conceitos de runtime** — o MVP não tem isso. "Ideias→épico/mês" cruza a fronteira pra camada de planejamento (skills vibe-*).
 - **Context:** Pass 8 da DevEx review (`docs/reviews/vc-plan-devex-review-2026-05-14.md`). A métrica mais barata — "épicos concluídos sem `blocked`" — foi considerada pro MVP mas o usuário optou por só paralelismo.
 - **Depends on / blocked by:** Definir "gate" e "intervenção" como conceitos de runtime do `EpicExecutor`; o loop de gates de julgamento (track da STRATEGY) estar mais maduro.
+
+---
+
+## Property-based race test pro trigger "todos filhos awaiting_integration"
+
+- **What:** Adicionar property test (rapid ou testing/quick) que simula timing aleatório de transições simultâneas de filhos pra estressar o single-flight lock do EpicExecutor/MergeManager. Complementa o test determinístico já planejado.
+- **Why:** A decisão D11=A da eng review 2026-05-15 (`docs/reviews/vc-plan-eng-review-2026-05-15.md`) entrega cobertura determinística sólida (N goroutines com sync.WaitGroup, sem timing aleatório). Property test cobre permutações que não foram pensadas explicitamente. Race conditions em scheduling de agent são exatamente onde defeitos sutis nascem.
+- **Pros:** Confidence extra na correção do trigger; explicita o contrato; pega edge cases que tabelas estáticas não cobrem.
+- **Cons:** Property tests podem flake (timing-dependent); lentos em CI; precisam de seed reproduzível pra debug.
+- **Context:** Decisão D11 (`vc-plan-eng-review-2026-05-15.md`). Trigger lógico vive em `orchestrator/internal/merge/manager.go` (a criar). Spec referência: `docs/2026-05-15-kernl-workflow-brainstorm-spec.md` §5.2.
+- **Depends on / blocked by:** Implementação do MergeManager + EpicExecutor wiring do PR de migração do workflow.
+
+---
+
+## Batch heartbeats em memória no AgentStateStore
+
+- **What:** Otimização: acumular updates de heartbeat/follow_up_count/watchdog state em memória; flush atomic write a cada N segundos (ex: 5-10) ao invés de a cada heartbeat individual.
+- **Why:** A decisão D12=A da eng review 2026-05-15 entrega atomic write tempfile+rename por heartbeat (~1ms em SSD) — bom default. Em ambientes IOPS-restritos (HDD, NFS, contêineres com fsync barreirado) o custo cresce linearmente com workers ativos × frequência de heartbeat. Batch reduz drasticamente.
+- **Pros:** Reduz IOPS drasticamente em volumes altos; permite kernl rodar bem em ambientes restritos; transparente pra leitores (read consulta mem-buffer + disk fallback).
+- **Cons:** Janela de perda em crash maior (até N segundos de heartbeats voam); complica leitura (precisa olhar mem-buffer + disk); semantics de "freshness" mais difícil de explicar.
+- **Context:** Decisão D12 (`docs/reviews/vc-plan-eng-review-2026-05-15.md`). Só vale a pena instrumentar **depois** que houver evidência real de problema de IOPS — endurece em resposta a dor, não antecipadamente. Arquivo afetado: `orchestrator/internal/workflow/agent_state_store.go` (a criar).
+- **Depends on / blocked by:** Observabilidade do AgentStateStore real em uso; idealmente uma métrica de IOPS exposta no `kernl serve`.
+
+---
+
+## Subcomando `kernl epic abort`
+
+- **What:** Novo subcomando `kernl epic abort <epic-id>` que dá caminho limpo pra cancelar épico em andamento. Operações: (1) sinalizar workers ativos pra terminar, (2) deletar worktrees do épico em `~/.kernl/worktrees/<epic-id>/`, (3) deletar branches `feat/<epic-id>` e `feat/<child-ids>` não-pushadas, (4) marcar filhos+épico `closed` com `--reason=aborted`, (5) limpar JSON local em `~/.kernl/state/<bead-id>.json` de cada bead afetado.
+- **Why:** Outside voice da eng review 2026-05-15 (TT4) flagou o gap: operador querendo abortar épico em andamento não tem caminho limpo no MVP. Workaround manual via `bd close --reason="aborted"` por bead + cleanup manual de worktrees + branches é feio e propenso a deixar lixo. DX ruim, especialmente porque o caso "abortei porque o épico tomou rumo errado" é provável de aparecer cedo no uso real.
+- **Pros:** First-class workflow pra cancellation; limpeza determinística; ~150 LOC sobre infra existente (WorktreeManager, BdCliBackend, AgentStateStore); orthogonal ao resto do workflow.
+- **Cons:** +1 subcomando no escopo; "abortar enquanto worker tá ativo" tem nuance (esperar terminar vs kill -9 vs intermediário); decisão de "abortar com PR já aberto" também precisa pensar.
+- **Context:** Decisão TT4=B da eng review 2026-05-15 (`docs/reviews/vc-plan-eng-review-2026-05-15.md`). Outside voice (subagent independente) levantou; review interno aceitou diferir. Implementação reusa: `WorktreeManager.Remove`, `BdCliBackend.Close`, `AgentStateStore.Purge`, plus git operations diretas pra branches locais.
+- **Depends on / blocked by:** PR de migração do workflow + MergeManager terminado e estável (define o espaço de estados que `abort` precisa cobrir).
