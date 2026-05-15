@@ -2,3 +2,8 @@ orchestrator/web/node_modules/
 *.jsonl
 __pycache__/
 .beads/*.db
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
