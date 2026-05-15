@@ -41,6 +41,24 @@ var (
 	}
 )
 
+// withRepo prepends bd's global `-C <path>` flag to a command's args. bd 1.0+
+// removed the per-subcommand `--repo` flag in favor of this directory selector.
+func withRepo(repoPath string, args ...string) []string {
+	out := make([]string, 0, len(args)+2)
+	out = append(out, "-C", repoPath)
+	out = append(out, args...)
+	return out
+}
+
+// stripRepoPrefix returns args with a leading `-C <path>` stripped, so
+// IsReadOnlyCommand / isIdempotentWriteCommand can keep classifying by subcommand.
+func stripRepoPrefix(args []string) []string {
+	if len(args) >= 2 && args[0] == "-C" {
+		return args[2:]
+	}
+	return args
+}
+
 type ExecResult struct {
 	Stdout   string
 	Stderr   string
@@ -107,7 +125,7 @@ func (b *BdCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 }
 
 func (b *BdCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
-	args := []string{"list", "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "list", "--json")
 	if filters != nil {
 		if filters.State == "" {
 			args = append(args, "--all")
@@ -150,7 +168,7 @@ func (b *BdCliBackend) ListReady(filters *BeadListFilters, repoPath string) ([]B
 }
 
 func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
-	out, err := b.Exec(context.Background(), []string{"show", id, "--repo", repoPath, "--json"})
+	out, err := b.Exec(context.Background(), withRepo(repoPath, "show", id, "--json"))
 	if err != nil {
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
 	}
@@ -162,7 +180,7 @@ func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
 }
 
 func (b *BdCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
-	args := []string{"create", input.Title, "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "create", input.Title, "--json")
 	if input.Type != "" {
 		args = append(args, "--type", input.Type)
 	}
@@ -188,7 +206,7 @@ func (b *BdCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, er
 }
 
 func (b *BdCliBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
-	args := []string{"update", id, "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "update", id, "--json")
 	if input.Title != "" {
 		args = append(args, "--title", input.Title)
 	}
@@ -223,7 +241,7 @@ func (b *BdCliBackend) Update(id string, input UpdateBeadInput, repoPath string)
 }
 
 func (b *BdCliBackend) Close(id string, reason string, repoPath string) (*TerminalState, error) {
-	args := []string{"close", id, "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "close", id, "--json")
 	if reason != "" {
 		args = append(args, "--reason", reason)
 	}
@@ -239,7 +257,7 @@ func (b *BdCliBackend) Close(id string, reason string, repoPath string) (*Termin
 }
 
 func (b *BdCliBackend) Delete(id string, repoPath string) error {
-	_, err := b.Exec(context.Background(), []string{"delete", id, "--repo", repoPath, "--json", "--force"})
+	_, err := b.Exec(context.Background(), withRepo(repoPath, "delete", id, "--json", "--force"))
 	if err != nil {
 		return fmt.Errorf("bd delete %s: %w", id, err)
 	}
@@ -247,7 +265,7 @@ func (b *BdCliBackend) Delete(id string, repoPath string) error {
 }
 
 func (b *BdCliBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {
-	args := []string{"update", id, "--repo", repoPath, "--status", targetState, "--force"}
+	args := withRepo(repoPath, "update", id, "--status", targetState, "--force")
 	if reason != "" {
 		args = append(args, "--reason", reason)
 	}
@@ -267,13 +285,13 @@ func (b *BdCliBackend) Rewind(id string, targetState string, reason string, repo
 }
 
 func (b *BdCliBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
-	args := []string{"search", query, "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "search", query, "--json")
 	if filters != nil {
 		if filters.Priority != 0 {
 			args = append(args, "--priority-min", fmt.Sprintf("%d", filters.Priority), "--priority-max", fmt.Sprintf("%d", filters.Priority))
 		}
 	}
-	out, err := b.Exec(context.Background(), []string{"search", query, "--repo", repoPath, "--json"})
+	out, err := b.Exec(context.Background(), args)
 	if err != nil {
 		return nil, fmt.Errorf("bd search: %w", err)
 	}
@@ -285,7 +303,7 @@ func (b *BdCliBackend) Search(query string, filters *BeadListFilters, repoPath s
 }
 
 func (b *BdCliBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
-	args := []string{"query", expression, "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "query", expression, "--json")
 	if options != nil {
 		if options.Limit > 0 {
 			args = append(args, "--limit", fmt.Sprintf("%d", options.Limit))
@@ -306,7 +324,7 @@ func (b *BdCliBackend) Query(expression string, options *BeadQueryOptions, repoP
 }
 
 func (b *BdCliBackend) AddDependency(blockerID string, blockedID string, repoPath string) error {
-	_, err := b.Exec(context.Background(), []string{"add-dep", blockerID, blockedID, "--repo", repoPath, "--json"})
+	_, err := b.Exec(context.Background(), withRepo(repoPath, "add-dep", blockerID, blockedID, "--json"))
 	if err != nil {
 		return fmt.Errorf("bd add-dep: %w", err)
 	}
@@ -314,7 +332,7 @@ func (b *BdCliBackend) AddDependency(blockerID string, blockedID string, repoPat
 }
 
 func (b *BdCliBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
-	_, err := b.Exec(context.Background(), []string{"remove-dep", blockerID, blockedID, "--repo", repoPath, "--json"})
+	_, err := b.Exec(context.Background(), withRepo(repoPath, "remove-dep", blockerID, blockedID, "--json"))
 	if err != nil {
 		return fmt.Errorf("bd remove-dep: %w", err)
 	}
@@ -322,7 +340,7 @@ func (b *BdCliBackend) RemoveDependency(blockerID string, blockedID string, repo
 }
 
 func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
-	args := []string{"list-deps", id, "--repo", repoPath, "--json"}
+	args := withRepo(repoPath, "list-deps", id, "--json")
 	if options != nil && options.Type != "" {
 		args = append(args, "--type", options.Type)
 	}
@@ -370,6 +388,7 @@ func (b *BdCliBackend) ExecWithNoDaemonFallback(ctx context.Context, args []stri
 }
 
 func IsReadOnlyCommand(args []string) bool {
+	args = stripRepoPrefix(args)
 	if len(args) == 0 {
 		return false
 	}
@@ -383,6 +402,7 @@ func isIdempotentWriteCommand(args []string) bool {
 	if IsReadOnlyCommand(args) {
 		return false
 	}
+	args = stripRepoPrefix(args)
 	if len(args) == 0 {
 		return false
 	}
@@ -536,7 +556,7 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 			return execOnce(ctx, b.bdBin, b.bdDB, args, retryOpts)
 		}
 
-		if args[0] == "sync" || !isOutOfSyncError(firstResult) {
+		if subcmdArgs := stripRepoPrefix(args); len(subcmdArgs) > 0 && subcmdArgs[0] == "sync" || !isOutOfSyncError(firstResult) {
 			return firstResult, nil
 		}
 

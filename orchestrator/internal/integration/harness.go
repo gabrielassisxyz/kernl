@@ -63,6 +63,21 @@ func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 		t.Fatalf("write issues.jsonl: %v", err)
 	}
 
+	// bd 1.0+ uses Dolt as source of truth; the JSONL is only an export format.
+	// Run `bd init --from-jsonl` to populate the Dolt database from the fixture,
+	// suppressing agent file / hook scaffolding so the tmpdir stays clean.
+	bdInit := exec.Command("bd", "init",
+		"--from-jsonl",
+		"--skip-agents",
+		"--skip-hooks",
+		"--non-interactive",
+		"--role", "maintainer",
+	)
+	bdInit.Dir = repoDir
+	if out, err := bdInit.CombinedOutput(); err != nil {
+		t.Fatalf("bd init --from-jsonl failed: %v\n%s", err, out)
+	}
+
 	gitAdd := exec.Command("git", "-C", repoDir, "add", "-A")
 	if out, err := gitAdd.CombinedOutput(); err != nil {
 		t.Fatalf("git add failed: %v\n%s", err, out)
