@@ -8,16 +8,18 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 	"github.com/gabrielassisxyz/kernl/internal/terminal"
 )
 
 type App struct {
-	Backend  backend.BackendPort
-	Terminal *terminal.TerminalManager
-	SCM      *session.SessionConnectionManager
-	Driver   *SessionDriver
-	Config   *config.Config
+	Backend    backend.BackendPort
+	Terminal   *terminal.TerminalManager
+	SCM        *session.SessionConnectionManager
+	Driver     *SessionDriver
+	Config     *config.Config
+	EpicEvents *epic.EpicEventHub
 }
 
 func NewApp(cfg *config.Config) (*App, error) {
@@ -43,11 +45,12 @@ func NewApp(cfg *config.Config) (*App, error) {
 	})
 
 	return &App{
-		Backend:  be,
-		Terminal: tm,
-		SCM:      scm,
-		Driver:   driver,
-		Config:   cfg,
+		Backend:    be,
+		Terminal:   tm,
+		SCM:        scm,
+		Driver:     driver,
+		Config:     cfg,
+		EpicEvents: epic.NewEpicEventHub(),
 	}, nil
 }
 
