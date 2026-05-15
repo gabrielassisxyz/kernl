@@ -3,7 +3,7 @@ package orchestration
 import (
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 func TestIsAgentClaimable(t *testing.T) {
@@ -676,8 +676,8 @@ func TestDeriveProfileID(t *testing.T) {
 		}
 	})
 
-	t.Run("prefers profileId over fooleryProfileId", func(t *testing.T) {
-		got := DeriveProfileID(nil, map[string]any{"profileId": "autopilot", "fooleryProfileId": "semiauto"})
+	t.Run("prefers profileId over kernlProfileId", func(t *testing.T) {
+		got := DeriveProfileID(nil, map[string]any{"profileId": "autopilot", "kernlProfileId": "semiauto"})
 		if got != "autopilot" {
 			t.Errorf("expected autopilot, got %q", got)
 		}

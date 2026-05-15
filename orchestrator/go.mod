@@ -1,4 +1,4 @@
-module github.com/gastownhall/foolery
+module github.com/gabrielassisxyz/kernl
 
 go 1.26.2
 

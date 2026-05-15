@@ -621,7 +621,7 @@ func TestClaudeApprovalBridgeMCPConfig(t *testing.T) {
 	}
 	server, ok := servers[ClaudeApprovalMCPServer].(map[string]any)
 	if !ok {
-		t.Fatal("expected foolery_approval server config")
+		t.Fatal("expected kernl_approval server config")
 	}
 	cmd, _ := server["command"].(string)
 	if cmd != "/path/to/bridge.mjs" {

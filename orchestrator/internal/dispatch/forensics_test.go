@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 func makePreSnapshot(beatID, state string, stepHistory []StepEntry, leases []backend.Beat) BeatSnapshot {
@@ -16,7 +16,7 @@ func makePreSnapshot(beatID, state string, stepHistory []StepEntry, leases []bac
 		BeatID:        beatID,
 		LeaseID:       "lease-A",
 		Iteration:     1,
-		FooleryPID:    1,
+		KernlPID:    1,
 		Beat:          beatWithSteps(beatID, state, stepHistory),
 		Leases:        leases,
 	}
@@ -30,7 +30,7 @@ func makePostSnapshot(beatID, state string, stepHistory []StepEntry, leases []ba
 		BeatID:        beatID,
 		LeaseID:       "lease-A",
 		Iteration:     1,
-		FooleryPID:    1,
+		KernlPID:    1,
 		Beat:          beatWithSteps(beatID, state, stepHistory),
 		Leases:        leases,
 	}
@@ -92,10 +92,10 @@ func TestClassifyTurnFailure_ConcurrentClaim(t *testing.T) {
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "other-lease", AgentName: "OtherAgent", AgentModel: "other", AgentVersion: "1"},
 	}
-	otherLease := makeLeaseBeat("other-lease", "lease_terminated", "foolery:terminal_manager_take:ses-1")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{makeLeaseBeat("lease-A", "lease_ready", "foolery:ses-1")})
+	otherLease := makeLeaseBeat("other-lease", "lease_terminated", "kernl:terminal_manager_take:ses-1")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")})
 	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{
-		makeLeaseBeat("lease-A", "lease_ready", "foolery:ses-1"),
+		makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1"),
 		otherLease,
 	})
 
@@ -116,7 +116,7 @@ func TestClassifyTurnFailure_DoubleClaim(t *testing.T) {
 		{ID: "step-1", Step: "implementation", LeaseID: "lease-A"},
 		{ID: "step-2", Step: "implementation", LeaseID: "lease-A"},
 	}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "foolery:ses-1")
+	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
 	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
 	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA})
 
@@ -136,7 +136,7 @@ func TestClassifyTurnFailure_HalfTransition(t *testing.T) {
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "lease-A"},
 	}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "foolery:ses-1")
+	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
 	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
 	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA})
 	signals := &ClassifierSignals{AgentClaimExitedNonZero: true}
@@ -154,7 +154,7 @@ func TestClassifyTurnFailure_HalfTransitionNotFlaggedWithoutSignal(t *testing.T)
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "lease-A"},
 	}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "foolery:ses-1")
+	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
 	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
 	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA})
 
@@ -174,7 +174,7 @@ func TestClassifyTurnFailure_LeaseTerminated(t *testing.T) {
 	post := makePostSnapshot("b", "ready_for_implementation", nil, []backend.Beat{postLease})
 
 	t.Run("unexpected termination", func(t *testing.T) {
-		signals := &ClassifierSignals{FoolerInitiatedLeaseTerminate: false}
+		signals := &ClassifierSignals{KernlInitiatedLeaseTerminate: false}
 		result := ClassifyTurnFailure(pre, post, signals)
 		if result == nil {
 			t.Fatal("expected classification")
@@ -184,11 +184,11 @@ func TestClassifyTurnFailure_LeaseTerminated(t *testing.T) {
 		}
 	})
 
-	t.Run("initiated by foolery", func(t *testing.T) {
-		signals := &ClassifierSignals{FoolerInitiatedLeaseTerminate: true}
+	t.Run("initiated by kernl", func(t *testing.T) {
+		signals := &ClassifierSignals{KernlInitiatedLeaseTerminate: true}
 		result := ClassifyTurnFailure(pre, post, signals)
 		if result != nil {
-			t.Errorf("expected nil when foolery initiated, got %v", result)
+			t.Errorf("expected nil when kernl initiated, got %v", result)
 		}
 	})
 }
@@ -222,7 +222,7 @@ func TestBuildForensicBannerBody(t *testing.T) {
 		Reasoning:        "another agent took the beat",
 	})
 	if !strings.Contains(body, DispatchForensicMarker) {
-		t.Error("banner should contain FOOLERY DISPATCH FORENSIC marker")
+		t.Error("banner should contain KERNL DISPATCH FORENSIC marker")
 	}
 	if !strings.Contains(body, "concurrent_claim_detected") {
 		t.Error("banner should contain category")
@@ -277,7 +277,7 @@ func TestCaptureBeatSnapshot_WritesAndAudits(t *testing.T) {
 		payload map[string]any
 	}
 	beatData := &backend.Beat{ID: "test-beat", State: "ready_for_implementation"}
-	leaseData := makeLeaseBeat("lease-A", "lease_ready", "foolery:terminal_manager_take:ses-1:test-beat")
+	leaseData := makeLeaseBeat("lease-A", "lease_ready", "kernl:terminal_manager_take:ses-1:test-beat")
 
 	ctx := CaptureContext{
 		SessionID: "ses-1",
@@ -405,8 +405,8 @@ func TestRunPostTurnForensics_ClassifiedFailure(t *testing.T) {
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "other-lease", AgentName: "OtherAgent"},
 	}
-	otherLease := makeLeaseBeat("other-lease", "lease_terminated", "foolery:OtherAgent")
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "foolery:ses-1")
+	otherLease := makeLeaseBeat("other-lease", "lease_terminated", "kernl:OtherAgent")
+	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
 	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
 	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA, otherLease})
 
@@ -426,7 +426,7 @@ func TestRunPostTurnForensics_ClassifiedFailure(t *testing.T) {
 		t.Error("expected classified=true for concurrent claim")
 	}
 	if !strings.Contains(result.BannerBody, DispatchForensicMarker) {
-		t.Error("banner should contain FOOLERY DISPATCH FORENSIC marker")
+		t.Error("banner should contain KERNL DISPATCH FORENSIC marker")
 	}
 	if len(auditCalls) != 1 {
 		t.Fatalf("expected 1 audit call, got %d", len(auditCalls))
@@ -441,7 +441,7 @@ func TestRunPostTurnForensics_ClassifiedFailure(t *testing.T) {
 		t.Fatalf("expected 1 session banner, got %d", len(sessionBanners))
 	}
 	if !strings.Contains(sessionBanners[0], DispatchForensicMarker) {
-		t.Error("banner should contain FOOLERY DISPATCH FORENSIC marker")
+		t.Error("banner should contain KERNL DISPATCH FORENSIC marker")
 	}
 }
 
@@ -465,8 +465,8 @@ func TestRunPostTurnForensics_NoChange(t *testing.T) {
 
 func TestLeasesForBeat(t *testing.T) {
 	all := []backend.Beat{
-		{ID: "lease-1", Metadata: map[string]any{"nickname": "foolery:terminal:ses-1:beat-x"}},
-		{ID: "lease-2", Metadata: map[string]any{"nickname": "foolery:terminal:ses-2:beat-y"}},
+		{ID: "lease-1", Metadata: map[string]any{"nickname": "kernl:terminal:ses-1:beat-x"}},
+		{ID: "lease-2", Metadata: map[string]any{"nickname": "kernl:terminal:ses-2:beat-y"}},
 		{ID: "lease-3", Metadata: map[string]any{"nickname": "other"}},
 	}
 

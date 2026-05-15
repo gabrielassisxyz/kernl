@@ -1,6 +1,6 @@
 package dispatch
 
-import "github.com/gastownhall/foolery/internal/backend"
+import "github.com/gabrielassisxyz/kernl/internal/backend"
 
 type DispatchForensicBoundary string
 
@@ -56,7 +56,7 @@ type BeatSnapshot struct {
 	Iteration     int                      `json:"iteration,omitempty"`
 	ObservedState string                   `json:"observedState,omitempty"`
 	ExpectedStep  string                   `json:"expectedStep,omitempty"`
-	FooleryPID    int                      `json:"foolerypid"`
+	KernlPID    int                      `json:"kernlpid"`
 	ChildPID      int                      `json:"childPid,omitempty"`
 	Beat          *backend.Beat            `json:"beat,omitempty"`
 	Leases        []backend.Beat           `json:"leases,omitempty"`
@@ -77,7 +77,7 @@ type CaptureContext struct {
 
 type ClassifierSignals struct {
 	AgentClaimExitedNonZero   bool
-	FoolerInitiatedLeaseTerminate bool
+	KernlInitiatedLeaseTerminate bool
 }
 
 type SnapshotWriter interface {

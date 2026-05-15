@@ -188,7 +188,7 @@ func permissionEnvelope(event map[string]any) map[string]any {
 }
 
 // TranslateOpenCodeEvent translates an OpenCode SSE envelope into
-// normalized Foolery-shaped event objects. Returns 0, 1, or 2 events
+// normalized Kernl-shaped event objects. Returns 0, 1, or 2 events
 // (tool parts can produce tool_use + tool_result). Unknown or
 // non-object inputs return nil.
 func TranslateOpenCodeEvent(value any) []map[string]any {

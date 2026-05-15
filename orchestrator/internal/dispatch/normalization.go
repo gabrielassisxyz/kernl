@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 type SettingsNormalizationResult struct {

@@ -3,7 +3,7 @@ package orchestration
 import (
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 func autopilotWorkflow() backend.WorkflowDescriptor {

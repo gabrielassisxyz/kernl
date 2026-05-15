@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 type LeaseSource string
@@ -44,7 +44,7 @@ type TerminateLeaseInput struct {
 }
 
 func leaseNickname(input *EnsureLeaseInput) string {
-	parts := []string{"foolery", string(input.Source)}
+	parts := []string{"kernl", string(input.Source)}
 	if input.SessionID != "" {
 		parts = append(parts, input.SessionID)
 	} else if input.ExecutionLeaseID != "" {
@@ -81,10 +81,10 @@ func EnsureKnotsLease(knots *backend.KnotsBackend, input *EnsureLeaseInput) (str
 
 	result, err := knots.CreateLease(opts, input.RepoPath)
 	if err != nil {
-		slog.Error("FOOLERY DISPATCH FAILURE: knots lease create failed",
+		slog.Error("KERNL DISPATCH FAILURE: knots lease create failed",
 			"source", input.Source, "beatId", input.BeatID,
 			"sessionId", input.SessionID, "error", err)
-		return "", fmt.Errorf("FOOLERY DISPATCH FAILURE: knots lease create failed for %s: %w", input.Source, err)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: knots lease create failed for %s: %w", input.Source, err)
 	}
 
 	slog.Info("knots lease: created",

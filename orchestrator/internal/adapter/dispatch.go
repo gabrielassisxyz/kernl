@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-const TerminalDispatchFailureMarker = "FOOLERY DISPATCH FAILURE"
+const TerminalDispatchFailureMarker = "KERNL DISPATCH FAILURE"
 
 type TerminalDispatchKind string
 

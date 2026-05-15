@@ -232,7 +232,7 @@ func (k *KnotsBackend) Update(id string, input UpdateBeatInput, repoPath string)
 	}
 	if input.Notes != "" {
 		args = append(args, fmt.Sprintf("--add-note=%s", input.Notes))
-		args = append(args, "--note-username", "foolery")
+		args = append(args, "--note-username", "kernl")
 	}
 	result, err := k.execWrite(context.Background(), args)
 	if err != nil {
@@ -260,7 +260,7 @@ func (k *KnotsBackend) Close(id string, reason string, repoPath string) (*Termin
 }
 
 func (k *KnotsBackend) Delete(id string, repoPath string) error {
-	return fmt.Errorf("FOOLERY DISPATCH FAILURE: knots backend does not support delete; use update to close instead")
+	return fmt.Errorf("KERNL DISPATCH FAILURE: knots backend does not support delete; use update to close instead")
 }
 
 func (k *KnotsBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
@@ -289,10 +289,10 @@ func (k *KnotsBackend) MarkTerminal(id string, targetState string, reason string
 	}
 	result, err := k.execWrite(context.Background(), args)
 	if err != nil {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %w", id, targetState, err)
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %w", id, targetState, err)
 	}
 	if result.exitCode != 0 {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %s", id, targetState, firstNonEmpty(result.stderr, "failed"))
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %s", id, targetState, firstNonEmpty(result.stderr, "failed"))
 	}
 	return nil
 }
@@ -314,7 +314,7 @@ func (k *KnotsBackend) Reopen(id string, reason string, repoPath string) error {
 
 func (k *KnotsBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
 	if !strings.HasPrefix(targetState, "ready_for_") {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: rewind target %q must be a queue state (ready_for_*)", targetState)
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind target %q must be a queue state (ready_for_*)", targetState)
 	}
 	args := []string{"update", id, "--force", "--status", targetState}
 	if reason != "" {
@@ -322,10 +322,10 @@ func (k *KnotsBackend) Rewind(id string, targetState string, reason string, repo
 	}
 	result, err := k.execWrite(context.Background(), args)
 	if err != nil {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: rewind %s -> %s: %w", id, targetState, err)
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind %s -> %s: %w", id, targetState, err)
 	}
 	if result.exitCode != 0 {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: rewind %s -> %s: %s", id, targetState, firstNonEmpty(result.stderr, "failed"))
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind %s -> %s: %s", id, targetState, firstNonEmpty(result.stderr, "failed"))
 	}
 	return nil
 }
@@ -382,7 +382,7 @@ func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *Dep
 }
 
 func (k *KnotsBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
-	return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: knots backend buildTakePrompt not yet implemented; use scope refinement worker")
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: knots backend buildTakePrompt not yet implemented; use scope refinement worker")
 }
 
 type CreateLeaseOptions struct {
@@ -458,7 +458,7 @@ func (k *KnotsBackend) TerminateLease(leaseID string, repoPath string) error {
 }
 
 func (k *KnotsBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {
-	return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: knots backend buildPollPrompt not yet implemented; use scope refinement worker")
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: knots backend buildPollPrompt not yet implemented; use scope refinement worker")
 }
 
 func (k *KnotsBackend) Capabilities() BackendCapabilities {

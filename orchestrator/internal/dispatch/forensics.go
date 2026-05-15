@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 func nowFrom(deps *ForensicDeps) string {
@@ -70,7 +70,7 @@ func CaptureBeatSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, 
 		Iteration:     ctx.Iteration,
 		ObservedState: ctx.ObservedState,
 		ExpectedStep:  ctx.ExpectedStep,
-		FooleryPID:    os.Getpid(),
+		KernlPID:    os.Getpid(),
 		ChildPID:      ctx.ChildPID,
 	}
 
@@ -206,14 +206,14 @@ func (f *fsSnapshotWriter) Write(snapshot BeatSnapshot) (string, error) {
 }
 
 func resolveLogRoot() string {
-	if dir := os.Getenv("FOOLERY_LOG_ROOT"); dir != "" {
+	if dir := os.Getenv("KERNL_LOG_ROOT"); dir != "" {
 		return dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "foolery", "logs")
+		return filepath.Join(os.TempDir(), "kernl", "logs")
 	}
-	return filepath.Join(home, ".foolery", "logs")
+	return filepath.Join(home, ".kernl", "logs")
 }
 
 var logRootOnce struct {

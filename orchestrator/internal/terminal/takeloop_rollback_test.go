@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 type stubRollbackBackend struct {

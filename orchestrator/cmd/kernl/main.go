@@ -11,18 +11,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/api"
-	"github.com/gastownhall/foolery/internal/config"
-	"github.com/gastownhall/foolery/internal/logging"
+	"github.com/gabrielassisxyz/kernl/internal/api"
+	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/logging"
 )
 
 func main() {
-	logLevel := os.Getenv("FOOLERY_LOG_LEVEL")
+	logLevel := os.Getenv("KERNL_LOG_LEVEL")
 	logging.Init(logLevel)
 
-	cfg, err := config.Load("foolery.yaml")
+	cfg, err := config.Load("kernl.yaml")
 	if err != nil {
-		slog.Error("FOOLERY DISPATCH FAILURE: failed to load config", "error", err)
+		slog.Error("KERNL DISPATCH FAILURE: failed to load config", "error", err)
 		os.Exit(1)
 	}
 
@@ -42,7 +42,7 @@ func main() {
 	}
 
 	go func() {
-		slog.Info("foolery starting", "addr", srv.Addr)
+		slog.Info("kernl starting", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
@@ -62,5 +62,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println("foolery stopped")
+	fmt.Println("kernl stopped")
 }

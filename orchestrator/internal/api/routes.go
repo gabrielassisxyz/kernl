@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/gastownhall/foolery/internal/config"
-	"github.com/gastownhall/foolery/internal/logging"
+	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/logging"
 )
 
 func NewRouter(cfg *config.Config) http.Handler {

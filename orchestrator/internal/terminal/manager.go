@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 const (

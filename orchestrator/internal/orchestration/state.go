@@ -3,7 +3,7 @@ package orchestration
 import (
 	"strings"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 func ValidNextStates(wf *backend.WorkflowDescriptor, currentState string, rawKnoState ...string) []string {

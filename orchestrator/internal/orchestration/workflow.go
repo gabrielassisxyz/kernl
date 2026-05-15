@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 type Step struct {
@@ -41,7 +41,7 @@ func ResolveStep(steps []Step, stepID string) (*Step, error) {
 			return &steps[i], nil
 		}
 	}
-	return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: step %s not found in workflow", stepID)
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: step %s not found in workflow", stepID)
 }
 
 var statePipelineOrder = map[string]int{
@@ -174,7 +174,7 @@ func dedupStrings(ss []string) []string {
 
 func DeriveProfileID(labels []string, metadata map[string]any) string {
 	if metadata != nil {
-		for _, key := range []string{"profileId", "fooleryProfileId", "workflowProfileId", "knotsProfileId"} {
+		for _, key := range []string{"profileId", "kernlProfileId", "workflowProfileId", "knotsProfileId"} {
 			if v, ok := metadata[key]; ok {
 				if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
 					normalized := NormalizeProfileID(s)

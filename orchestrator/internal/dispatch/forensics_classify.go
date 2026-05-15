@@ -6,11 +6,11 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/gastownhall/foolery/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 const DispatchForensicsSlug = "_dispatch_forensics"
-const DispatchForensicMarker = "FOOLERY DISPATCH FORENSIC"
+const DispatchForensicMarker = "KERNL DISPATCH FORENSIC"
 
 func safeSegment(value string) string {
 	s := strings.ReplaceAll(value, "/", "_")
@@ -193,7 +193,7 @@ func classifyHalfTransition(newSteps []StepEntry, ourLeaseID string, signals *Cl
 }
 
 func classifyLeaseTerminated(pre, post BeatSnapshot, ourLeaseID string, signals *ClassifierSignals) *ForensicClassification {
-	if signals != nil && signals.FoolerInitiatedLeaseTerminate {
+	if signals != nil && signals.KernlInitiatedLeaseTerminate {
 		return nil
 	}
 	preLease := findLeaseByID(pre.Leases, ourLeaseID)
@@ -208,7 +208,7 @@ func classifyLeaseTerminated(pre, post BeatSnapshot, ourLeaseID string, signals 
 	}
 	return &ForensicClassification{
 		Category:  CategoryLeaseTerminated,
-		Reasoning: fmt.Sprintf("our lease %s moved from lease_ready to lease_terminated between pre_lease and post_turn snapshots, but foolery did not initiate the termination. Likely cause: the dispatched agent ran `kno rollback` (which kno terminates the action step's lease as a side effect).", ourLeaseID),
+		Reasoning: fmt.Sprintf("our lease %s moved from lease_ready to lease_terminated between pre_lease and post_turn snapshots, but kernl did not initiate the termination. Likely cause: the dispatched agent ran `kno rollback` (which kno terminates the action step's lease as a side effect).", ourLeaseID),
 	}
 }
 

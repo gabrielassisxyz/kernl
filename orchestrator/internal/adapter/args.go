@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	ClaudeApprovalMCPServer  = "foolery_approval"
-	ClaudeApprovalPromptTool = "mcp__foolery_approval__ask"
+	ClaudeApprovalMCPServer  = "kernl_approval"
+	ClaudeApprovalPromptTool = "mcp__kernl_approval__ask"
 )
 
 func ClaudeApprovalBridgeMCPConfig(bridgeScriptPath string) string {
@@ -208,9 +208,9 @@ func BuildInteractiveArgs(agent AgentTarget) PromptModeArgs {
 }
 
 const (
-	EnvTerminalSessionID      = "FOOLERY_TERMINAL_SESSION_ID"
-	EnvApprovalBridgeBaseURL  = "FOOLERY_APPROVAL_BRIDGE_BASE_URL"
-	EnvApprovalBridgeToken    = "FOOLERY_APPROVAL_BRIDGE_TOKEN"
+	EnvTerminalSessionID      = "KERNL_TERMINAL_SESSION_ID"
+	EnvApprovalBridgeBaseURL  = "KERNL_APPROVAL_BRIDGE_BASE_URL"
+	EnvApprovalBridgeToken    = "KERNL_APPROVAL_BRIDGE_TOKEN"
 )
 
 func ApprovalBridgeEnvVars(sessionID, baseURL, token string) map[string]string {
@@ -275,11 +275,11 @@ func BuildSpawnArgs(agent AgentTarget, dialect AgentDialect, dispatchKind Termin
 func parseModelSelection(model string) (providerID, modelID string, err error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
-		return "", "", fmt.Errorf("FOOLERY DISPATCH FAILURE: expected <providerID>/<modelID>, got empty string")
+		return "", "", fmt.Errorf("KERNL DISPATCH FAILURE: expected <providerID>/<modelID>, got empty string")
 	}
 	idx := strings.Index(model, "/")
 	if idx < 0 {
-		return "", "", fmt.Errorf("FOOLERY DISPATCH FAILURE: expected <providerID>/<modelID>, got %q (missing provider slash)", model)
+		return "", "", fmt.Errorf("KERNL DISPATCH FAILURE: expected <providerID>/<modelID>, got %q (missing provider slash)", model)
 	}
 	return model[:idx], model[idx+1:], nil
 }

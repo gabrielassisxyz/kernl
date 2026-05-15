@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/config"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 func makeSDLCWorkflow() *backend.WorkflowDescriptor {
@@ -567,7 +567,7 @@ func TestRunDispatch_DispatchFailureEmitsBanner(t *testing.T) {
 		t.Error("expected dispatch to stop when pool has dangling agent")
 	}
 	stderr := collectStderr(events)
-	if !strings.Contains(stderr, "FOOLERY DISPATCH FAILURE") {
+	if !strings.Contains(stderr, "KERNL DISPATCH FAILURE") {
 		t.Errorf("expected dispatch failure banner in stderr, got: %s", stderr)
 	}
 }

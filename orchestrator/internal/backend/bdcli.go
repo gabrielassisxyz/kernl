@@ -73,9 +73,9 @@ type BdCliBackend struct {
 }
 
 func NewBdCliBackend(repoPath string) *BdCliBackend {
-	locksDir := os.Getenv("FOOLERY_BD_LOCK_DIR")
+	locksDir := os.Getenv("KERNL_BD_LOCK_DIR")
 	if locksDir == "" {
-		locksDir = filepath.Join(os.TempDir(), "foolery-bd-locks")
+		locksDir = filepath.Join(os.TempDir(), "kernl-bd-locks")
 	}
 	bdBin := os.Getenv("BD_BIN")
 	if bdBin == "" {
@@ -253,17 +253,17 @@ func (b *BdCliBackend) MarkTerminal(id string, targetState string, reason string
 	}
 	_, err := b.Exec(context.Background(), args)
 	if err != nil {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %w", id, targetState, err)
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %w", id, targetState, err)
 	}
 	return nil
 }
 
 func (b *BdCliBackend) Reopen(id string, reason string, repoPath string) error {
-	return fmt.Errorf("FOOLERY DISPATCH FAILURE: bd backend does not support reopen; use knots backend for retake flows")
+	return fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support reopen; use knots backend for retake flows")
 }
 
 func (b *BdCliBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
-	return fmt.Errorf("FOOLERY DISPATCH FAILURE: bd backend does not support rewind; use knots backend for workflow corrections")
+	return fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support rewind; use knots backend for workflow corrections")
 }
 
 func (b *BdCliBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
@@ -338,11 +338,11 @@ func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *Dep
 }
 
 func (b *BdCliBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
-	return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: bd backend does not support buildTakePrompt; use scope refinement worker")
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support buildTakePrompt; use scope refinement worker")
 }
 
 func (b *BdCliBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {
-	return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: bd backend does not support buildPollPrompt; use scope refinement worker")
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support buildPollPrompt; use scope refinement worker")
 }
 
 func (b *BdCliBackend) ExecWithNoDaemonFallback(ctx context.Context, args []string) (json.RawMessage, error) {
@@ -409,7 +409,7 @@ func shouldUseNoDBByDefault(args []string) bool {
 	if isTruthyEnv(bdNoDBEnv) {
 		return true
 	}
-	if os.Getenv("FOOLERY_BD_READ_NO_DB") == "0" {
+	if os.Getenv("KERNL_BD_READ_NO_DB") == "0" {
 		return false
 	}
 	return IsReadOnlyCommand(args)
@@ -421,16 +421,16 @@ func isTruthyEnv(key string) bool {
 }
 
 func commandTimeoutMs(args []string) int {
-	envKey := "FOOLERY_BD_COMMAND_TIMEOUT_MS"
+	envKey := "KERNL_BD_COMMAND_TIMEOUT_MS"
 	if IsReadOnlyCommand(args) {
-		envKey = "FOOLERY_BD_READ_TIMEOUT_MS"
+		envKey = "KERNL_BD_READ_TIMEOUT_MS"
 	}
 	if v := os.Getenv(envKey); v != "" {
 		if n := parseIntEnv(v); n > 0 {
 			return n
 		}
 	}
-	if v := os.Getenv("FOOLERY_BD_COMMAND_TIMEOUT_MS"); v != "" {
+	if v := os.Getenv("KERNL_BD_COMMAND_TIMEOUT_MS"); v != "" {
 		if n := parseIntEnv(v); n > 0 {
 			return n
 		}

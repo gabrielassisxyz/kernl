@@ -923,7 +923,7 @@ func ParseOpenCodeModelSelection(model string) (*OpenCodeModelSelection, error) 
 	}
 	sep := strings.Index(trimmed, "/")
 	if sep <= 0 || sep == len(trimmed)-1 {
-		return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: invalid OpenCode model %q; expected <providerID>/<modelID>", trimmed)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: invalid OpenCode model %q; expected <providerID>/<modelID>", trimmed)
 	}
 	return &OpenCodeModelSelection{
 		ProviderID: trimmed[:sep],

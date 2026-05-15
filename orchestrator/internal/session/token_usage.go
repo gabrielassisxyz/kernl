@@ -3,7 +3,7 @@ package session
 import (
 	"math"
 
-	"github.com/gastownhall/foolery/internal/adapter"
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 )
 
 type TokenUsageCounts struct {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 type mockLeaseChecker struct {
@@ -35,7 +35,7 @@ func makeFollowUpCtx(overrides ...func(*TakeLoopContext)) *TakeLoopContext {
 		KnotsLeaseID:             "test-lease-active",
 		KnotsLeaseStep:           "implementation",
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-6881"}, "/tmp/foolery-test")
+	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-6881"}, "/tmp/kernl-test")
 	ctx.WorkflowsByID = map[string]*backend.WorkflowDescriptor{}
 	ctx.FallbackWorkflow = &backend.WorkflowDescriptor{
 		ID:             "default",
@@ -336,14 +336,14 @@ func TestHandleTakeLoopTurnEnded_LeaseHealthBlocksFollowUp(t *testing.T) {
 	if sent {
 		t.Error("expected no follow-up sent when lease is unhealthy")
 	}
-	if len(stderrEvents) == 0 || !containsAll(stderrEvents[0].Content, "FOOLERY DISPATCH FAILURE") {
+	if len(stderrEvents) == 0 || !containsAll(stderrEvents[0].Content, "KERNL DISPATCH FAILURE") {
 		t.Error("expected dispatch failure banner for dead lease")
 	}
 }
 
 func TestBuildTakeLoopFollowUpPrompt(t *testing.T) {
-	prompt := BuildTakeLoopFollowUpPrompt("foolery-6881", "workable")
-	if !containsAll(prompt, "foolery-6881", "workable", "still in state") {
+	prompt := BuildTakeLoopFollowUpPrompt("kernl-6881", "workable")
+	if !containsAll(prompt, "kernl-6881", "workable", "still in state") {
 		t.Errorf("prompt should contain beat id, state, and 'still in state', got: %s", prompt)
 	}
 	if !containsAll(prompt, "kno rollback") {

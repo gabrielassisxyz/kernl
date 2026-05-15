@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 func TestLeaseNickname(t *testing.T) {
@@ -21,7 +21,7 @@ func TestLeaseNickname(t *testing.T) {
 				SessionID: "sess-123",
 				BeatID:    "beat-1",
 			},
-			expected: "foolery:terminal_manager_take:sess-123",
+			expected: "kernl:terminal_manager_take:sess-123",
 		},
 		{
 			name: "uses execution lease ID when no session ID",
@@ -30,7 +30,7 @@ func TestLeaseNickname(t *testing.T) {
 				ExecutionLeaseID: "lease-456",
 				BeatID:           "beat-1",
 			},
-			expected: "foolery:structured_prepare_take:lease-456",
+			expected: "kernl:structured_prepare_take:lease-456",
 		},
 		{
 			name: "uses beat ID when no session or execution lease ID",
@@ -38,14 +38,14 @@ func TestLeaseNickname(t *testing.T) {
 				Source: LeaseSourceStructuredPreparePoll,
 				BeatID: "beat-2",
 			},
-			expected: "foolery:structured_prepare_poll:beat-2",
+			expected: "kernl:structured_prepare_poll:beat-2",
 		},
 		{
 			name: "falls back to runtime when no IDs",
 			input: &EnsureLeaseInput{
 				Source: LeaseSourceDoctorActiveLeases,
 			},
-			expected: "foolery:doctor_active_leases:runtime",
+			expected: "kernl:doctor_active_leases:runtime",
 		},
 		{
 			name: "truncates at 120 chars",
@@ -53,7 +53,7 @@ func TestLeaseNickname(t *testing.T) {
 				Source:     LeaseSourceTerminalManagerTake,
 				SessionID: strings.Repeat("x", 200),
 			},
-			expected: "foolery:terminal_manager_take:" + strings.Repeat("x", 90),
+			expected: "kernl:terminal_manager_take:" + strings.Repeat("x", 92),
 		},
 	}
 
@@ -268,8 +268,8 @@ func TestBuildCreateLeaseOptions(t *testing.T) {
 
 	opts := buildCreateLeaseOptions(input)
 
-	if opts.Nickname != "foolery:terminal_manager_take:sess-1" {
-		t.Errorf("expected nickname=foolery:terminal_manager_take:sess-1, got %s", opts.Nickname)
+	if opts.Nickname != "kernl:terminal_manager_take:sess-1" {
+		t.Errorf("expected nickname=kernl:terminal_manager_take:sess-1, got %s", opts.Nickname)
 	}
 	if opts.Type != "agent" {
 		t.Errorf("expected type=agent, got %s", opts.Type)
