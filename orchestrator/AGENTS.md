@@ -1,15 +1,15 @@
 Este é o máximo que colocamos no AGENTS.md (estilo + arquitetura high-level). Interfaces detalhadas vão em specs/.
-# Foolery (Go Port) — Master Agent Briefing
-> **Context:** Foolery is a keyboard-first orchestration app for agent-driven software work. This is the Go backend + Vue 3 frontend port from the TypeScript/Next.js implementation.
+# Kernl — Master Agent Briefing
+> **Context:** Kernl is a keyboard-first orchestration app for agent-driven software work. This is the Go backend + Vue 3 frontend port from the TypeScript/Next.js implementation.
 > **Core Value:** Execute work, break it down, dispatch agents, review outcomes — keep it legible and fast across repos.
 ## 1. Stack & Commands
 - **Backend:** Go 1.24+
 - **Frontend:** Vue 3 (Composition API) + Vite
 - **UI (Future):** TUI via Bubble Tea (deferred)
 - **API:** REST JSON + SSE (not gRPC/WebSocket)
-- **Config:** YAML (`foolery.yaml` — settings + registry in one file)
+- **Config:** YAML (`kernl.yaml` — settings + registry in one file)
 - **Storage:** `bd` CLI (gastownhall/beads) with Dolt. NEVER write JSONL directly.
-- **Run (backend):** `go run ./cmd/foolery` or `air` for dev
+- **Run (backend):** `go run ./cmd/kernl` or `air` for dev
 - **Run (frontend):** `cd web && npm run dev` (Vite)
 - **Test:** `go test ./...` — Run before every commit. Hermetic by default.
 - **Test (integration):** `go test -tags=integration ./...` — opt-in, manual only.
@@ -23,7 +23,7 @@ Este é o máximo que colocamos no AGENTS.md (estilo + arquitetura high-level). 
   1. Return an error that halts the current operation.
   2. Log a red ANSI banner via `log.Fatalf` or structured error.
   3. Surface the failure to any visible session buffer as a stderr banner event.
-  4. Include the greppable marker `FOOLERY DISPATCH FAILURE` (or subsystem marker).
+  4. Include the greppable marker `KERNL DISPATCH FAILURE` (or subsystem marker).
   5. Name the missing thing (beat id, state, pool key, workflow id, action name) and the exact config that fixes it.
   6. NEVER return a fallback like `Object.values(x)[0]` or `?? "default"`.
 - **Comprehension Debt (ADR):** NEVER make silent architectural decisions. If adding a dependency/pattern, update `docs/architecture.md`.
@@ -35,7 +35,7 @@ Este é o máximo que colocamos no AGENTS.md (estilo + arquitetura high-level). 
 - **Types:** Explicit. No `any`, no untyped functions. Use Go interfaces for boundaries (BackendPort, Transport), but not for single-use indirection.
 - **Control Flow:** Early returns over nested ifs. Max 2 levels of indentation.
 - **Dependencies:** Inject dependencies. Wrap third-party libs behind thin interfaces owned by this project.
-- **Errors:** Return errors, don't panic. Use `fmt.Errorf("FOOLERY DISPATCH FAILURE: %s not found in pool %s", agentID, poolKey)` for loud failures.
+- **Errors:** Return errors, don't panic. Use `fmt.Errorf("KERNL DISPATCH FAILURE: %s not found in pool %s", agentID, poolKey)` for loud failures.
 ## 4. Tests & TDD (Action via TDD)
 - **Hermetic by Default:** Tests in `**/__tests__/` (or `*_test.go` standard) MUST NOT touch the host environment. No `os.Getenv`, no real `os.Open`, no real `exec.Command`, no real network or ports. Mock at boundaries via interfaces.
 - **TDD Discipline:**
