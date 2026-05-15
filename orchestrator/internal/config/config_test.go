@@ -79,6 +79,32 @@ registry:
 	}
 }
 
+func TestLoadAppliesOrchestratorDefaults(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "kernl.yaml")
+	content := []byte(`
+settings:
+  agents:
+    stub:
+      command: stub
+  pools: {}
+`)
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Orchestrator.MaxConcurrentBeads != 5 {
+		t.Errorf("MaxConcurrentBeads default = %d, want 5", cfg.Orchestrator.MaxConcurrentBeads)
+	}
+	if cfg.Orchestrator.WorktreeRoot == "" {
+		t.Error("WorktreeRoot default must be set (~/.kernl/worktrees)")
+	}
+}
+
 func TestLoadMissingFile(t *testing.T) {
 	_, err := Load("/nonexistent/path/kernl.yaml")
 	if err == nil {
