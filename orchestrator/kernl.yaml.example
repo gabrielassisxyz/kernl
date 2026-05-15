@@ -1,7 +1,65 @@
+# kernl.yaml — Kernl orchestrator configuration
+#
+# Copy this file to kernl.yaml and fill in your agents and repos.
+# Run `kernl doctor` to validate.
+
 settings:
-  agents: {}
-  pools: {}
+  # Agents are the AI workers that Kernl dispatches to.
+  # Each agent maps a label to a CLI command + model configuration.
+  agents:
+    opencode:
+      # The CLI binary that starts the agent.
+      command: opencode
+      # Args passed after the command. opencode run --format json <prompt>
+      # is the non-interactive invocation Kernl uses.
+      args: ["run", "--format", "json"]
+      # Agent type: claude, codex, gemini, or generic.
+      type: claude
+      # Vendor identifier (used for provider-specific dialect tuning).
+      vendor: anthropic
+      # Model ID passed to the agent CLI. Set this to the model you want
+      # dispatched for tasks assigned to this agent.
+      model: claude-sonnet-4-6
+      # Human-readable label used in pool selection and logs.
+      label: sonnet
+      # Approval mode: auto (default) or manual.
+      approvalMode: auto
+      # Optional: provider override (defaults to vendor).
+      # provider: anthropic
+      # Optional: agent name reported to bd (defaults to label).
+      # agent_name: sonnet
+
+  # Pools group weighted agents for dispatch selection.
+  # When multiple agents are in a pool, Kernl picks one by weight,
+  # respecting cross-agent exclusion rules.
+  pools:
+    implementation:
+      agents:
+        - agentId: opencode
+          weight: 1
+
+  # Default timeout for interactive (human-waiting) sessions, in minutes.
   defaults:
     interactiveSessionTimeoutMinutes: 30
+
+# Registry maps repository paths to their storage backends.
+# Each repo must declare its path and the memory manager type.
 registry:
-  repos: []
+  repos:
+    - path: /home/me/projects/example
+      memoryManager: beads
+
+# Orchestrator block controls the execution engine.
+orchestrator:
+  # Root directory for per-bead git worktrees (default: ~/.kernl/worktrees).
+  # worktreeRoot: /home/me/.kernl/worktrees
+  # Maximum beads that can run concurrently within a single epic wave
+  # (default: 5).
+  # maxConcurrentBeads: 5
+  # Path to the SQLite run-state database (default: ~/.kernl/runstate.db).
+  # runStatePath: /home/me/.kernl/runstate.db
+
+# Server block for the HTTP API + monitoring GUI.
+server:
+  # Port for the REST + SSE API (default: 8080).
+  port: 8080
