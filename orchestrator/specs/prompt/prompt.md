@@ -237,3 +237,50 @@
 - Scope-refinement worker failures (agent crash, timeout, parse error) MUST be retried via re-enqueue rather than silently dropped.
 - Backend update failures during refinement MUST NOT record a completion event.
   [source: foolery/AGENTS.md:51]
+
+---
+
+## 10. Merger Prompt
+
+### 10.1 Template Inputs
+
+The merger prompt template receives the following inputs:
+
+- **`epicId`** — the bead ID of the parent epic whose scene has completed all child beads.
+- **`epicTitle`** — the human-readable title of the epic bead.
+- **`epicBranch`** — the git branch on which the epic's child beads were implemented (typically the epic's worktree branch).
+- **`orderedChildList`** — the ordered list of child bead descriptors (id, title, branch, state) that completed during the scene. Order reflects the bead graph's topological sort.
+- **`baseBranch`** — the target branch into which the completed work must be merged (typically `master`).
+- **`literalOutcomesList`** — the enumerated set of outcomes the merger agent may report back. Each outcome carries a status and a mandatory human-readable summary.
+
+The prompt template MUST inject each input into its corresponding placeholder in the merger skill prompt. No input may be silently omitted; missing values MUST surface as explicit interpolation errors before the agent is spawned.
+
+### 10.2 Failure Modes and Success Branches
+
+The merger prompt defines an exhaustive outcome enumeration that the agent MUST select from. Outcomes are categorized as failures or successes.
+
+**Failure modes:**
+
+- **`merge_conflict`** — the merge operation produced conflicts that could not be auto-resolved. The agent summary MUST include the conflicting file paths and a recommendation for manual resolution.
+- **`push_failed`** — the merge succeeded locally but `git push` to the remote `baseBranch` was rejected (e.g., non-fast-forward, protected branch restrictions). The agent summary MUST include the rejection reason from git output.
+- **`pr_create_failed`** — the merge and push succeeded, but creating the pull request via the GitHub API returned a non-201 response. The agent summary MUST include the API status code and error body. The merge + push remain intact; only PR creation failed.
+
+**Success branches:**
+
+- **`success`** — the merge completed without conflicts, the push to the remote base branch succeeded, and the pull request was created. The agent summary MUST include the PR URL.
+- **`pr_already_exists`** — a pull request with identical head/base branches was found to already exist. The agent MUST NOT create a duplicate. The summary MUST include the existing PR URL and treat this as a non-error success outcome.
+
+The merger agent MUST select exactly one outcome. It MUST NOT fabricate outcomes outside this enumeration.
+
+### 10.3 TODO Follow-up — Context-Aware Merger
+
+> **Status:** Registered for next iteration of the prompt spec. NOT in current MVP scope.
+
+The current merger prompt provides only structured identifiers (epic ID, child list, branch names). A future iteration SHOULD load repository context files known to be critical for merge decision-making:
+
+- **`AGENTS.md`** — the project-level agent briefing, which contains architecture rules, code style conventions, and failure-mode contracts that the merger agent should cross-check against the diff.
+- **Recent master commits** — the last N commits on the base branch (configurable, default ~10) to provide merge context and detect semantic conflicts (e.g., a concurrent refactor touching the same areas).
+- **Epic bead description** — the full description and acceptance criteria of the parent epic bead, so the merger agent can assess whether the merged diff satisfies the epic's stated goals.
+- **Child bead descriptions** — the full descriptions of each completed child bead, so the merger agent can correlate individual file changes to specific beads.
+
+These context loads are deliberately excluded from the initial implementation to keep the merger prompt lean and fast. They will be added behind a configuration flag (`contextAwareMerger: true`) once baseline merge reliability is proven.
