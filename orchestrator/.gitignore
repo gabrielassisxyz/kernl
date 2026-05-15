@@ -1,0 +1,10 @@
+# Session logs
+ralph-session*.jsonl
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
