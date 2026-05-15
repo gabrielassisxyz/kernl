@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/epic"
 )
 
 type Harness struct {
@@ -20,13 +22,12 @@ type Harness struct {
 	t        *testing.T
 }
 
-// packageDir returns the directory of the current source file at test time.
 func packageDir() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Dir(file)
 }
 
-func NewHarness(t *testing.T) *Harness {
+func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 	t.Helper()
 
 	if _, err := exec.LookPath("bd"); err != nil {
@@ -53,10 +54,10 @@ func NewHarness(t *testing.T) *Harness {
 		t.Fatalf("mkdir .beads: %v", err)
 	}
 	issuesJSONL := filepath.Join(beadsDir, "issues.jsonl")
-	fixturePath := filepath.Join(packageDir(), "testdata", "beads-single", ".beads", "issues.jsonl")
+	fixturePath := filepath.Join(packageDir(), "testdata", fixtureName, ".beads", "issues.jsonl")
 	data, err := os.ReadFile(fixturePath)
 	if err != nil {
-		t.Fatalf("read bead fixture: %v", err)
+		t.Fatalf("read bead fixture %s: %v", fixtureName, err)
 	}
 	if err := os.WriteFile(issuesJSONL, data, 0o644); err != nil {
 		t.Fatalf("write issues.jsonl: %v", err)
@@ -78,8 +79,17 @@ func NewHarness(t *testing.T) *Harness {
 	}
 }
 
+func NewHarness(t *testing.T) *Harness {
+	t.Helper()
+	return newHarnessWithFixture(t, "beads-single")
+}
+
+func NewEpicHarness(t *testing.T) *Harness {
+	t.Helper()
+	return newHarnessWithFixture(t, "beads-epic-diamond")
+}
+
 func (h *Harness) Cleanup() {
-	// t.TempDir() handles cleanup automatically
 }
 
 func (h *Harness) App() *app.App {
@@ -100,20 +110,84 @@ func (h *Harness) SeedBead(t *testing.T, state string) string {
 	return "task-1"
 }
 
-func (h *Harness) BeadState(t *testing.T, sessionID string) string {
+func (h *Harness) BeadState(t *testing.T, beadID string) string {
 	t.Helper()
 
 	be := backend.NewBdCliBackend(h.RepoPath)
-	bead, err := be.Get("task-1", h.RepoPath)
+	bead, err := be.Get(beadID, h.RepoPath)
 	if err != nil {
-		t.Fatalf("BeadState: %v", err)
+		t.Fatalf("BeadState(%s): %v", beadID, err)
 	}
 	if bead == nil {
-		t.Fatal("BeadState: bead not found")
+		t.Fatalf("BeadState(%s): bead not found", beadID)
 	}
 	return bead.State
 }
 
 func (h *Harness) IsAdvanced(state string) bool {
 	return state != "ready_for_implementation"
+}
+
+func (h *Harness) IsTerminal(state string) bool {
+	switch state {
+	case "done", "closed", "blocked", "skipped":
+		return true
+	}
+	return false
+}
+
+func (h *Harness) SeedEpic(t *testing.T, fixtureName string) string {
+	t.Helper()
+	return "epic-1"
+}
+
+func (h *Harness) ChildIDs(epicID string) []string {
+	h.t.Helper()
+	be := backend.NewBdCliBackend(h.RepoPath)
+	children, err := be.List(&backend.BeadListFilters{Parent: epicID}, h.RepoPath)
+	if err != nil {
+		h.t.Fatalf("ChildIDs(%s): %v", epicID, err)
+	}
+	ids := make([]string, 0, len(children))
+	for _, c := range children {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+func (h *Harness) RunEpic(t *testing.T, epicID string) *epic.Executor {
+	t.Helper()
+
+	a := h.App()
+	ep, err := epic.LoadEpic(a.Backend, epicID, h.RepoPath)
+	if err != nil {
+		t.Fatalf("RunEpic: load epic %s: %v", epicID, err)
+	}
+
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot)
+
+	ex := epic.NewExecutor(epic.ExecutorDeps{
+		Epic: ep,
+		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
+			res, err := a.Driver.RunBead(ctx, app.RunBeadInput{
+				BeadID:   in.BeadID,
+				RepoPath: h.RepoPath,
+				AgentID:  "opencode",
+			})
+			if err != nil {
+				return epic.RunResult{}, err
+			}
+			return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, nil
+		},
+		Worktree:      wm,
+		MaxConcurrent: a.Config.Orchestrator.MaxConcurrentBeads,
+		Emit: func(ev epic.EpicEvent) {
+			a.EpicEvents.Publish(ev)
+		},
+	})
+
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("RunEpic: %v", err)
+	}
+	return ex
 }
