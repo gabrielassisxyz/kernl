@@ -20,6 +20,10 @@ The core execution loop that drives a single bead from claim to terminal state. 
 
 The resolution chain that maps a bead to a concrete agent process. Given a workflow + state, the system derives a pool key, looks up a weighted pool of agents, and selects one (respecting exclusions from prior failures). Failures produce a `KERNL DISPATCH FAILURE` marker naming the missing pool key and the config that fixes it. See `orchestrator/specs/00-architecture.md` §3.2.
 
+## fail-fast
+
+When any bead in a wave returns a non-success state or error, the executor immediately sets the epic to `blocked`, drains all in-flight goroutines, and returns without dispatching the next wave. Beads that depend (directly or transitively) on the failed bead are never dispatched. A separate deadlock detector catches the case where no beads are ready but work remains — that becomes `EpicFailed` instead. See `orchestrator/specs/00-architecture.md` §5.1 and the wave loop in `internal/epic/wave.go`.
+
 ## cross-agent review
 
 A safety mechanism that ensures a bead's review step is performed by a *different* agent than the one that executed the action. The prior action agent is excluded from the review pool. If exclusion empties the pool, Kernl falls back to the same agent and emits a stderr banner `"Cross-agent review fallback"`. See `orchestrator/specs/00-architecture.md` §5.3.
@@ -35,6 +39,18 @@ See `orchestrator/specs/00-architecture.md` §3.2–3.3 for dispatch and session
 ## epic-SSE
 
 Server-Sent Events stream scoped to a single epic at `GET /api/epics/{id}/events`. The stream replays buffered events on connect, then pushes live events (state transitions, session starts/errors) as they occur. The monitoring GUI consumes this stream to show live bead state. See `orchestrator/specs/00-architecture.md` §12.1.
+
+## realized parallelism
+
+The ratio of peak concurrent agent sessions to the maximum the epic's dependency graph would allow: `peak / graphMax`. Reported on epic completion as `paralelismo realizado`. A value of `2.0x` on a DAG with max parallelism 2 means both allowed concurrent beads ran simultaneously — the scheduler achieved the theoretical maximum. A value near `1.0x` means the graph was effectively sequential despite having parallelizable branches. This is one of Kernl's key metrics from `docs/STRATEGY.md`.
+
+## run-state
+
+An embedded SQLite database (WAL mode, pure Go via `modernc.org/sqlite`) that persists ephemeral execution tracking across orchestrator restarts. Stores two mappings: (1) worktree paths for dispatched beads (`epic_id + bead_id → path`), and (2) agent session records (`bead_id + state → agent_id, session_id, status, updated_at`). Used exclusively by the resume planner (`internal/epic/resume.go`) to decide whether to skip completed beads, reconnect to in-flight sessions, or re-dispatch failed beads. See `internal/runstate/store.go`.
+
+## worktree
+
+A git worktree sandbox created per bead at `<root>/<epicID>/<beadID>` via `git worktree add` on a branch named `kernl/<beadID>`. This gives each agent an isolated working directory while sharing the repository's object store, so agents on different beads never collide on files. The `worktree.Manager` wraps three git subcommands (`add`, `remove`, `prune`) with fail-loud errors and injectable `Run` for hermetic testing. Recorded in the run-state store for resume. See `internal/worktree/worktree.go`.
 
 ## wave
 
