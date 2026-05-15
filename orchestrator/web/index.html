@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kernl Monitor</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Kernl</h1>
+    <span id="connection-status" class="status-disconnected">disconnected</span>
+    <div id="epic-selector">
+      <label>Epic: <input id="epic-id-input" type="text" placeholder="epic-id"></label>
+      <button id="connect-btn">Connect</button>
+    </div>
+  </header>
+  <main>
+    <section id="beads-panel">
+      <h2>Beads</h2>
+      <div id="bead-list"></div>
+    </section>
+    <section id="sessions-panel">
+      <h2>Active Sessions</h2>
+      <div id="session-list"></div>
+    </section>
+  </main>
+  <section id="errors-panel">
+    <h2>Errors</h2>
+    <div id="error-list"></div>
+  </section>
+  <script src="/app.js"></script>
+</body>
+</html>

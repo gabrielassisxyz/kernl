@@ -5,6 +5,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/logging"
+	"github.com/gabrielassisxyz/kernl/web"
 )
 
 func NewRouter(a *app.App) http.Handler {
@@ -17,6 +18,8 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterStreamRoutes(mux, a)
 	RegisterEpicRoutes(mux, a)
 	RegisterAppRoutes(mux)
+
+	mux.Handle("GET /", http.FileServerFS(web.FS))
 
 	var h http.Handler = mux
 	h = logging.TimingMiddleware(h)
