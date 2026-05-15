@@ -3,18 +3,18 @@ package api
 import (
 	"net/http"
 
-	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/logging"
 )
 
-func NewRouter(cfg *config.Config) http.Handler {
+func NewRouter(a *app.App) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /api/health", healthHandler)
 
-	RegisterBeadRoutes(mux)
+	RegisterBeadRoutes(mux, a)
 	RegisterApprovalRoutes(mux)
-	RegisterStreamRoutes(mux)
+	RegisterStreamRoutes(mux, a)
 	RegisterAppRoutes(mux)
 
 	var h http.Handler = mux

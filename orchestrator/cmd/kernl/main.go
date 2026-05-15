@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
+	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/logging"
 )
@@ -31,7 +32,13 @@ func main() {
 		port = "8080"
 	}
 
-	handler := api.NewRouter(cfg)
+	a, err := app.NewApp(cfg)
+	if err != nil {
+		slog.Error("KERNL DISPATCH FAILURE: failed to create app", "error", err)
+		os.Exit(1)
+	}
+
+	handler := api.NewRouter(a)
 
 	srv := &http.Server{
 		Addr:         ":" + port,
