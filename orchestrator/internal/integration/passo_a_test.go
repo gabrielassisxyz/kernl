@@ -13,16 +13,18 @@ func TestPassoA_SingleBeadRealOpencode(t *testing.T) {
 	h := NewHarness(t)
 	defer h.Cleanup()
 
+	beadID := h.SeedBead(t, "ready_for_implementation")
 	a := h.App()
 	res, err := a.Driver.RunBead(context.Background(), app.RunBeadInput{
-		BeadID:   h.SeedBead(t, "ready_for_implementation"),
+		BeadID:   beadID,
 		RepoPath: h.RepoPath,
 		AgentID:  "opencode",
 	})
 	if err != nil {
 		t.Fatalf("RunBead: %v", err)
 	}
-	final := h.BeadState(t, res.SessionID)
+	_ = res
+	final := h.BeadState(t, beadID)
 	if !h.IsAdvanced(final) {
 		t.Errorf("bead did not advance past ready_for_implementation: state=%q", final)
 	}
