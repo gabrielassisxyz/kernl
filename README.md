@@ -2,7 +2,9 @@
 
 Multi-agent orchestration where humans only touch judgment points — the rest is a dependency graph executed in parallel.
 
-<!-- GIF: examples/parallel-demo -->
+![Kernl parallel demo](docs/assets/parallel-demo.gif)
+
+> Open source from the start, projetado em blocos — each person uses whichever block they want and configures it their way. Born to solve a personal pain point, aimed at being available to everyone.
 
 ## Prerequisites
 
@@ -19,10 +21,10 @@ cp orchestrator/kernl.yaml.example kernl.yaml
 # 2. Verify your setup
 go run ./orchestrator/cmd/kernl doctor
 
-# 3. List epics
-go run ./orchestrator/cmd/kernl epic list
+# 3. Run the packaged parallel demo (3 beads, 2 waves, real parallelism)
+go run ./orchestrator/cmd/kernl epic run parallel-demo
 
-# 4. Run a bead
+# 4. Run an individual bead
 go run ./orchestrator/cmd/kernl bead run <bead-id>
 ```
 
@@ -37,5 +39,22 @@ go run ./orchestrator/cmd/kernl serve
 # Open the printed URL, enter an epic id, and watch beads change state in real time.
 # Falls back to polling /api/beads every 2s if SSE fails to connect.
 ```
+
+## Parallel Demo
+
+The repository includes a packaged epic at `examples/parallel-demo/` that demonstrates Kernl's parallel execution model:
+
+```
+a ──→ b
+  └──→ c
+```
+
+Bead `a` (Setup) runs first in wave 1. After it completes, beads `b` (Frontend) and `c` (Backend) run concurrently in wave 2. The DAG is computed at runtime — you configure only the dependencies, and Kernl schedules the waves.
+
+```bash
+kernl epic run parallel-demo
+```
+
+Each bead dispatches a real opencode agent that runs through the take loop: claim → resolve pool → spawn → monitor → classify outcome → advance/retry/rollback/terminate. Capped at 5 follow-up turns per state.
 
 > **Note:** Integration tests (`go test -tags=integration ./...`) and the packaged example spend real opencode API tokens and wall-clock time. Run them manually and set a spending cap.
