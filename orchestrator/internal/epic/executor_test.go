@@ -2,6 +2,7 @@ package epic
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -40,6 +41,71 @@ func (f *fakeWorktree) Add(epicID, beadID string) (string, error) {
 	path := "/tmp/" + epicID + "/" + beadID
 	f.added[epicID+"/"+beadID] = path
 	return path, nil
+}
+
+func fakeWT() *fakeWorktree {
+	return newFakeWorktree()
+}
+
+func wideEpic(t *testing.T, n int) *Epic {
+	t.Helper()
+	nodes := make([]Node, n)
+	children := make([]backend.Bead, n)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("w%d", i)
+		nodes[i] = Node{ID: id}
+		children[i] = backend.Bead{ID: id}
+	}
+	dag, err := NewDAG(nodes)
+	if err != nil {
+		t.Fatalf("NewDAG: %v", err)
+	}
+	return &Epic{ID: "wide-epic", DAG: dag, Children: children}
+}
+
+func TestExecutorFailFastOnTerminalChildFailure(t *testing.T) {
+	ep := diamondEpic(t)
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		if in.BeadID == "b" {
+			return RunResult{FinalState: "blocked", Success: false}, nil
+		}
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{Epic: ep, RunBead: runBead, Worktree: fakeWT(), MaxConcurrent: 5})
+	err := ex.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected fail-fast error when child b fails terminally")
+	}
+	if ex.State() != EpicBlocked {
+		t.Errorf("epic state = %v, want blocked", ex.State())
+	}
+	if ex.Dispatched("d") {
+		t.Error("d must not be dispatched after b failed")
+	}
+}
+
+func TestExecutorSemaphoreCapsConcurrency(t *testing.T) {
+	ep := wideEpic(t, 10)
+	var mu sync.Mutex
+	var concurrent, peak int
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		mu.Lock()
+		concurrent++
+		if concurrent > peak {
+			peak = concurrent
+		}
+		mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
+		concurrent--
+		mu.Unlock()
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{Epic: ep, RunBead: runBead, Worktree: fakeWT(), MaxConcurrent: 3})
+	ex.Run(context.Background())
+	if peak > 3 {
+		t.Errorf("peak %d exceeded MaxConcurrent 3", peak)
+	}
 }
 
 func TestExecutorRunsIndependentChildrenConcurrently(t *testing.T) {

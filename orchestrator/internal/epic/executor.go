@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 )
 
 type EpicState string
@@ -12,6 +13,7 @@ const (
 	EpicRunning   EpicState = "running"
 	EpicCompleted EpicState = "completed"
 	EpicFailed    EpicState = "failed"
+	EpicBlocked   EpicState = "blocked"
 )
 
 type RunInput struct {
@@ -33,20 +35,32 @@ type ExecutorDeps struct {
 	RunBead       func(ctx context.Context, in RunInput) (RunResult, error)
 	Worktree      worktreeAdder
 	MaxConcurrent int
+	Emit          func(EpicEvent)
 }
 
 type Executor struct {
-	deps  ExecutorDeps
-	done  map[string]bool
-	state EpicState
-	mu    sync.Mutex
+	deps       ExecutorDeps
+	done       map[string]bool
+	dispatched map[string]bool
+	state      EpicState
+	tracker    *ParallelismTracker
+	sem        chan struct{}
+	failFast   bool
+	mu         sync.Mutex
 }
 
 func NewExecutor(deps ExecutorDeps) *Executor {
+	mc := deps.MaxConcurrent
+	if mc <= 0 {
+		mc = 1
+	}
 	return &Executor{
-		deps:  deps,
-		done:  make(map[string]bool),
-		state: EpicRunning,
+		deps:       deps,
+		done:       make(map[string]bool),
+		dispatched: make(map[string]bool),
+		state:      EpicRunning,
+		tracker:    NewParallelismTracker(len(deps.Epic.Children)),
+		sem:        make(chan struct{}, mc),
 	}
 }
 
@@ -57,6 +71,12 @@ type beadResult struct {
 }
 
 func (ex *Executor) Run(ctx context.Context) error {
+	ex.emit(EpicEvent{
+		Type:   SessionStarted,
+		EpicID: ex.deps.Epic.ID,
+		Time:   time.Now().Unix(),
+	})
+
 	for {
 		ex.mu.Lock()
 		ready := ex.deps.Epic.DAG.ReadySet(ex.done)
@@ -66,41 +86,18 @@ func (ex *Executor) Run(ctx context.Context) error {
 				ex.mu.Unlock()
 				return nil
 			}
+			if ex.failFast {
+				ex.mu.Unlock()
+				return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s blocked after bead failure — Fix: review failed beads and re-run", ex.deps.Epic.ID)
+			}
 			ex.state = EpicFailed
 			ex.mu.Unlock()
 			return fmt.Errorf("KERNL DISPATCH FAILURE: deadlock in epic %s — ReadySet returned no beads but %d/%d children are done — Fix: check the DAG for missing dependencies or cycles", ex.deps.Epic.ID, len(ex.done), len(ex.deps.Epic.Children))
 		}
 		ex.mu.Unlock()
 
-		ch := make(chan beadResult, len(ready))
-		for _, beadID := range ready {
-			wtPath, err := ex.deps.Worktree.Add(ex.deps.Epic.ID, beadID)
-			if err != nil {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree for bead %s in epic %s — %w — Fix: verify the worktree root is writable", beadID, ex.deps.Epic.ID, err)
-			}
-			go func(id string, path string) {
-				result, err := ex.deps.RunBead(ctx, RunInput{BeadID: id, Worktree: path})
-				ch <- beadResult{beadID: id, result: result, err: err}
-			}(beadID, wtPath)
-		}
-
-		for range ready {
-			r := <-ch
-			if r.err != nil {
-				ex.mu.Lock()
-				ex.state = EpicFailed
-				ex.mu.Unlock()
-				return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s in epic %s returned error — %w", r.beadID, ex.deps.Epic.ID, r.err)
-			}
-			if !r.result.Success {
-				ex.mu.Lock()
-				ex.state = EpicFailed
-				ex.mu.Unlock()
-				return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s in epic %s failed — final state %q", r.beadID, ex.deps.Epic.ID, r.result.FinalState)
-			}
-			ex.mu.Lock()
-			ex.done[r.beadID] = true
-			ex.mu.Unlock()
+		if err := ex.processWave(ctx, ready); err != nil {
+			return err
 		}
 	}
 }
@@ -121,4 +118,18 @@ func (ex *Executor) State() EpicState {
 	return ex.state
 }
 
-func (ex *Executor) Emit(event EpicEvent) {}
+func (ex *Executor) Dispatched(id string) bool {
+	ex.mu.Lock()
+	defer ex.mu.Unlock()
+	return ex.dispatched[id]
+}
+
+func (ex *Executor) Parallelism() ParallelismMetric {
+	return ex.tracker.Metric()
+}
+
+func (ex *Executor) emit(event EpicEvent) {
+	if ex.deps.Emit != nil {
+		ex.deps.Emit(event)
+	}
+}
