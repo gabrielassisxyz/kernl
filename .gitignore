@@ -10,3 +10,4 @@ __pycache__/
 .dolt/
 *.db
 .beads-credential-key
+.vibe-chaos-to-concept/
