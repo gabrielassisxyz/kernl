@@ -23,8 +23,7 @@ func TestValidNextStates_Basics(t *testing.T) {
 	t.Run("returns loom-defined transitions from queue state", func(t *testing.T) {
 		got := ValidNextStates(&wf, "ready_for_planning")
 		assertContains(t, got, "planning")
-		assertContains(t, got, "deferred")
-		assertContains(t, got, "abandoned")
+		assertContains(t, got, "closed")
 		assertNotContains(t, got, "ready_for_planning")
 	})
 }
@@ -51,16 +50,14 @@ func TestValidNextStates_RolledBack(t *testing.T) {
 
 	t.Run("lists only wildcard terminals in workflow", func(t *testing.T) {
 		got := ValidNextStates(&wf, "ready_for_planning", "planning")
-		assertContains(t, got, "abandoned")
-		assertContains(t, got, "deferred")
+		assertContains(t, got, "closed")
 		assertNotContains(t, got, "shipped")
 	})
 
 	t.Run("implementation stuck state with loom-legal options", func(t *testing.T) {
 		got := ValidNextStates(&wf, "ready_for_implementation", "implementation")
 		assertContains(t, got, "ready_for_implementation_review")
-		assertContains(t, got, "deferred")
-		assertContains(t, got, "abandoned")
+		assertContains(t, got, "closed")
 		assertNotContains(t, got, "ready_for_implementation")
 		assertNotContains(t, got, "implementation")
 	})
@@ -88,11 +85,9 @@ func TestValidNextStates_NormalFlow(t *testing.T) {
 
 	t.Run("exact loom targets from shipment_review", func(t *testing.T) {
 		got := ValidNextStates(&wf, "shipment_review")
-		assertContains(t, got, "shipped")
-		assertContains(t, got, "ready_for_implementation")
-		assertContains(t, got, "ready_for_shipment")
-		assertContains(t, got, "deferred")
-		assertContains(t, got, "abandoned")
+		assertContains(t, got, "open")
+		assertContains(t, got, "awaiting_integration")
+		assertNotContains(t, got, "closed")
 		assertNotContains(t, got, "ready_for_planning")
 		assertNotContains(t, got, "ready_for_plan_review")
 		assertNotContains(t, got, "ready_for_implementation_review")
@@ -102,8 +97,7 @@ func TestValidNextStates_NormalFlow(t *testing.T) {
 	t.Run("normalizes impl to implementation", func(t *testing.T) {
 		got := ValidNextStates(&wf, "impl")
 		assertContains(t, got, "ready_for_implementation_review")
-		assertContains(t, got, "deferred")
-		assertContains(t, got, "abandoned")
+		assertContains(t, got, "closed")
 	})
 
 	t.Run("excludes current state", func(t *testing.T) {

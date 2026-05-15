@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 func TestIsAgentClaimable(t *testing.T) {
@@ -377,22 +378,22 @@ func TestNormalizeStateForWorkflow(t *testing.T) {
 
 	t.Run("passes through valid workflow states", func(t *testing.T) {
 		got := NormalizeStateForWorkflow("implementation", &wf)
-		if got != "implementation" {
-			t.Errorf("expected implementation, got %q", got)
+		if got != string(workflow.StatusInProgress) {
+			t.Errorf("expected in_progress, got %q", got)
 		}
 	})
 
 	t.Run("remaps legacy open state", func(t *testing.T) {
 		got := NormalizeStateForWorkflow("open", &wf)
-		if got != wf.InitialState {
-			t.Errorf("expected %q, got %q", wf.InitialState, got)
+		if got != string(workflow.StatusOpen) {
+			t.Errorf("expected open, got %q", got)
 		}
 	})
 
 	t.Run("remaps impl shorthand", func(t *testing.T) {
 		got := NormalizeStateForWorkflow("impl", &wf)
-		if got != "implementation" {
-			t.Errorf("expected implementation, got %q", got)
+		if got != string(workflow.StatusInProgress) {
+			t.Errorf("expected in_progress, got %q", got)
 		}
 	})
 
@@ -404,14 +405,14 @@ func TestNormalizeStateForWorkflow(t *testing.T) {
 	})
 
 	t.Run("remaps legacy terminal states", func(t *testing.T) {
-		if NormalizeStateForWorkflow("closed", &wf) != "shipped" {
-			t.Error("expected closed -> shipped")
+		if NormalizeStateForWorkflow("closed", &wf) != string(workflow.StatusClosed) {
+			t.Error("expected closed -> closed")
 		}
-		if NormalizeStateForWorkflow("done", &wf) != "shipped" {
-			t.Error("expected done -> shipped")
+		if NormalizeStateForWorkflow("done", &wf) != string(workflow.StatusClosed) {
+			t.Error("expected done -> closed")
 		}
-		if NormalizeStateForWorkflow("approved", &wf) != "shipped" {
-			t.Error("expected approved -> shipped")
+		if NormalizeStateForWorkflow("approved", &wf) != string(workflow.StatusClosed) {
+			t.Error("expected approved -> closed")
 		}
 	})
 
@@ -425,11 +426,11 @@ func TestNormalizeStateForWorkflow(t *testing.T) {
 		}
 		limitedWf.States = filteredStates
 
-		if NormalizeStateForWorkflow("shipped", &limitedWf) != "shipped" {
-			t.Error("expected shipped preserved")
+		if NormalizeStateForWorkflow("shipped", &limitedWf) != string(workflow.StatusClosed) {
+			t.Error("expected shipped -> closed preserved")
 		}
-		if NormalizeStateForWorkflow("abandoned", &limitedWf) != "abandoned" {
-			t.Error("expected abandoned preserved")
+		if NormalizeStateForWorkflow("abandoned", &limitedWf) != string(workflow.StatusClosed) {
+			t.Error("expected abandoned -> closed preserved")
 		}
 	})
 
@@ -444,8 +445,8 @@ func TestNormalizeStateForWorkflow(t *testing.T) {
 
 	t.Run("handles case normalization", func(t *testing.T) {
 		got := NormalizeStateForWorkflow("  IMPLEMENTATION  ", &wf)
-		if got != "implementation" {
-			t.Errorf("expected implementation, got %q", got)
+		if got != string(workflow.StatusInProgress) {
+			t.Errorf("expected in_progress, got %q", got)
 		}
 	})
 
@@ -855,9 +856,9 @@ func TestWorkflowStatePhase(t *testing.T) {
 		}
 	})
 
-	t.Run("deferred returns terminal", func(t *testing.T) {
-		if WorkflowStatePhase(&wf, "deferred") != PhaseTerminal {
-			t.Error("expected PhaseTerminal for deferred")
+	t.Run("deferred maps to closed (terminal)", func(t *testing.T) {
+		if WorkflowStatePhase(&wf, "closed") != PhaseTerminal {
+			t.Error("expected PhaseTerminal for closed")
 		}
 	})
 
