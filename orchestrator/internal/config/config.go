@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -63,10 +64,17 @@ type ServerConfig struct {
 	Port int `yaml:"port"`
 }
 
+type OrchestratorConfig struct {
+	WorktreeRoot       string `yaml:"worktreeRoot,omitempty"`
+	MaxConcurrentBeads int    `yaml:"maxConcurrentBeads,omitempty"`
+	RunStatePath       string `yaml:"runStatePath,omitempty"`
+}
+
 type Config struct {
-	Settings Settings      `yaml:"settings"`
-	Registry RegistryConfig `yaml:"registry"`
-	Server    ServerConfig  `yaml:"server"`
+	Settings     Settings           `yaml:"settings"`
+	Registry     RegistryConfig     `yaml:"registry"`
+	Server       ServerConfig       `yaml:"server"`
+	Orchestrator OrchestratorConfig `yaml:"orchestrator"`
 }
 
 func Load(path string) (*Config, error) {
@@ -86,6 +94,24 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes == 0 {
 		cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes = 10
+	}
+
+	if cfg.Orchestrator.MaxConcurrentBeads == 0 {
+		cfg.Orchestrator.MaxConcurrentBeads = 5
+	}
+	if cfg.Orchestrator.WorktreeRoot == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for worktree root default: %w", err)
+		}
+		cfg.Orchestrator.WorktreeRoot = filepath.Join(home, ".kernl", "worktrees")
+	}
+	if cfg.Orchestrator.RunStatePath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for run-state path default: %w", err)
+		}
+		cfg.Orchestrator.RunStatePath = filepath.Join(home, ".kernl", "runstate.db")
 	}
 
 	return &cfg, nil
