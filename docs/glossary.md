@@ -1,0 +1,37 @@
+# Kernl — Glossary
+
+> Ubiquitous Language for the Kernl orchestrator. Anchored to `orchestrator/specs/00-architecture.md` where relevant.
+
+## bead
+
+The atomic unit of work in Kernl. A bead is a single task with a defined state, dependencies, and an assigned agent pool. It lives in the Dolt-backed issue tracker (`bd`) and moves through a workflow state machine (queue → active → review → terminal).
+
+**Why not "beat"?** The upstream TypeScript codebase (Foolery) uses "beat". Kernl renamed to "bead" to avoid collision with the common English word and to evoke a bead in a dependency-graph necklace: each bead is discrete but connected. The `orchestrator/specs/00-architecture.md` still uses "beat" when citing TS source behavior verbatim.
+
+## epic
+
+A collection of beads organized as a directed acyclic graph (DAG). Beads within an epic declare dependencies on each other; Kernl schedules independent beads in parallel waves. Epics are the unit of human ambition — "turn this idea into an epic" is the entry point. See `orchestrator/specs/00-architecture.md` §8.3 for hierarchy and §8.4 for cycle safety.
+
+## take loop
+
+The core execution loop that drives a single bead from claim to terminal state. The orchestrator claims a bead, resolves its dispatch pool, spawns an agent session, monitors stdout/stderr, and on child exit classifies the outcome (success/error/stuck) and decides the next step: advance, retry with a different agent, rollback, or terminate. Capped at 5 follow-up turns per state. See `orchestrator/specs/00-architecture.md` §5.1 and §10.1–10.2 for the full state machine.
+
+## dispatch
+
+The resolution chain that maps a bead to a concrete agent process. Given a workflow + state, the system derives a pool key, looks up a weighted pool of agents, and selects one (respecting exclusions from prior failures). Failures produce a `KERNL DISPATCH FAILURE` marker naming the missing pool key and the config that fixes it. See `orchestrator/specs/00-architecture.md` §3.2.
+
+## cross-agent review
+
+A safety mechanism that ensures a bead's review step is performed by a *different* agent than the one that executed the action. The prior action agent is excluded from the review pool. If exclusion empties the pool, Kernl falls back to the same agent and emits a stderr banner `"Cross-agent review fallback"`. See `orchestrator/specs/00-architecture.md` §5.3.
+
+## harness / agent
+
+**Agent:** An AI worker configured in `kernl.yaml` (command, model, type, vendor). Kernl dispatches agents as child processes via stdio (or JSON-RPC/HTTP for certain transports).
+
+**Harness:** The sandbox environment each agent runs in. In practice, this means a git worktree isolated per bead (default: `~/.kernl/worktrees/<bead-id>`), so agents on different beads never collide.
+
+See `orchestrator/specs/00-architecture.md` §3.2–3.3 for dispatch and session spawning.
+
+## knots (dormant)
+
+A lease system that records which agent is working on which bead, with canonical metadata (agent name, type, provider). Single-bead sessions create a Knots lease on spawn and release it on completion. Scene (parent-with-children) sessions do not create leases. Marked **dormant** — the implementation is deferred but the concept is reserved in the domain model. See `orchestrator/specs/00-architecture.md` §5.4.
