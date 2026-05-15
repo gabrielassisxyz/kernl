@@ -32,6 +32,14 @@ A safety mechanism that ensures a bead's review step is performed by a *differen
 
 See `orchestrator/specs/00-architecture.md` §3.2–3.3 for dispatch and session spawning.
 
+## epic-SSE
+
+Server-Sent Events stream scoped to a single epic at `GET /api/epics/{id}/events`. The stream replays buffered events on connect, then pushes live events (state transitions, session starts/errors) as they occur. The monitoring GUI consumes this stream to show live bead state. See `orchestrator/specs/00-architecture.md` §12.1.
+
+## wave
+
+A set of beads within an epic that have no remaining unsatisfied dependencies and can execute in parallel. Kernl schedules beads in waves: when one wave completes (all beads terminal), the next wave of dependency-free beads is dispatched. Waves are computed from the epic's dependency graph at runtime. See `orchestrator/specs/00-architecture.md` §4.5.
+
 ## knots (dormant)
 
 A lease system that records which agent is working on which bead, with canonical metadata (agent name, type, provider). Single-bead sessions create a Knots lease on spawn and release it on completion. Scene (parent-with-children) sessions do not create leases. Marked **dormant** — the implementation is deferred but the concept is reserved in the domain model. See `orchestrator/specs/00-architecture.md` §5.4.
