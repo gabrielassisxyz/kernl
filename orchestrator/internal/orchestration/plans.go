@@ -8,7 +8,7 @@ type Plan struct {
 }
 
 type PlanStep struct {
-	BeatID    string `json:"beatId"`
+	BeadID    string `json:"beadId"`
 	Action    string `json:"action"`
 	State     string `json:"state"`
 	Completed bool   `json:"completed"`

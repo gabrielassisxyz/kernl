@@ -31,7 +31,7 @@ type DispatchArgs struct {
 
 type TakeLoopDispatchContext struct {
 	ID                       string
-	BeatID                   string
+	BeadID                   string
 	PushEvent                func(evt session.TerminalEvent)
 	FinishSession            func(exitCode int)
 	ClaimsPerQueueType       map[string]int
@@ -52,14 +52,14 @@ var DispatchStop = DispatchResult{Stopped: true}
 func RunDispatch(a DispatchArgs) DispatchResult {
 	agents := a.Settings.Agents
 	pools := a.Settings.Pools
-	beatID := ""
+	beadID := ""
 	if a.Ctx != nil {
-		beatID = a.Ctx.BeatID
+		beadID = a.Ctx.BeadID
 	}
 
 	_, ok := pools[a.PoolKey]
 	if !ok {
-		err := NewDispatchFailureError(a.PoolKey, beatID, "pool config", "add settings.pools."+a.PoolKey+" with agent entries")
+		err := NewDispatchFailureError(a.PoolKey, beadID, "pool config", "add settings.pools."+a.PoolKey+" with agent entries")
 		emitDispatchFailure(a.Ctx, err)
 		return DispatchStop
 	}
@@ -81,12 +81,12 @@ func RunDispatch(a DispatchArgs) DispatchResult {
 			emitDispatchFailure(a.Ctx, dfe)
 			return DispatchStop
 		}
-		emitDispatchFailureMsg(a.Ctx, a.PoolKey, beatID, err.Error())
+		emitDispatchFailureMsg(a.Ctx, a.PoolKey, beadID, err.Error())
 		return DispatchStop
 	}
 
 	if selected != nil && selected.ID != "" {
-		a.StepAgentTracker.Record(beatID, a.PoolKey, selected.ID)
+		a.StepAgentTracker.Record(beadID, a.PoolKey, selected.ID)
 	}
 
 	logSelection(a.Ctx, a.PoolKey, selected.Config, a.IsErrorRetry, a.IsReview, a.ExcludeAgentIDs)
@@ -108,14 +108,14 @@ func findAgentID(agents map[string]config.AgentConfig, cfg *config.AgentConfig) 
 }
 
 func RetryWithoutCrossAgentExclusion(a DispatchArgs, agents map[string]config.AgentConfig, pools map[string]config.PoolConfig) *DispatchResult {
-	beatID := ""
+	beadID := ""
 	if a.Ctx != nil {
-		beatID = a.Ctx.BeatID
+		beadID = a.Ctx.BeadID
 	}
 
 	priorAgent := ""
 	if a.PriorAction != "" && a.StepAgentTracker != nil {
-		if agentID, ok := a.StepAgentTracker.Get(beatID, a.PriorAction); ok {
+		if agentID, ok := a.StepAgentTracker.Get(beadID, a.PriorAction); ok {
 			priorAgent = agentID
 		}
 	}
@@ -147,7 +147,7 @@ func RetryWithoutCrossAgentExclusion(a DispatchArgs, agents map[string]config.Ag
 	if selected != nil {
 		AnnounceCrossAgentFallback(a.Ctx, selected.Config, priorAgent, a.PoolKey)
 		if selected.ID != "" && a.StepAgentTracker != nil {
-			a.StepAgentTracker.Record(beatID, a.PoolKey, selected.ID)
+			a.StepAgentTracker.Record(beadID, a.PoolKey, selected.ID)
 		}
 	}
 
@@ -171,15 +171,15 @@ func AnnounceCrossAgentFallback(ctx *TakeLoopDispatchContext, selected *config.A
 
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stderr",
-		BeatID:  ctx.BeatID,
+		BeadID:  ctx.BeadID,
 		Content: fmt.Sprintf("\x1b[33m--- Cross-agent review fallback: every other agent in pool %q was excluded (hard-failed or unavailable). Letting %q review their own %s output rather than stopping the take. Review the result carefully. ---\x1b[0m\n", poolKey, selectedLabel, poolKey),
 		Time:    time.Now().UnixMilli(),
 	})
 
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "agent_failure",
-		BeatID:  ctx.BeatID,
-		Content: fmt.Sprintf(`{"kind":"cross_agent_review_fallback","message":"Pool %q had only %q available after exclusions. Falling back to same-agent review (prior action agent=%q). Review the result.","beatId":"%s"}`, poolKey, selectedLabel, priorLabel, ctx.BeatID),
+		BeadID:  ctx.BeadID,
+		Content: fmt.Sprintf(`{"kind":"cross_agent_review_fallback","message":"Pool %q had only %q available after exclusions. Falling back to same-agent review (prior action agent=%q). Review the result.","beadId":"%s"}`, poolKey, selectedLabel, priorLabel, ctx.BeadID),
 		Time:    time.Now().UnixMilli(),
 	})
 }
@@ -202,21 +202,21 @@ func agentLabel(cfg *config.AgentConfig) string {
 }
 
 func emitDispatchFailure(ctx *TakeLoopDispatchContext, err *DispatchFailureError) {
-	banner := fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: %s (pool=%s beat=%s). Fix: %s\x1b[0m\n", err.Missing, err.PoolKey, err.BeatID, err.Fix)
+	banner := fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: %s (pool=%s bead=%s). Fix: %s\x1b[0m\n", err.Missing, err.PoolKey, err.BeadID, err.Fix)
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stderr",
-		BeatID:  ctx.BeatID,
+		BeadID:  ctx.BeadID,
 		Content: banner,
 		Time:    time.Now().UnixMilli(),
 	})
 	slog.Error("dispatch failure", "error", err.Error())
 }
 
-func emitDispatchFailureMsg(ctx *TakeLoopDispatchContext, poolKey, beatID, msg string) {
-	banner := fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: dispatch failed for pool=%s beat=%s: %s\x1b[0m\n", poolKey, beatID, msg)
+func emitDispatchFailureMsg(ctx *TakeLoopDispatchContext, poolKey, beadID, msg string) {
+	banner := fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: dispatch failed for pool=%s bead=%s: %s\x1b[0m\n", poolKey, beadID, msg)
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stderr",
-		BeatID:  ctx.BeatID,
+		BeadID:  ctx.BeadID,
 		Content: banner,
 		Time:    time.Now().UnixMilli(),
 	})
@@ -376,7 +376,7 @@ func ctxToDispatchCtx(ctx *TakeLoopContext) *TakeLoopDispatchContext {
 	}
 	return &TakeLoopDispatchContext{
 		ID:                       ctx.ID,
-		BeatID:                   ctx.BeatID,
+		BeadID:                   ctx.BeadID,
 		PushEvent:                ctx.PushEvent,
 		FinishSession:            ctx.FinishSession,
 		ClaimsPerQueueType:       ctx.ClaimsPerQueueType,
@@ -387,7 +387,7 @@ func ctxToDispatchCtx(ctx *TakeLoopContext) *TakeLoopDispatchContext {
 
 type TakeLoopContext struct {
 	ID                       string
-	BeatID                   string
+	BeadID                   string
 	AgentID                  string
 	AgentLabel               string
 	ClaimsPerQueueType       map[string]int
@@ -431,7 +431,7 @@ func computeStepExclusions(
 			exclusions = append(exclusions, ctx.AgentID)
 		}
 		if priorAction != "" && tracker != nil {
-			if priorAgentID, ok := tracker.Get(ctx.BeatID, priorAction); ok && priorAgentID != "" {
+			if priorAgentID, ok := tracker.Get(ctx.BeadID, priorAction); ok && priorAgentID != "" {
 				exclusions = append(exclusions, priorAgentID)
 			}
 		}
@@ -467,7 +467,7 @@ func HandleMaxClaims(ctx *TakeLoopDispatchContext, queueType string, count, maxC
 
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stdout",
-		BeatID:  ctx.BeatID,
+		BeadID:  ctx.BeadID,
 		Content: fmt.Sprintf("\x1b[33m--- %s Take loop stopped: max claims per queue type %q reached (%d/%d) ---\x1b[0m\n", time.Now().UTC().Format(time.RFC3339), queueType, count, maxClaims),
 		Time:    time.Now().UnixMilli(),
 	})

@@ -4,9 +4,9 @@ import "testing"
 
 func TestBuildHierarchy(t *testing.T) {
 	nodes := map[string]*HierarchyNode{
-		"1": {BeatID: "1"},
-		"2": {BeatID: "2"},
-		"3": {BeatID: "3"},
+		"1": {BeadID: "1"},
+		"2": {BeadID: "2"},
+		"3": {BeadID: "3"},
 	}
 
 	parentMap := map[string]string{
@@ -19,8 +19,8 @@ func TestBuildHierarchy(t *testing.T) {
 	if len(roots) != 1 {
 		t.Fatalf("expected 1 root, got %d", len(roots))
 	}
-	if roots[0].BeatID != "1" {
-		t.Errorf("expected root beat 1, got %s", roots[0].BeatID)
+	if roots[0].BeadID != "1" {
+		t.Errorf("expected root bead 1, got %s", roots[0].BeadID)
 	}
 	if len(roots[0].Children) != 2 {
 		t.Errorf("expected 2 children, got %d", len(roots[0].Children))
@@ -29,8 +29,8 @@ func TestBuildHierarchy(t *testing.T) {
 
 func TestBuildHierarchy_OrphanPromotion(t *testing.T) {
 	nodes := map[string]*HierarchyNode{
-		"1": {BeatID: "1"},
-		"2": {BeatID: "2"},
+		"1": {BeadID: "1"},
+		"2": {BeadID: "2"},
 	}
 
 	parentMap := map[string]string{

@@ -25,8 +25,8 @@ type WorkflowRuntimeState struct {
 	IsAgentClaimable   bool
 }
 
-func stateMismatchError(beatID, expectedState, currentState string) error {
-	return fmt.Errorf("Beat %s: expected state '%s' but currently '%s'", beatID, expectedState, currentState)
+func stateMismatchError(beadID, expectedState, currentState string) error {
+	return fmt.Errorf("Bead %s: expected state '%s' but currently '%s'", beadID, expectedState, currentState)
 }
 
 func normalizeProfileID(profileID string) string {
@@ -360,10 +360,10 @@ func BuiltinProfileDescriptor(profileID string) WorkflowDescriptor {
 	return m["autopilot"]
 }
 
-func resolveWorkflow(beat *Beat) WorkflowDescriptor {
-	profileID := beat.ProfileID
+func resolveWorkflow(bead *Bead) WorkflowDescriptor {
+	profileID := bead.ProfileID
 	if profileID == "" {
-		profileID = beat.WorkflowID
+		profileID = bead.WorkflowID
 	}
 	return BuiltinProfileDescriptor(profileID)
 }
@@ -477,70 +477,70 @@ func isTerminalState(state string, wf WorkflowDescriptor) bool {
 	return false
 }
 
-type BeatTransitionResult struct {
-	Beat      *Beat
+type BeadTransitionResult struct {
+	Bead      *Bead
 	NextState string
 }
 
-func NextBeat(backend BackendPort, beatID string, expectedState string, repoPath string) (*BeatTransitionResult, error) {
-	beat, err := backend.Get(beatID, repoPath)
+func NextBead(backend BackendPort, beadID string, expectedState string, repoPath string) (*BeadTransitionResult, error) {
+	bead, err := backend.Get(beadID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load beat %s: %v", beatID, err)
+		return nil, fmt.Errorf("Failed to load bead %s: %v", beadID, err)
 	}
-	if beat == nil {
-		return nil, fmt.Errorf("Beat %s not found", beatID)
-	}
-
-	if beat.State != expectedState {
-		return nil, stateMismatchError(beatID, expectedState, beat.State)
+	if bead == nil {
+		return nil, fmt.Errorf("Bead %s not found", beadID)
 	}
 
-	wf := resolveWorkflow(beat)
-	target, ok := ForwardTransitionTarget(beat.State, wf)
+	if bead.State != expectedState {
+		return nil, stateMismatchError(beadID, expectedState, bead.State)
+	}
+
+	wf := resolveWorkflow(bead)
+	target, ok := ForwardTransitionTarget(bead.State, wf)
 	if !ok {
-		if isTerminalState(beat.State, wf) {
-			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: state %q is terminal; no forward transition", beat.State)
+		if isTerminalState(bead.State, wf) {
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: state %q is terminal; no forward transition", bead.State)
 		}
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no forward transition from state %q", beat.State)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no forward transition from state %q", bead.State)
 	}
 
-	updateErr := backend.Update(beatID, UpdateBeatInput{State: target}, repoPath)
+	updateErr := backend.Update(beadID, UpdateBeadInput{State: target}, repoPath)
 	if updateErr != nil {
-		return nil, fmt.Errorf("Failed to update beat %s: %v", beatID, updateErr)
+		return nil, fmt.Errorf("Failed to update bead %s: %v", beadID, updateErr)
 	}
 
-	return &BeatTransitionResult{Beat: beat, NextState: target}, nil
+	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
 }
 
-func ClaimBeat(backend BackendPort, beatID string, repoPath string) (*BeatTransitionResult, error) {
-	beat, err := backend.Get(beatID, repoPath)
+func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransitionResult, error) {
+	bead, err := backend.Get(beadID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load beat %s: %v", beatID, err)
+		return nil, fmt.Errorf("Failed to load bead %s: %v", beadID, err)
 	}
-	if beat == nil {
-		return nil, fmt.Errorf("Beat %s not found", beatID)
+	if bead == nil {
+		return nil, fmt.Errorf("Bead %s not found", beadID)
 	}
 
-	wf := resolveWorkflow(beat)
-	resolved, resolveErr := ResolveStepForWorkflow(beat.State, wf)
+	wf := resolveWorkflow(bead)
+	resolved, resolveErr := ResolveStepForWorkflow(bead.State, wf)
 	if resolveErr != nil || resolved.Phase != StepPhaseQueued {
-		return nil, stateMismatchError(beatID, "queued", beat.State)
+		return nil, stateMismatchError(beadID, "queued", bead.State)
 	}
 
-	runtime := DeriveWorkflowRuntimeState(wf, beat.State)
+	runtime := DeriveWorkflowRuntimeState(wf, bead.State)
 	if !runtime.IsAgentClaimable {
-		return nil, fmt.Errorf("Beat %s: expected state 'agent-claimable' but currently '%s' is not claimable", beatID, beat.State)
+		return nil, fmt.Errorf("Bead %s: expected state 'agent-claimable' but currently '%s' is not claimable", beadID, bead.State)
 	}
 
-	target, ok := ForwardTransitionTarget(beat.State, wf)
+	target, ok := ForwardTransitionTarget(bead.State, wf)
 	if !ok {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no forward transition from state %q for beat %s", beat.State, beatID)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no forward transition from state %q for bead %s", bead.State, beadID)
 	}
 
-	updateErr := backend.Update(beatID, UpdateBeatInput{State: target}, repoPath)
+	updateErr := backend.Update(beadID, UpdateBeadInput{State: target}, repoPath)
 	if updateErr != nil {
-		return nil, fmt.Errorf("Failed to update beat %s: %v", beatID, updateErr)
+		return nil, fmt.Errorf("Failed to update bead %s: %v", beadID, updateErr)
 	}
 
-	return &BeatTransitionResult{Beat: beat, NextState: target}, nil
+	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
 }

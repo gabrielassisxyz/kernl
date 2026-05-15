@@ -7,7 +7,7 @@ type ApprovalRequest struct {
 	CreatedAt         string   `json:"createdAt"`
 	UpdatedAt         string   `json:"updatedAt"`
 	RepoPath          string   `json:"repoPath"`
-	BeatID            string   `json:"beatId"`
+	BeadID            string   `json:"beadId"`
 	SessionID         string   `json:"sessionId"`
 	Adapter           string   `json:"adapter"`
 	Source            string   `json:"source"`
@@ -28,9 +28,9 @@ func ExtractApprovalRequest(adapter string, raw map[string]any) (*ApprovalReques
 }
 
 func BuildApprovalLogicalKey(approval *ApprovalRequest) string {
-	return approval.SessionID + ":" + approval.BeatID + ":" + approval.ToolName
+	return approval.SessionID + ":" + approval.BeadID + ":" + approval.ToolName
 }
 
 func FormatApprovalRequestBanner(approval *ApprovalRequest) string {
-	return "KERNL APPROVAL REQUIRED tool=" + approval.ToolName + " beat=" + approval.BeatID
+	return "KERNL APPROVAL REQUIRED tool=" + approval.ToolName + " bead=" + approval.BeadID
 }

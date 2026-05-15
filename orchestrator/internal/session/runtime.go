@@ -16,7 +16,7 @@ import (
 type TerminalEvent struct {
 	Type    string `json:"type"`
 	Content string `json:"content,omitempty"`
-	BeatID  string `json:"beatId,omitempty"`
+	BeadID  string `json:"beadId,omitempty"`
 	Time    int64  `json:"time"`
 }
 
@@ -39,7 +39,7 @@ type PromptDeliveryHook struct {
 type OnTurnEndedFunc func(exitReason string) bool
 
 type SessionRuntime struct {
-	beatID        string
+	beadID        string
 	repoPath       string
 	capabilities   DialectCapabilities
 	dialect        string
@@ -62,18 +62,18 @@ type SessionRuntime struct {
 	tokenLogger  TokenUsageLogger
 }
 
-func NewSessionRuntime(beatID, repoPath string) *SessionRuntime {
+func NewSessionRuntime(beadID, repoPath string) *SessionRuntime {
 	return &SessionRuntime{
-		beatID:       beatID,
+		beadID:       beadID,
 		repoPath:      repoPath,
 		events:        make(chan TerminalEvent, 5000),
 		autoAnswered:  make(map[string]bool),
 	}
 }
 
-func NewSessionRuntimeWithCapabilities(beatID, repoPath, dialect string, interactive bool) *SessionRuntime {
+func NewSessionRuntimeWithCapabilities(beadID, repoPath, dialect string, interactive bool) *SessionRuntime {
 	r := &SessionRuntime{
-		beatID:        beatID,
+		beadID:        beadID,
 		repoPath:       repoPath,
 		dialect:        dialect,
 		capabilities:   CapabilitiesForDialect(dialect, interactive),
@@ -188,8 +188,8 @@ func (r *SessionRuntime) StdinClosed() bool {
 	return r.stdinClosed
 }
 
-func (r *SessionRuntime) BeatID() string {
-	return r.beatID
+func (r *SessionRuntime) BeadID() string {
+	return r.beadID
 }
 
 func (r *SessionRuntime) RepoPath() string {
@@ -481,12 +481,12 @@ func (r *SessionRuntime) processCodexEvent(evtType string, obj map[string]any, r
 		r.mu.Lock()
 		tokenLogger := r.tokenLogger
 		dialect := r.dialect
-		beatID := r.beatID
+		beadID := r.beadID
 		r.lastEventType = "turn.completed"
 		r.mu.Unlock()
 
 		if tokenLogger != nil {
-			LogTokenUsageForEvent(tokenLogger, adapter.AgentDialect(dialect), obj, beatID)
+			LogTokenUsageForEvent(tokenLogger, adapter.AgentDialect(dialect), obj, beadID)
 		}
 
 		r.emit("stdout", rawLine)
@@ -715,12 +715,12 @@ func (r *SessionRuntime) emit(evtType, content string) {
 	evt := TerminalEvent{
 		Type:    evtType,
 		Content: content,
-		BeatID:  r.beatID,
+		BeadID:  r.beadID,
 		Time:    time.Now().UnixMilli(),
 	}
 	select {
 	case r.events <- evt:
 	default:
-		slog.Warn("session event channel full, dropping event", "type", evtType, "beatId", r.beatID)
+		slog.Warn("session event channel full, dropping event", "type", evtType, "beadId", r.beadID)
 	}
 }

@@ -71,7 +71,7 @@ func TestLoggingMiddlewareEmitsStructuredLog(t *testing.T) {
 	})
 
 	handler := LoggingMiddleware(next)
-	req := httptest.NewRequest(http.MethodGet, "/api/beats", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/beads", nil)
 	ctx := WithCorrelationID(req.Context(), "test-req-1")
 	req = req.WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -91,8 +91,8 @@ func TestLoggingMiddlewareEmitsStructuredLog(t *testing.T) {
 	if entry["method"] != "GET" {
 		t.Errorf("expected method 'GET', got %v", entry["method"])
 	}
-	if entry["path"] != "/api/beats" {
-		t.Errorf("expected path '/api/beats', got %v", entry["path"])
+	if entry["path"] != "/api/beads" {
+		t.Errorf("expected path '/api/beads', got %v", entry["path"])
 	}
 }
 

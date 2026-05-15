@@ -30,7 +30,7 @@ const (
 type ForensicClassification struct {
 	Category         ForensicCategory
 	Reasoning        string
-	ConflictingLease *backend.Beat
+	ConflictingLease *backend.Bead
 }
 
 type StepEntry struct {
@@ -46,11 +46,11 @@ type StepEntry struct {
 	ToState     string `json:"to_state,omitempty"`
 }
 
-type BeatSnapshot struct {
+type BeadSnapshot struct {
 	Boundary      DispatchForensicBoundary `json:"boundary"`
 	CapturedAt    string                   `json:"capturedAt"`
 	SessionID     string                   `json:"sessionId"`
-	BeatID        string                   `json:"beatId"`
+	BeadID        string                   `json:"beadId"`
 	AgentInfo     *ExecutionAgentInfo      `json:"agentInfo,omitempty"`
 	LeaseID       string                   `json:"leaseId,omitempty"`
 	Iteration     int                      `json:"iteration,omitempty"`
@@ -58,14 +58,14 @@ type BeatSnapshot struct {
 	ExpectedStep  string                   `json:"expectedStep,omitempty"`
 	KernlPID    int                      `json:"kernlpid"`
 	ChildPID      int                      `json:"childPid,omitempty"`
-	Beat          *backend.Beat            `json:"beat,omitempty"`
-	Leases        []backend.Beat           `json:"leases,omitempty"`
+	Bead          *backend.Bead            `json:"bead,omitempty"`
+	Leases        []backend.Bead           `json:"leases,omitempty"`
 	CaptureErrors []string                 `json:"captureErrors,omitempty"`
 }
 
 type CaptureContext struct {
 	SessionID     string
-	BeatID        string
+	BeadID        string
 	RepoPath      string
 	Iteration     int
 	LeaseID       string
@@ -81,7 +81,7 @@ type ClassifierSignals struct {
 }
 
 type SnapshotWriter interface {
-	Write(snapshot BeatSnapshot) (string, error)
+	Write(snapshot BeadSnapshot) (string, error)
 }
 
 type MemorySnapshotWriter struct {
@@ -91,20 +91,20 @@ type MemorySnapshotWriter struct {
 
 type MemorySnapshotEntry struct {
 	Path     string
-	Snapshot BeatSnapshot
+	Snapshot BeadSnapshot
 }
 
 func NewMemorySnapshotWriter(logRoot string) *MemorySnapshotWriter {
 	return &MemorySnapshotWriter{LogRoot: logRoot}
 }
 
-func (m *MemorySnapshotWriter) Write(snapshot BeatSnapshot) (string, error) {
+func (m *MemorySnapshotWriter) Write(snapshot BeadSnapshot) (string, error) {
 	date := snapshot.CapturedAt[:10]
 	p := SnapshotPath(SnapshotPathInput{
 		LogRoot:    m.LogRoot,
 		Date:       date,
 		SessionID:  snapshot.SessionID,
-		BeatID:     snapshot.BeatID,
+		BeadID:     snapshot.BeadID,
 		Boundary:   snapshot.Boundary,
 		CapturedAt: snapshot.CapturedAt,
 	})
@@ -116,7 +116,7 @@ type SnapshotPathInput struct {
 	LogRoot    string
 	Date       string
 	SessionID  string
-	BeatID     string
+	BeadID     string
 	Boundary   DispatchForensicBoundary
 	CapturedAt string
 }
@@ -127,8 +127,8 @@ type PostTurnForensicResult struct {
 }
 
 type ForensicDeps struct {
-	ShowKnot    func(beatID, repoPath string) (*backend.Beat, error)
-	ListLeases  func(repoPath string, activeOnly bool) ([]backend.Beat, error)
+	ShowKnot    func(beadID, repoPath string) (*backend.Bead, error)
+	ListLeases  func(repoPath string, activeOnly bool) ([]backend.Bead, error)
 	Writer      SnapshotWriter
 	LogAudit    func(event string, payload map[string]any)
 	PushBanner  func(banner string)

@@ -2,16 +2,16 @@ package orchestration
 
 import "sort"
 
-func SortBeatsPriorityThenState(beats []BeatEntry) {
-	sort.SliceStable(beats, func(i, j int) bool {
-		if beats[i].Priority != beats[j].Priority {
-			return beats[i].Priority > beats[j].Priority
+func SortBeadsPriorityThenState(beads []BeadEntry) {
+	sort.SliceStable(beads, func(i, j int) bool {
+		if beads[i].Priority != beads[j].Priority {
+			return beads[i].Priority > beads[j].Priority
 		}
-		return stateRank(beats[i].State) < stateRank(beats[j].State)
+		return stateRank(beads[i].State) < stateRank(beads[j].State)
 	})
 }
 
-type BeatEntry struct {
+type BeadEntry struct {
 	ID        string
 	State     string
 	Priority  int

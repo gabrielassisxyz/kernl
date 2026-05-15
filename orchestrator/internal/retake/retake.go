@@ -2,7 +2,7 @@ package retake
 
 import "strings"
 
-// RetakeTargetState is the canonical state used when reopening a beat for
+// RetakeTargetState is the canonical state used when reopening a bead for
 // regression investigation via ReTake.
 const RetakeTargetState = "ready_for_implementation"
 
@@ -28,20 +28,20 @@ func IsRetakeSourceState(state string) bool {
 // used by retake scoping logic.
 type RetakeTerminal struct {
 	SessionID string
-	BeatID    string
-	BeatTitle string
+	BeadID    string
+	BeadTitle string
 	RepoPath  string
 	Status    string
 	StartedAt string
 }
 
-// RepoScopedBeatKey builds a repo-scoped key for a beat to disambiguate
-// duplicate beat IDs across different repositories.
-func RepoScopedBeatKey(beatID, repoPath string) string {
-	return repoPath + "::" + beatID
+// RepoScopedBeadKey builds a repo-scoped key for a bead to disambiguate
+// duplicate bead IDs across different repositories.
+func RepoScopedBeadKey(beadID, repoPath string) string {
+	return repoPath + "::" + beadID
 }
 
-// BuildRetakeShippingIndex creates a map from repo-scoped beat key to session
+// BuildRetakeShippingIndex creates a map from repo-scoped bead key to session
 // ID for all running terminals. This is used to detect ancestor sessions
 // during retake.
 func BuildRetakeShippingIndex(terminals []RetakeTerminal) map[string]string {
@@ -50,40 +50,40 @@ func BuildRetakeShippingIndex(terminals []RetakeTerminal) map[string]string {
 		if t.Status != "running" {
 			continue
 		}
-		key := RepoScopedBeatKey(t.BeatID, t.RepoPath)
+		key := RepoScopedBeadKey(t.BeadID, t.RepoPath)
 		acc[key] = t.SessionID
 	}
 	return acc
 }
 
-// FindRunningTerminalForBeat returns the first running terminal matching the
-// given beat ID within the specified repo scope.
-func FindRunningTerminalForBeat(terminals []RetakeTerminal, beatID, repoPath string) *RetakeTerminal {
-	target := RepoScopedBeatKey(beatID, repoPath)
+// FindRunningTerminalForBead returns the first running terminal matching the
+// given bead ID within the specified repo scope.
+func FindRunningTerminalForBead(terminals []RetakeTerminal, beadID, repoPath string) *RetakeTerminal {
+	target := RepoScopedBeadKey(beadID, repoPath)
 	for i := range terminals {
 		t := &terminals[i]
-		if t.Status == "running" && RepoScopedBeatKey(t.BeatID, t.RepoPath) == target {
+		if t.Status == "running" && RepoScopedBeadKey(t.BeadID, t.RepoPath) == target {
 			return t
 		}
 	}
 	return nil
 }
 
-// RetakeBeat is a minimal beat representation used by retake parent indexing.
-type RetakeBeat struct {
+// RetakeBead is a minimal bead representation used by retake parent indexing.
+type RetakeBead struct {
 	ID       string
 	Parent   string
 	RepoPath string
 }
 
-// BuildRetakeParentIndex creates a map from repo-scoped beat key to its
+// BuildRetakeParentIndex creates a map from repo-scoped bead key to its
 // repo-scoped parent key (or empty string if no parent).
-func BuildRetakeParentIndex(beats []RetakeBeat) map[string]string {
-	m := make(map[string]string, len(beats))
-	for _, b := range beats {
-		key := RepoScopedBeatKey(b.ID, b.RepoPath)
+func BuildRetakeParentIndex(beads []RetakeBead) map[string]string {
+	m := make(map[string]string, len(beads))
+	for _, b := range beads {
+		key := RepoScopedBeadKey(b.ID, b.RepoPath)
 		if b.Parent != "" {
-			m[key] = RepoScopedBeatKey(b.Parent, b.RepoPath)
+			m[key] = RepoScopedBeadKey(b.Parent, b.RepoPath)
 		} else {
 			m[key] = ""
 		}
@@ -91,18 +91,18 @@ func BuildRetakeParentIndex(beats []RetakeBeat) map[string]string {
 	return m
 }
 
-// HasRollingAncestor walks the parent chain of the given beat and returns
+// HasRollingAncestor walks the parent chain of the given bead and returns
 // true if any ancestor has a running session in the shipping index.
-func HasRollingAncestor(beat RetakeBeat, parentByBeatID map[string]string, shippingIndex map[string]string) bool {
+func HasRollingAncestor(bead RetakeBead, parentByBeadID map[string]string, shippingIndex map[string]string) bool {
 	visited := make(map[string]bool)
-	current := RepoScopedBeatKey(beat.ID, beat.RepoPath)
+	current := RepoScopedBeadKey(bead.ID, bead.RepoPath)
 	for {
 		if visited[current] {
 			return false // cycle detected
 		}
 		visited[current] = true
 
-		parent, ok := parentByBeatID[current]
+		parent, ok := parentByBeadID[current]
 		if !ok || parent == "" {
 			return false
 		}

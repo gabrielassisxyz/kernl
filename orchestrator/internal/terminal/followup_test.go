@@ -35,7 +35,7 @@ func makeFollowUpCtx(overrides ...func(*TakeLoopContext)) *TakeLoopContext {
 		KnotsLeaseID:             "test-lease-active",
 		KnotsLeaseStep:           "implementation",
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-6881"}, "/tmp/kernl-test")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-6881"}, "/tmp/kernl-test")
 	ctx.WorkflowsByID = map[string]*backend.WorkflowDescriptor{}
 	ctx.FallbackWorkflow = &backend.WorkflowDescriptor{
 		ID:             "default",
@@ -64,8 +64,8 @@ func TestHandleTakeLoopTurnEnded_SendsFollowUpWhenActive(t *testing.T) {
 	sent := false
 	sentPrompt := ""
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "planning"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { sent = true; sentPrompt = prompt; return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -74,7 +74,7 @@ func TestHandleTakeLoopTurnEnded_SendsFollowUpWhenActive(t *testing.T) {
 	result := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if !result {
-		t.Error("expected true when beat is in active state")
+		t.Error("expected true when bead is in active state")
 	}
 	if !sent {
 		t.Error("expected follow-up prompt to be sent")
@@ -82,8 +82,8 @@ func TestHandleTakeLoopTurnEnded_SendsFollowUpWhenActive(t *testing.T) {
 	if sentPrompt == "" {
 		t.Error("expected non-empty prompt")
 	}
-	if !containsAll(sentPrompt, "still in state", "beat-6881") {
-		t.Errorf("prompt should contain beat id and state, got: %s", sentPrompt)
+	if !containsAll(sentPrompt, "still in state", "bead-6881") {
+		t.Errorf("prompt should contain bead id and state, got: %s", sentPrompt)
 	}
 }
 
@@ -91,8 +91,8 @@ func TestHandleTakeLoopTurnEnded_DoesNotSendWhenTerminal(t *testing.T) {
 	ctx := makeFollowUpCtx()
 	sent := false
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "shipped"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "shipped"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { sent = true; return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -101,10 +101,10 @@ func TestHandleTakeLoopTurnEnded_DoesNotSendWhenTerminal(t *testing.T) {
 	result := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
-		t.Error("expected false when beat has advanced to terminal")
+		t.Error("expected false when bead has advanced to terminal")
 	}
 	if sent {
-		t.Error("expected no follow-up when beat is terminal")
+		t.Error("expected no follow-up when bead is terminal")
 	}
 	if ctx.FollowUpAttempts.Count != 0 {
 		t.Errorf("expected count reset to 0, got %d", ctx.FollowUpAttempts.Count)
@@ -115,8 +115,8 @@ func TestHandleTakeLoopTurnEnded_DoesNotSendWhenQueue(t *testing.T) {
 	ctx := makeFollowUpCtx()
 	sent := false
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "open"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "open"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { sent = true; return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -125,10 +125,10 @@ func TestHandleTakeLoopTurnEnded_DoesNotSendWhenQueue(t *testing.T) {
 	result := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
-		t.Error("expected false when beat is in queue state")
+		t.Error("expected false when bead is in queue state")
 	}
 	if sent {
-		t.Error("expected no follow-up when beat is in queue state")
+		t.Error("expected no follow-up when bead is in queue state")
 	}
 }
 
@@ -136,7 +136,7 @@ func TestHandleTakeLoopTurnEnded_ReturnsFalseWhenFetchFails(t *testing.T) {
 	ctx := makeFollowUpCtx()
 	sent := false
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
 			return nil, fmt.Errorf("fetch error")
 		},
 		SendUserTurn: func(prompt, source string) bool { sent = true; return true },
@@ -156,8 +156,8 @@ func TestHandleTakeLoopTurnEnded_ReturnsFalseWhenFetchFails(t *testing.T) {
 func TestHandleTakeLoopTurnEnded_SendUserTurnFails(t *testing.T) {
 	ctx := makeFollowUpCtx()
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "planning"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { return false },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -173,8 +173,8 @@ func TestHandleTakeLoopTurnEnded_CapStopsAfterFive(t *testing.T) {
 	ctx := makeFollowUpCtx()
 	callCount := 0
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "planning"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { callCount++; return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -206,8 +206,8 @@ func TestHandleTakeLoopTurnEnded_CapBannerEmitted(t *testing.T) {
 		}
 	})
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "planning"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -219,12 +219,12 @@ func TestHandleTakeLoopTurnEnded_CapBannerEmitted(t *testing.T) {
 
 	found := false
 	for _, b := range banners {
-		if containsAll(b.Content, "follow-up cap reached", "beat-6881", "planning") {
+		if containsAll(b.Content, "follow-up cap reached", "bead-6881", "planning") {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected stderr banner containing 'follow-up cap reached', beat id, and state")
+		t.Error("expected stderr banner containing 'follow-up cap reached', bead id, and state")
 	}
 }
 
@@ -252,10 +252,10 @@ func TestHandleTakeLoopTurnEnded_CapResetOnStateAdvance(t *testing.T) {
 	states := []string{"planning", "planning", "planning", "review"}
 	callIdx := 0
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
 			state := states[callIdx]
 			callIdx++
-			return &backend.Beat{ID: "beat-6881", State: state}, nil
+			return &backend.Bead{ID: "bead-6881", State: state}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -286,8 +286,8 @@ func TestHandleTakeLoopTurnEnded_CapResetOnQueueState(t *testing.T) {
 	ctx.FollowUpAttempts.LastState = "planning"
 
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "shipped"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "shipped"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { return true },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
@@ -296,7 +296,7 @@ func TestHandleTakeLoopTurnEnded_CapResetOnQueueState(t *testing.T) {
 	result := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
-		t.Error("expected false when beat reaches terminal state")
+		t.Error("expected false when bead reaches terminal state")
 	}
 	if ctx.FollowUpAttempts.Count != 0 {
 		t.Errorf("expected count reset to 0, got %d", ctx.FollowUpAttempts.Count)
@@ -317,8 +317,8 @@ func TestHandleTakeLoopTurnEnded_LeaseHealthBlocksFollowUp(t *testing.T) {
 	})
 	sent := false
 	deps := FollowUpDeps{
-		GetBeat: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "beat-6881", State: "planning"}, nil
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
 		},
 		SendUserTurn: func(prompt, source string) bool { sent = true; return true },
 		LeaseChecker: &mockLeaseChecker{
@@ -344,7 +344,7 @@ func TestHandleTakeLoopTurnEnded_LeaseHealthBlocksFollowUp(t *testing.T) {
 func TestBuildTakeLoopFollowUpPrompt(t *testing.T) {
 	prompt := BuildTakeLoopFollowUpPrompt("kernl-6881", "workable")
 	if !containsAll(prompt, "kernl-6881", "workable", "still in state") {
-		t.Errorf("prompt should contain beat id, state, and 'still in state', got: %s", prompt)
+		t.Errorf("prompt should contain bead id, state, and 'still in state', got: %s", prompt)
 	}
 	if !containsAll(prompt, "kno rollback") {
 		t.Errorf("prompt should suggest kno rollback, got: %s", prompt)

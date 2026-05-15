@@ -758,15 +758,15 @@ func WorkflowDescriptorByID(workflows []backend.WorkflowDescriptor) map[string]*
 	return m
 }
 
-func ResolveWorkflowForBeat(beat *backend.Beat, workflowsByID map[string]*backend.WorkflowDescriptor, fallback ...*backend.WorkflowDescriptor) *backend.WorkflowDescriptor {
-	profileID := NormalizeProfileID(beat.ProfileID)
+func ResolveWorkflowForBead(bead *backend.Bead, workflowsByID map[string]*backend.WorkflowDescriptor, fallback ...*backend.WorkflowDescriptor) *backend.WorkflowDescriptor {
+	profileID := NormalizeProfileID(bead.ProfileID)
 	if profileID != "" {
 		if wf, ok := workflowsByID[profileID]; ok {
 			return wf
 		}
 	}
-	if beat.WorkflowID != "" {
-		if wf, ok := workflowsByID[beat.WorkflowID]; ok {
+	if bead.WorkflowID != "" {
+		if wf, ok := workflowsByID[bead.WorkflowID]; ok {
 			return wf
 		}
 	}
@@ -776,29 +776,29 @@ func ResolveWorkflowForBeat(beat *backend.Beat, workflowsByID map[string]*backen
 	return nil
 }
 
-func BeatRequiresHumanAction(beat *backend.Beat, workflowsByID map[string]*backend.WorkflowDescriptor) bool {
-	if beat.RequiresHumanAction {
+func BeadRequiresHumanAction(bead *backend.Bead, workflowsByID map[string]*backend.WorkflowDescriptor) bool {
+	if bead.RequiresHumanAction {
 		return true
 	}
-	wf := ResolveWorkflowForBeat(beat, workflowsByID)
+	wf := ResolveWorkflowForBead(bead, workflowsByID)
 	if wf == nil {
 		return false
 	}
-	rs := DeriveWorkflowRuntimeState(wf, beat.State)
+	rs := DeriveWorkflowRuntimeState(wf, bead.State)
 	return rs.RequiresHumanAction
 }
 
-func BeatInFinalCut(beat *backend.Beat, workflowsByID map[string]*backend.WorkflowDescriptor) bool {
-	return BeatRequiresHumanAction(beat, workflowsByID)
+func BeadInFinalCut(bead *backend.Bead, workflowsByID map[string]*backend.WorkflowDescriptor) bool {
+	return BeadRequiresHumanAction(bead, workflowsByID)
 }
 
-func BeatInRetake(beat *backend.Beat, workflowsByID map[string]*backend.WorkflowDescriptor) bool {
-	normalized := strings.TrimSpace(strings.ToLower(beat.State))
+func BeadInRetake(bead *backend.Bead, workflowsByID map[string]*backend.WorkflowDescriptor) bool {
+	normalized := strings.TrimSpace(strings.ToLower(bead.State))
 	if legacyRetakeStates[normalized] {
 		return true
 	}
 
-	wf := ResolveWorkflowForBeat(beat, workflowsByID)
+	wf := ResolveWorkflowForBead(bead, workflowsByID)
 	if wf == nil {
 		return false
 	}

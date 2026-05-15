@@ -7,43 +7,43 @@ import (
 )
 
 type stateMachineBackend struct {
-	beats   map[string]*Beat
-	updates map[string]UpdateBeatInput
+	beads   map[string]*Bead
+	updates map[string]UpdateBeadInput
 }
 
 func newStateMachineBackend() *stateMachineBackend {
 	return &stateMachineBackend{
-		beats:   make(map[string]*Beat),
-		updates: make(map[string]UpdateBeatInput),
+		beads:   make(map[string]*Bead),
+		updates: make(map[string]UpdateBeadInput),
 	}
 }
 
-func (s *stateMachineBackend) seedBeat(id, state, profileID string) {
-	s.beats[id] = &Beat{ID: id, State: state, ProfileID: profileID}
+func (s *stateMachineBackend) seedBead(id, state, profileID string) {
+	s.beads[id] = &Bead{ID: id, State: state, ProfileID: profileID}
 }
 
 func (s *stateMachineBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, error) {
 	return BuiltinWorkflowDescriptors(), nil
 }
-func (s *stateMachineBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (s *stateMachineBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	return nil, nil
 }
-func (s *stateMachineBackend) ListReady(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (s *stateMachineBackend) ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	return nil, nil
 }
-func (s *stateMachineBackend) Get(id string, repoPath string) (*Beat, error) {
-	b, ok := s.beats[id]
+func (s *stateMachineBackend) Get(id string, repoPath string) (*Bead, error) {
+	b, ok := s.beads[id]
 	if !ok {
 		return nil, fmt.Errorf("not found: %s", id)
 	}
 	return b, nil
 }
-func (s *stateMachineBackend) Create(input CreateBeatInput, repoPath string) (*Beat, error) {
+func (s *stateMachineBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
 	return nil, nil
 }
-func (s *stateMachineBackend) Update(id string, input UpdateBeatInput, repoPath string) error {
+func (s *stateMachineBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
 	s.updates[id] = input
-	if b, ok := s.beats[id]; ok {
+	if b, ok := s.beads[id]; ok {
 		if input.State != "" {
 			b.State = input.State
 		}
@@ -61,10 +61,10 @@ func (s *stateMachineBackend) Reopen(id string, reason string, repoPath string) 
 func (s *stateMachineBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
 	return nil
 }
-func (s *stateMachineBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (s *stateMachineBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	return nil, nil
 }
-func (s *stateMachineBackend) Query(expression string, options *BeatQueryOptions, repoPath string) ([]Beat, error) {
+func (s *stateMachineBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
 	return nil, nil
 }
 func (s *stateMachineBackend) AddDependency(blockerID string, blockedID string, repoPath string) error {
@@ -73,10 +73,10 @@ func (s *stateMachineBackend) AddDependency(blockerID string, blockedID string, 
 func (s *stateMachineBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
 	return nil
 }
-func (s *stateMachineBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeatDependency, error) {
+func (s *stateMachineBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
 	return nil, nil
 }
-func (s *stateMachineBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
+func (s *stateMachineBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
 	return nil, nil
 }
 func (s *stateMachineBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {
@@ -89,10 +89,10 @@ func isExpectedStateMismatchError(msg string) bool {
 	return strings.Contains(lower, "expected state") && strings.Contains(lower, "currently")
 }
 
-func TestNextBeat_AdvancesFromCurrentState(t *testing.T) {
+func TestNextBead_AdvancesFromCurrentState(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "implementation", "autopilot")
-	result, err := NextBeat(backend, "beat-1", "implementation", "/repo")
+	backend.seedBead("bead-1", "implementation", "autopilot")
+	result, err := NextBead(backend, "bead-1", "implementation", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -101,10 +101,10 @@ func TestNextBeat_AdvancesFromCurrentState(t *testing.T) {
 	}
 }
 
-func TestNextBeat_ThrowsStateMismatch(t *testing.T) {
+func TestNextBead_ThrowsStateMismatch(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "implementation", "autopilot")
-	_, err := NextBeat(backend, "beat-1", "planning", "/repo")
+	backend.seedBead("bead-1", "implementation", "autopilot")
+	_, err := NextBead(backend, "bead-1", "planning", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -113,21 +113,21 @@ func TestNextBeat_ThrowsStateMismatch(t *testing.T) {
 	}
 }
 
-func TestNextBeat_PersistsNewState(t *testing.T) {
+func TestNextBead_PersistsNewState(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "planning", "autopilot")
-	_, err := NextBeat(backend, "beat-1", "planning", "/repo")
+	backend.seedBead("bead-1", "planning", "autopilot")
+	_, err := NextBead(backend, "bead-1", "planning", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if backend.beats["beat-1"].State != "ready_for_plan_review" {
-		t.Errorf("expected state 'ready_for_plan_review', got %q", backend.beats["beat-1"].State)
+	if backend.beads["bead-1"].State != "ready_for_plan_review" {
+		t.Errorf("expected state 'ready_for_plan_review', got %q", backend.beads["bead-1"].State)
 	}
 }
 
-func TestNextBeat_ThrowsWhenBeatNotFound(t *testing.T) {
+func TestNextBead_ThrowsWhenBeadNotFound(t *testing.T) {
 	backend := newStateMachineBackend()
-	_, err := NextBeat(backend, "nonexistent", "planning", "/repo")
+	_, err := NextBead(backend, "nonexistent", "planning", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -136,10 +136,10 @@ func TestNextBeat_ThrowsWhenBeatNotFound(t *testing.T) {
 	}
 }
 
-func TestNextBeat_ThrowsTerminalStateNoForwardTransition(t *testing.T) {
+func TestNextBead_ThrowsTerminalStateNoForwardTransition(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "shipped", "autopilot")
-	_, err := NextBeat(backend, "beat-1", "shipped", "/repo")
+	backend.seedBead("bead-1", "shipped", "autopilot")
+	_, err := NextBead(backend, "bead-1", "shipped", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -148,10 +148,10 @@ func TestNextBeat_ThrowsTerminalStateNoForwardTransition(t *testing.T) {
 	}
 }
 
-func TestNextBeat_AdvancesFromQueuedToActive(t *testing.T) {
+func TestNextBead_AdvancesFromQueuedToActive(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_implementation", "autopilot")
-	result, err := NextBeat(backend, "beat-1", "ready_for_implementation", "/repo")
+	backend.seedBead("bead-1", "ready_for_implementation", "autopilot")
+	result, err := NextBead(backend, "bead-1", "ready_for_implementation", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,10 +160,10 @@ func TestNextBeat_AdvancesFromQueuedToActive(t *testing.T) {
 	}
 }
 
-func TestNextBeat_MismatchErrorCompatible(t *testing.T) {
+func TestNextBead_MismatchErrorCompatible(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "implementation", "autopilot")
-	_, err := NextBeat(backend, "beat-1", "shipment", "/repo")
+	backend.seedBead("bead-1", "implementation", "autopilot")
+	_, err := NextBead(backend, "bead-1", "shipment", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -176,10 +176,10 @@ func TestNextBeat_MismatchErrorCompatible(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_TransitionsQueuedToActive(t *testing.T) {
+func TestClaimBead_TransitionsQueuedToActive(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_implementation", "autopilot")
-	result, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "ready_for_implementation", "autopilot")
+	result, err := ClaimBead(backend, "bead-1", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,22 +188,22 @@ func TestClaimBeat_TransitionsQueuedToActive(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_PersistsActiveState(t *testing.T) {
+func TestClaimBead_PersistsActiveState(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_planning", "autopilot")
-	_, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "ready_for_planning", "autopilot")
+	_, err := ClaimBead(backend, "bead-1", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if backend.beats["beat-1"].State != "planning" {
-		t.Errorf("expected state 'planning', got %q", backend.beats["beat-1"].State)
+	if backend.beads["bead-1"].State != "planning" {
+		t.Errorf("expected state 'planning', got %q", backend.beads["bead-1"].State)
 	}
 }
 
-func TestClaimBeat_ThrowsWhenAlreadyActive(t *testing.T) {
+func TestClaimBead_ThrowsWhenAlreadyActive(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "implementation", "autopilot")
-	_, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "implementation", "autopilot")
+	_, err := ClaimBead(backend, "bead-1", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -212,10 +212,10 @@ func TestClaimBeat_ThrowsWhenAlreadyActive(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_ThrowsWhenTerminal(t *testing.T) {
+func TestClaimBead_ThrowsWhenTerminal(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "shipped", "autopilot")
-	_, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "shipped", "autopilot")
+	_, err := ClaimBead(backend, "bead-1", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -224,9 +224,9 @@ func TestClaimBeat_ThrowsWhenTerminal(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_ThrowsWhenBeatNotFound(t *testing.T) {
+func TestClaimBead_ThrowsWhenBeadNotFound(t *testing.T) {
 	backend := newStateMachineBackend()
-	_, err := ClaimBeat(backend, "nonexistent", "/repo")
+	_, err := ClaimBead(backend, "nonexistent", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -235,10 +235,10 @@ func TestClaimBeat_ThrowsWhenBeatNotFound(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_ThrowsWhenHumanOwnedQueue(t *testing.T) {
+func TestClaimBead_ThrowsWhenHumanOwnedQueue(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_plan_review", "semiauto")
-	_, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "ready_for_plan_review", "semiauto")
+	_, err := ClaimBead(backend, "bead-1", "/repo")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -247,10 +247,10 @@ func TestClaimBeat_ThrowsWhenHumanOwnedQueue(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_ClaimsShipmentQueue(t *testing.T) {
+func TestClaimBead_ClaimsShipmentQueue(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_shipment", "autopilot")
-	result, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "ready_for_shipment", "autopilot")
+	result, err := ClaimBead(backend, "bead-1", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -454,10 +454,10 @@ func TestDeriveWorkflowRuntimeState_ActiveState(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_SemiautoPlanReview_Throws(t *testing.T) {
+func TestClaimBead_SemiautoPlanReview_Throws(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_plan_review", "semiauto")
-	_, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "ready_for_plan_review", "semiauto")
+	_, err := ClaimBead(backend, "bead-1", "/repo")
 	if err == nil {
 		t.Fatal("expected error for human-owned queue state, got nil")
 	}
@@ -468,10 +468,10 @@ func TestClaimBeat_SemiautoPlanReview_Throws(t *testing.T) {
 	}
 }
 
-func TestClaimBeat_SemiautoImplementation_Claims(t *testing.T) {
+func TestClaimBead_SemiautoImplementation_Claims(t *testing.T) {
 	backend := newStateMachineBackend()
-	backend.seedBeat("beat-1", "ready_for_implementation", "semiauto")
-	result, err := ClaimBeat(backend, "beat-1", "/repo")
+	backend.seedBead("bead-1", "ready_for_implementation", "semiauto")
+	result, err := ClaimBead(backend, "bead-1", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

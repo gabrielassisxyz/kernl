@@ -52,7 +52,7 @@ func (m *SessionConnectionManager) ServeSSE(w http.ResponseWriter, r *http.Reque
 			data, err := json.Marshal(TerminalEvent{
 				Type:    evt.Type,
 				Content: evt.Content,
-				BeatID:  evt.BeatID,
+				BeadID:  evt.BeadID,
 				Time:    evt.Time,
 			})
 			if err != nil {

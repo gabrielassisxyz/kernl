@@ -1,7 +1,7 @@
 package orchestration
 
 type GroomingJob struct {
-	BeatID   string
+	BeadID   string
 	RepoPath string
 	Prompt   string
 }

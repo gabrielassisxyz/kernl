@@ -141,15 +141,15 @@ type mockTokenUsageLogger struct {
 }
 
 type tokenUsageCall struct {
-	beatID string
+	beadID string
 	usage  TokenUsageCounts
 }
 
-func (m *mockTokenUsageLogger) LogTokenUsage(beatID string, usage TokenUsageCounts) {
-	m.calls = append(m.calls, tokenUsageCall{beatID: beatID, usage: usage})
+func (m *mockTokenUsageLogger) LogTokenUsage(beadID string, usage TokenUsageCounts) {
+	m.calls = append(m.calls, tokenUsageCall{beadID: beadID, usage: usage})
 }
 
-func TestLogTokenUsageForEvent_SingleBeat(t *testing.T) {
+func TestLogTokenUsageForEvent_SingleBead(t *testing.T) {
 	logger := &mockTokenUsageLogger{}
 	parsed := map[string]any{
 		"type": "turn.completed",
@@ -159,12 +159,12 @@ func TestLogTokenUsageForEvent_SingleBeat(t *testing.T) {
 			"total_tokens":  float64(15),
 		},
 	}
-	LogTokenUsageForEvent(logger, adapter.DialectCodex, parsed, "beat-a")
+	LogTokenUsageForEvent(logger, adapter.DialectCodex, parsed, "bead-a")
 	if len(logger.calls) != 1 {
 		t.Fatalf("expected 1 call, got %d", len(logger.calls))
 	}
-	if logger.calls[0].beatID != "beat-a" {
-		t.Errorf("beatID = %q, want %q", logger.calls[0].beatID, "beat-a")
+	if logger.calls[0].beadID != "bead-a" {
+		t.Errorf("beadID = %q, want %q", logger.calls[0].beadID, "bead-a")
 	}
 	if logger.calls[0].usage.InputTokens != 10 {
 		t.Errorf("InputTokens = %d, want 10", logger.calls[0].usage.InputTokens)
@@ -182,7 +182,7 @@ func TestLogTokenUsageForEvent_NoExtraction(t *testing.T) {
 	parsed := map[string]any{
 		"type": "turn.started",
 	}
-	LogTokenUsageForEvent(logger, adapter.DialectCodex, parsed, "beat-a")
+	LogTokenUsageForEvent(logger, adapter.DialectCodex, parsed, "bead-a")
 	if len(logger.calls) != 0 {
 		t.Errorf("expected 0 calls for non-matching event, got %d", len(logger.calls))
 	}

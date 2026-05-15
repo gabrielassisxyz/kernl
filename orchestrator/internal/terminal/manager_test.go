@@ -29,7 +29,7 @@ func TestNewTerminalManagerWithMaxSessions(t *testing.T) {
 
 func TestCreateSession(t *testing.T) {
 	m := NewTerminalManager(WithMaxSessions(5))
-	entry, err := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, err := m.CreateSession(context.Background(), "bead-1", "/repo")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,8 +39,8 @@ func TestCreateSession(t *testing.T) {
 	if entry.Session.ID == "" {
 		t.Error("expected non-empty session ID")
 	}
-	if entry.Session.BeatID != "beat-1" {
-		t.Errorf("expected beatId=beat-1, got %s", entry.Session.BeatID)
+	if entry.Session.BeadID != "bead-1" {
+		t.Errorf("expected beadId=bead-1, got %s", entry.Session.BeadID)
 	}
 	if entry.Session.RepoPath != "/repo" {
 		t.Errorf("expected repoPath=/repo, got %s", entry.Session.RepoPath)
@@ -69,13 +69,13 @@ func TestCreateSessionMaxConcurrent(t *testing.T) {
 	m := NewTerminalManager(WithMaxSessions(2))
 
 	for i := 0; i < 2; i++ {
-		_, err := m.CreateSession(context.Background(), "beat-1", "/repo")
+		_, err := m.CreateSession(context.Background(), "bead-1", "/repo")
 		if err != nil {
 			t.Fatalf("unexpected error creating session %d: %v", i, err)
 		}
 	}
 
-	_, err := m.CreateSession(context.Background(), "beat-1", "/repo")
+	_, err := m.CreateSession(context.Background(), "bead-1", "/repo")
 	if err == nil {
 		t.Error("expected error for max concurrent sessions")
 	}
@@ -83,7 +83,7 @@ func TestCreateSessionMaxConcurrent(t *testing.T) {
 
 func TestGetSession(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	found, ok := m.GetSession(entry.Session.ID)
 	if !ok {
@@ -101,8 +101,8 @@ func TestGetSession(t *testing.T) {
 
 func TestListSessions(t *testing.T) {
 	m := NewTerminalManager()
-	m.CreateSession(context.Background(), "beat-1", "/repo1")
-	m.CreateSession(context.Background(), "beat-2", "/repo2")
+	m.CreateSession(context.Background(), "bead-1", "/repo1")
+	m.CreateSession(context.Background(), "bead-2", "/repo2")
 
 	sessions := m.ListSessions()
 	if len(sessions) != 2 {
@@ -123,7 +123,7 @@ func TestAbortSessionNotFound(t *testing.T) {
 
 func TestAbortSession(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	outcome := m.AbortSession(entry.Session.ID)
 	if !outcome.OK {
@@ -143,7 +143,7 @@ func TestAbortSession(t *testing.T) {
 
 func TestAbortSessionIdempotent(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	m.AbortSession(entry.Session.ID)
 	outcome := m.AbortSession(entry.Session.ID)
@@ -169,7 +169,7 @@ func TestTerminateSessionNotFound(t *testing.T) {
 
 func TestTerminateSessionAlreadyExited(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	entry.mu.Lock()
 	entry.Session.Status = StatusCompleted
@@ -207,7 +207,7 @@ func (p *mockProcess) Signal(sig interface{}) error {
 
 func TestTerminateSessionWithProcess(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	proc := &mockProcess{pid: 12345}
 	entry.SetProcess(proc)
@@ -226,7 +226,7 @@ func TestTerminateSessionWithProcess(t *testing.T) {
 
 func TestKillSessionWithProcess(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	proc := &mockProcess{pid: 12345}
 	entry.SetProcess(proc)
@@ -245,7 +245,7 @@ func TestKillSessionWithProcess(t *testing.T) {
 
 func TestRemoveSession(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	id := entry.Session.ID
 	m.RemoveSession(id)
@@ -263,10 +263,10 @@ func TestRemoveSessionNotFound(t *testing.T) {
 
 func TestPushEvent(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 	id := entry.Session.ID
 
-	evt := session.TerminalEvent{Type: "stdout", Content: "hello", BeatID: "beat-1", Time: time.Now().UnixMilli()}
+	evt := session.TerminalEvent{Type: "stdout", Content: "hello", BeadID: "bead-1", Time: time.Now().UnixMilli()}
 	m.PushEvent(id, evt)
 
 	buf := m.GetBuffer(id)
@@ -280,11 +280,11 @@ func TestPushEvent(t *testing.T) {
 
 func TestPushEventBufferOverflow(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 	id := entry.Session.ID
 
 	for i := 0; i < MaxBuffer+100; i++ {
-		evt := session.TerminalEvent{Type: "stdout", BeatID: "beat-1", Time: time.Now().UnixMilli()}
+		evt := session.TerminalEvent{Type: "stdout", BeadID: "bead-1", Time: time.Now().UnixMilli()}
 		m.PushEvent(id, evt)
 	}
 
@@ -296,7 +296,7 @@ func TestPushEventBufferOverflow(t *testing.T) {
 
 func TestPushEventNotFound(t *testing.T) {
 	m := NewTerminalManager()
-	evt := session.TerminalEvent{Type: "stdout", BeatID: "beat-1", Time: time.Now().UnixMilli()}
+	evt := session.TerminalEvent{Type: "stdout", BeadID: "bead-1", Time: time.Now().UnixMilli()}
 	m.PushEvent("nonexistent", evt)
 }
 
@@ -310,7 +310,7 @@ func TestGetBufferNotFound(t *testing.T) {
 
 func TestRecordPendingApproval(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-1",
@@ -343,7 +343,7 @@ func TestRecordPendingApproval(t *testing.T) {
 
 func TestUpdateApprovalStatus(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID: "approval-1",
@@ -362,7 +362,7 @@ func TestUpdateApprovalStatus(t *testing.T) {
 
 func TestSyncSessionLeaseInfo(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	entry.mu.Lock()
 	entry.KnotsLeaseID = "lease-123"
@@ -400,7 +400,7 @@ func TestSyncSessionLeaseInfo(t *testing.T) {
 
 func TestSetProcess(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	proc := &mockProcess{pid: 999}
 	entry.SetProcess(proc)
@@ -415,7 +415,7 @@ func TestSetProcess(t *testing.T) {
 
 func TestSetCancel(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	entry.SetCancel(func() {})
 
@@ -426,7 +426,7 @@ func TestSetCancel(t *testing.T) {
 
 func TestSetReleaseKnotsLease(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	called := false
 	fn := ReleaseKnotsLeaseFunc(func(reason string, outcome string, data map[string]any) {
@@ -446,7 +446,7 @@ func TestSetReleaseKnotsLease(t *testing.T) {
 
 func TestCleanupSessionResources(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	entry.RecordPendingApproval(&PendingApprovalRecord{
 		ApprovalID: "approval-1",
@@ -470,7 +470,7 @@ func TestCleanupSessionResources(t *testing.T) {
 
 func TestAbortedStatusPreservedOnExit(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	entry.mu.Lock()
 	entry.Session.Status = StatusAborted
@@ -510,7 +510,7 @@ func TestExitedStatuses(t *testing.T) {
 
 func TestListSessionsIncludesPendingApprovals(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(context.Background(), "beat-1", "/repo")
+	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	entry.RecordPendingApproval(&PendingApprovalRecord{
 		ApprovalID: "approval-1",
@@ -542,7 +542,7 @@ func TestConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_, err := m.CreateSession(context.Background(), fmt.Sprintf("beat-%d", idx), "/repo")
+			_, err := m.CreateSession(context.Background(), fmt.Sprintf("bead-%d", idx), "/repo")
 			if err != nil {
 				errCh <- err
 			}

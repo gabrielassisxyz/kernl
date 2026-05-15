@@ -106,7 +106,7 @@ func (b *BdCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 	return result, nil
 }
 
-func (b *BdCliBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (b *BdCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	args := []string{"list", "--repo", repoPath, "--json"}
 	if filters != nil {
 		if filters.State == "" {
@@ -133,15 +133,15 @@ func (b *BdCliBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, 
 	if err != nil {
 		return nil, fmt.Errorf("bd list: %w", err)
 	}
-	var result []Beat
+	var result []Bead
 	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, fmt.Errorf("bd list parse: %w", err)
 	}
 	return result, nil
 }
 
-func (b *BdCliBackend) ListReady(filters *BeatListFilters, repoPath string) ([]Beat, error) {
-	readyFilters := &BeatListFilters{}
+func (b *BdCliBackend) ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error) {
+	readyFilters := &BeadListFilters{}
 	if filters != nil {
 		*readyFilters = *filters
 	}
@@ -149,19 +149,19 @@ func (b *BdCliBackend) ListReady(filters *BeatListFilters, repoPath string) ([]B
 	return b.List(readyFilters, repoPath)
 }
 
-func (b *BdCliBackend) Get(id string, repoPath string) (*Beat, error) {
+func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
 	out, err := b.Exec(context.Background(), []string{"show", id, "--repo", repoPath, "--json"})
 	if err != nil {
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
 	}
-	var result Beat
+	var result Bead
 	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, fmt.Errorf("bd show parse: %w", err)
 	}
 	return &result, nil
 }
 
-func (b *BdCliBackend) Create(input CreateBeatInput, repoPath string) (*Beat, error) {
+func (b *BdCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
 	args := []string{"create", input.Title, "--repo", repoPath, "--json"}
 	if input.Type != "" {
 		args = append(args, "--type", input.Type)
@@ -176,18 +176,18 @@ func (b *BdCliBackend) Create(input CreateBeatInput, repoPath string) (*Beat, er
 	if result.ExitCode != 0 {
 		return nil, bdResultToError(result)
 	}
-	var beat Beat
-	if err := json.Unmarshal([]byte(result.Stdout), &beat); err != nil {
+	var bead Bead
+	if err := json.Unmarshal([]byte(result.Stdout), &bead); err != nil {
 		id := strings.TrimSpace(result.Stdout)
 		if id != "" {
-			return &Beat{ID: id}, nil
+			return &Bead{ID: id}, nil
 		}
 		return nil, fmt.Errorf("bd create parse: %w", err)
 	}
-	return &beat, nil
+	return &bead, nil
 }
 
-func (b *BdCliBackend) Update(id string, input UpdateBeatInput, repoPath string) error {
+func (b *BdCliBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
 	args := []string{"update", id, "--repo", repoPath, "--json"}
 	if input.Title != "" {
 		args = append(args, "--title", input.Title)
@@ -266,7 +266,7 @@ func (b *BdCliBackend) Rewind(id string, targetState string, reason string, repo
 	return fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support rewind; use knots backend for workflow corrections")
 }
 
-func (b *BdCliBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (b *BdCliBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	args := []string{"search", query, "--repo", repoPath, "--json"}
 	if filters != nil {
 		if filters.Priority != 0 {
@@ -277,14 +277,14 @@ func (b *BdCliBackend) Search(query string, filters *BeatListFilters, repoPath s
 	if err != nil {
 		return nil, fmt.Errorf("bd search: %w", err)
 	}
-	var result []Beat
+	var result []Bead
 	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, fmt.Errorf("bd search parse: %w", err)
 	}
 	return result, nil
 }
 
-func (b *BdCliBackend) Query(expression string, options *BeatQueryOptions, repoPath string) ([]Beat, error) {
+func (b *BdCliBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
 	args := []string{"query", expression, "--repo", repoPath, "--json"}
 	if options != nil {
 		if options.Limit > 0 {
@@ -298,7 +298,7 @@ func (b *BdCliBackend) Query(expression string, options *BeatQueryOptions, repoP
 	if err != nil {
 		return nil, fmt.Errorf("bd query: %w", err)
 	}
-	var result []Beat
+	var result []Bead
 	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, fmt.Errorf("bd query parse: %w", err)
 	}
@@ -321,7 +321,7 @@ func (b *BdCliBackend) RemoveDependency(blockerID string, blockedID string, repo
 	return nil
 }
 
-func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeatDependency, error) {
+func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
 	args := []string{"list-deps", id, "--repo", repoPath, "--json"}
 	if options != nil && options.Type != "" {
 		args = append(args, "--type", options.Type)
@@ -330,14 +330,14 @@ func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *Dep
 	if err != nil {
 		return nil, fmt.Errorf("bd list-deps: %w", err)
 	}
-	var result []BeatDependency
+	var result []BeadDependency
 	if err := json.Unmarshal(out, &result); err != nil {
 		return nil, fmt.Errorf("bd list-deps parse: %w", err)
 	}
 	return result, nil
 }
 
-func (b *BdCliBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
+func (b *BdCliBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
 	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support buildTakePrompt; use scope refinement worker")
 }
 

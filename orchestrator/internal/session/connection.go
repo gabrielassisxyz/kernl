@@ -25,7 +25,7 @@ const (
 type Notification struct {
 	Kind      NotificationKind `json:"kind"`
 	Message   string           `json:"message"`
-	BeatID    string           `json:"beatId,omitempty"`
+	BeadID    string           `json:"beadId,omitempty"`
 	RepoPath   string           `json:"repoPath,omitempty"`
 	SessionID string           `json:"sessionId,omitempty"`
 	ExitCode  int              `json:"exitCode,omitempty"`
@@ -33,8 +33,8 @@ type Notification struct {
 
 type SessionInfo struct {
 	ID         string
-	BeatID     string
-	BeatTitle  string
+	BeadID     string
+	BeadTitle  string
 	RepoPath    string
 	Status     string
 }
@@ -215,7 +215,7 @@ func (m *SessionConnectionManager) handleEventForConn(conn *connection, sessionI
 
 	if evt.Type == "beat_state_observed" {
 		slog.Debug("[connection-manager] beat_state_observed, queries invalidated",
-			"sessionId", sessionID, "beatId", evt.BeatID)
+			"sessionId", sessionID, "beadId", evt.BeadID)
 	}
 
 	if evt.Type == "agent_failure" {
@@ -225,11 +225,11 @@ func (m *SessionConnectionManager) handleEventForConn(conn *connection, sessionI
 
 func (m *SessionConnectionManager) handleAgentFailure(sessionID string, evt TerminalEvent) {
 	info, exists := m.provider.GetSessionEntry(sessionID)
-	beatID := evt.BeatID
+	beadID := evt.BeadID
 	repoPath := ""
 	if exists {
-		if beatID == "" {
-			beatID = info.BeatID
+		if beadID == "" {
+			beadID = info.BeadID
 		}
 		repoPath = info.RepoPath
 	}
@@ -237,7 +237,7 @@ func (m *SessionConnectionManager) handleAgentFailure(sessionID string, evt Term
 	m.notify(Notification{
 		Kind:      NotificationKindFailure,
 		Message:   evt.Content,
-		BeatID:    beatID,
+		BeadID:    beadID,
 		RepoPath:   repoPath,
 		SessionID: sessionID,
 	})
@@ -255,12 +255,12 @@ func (m *SessionConnectionManager) handleExitNotification(sessionID string, conn
 
 	alreadyAborted := false
 	beatTitle := ""
-	beatID := ""
+	beadID := ""
 	repoPath := ""
 	if exists {
 		alreadyAborted = info.Status == "aborted"
-		beatTitle = info.BeatTitle
-		beatID = info.BeatID
+		beatTitle = info.BeadTitle
+		beadID = info.BeadID
 		repoPath = info.RepoPath
 	}
 
@@ -315,7 +315,7 @@ func (m *SessionConnectionManager) handleExitNotification(sessionID string, conn
 	m.notify(Notification{
 		Kind:      NotificationKindExit,
 		Message:   message,
-		BeatID:    beatID,
+		BeadID:    beadID,
 		RepoPath:   repoPath,
 		SessionID: sessionID,
 		ExitCode:  exitCode,

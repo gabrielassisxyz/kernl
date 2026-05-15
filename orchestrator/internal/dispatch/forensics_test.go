@@ -8,35 +8,35 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
-func makePreSnapshot(beatID, state string, stepHistory []StepEntry, leases []backend.Beat) BeatSnapshot {
-	return BeatSnapshot{
+func makePreSnapshot(beadID, state string, stepHistory []StepEntry, leases []backend.Bead) BeadSnapshot {
+	return BeadSnapshot{
 		Boundary:      "pre_lease",
 		CapturedAt:    "2026-04-30T02:19:41.449Z",
 		SessionID:     "ses-1",
-		BeatID:        beatID,
+		BeadID:        beadID,
 		LeaseID:       "lease-A",
 		Iteration:     1,
 		KernlPID:    1,
-		Beat:          beatWithSteps(beatID, state, stepHistory),
+		Bead:          beatWithSteps(beadID, state, stepHistory),
 		Leases:        leases,
 	}
 }
 
-func makePostSnapshot(beatID, state string, stepHistory []StepEntry, leases []backend.Beat) BeatSnapshot {
-	return BeatSnapshot{
+func makePostSnapshot(beadID, state string, stepHistory []StepEntry, leases []backend.Bead) BeadSnapshot {
+	return BeadSnapshot{
 		Boundary:      "post_turn_failure",
 		CapturedAt:    "2026-04-30T02:19:58.791Z",
 		SessionID:     "ses-1",
-		BeatID:        beatID,
+		BeadID:        beadID,
 		LeaseID:       "lease-A",
 		Iteration:     1,
 		KernlPID:    1,
-		Beat:          beatWithSteps(beatID, state, stepHistory),
+		Bead:          beatWithSteps(beadID, state, stepHistory),
 		Leases:        leases,
 	}
 }
 
-func beatWithSteps(id, state string, steps []StepEntry) *backend.Beat {
+func beatWithSteps(id, state string, steps []StepEntry) *backend.Bead {
 	metadata := map[string]any{}
 	if steps != nil {
 		entries := make([]map[string]any, len(steps))
@@ -61,15 +61,15 @@ func beatWithSteps(id, state string, steps []StepEntry) *backend.Beat {
 		}
 		metadata["step_history"] = entries
 	}
-	return &backend.Beat{
+	return &backend.Bead{
 		ID:       id,
 		State:    state,
 		Metadata: metadata,
 	}
 }
 
-func makeLeaseBeat(id, state, nickname string) backend.Beat {
-	return backend.Beat{
+func makeLeaseBead(id, state, nickname string) backend.Bead {
+	return backend.Bead{
 		ID:       id,
 		State:    state,
 		Metadata: map[string]any{"nickname": nickname, "state": state},
@@ -77,11 +77,11 @@ func makeLeaseBeat(id, state, nickname string) backend.Beat {
 }
 
 func TestClassifyTurnFailure_NothingChanged(t *testing.T) {
-	b := &backend.Beat{ID: "b", State: "ready_for_implementation"}
+	b := &backend.Bead{ID: "b", State: "ready_for_implementation"}
 	pre := makePreSnapshot("b", "ready_for_implementation", nil, nil)
-	pre.Beat = b
+	pre.Bead = b
 	post := makePostSnapshot("b", "ready_for_implementation", nil, nil)
-	post.Beat = b
+	post.Bead = b
 	result := ClassifyTurnFailure(pre, post, nil)
 	if result != nil {
 		t.Errorf("expected nil when nothing changed, got %v", result)
@@ -92,10 +92,10 @@ func TestClassifyTurnFailure_ConcurrentClaim(t *testing.T) {
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "other-lease", AgentName: "OtherAgent", AgentModel: "other", AgentVersion: "1"},
 	}
-	otherLease := makeLeaseBeat("other-lease", "lease_terminated", "kernl:terminal_manager_take:ses-1")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")})
-	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{
-		makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1"),
+	otherLease := makeLeaseBead("other-lease", "lease_terminated", "kernl:terminal_manager_take:ses-1")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{makeLeaseBead("lease-A", "lease_ready", "kernl:ses-1")})
+	post := makePostSnapshot("b", "implementation", postSteps, []backend.Bead{
+		makeLeaseBead("lease-A", "lease_ready", "kernl:ses-1"),
 		otherLease,
 	})
 
@@ -116,9 +116,9 @@ func TestClassifyTurnFailure_DoubleClaim(t *testing.T) {
 		{ID: "step-1", Step: "implementation", LeaseID: "lease-A"},
 		{ID: "step-2", Step: "implementation", LeaseID: "lease-A"},
 	}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
-	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA})
+	leaseA := makeLeaseBead("lease-A", "lease_ready", "kernl:ses-1")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{leaseA})
+	post := makePostSnapshot("b", "implementation", postSteps, []backend.Bead{leaseA})
 
 	result := ClassifyTurnFailure(pre, post, nil)
 	if result == nil {
@@ -136,9 +136,9 @@ func TestClassifyTurnFailure_HalfTransition(t *testing.T) {
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "lease-A"},
 	}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
-	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA})
+	leaseA := makeLeaseBead("lease-A", "lease_ready", "kernl:ses-1")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{leaseA})
+	post := makePostSnapshot("b", "implementation", postSteps, []backend.Bead{leaseA})
 	signals := &ClassifierSignals{AgentClaimExitedNonZero: true}
 
 	result := ClassifyTurnFailure(pre, post, signals)
@@ -154,9 +154,9 @@ func TestClassifyTurnFailure_HalfTransitionNotFlaggedWithoutSignal(t *testing.T)
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "lease-A"},
 	}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
-	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA})
+	leaseA := makeLeaseBead("lease-A", "lease_ready", "kernl:ses-1")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{leaseA})
+	post := makePostSnapshot("b", "implementation", postSteps, []backend.Bead{leaseA})
 
 	result := ClassifyTurnFailure(pre, post, nil)
 	if result == nil {
@@ -168,10 +168,10 @@ func TestClassifyTurnFailure_HalfTransitionNotFlaggedWithoutSignal(t *testing.T)
 }
 
 func TestClassifyTurnFailure_LeaseTerminated(t *testing.T) {
-	preLease := makeLeaseBeat("lease-A", "lease_ready", "")
-	postLease := makeLeaseBeat("lease-A", "lease_terminated", "")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{preLease})
-	post := makePostSnapshot("b", "ready_for_implementation", nil, []backend.Beat{postLease})
+	preLease := makeLeaseBead("lease-A", "lease_ready", "")
+	postLease := makeLeaseBead("lease-A", "lease_terminated", "")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{preLease})
+	post := makePostSnapshot("b", "ready_for_implementation", nil, []backend.Bead{postLease})
 
 	t.Run("unexpected termination", func(t *testing.T) {
 		signals := &ClassifierSignals{KernlInitiatedLeaseTerminate: false}
@@ -194,12 +194,12 @@ func TestClassifyTurnFailure_LeaseTerminated(t *testing.T) {
 }
 
 func TestClassifyTurnFailure_UnknownStateChange(t *testing.T) {
-	preBeat := &backend.Beat{ID: "b", State: "ready_for_implementation"}
-	postBeat := &backend.Beat{ID: "b", State: "ready_for_review"}
+	preBead := &backend.Bead{ID: "b", State: "ready_for_implementation"}
+	postBead := &backend.Bead{ID: "b", State: "ready_for_review"}
 	pre := makePreSnapshot("b", "ready_for_implementation", nil, nil)
-	pre.Beat = preBeat
+	pre.Bead = preBead
 	post := makePostSnapshot("b", "ready_for_review", nil, nil)
-	post.Beat = postBeat
+	post.Bead = postBead
 
 	result := ClassifyTurnFailure(pre, post, nil)
 	if result == nil {
@@ -213,13 +213,13 @@ func TestClassifyTurnFailure_UnknownStateChange(t *testing.T) {
 func TestBuildForensicBannerBody(t *testing.T) {
 	body := BuildForensicBannerBody(ForensicBannerInput{
 		Category:         CategoryConcurrentClaim,
-		BeatID:           "maestro-ca91",
+		BeadID:           "maestro-ca91",
 		SessionID:        "ses-1",
 		LeaseID:          "lease-A",
 		Iteration:        3,
 		PreSnapshotPath:  "/p/pre.json",
 		PostSnapshotPath: "/p/post.json",
-		Reasoning:        "another agent took the beat",
+		Reasoning:        "another agent took the bead",
 	})
 	if !strings.Contains(body, DispatchForensicMarker) {
 		t.Error("banner should contain KERNL DISPATCH FORENSIC marker")
@@ -228,7 +228,7 @@ func TestBuildForensicBannerBody(t *testing.T) {
 		t.Error("banner should contain category")
 	}
 	if !strings.Contains(body, "maestro-ca91") {
-		t.Error("banner should contain beat id")
+		t.Error("banner should contain bead id")
 	}
 	if !strings.Contains(body, "lease-A") {
 		t.Error("banner should contain lease id")
@@ -242,7 +242,7 @@ func TestBuildForensicBannerBody(t *testing.T) {
 	if !strings.Contains(body, "/p/post.json") {
 		t.Error("banner should contain post snapshot path")
 	}
-	if !strings.Contains(body, "another agent took the beat") {
+	if !strings.Contains(body, "another agent took the bead") {
 		t.Error("banner should contain reasoning")
 	}
 }
@@ -252,7 +252,7 @@ func TestSnapshotPath(t *testing.T) {
 		LogRoot:    "/r",
 		Date:       "2026-04-30",
 		SessionID:  "ses-1",
-		BeatID:     "maestro-ca91",
+		BeadID:     "maestro-ca91",
 		Boundary:   "post_turn_failure",
 		CapturedAt: "2026-04-30T02:19:48.062Z",
 	})
@@ -263,37 +263,37 @@ func TestSnapshotPath(t *testing.T) {
 		t.Errorf("path should contain boundary: %s", p)
 	}
 	if !strings.Contains(p, "maestro-ca91") {
-		t.Errorf("path should contain beat id: %s", p)
+		t.Errorf("path should contain bead id: %s", p)
 	}
 	if !strings.HasSuffix(p, ".json") {
 		t.Errorf("path should end with .json: %s", p)
 	}
 }
 
-func TestCaptureBeatSnapshot_WritesAndAudits(t *testing.T) {
+func TestCaptureBeadSnapshot_WritesAndAudits(t *testing.T) {
 	writer := NewMemorySnapshotWriter("/test/log-root")
 	var auditEvents []struct {
 		event   string
 		payload map[string]any
 	}
-	beatData := &backend.Beat{ID: "test-beat", State: "ready_for_implementation"}
-	leaseData := makeLeaseBeat("lease-A", "lease_ready", "kernl:terminal_manager_take:ses-1:test-beat")
+	beatData := &backend.Bead{ID: "test-bead", State: "ready_for_implementation"}
+	leaseData := makeLeaseBead("lease-A", "lease_ready", "kernl:terminal_manager_take:ses-1:test-bead")
 
 	ctx := CaptureContext{
 		SessionID: "ses-1",
-		BeatID:    "test-beat",
+		BeadID:    "test-bead",
 		RepoPath:   "/repo",
 		LeaseID:    "lease-A",
 		Iteration:  1,
 	}
 
-	snapshot := CaptureBeatSnapshot("pre_lease", ctx, &ForensicDeps{
+	snapshot := CaptureBeadSnapshot("pre_lease", ctx, &ForensicDeps{
 		Writer: writer,
-		ShowKnot: func(beatID, repoPath string) (*backend.Beat, error) {
+		ShowKnot: func(beadID, repoPath string) (*backend.Bead, error) {
 			return beatData, nil
 		},
-		ListLeases: func(repoPath string, activeOnly bool) ([]backend.Beat, error) {
-			return []backend.Beat{leaseData}, nil
+		ListLeases: func(repoPath string, activeOnly bool) ([]backend.Bead, error) {
+			return []backend.Bead{leaseData}, nil
 		},
 		LogAudit: func(event string, payload map[string]any) {
 			auditEvents = append(auditEvents, struct {
@@ -310,8 +310,8 @@ func TestCaptureBeatSnapshot_WritesAndAudits(t *testing.T) {
 	if snapshot.CapturedAt != "2026-04-30T02:19:41.449Z" {
 		t.Errorf("expected fixed timestamp, got %s", snapshot.CapturedAt)
 	}
-	if snapshot.Beat == nil || snapshot.Beat.State != "ready_for_implementation" {
-		t.Errorf("expected beat state ready_for_implementation, got %v", snapshot.Beat)
+	if snapshot.Bead == nil || snapshot.Bead.State != "ready_for_implementation" {
+		t.Errorf("expected bead state ready_for_implementation, got %v", snapshot.Bead)
 	}
 	if len(snapshot.CaptureErrors) > 0 {
 		t.Errorf("expected no capture errors, got %v", snapshot.CaptureErrors)
@@ -326,8 +326,8 @@ func TestCaptureBeatSnapshot_WritesAndAudits(t *testing.T) {
 	if !strings.Contains(written.Path, "pre_lease") {
 		t.Errorf("path should contain boundary: %s", written.Path)
 	}
-	if !strings.Contains(written.Path, "test-beat") {
-		t.Errorf("path should contain beat id: %s", written.Path)
+	if !strings.Contains(written.Path, "test-bead") {
+		t.Errorf("path should contain bead id: %s", written.Path)
 	}
 	if len(auditEvents) != 1 {
 		t.Fatalf("expected 1 audit event, got %d", len(auditEvents))
@@ -337,28 +337,28 @@ func TestCaptureBeatSnapshot_WritesAndAudits(t *testing.T) {
 	}
 }
 
-func TestCaptureBeatSnapshot_RecordsShowKnotError(t *testing.T) {
+func TestCaptureBeadSnapshot_RecordsShowKnotError(t *testing.T) {
 	writer := NewMemorySnapshotWriter("/test/log-root")
 	ctx := CaptureContext{
 		SessionID: "ses-1",
-		BeatID:    "test-beat",
+		BeadID:    "test-bead",
 		RepoPath:   "/repo",
 		LeaseID:    "lease-A",
 	}
 
-	snapshot := CaptureBeatSnapshot("post_turn_failure", ctx, &ForensicDeps{
+	snapshot := CaptureBeadSnapshot("post_turn_failure", ctx, &ForensicDeps{
 		Writer: writer,
-		ShowKnot: func(beatID, repoPath string) (*backend.Beat, error) {
+		ShowKnot: func(beadID, repoPath string) (*backend.Bead, error) {
 			return nil, fmt.Errorf("boom")
 		},
-		ListLeases: func(repoPath string, activeOnly bool) ([]backend.Beat, error) {
-			return []backend.Beat{}, nil
+		ListLeases: func(repoPath string, activeOnly bool) ([]backend.Bead, error) {
+			return []backend.Bead{}, nil
 		},
 		LogAudit: func(event string, payload map[string]any) {},
 	})
 
-	if snapshot.Beat != nil {
-		t.Errorf("expected nil beat, got %v", snapshot.Beat)
+	if snapshot.Bead != nil {
+		t.Errorf("expected nil bead, got %v", snapshot.Bead)
 	}
 	if len(snapshot.CaptureErrors) == 0 {
 		t.Error("expected capture errors from showKnot failure")
@@ -371,21 +371,21 @@ func TestCaptureBeatSnapshot_RecordsShowKnotError(t *testing.T) {
 	}
 }
 
-func TestCaptureBeatSnapshot_DoesNotThrowWhenWriterFails(t *testing.T) {
+func TestCaptureBeadSnapshot_DoesNotThrowWhenWriterFails(t *testing.T) {
 	failingWriter := &failingSnapshotWriter{}
 	ctx := CaptureContext{
 		SessionID: "ses-1",
-		BeatID:    "test-beat",
+		BeadID:    "test-bead",
 		RepoPath:   "/repo",
 	}
 
-	snapshot := CaptureBeatSnapshot("post_turn_success", ctx, &ForensicDeps{
+	snapshot := CaptureBeadSnapshot("post_turn_success", ctx, &ForensicDeps{
 		Writer: failingWriter,
-		ShowKnot: func(beatID, repoPath string) (*backend.Beat, error) {
-			return &backend.Beat{ID: "b", State: "x"}, nil
+		ShowKnot: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "b", State: "x"}, nil
 		},
-		ListLeases: func(repoPath string, activeOnly bool) ([]backend.Beat, error) {
-			return []backend.Beat{}, nil
+		ListLeases: func(repoPath string, activeOnly bool) ([]backend.Bead, error) {
+			return []backend.Bead{}, nil
 		},
 		LogAudit: func(event string, payload map[string]any) {},
 	})
@@ -405,10 +405,10 @@ func TestRunPostTurnForensics_ClassifiedFailure(t *testing.T) {
 	postSteps := []StepEntry{
 		{ID: "step-1", Step: "implementation", LeaseID: "other-lease", AgentName: "OtherAgent"},
 	}
-	otherLease := makeLeaseBeat("other-lease", "lease_terminated", "kernl:OtherAgent")
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "kernl:ses-1")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
-	post := makePostSnapshot("b", "implementation", postSteps, []backend.Beat{leaseA, otherLease})
+	otherLease := makeLeaseBead("other-lease", "lease_terminated", "kernl:OtherAgent")
+	leaseA := makeLeaseBead("lease-A", "lease_ready", "kernl:ses-1")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{leaseA})
+	post := makePostSnapshot("b", "implementation", postSteps, []backend.Bead{leaseA, otherLease})
 
 	result := RunPostTurnForensics(pre, post, "/p/pre.json", "/p/post.json", nil, &ForensicDeps{
 		LogAudit: func(event string, payload map[string]any) {
@@ -446,12 +446,12 @@ func TestRunPostTurnForensics_ClassifiedFailure(t *testing.T) {
 }
 
 func TestRunPostTurnForensics_NoChange(t *testing.T) {
-	b := &backend.Beat{ID: "b", State: "ready_for_implementation"}
-	leaseA := makeLeaseBeat("lease-A", "lease_ready", "")
-	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
-	pre.Beat = b
-	post := makePostSnapshot("b", "ready_for_implementation", nil, []backend.Beat{leaseA})
-	post.Beat = b
+	b := &backend.Bead{ID: "b", State: "ready_for_implementation"}
+	leaseA := makeLeaseBead("lease-A", "lease_ready", "")
+	pre := makePreSnapshot("b", "ready_for_implementation", nil, []backend.Bead{leaseA})
+	pre.Bead = b
+	post := makePostSnapshot("b", "ready_for_implementation", nil, []backend.Bead{leaseA})
+	post.Bead = b
 
 	result := RunPostTurnForensics(pre, post, "/p/pre.json", "/p/post.json", nil, &ForensicDeps{
 		LogAudit:   func(event string, payload map[string]any) {},
@@ -463,29 +463,29 @@ func TestRunPostTurnForensics_NoChange(t *testing.T) {
 	}
 }
 
-func TestLeasesForBeat(t *testing.T) {
-	all := []backend.Beat{
-		{ID: "lease-1", Metadata: map[string]any{"nickname": "kernl:terminal:ses-1:beat-x"}},
-		{ID: "lease-2", Metadata: map[string]any{"nickname": "kernl:terminal:ses-2:beat-y"}},
+func TestLeasesForBead(t *testing.T) {
+	all := []backend.Bead{
+		{ID: "lease-1", Metadata: map[string]any{"nickname": "kernl:terminal:ses-1:bead-x"}},
+		{ID: "lease-2", Metadata: map[string]any{"nickname": "kernl:terminal:ses-2:bead-y"}},
 		{ID: "lease-3", Metadata: map[string]any{"nickname": "other"}},
 	}
 
-	matched := leasesForBeat("beat-x", "ses-1", all)
+	matched := leasesForBead("bead-x", "ses-1", all)
 	if len(matched) != 1 || matched[0].ID != "lease-1" {
 		t.Errorf("expected lease-1 to match, got %v", matched)
 	}
 
-	var short []backend.Beat
+	var short []backend.Bead
 	for i := 0; i < 5; i++ {
-		short = append(short, backend.Beat{ID: fmt.Sprintf("l-%d", i)})
+		short = append(short, backend.Bead{ID: fmt.Sprintf("l-%d", i)})
 	}
-	matched2 := leasesForBeat("nothing", "nothing", short)
+	matched2 := leasesForBead("nothing", "nothing", short)
 	if len(matched2) != 5 {
 		t.Errorf("expected all leases when no match and list short, got %d", len(matched2))
 	}
 
-	large := make([]backend.Beat, 15)
-	matched3 := leasesForBeat("nothing", "nothing", large)
+	large := make([]backend.Bead, 15)
+	matched3 := leasesForBead("nothing", "nothing", large)
 	if len(matched3) != 0 {
 		t.Errorf("expected empty when no match in large list, got %d", len(matched3))
 	}
@@ -493,6 +493,6 @@ func TestLeasesForBeat(t *testing.T) {
 
 type failingSnapshotWriter struct{}
 
-func (f *failingSnapshotWriter) Write(snapshot BeatSnapshot) (string, error) {
+func (f *failingSnapshotWriter) Write(snapshot BeadSnapshot) (string, error) {
 	return "", fmt.Errorf("disk full")
 }

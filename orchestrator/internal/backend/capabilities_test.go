@@ -3,11 +3,11 @@ package backend
 import "testing"
 
 func TestAssertCapability_ThrowsWhenBooleanFlagFalse(t *testing.T) {
-	err := AssertCapability(ReadOnlyCapabilities, "CanCreate", "create beat")
+	err := AssertCapability(ReadOnlyCapabilities, "CanCreate", "create bead")
 	if err == nil {
 		t.Fatal("expected error for false boolean capability, got nil")
 	}
-	expected := "Backend does not support create beat (missing capability: CanCreate)"
+	expected := "Backend does not support create bead (missing capability: CanCreate)"
 	if err.Error() != expected {
 		t.Errorf("expected %q, got %q", expected, err.Error())
 	}
@@ -25,7 +25,7 @@ func TestAssertCapability_ThrowsWhenMaxConcurrencyZero(t *testing.T) {
 }
 
 func TestAssertCapability_DoesNotThrowWhenBooleanFlagTrue(t *testing.T) {
-	err := AssertCapability(FullCapabilities, "CanCreate", "create beat")
+	err := AssertCapability(FullCapabilities, "CanCreate", "create bead")
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -52,12 +52,12 @@ func TestAssertCapability_DoesNotThrowWhenMaxConcurrencyPositive(t *testing.T) {
 }
 
 func TestAssertCapability_IncludesFlagAndOperationInMessage(t *testing.T) {
-	err := AssertCapability(ReadOnlyCapabilities, "CanDelete", "delete beat")
+	err := AssertCapability(ReadOnlyCapabilities, "CanDelete", "delete bead")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	msg := err.Error()
-	if !containsStr(msg, "delete beat") {
+	if !containsStr(msg, "delete bead") {
 		t.Errorf("expected operation name in error, got: %s", msg)
 	}
 	if !containsStr(msg, "CanDelete") {

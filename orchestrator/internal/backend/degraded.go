@@ -41,7 +41,7 @@ func IsSuppressibleError(msg string) bool {
 }
 
 type resultCacheEntry struct {
-	data      []Beat
+	data      []Bead
 	timestamp time.Time
 }
 
@@ -87,7 +87,7 @@ func (c *ErrorSuppressionCache) CacheKey(fn string, filters map[string]string, r
 	return fn + ":" + query + ":" + sorted + ":" + repoPath
 }
 
-func (c *ErrorSuppressionCache) WithErrorSuppression(fn string, result BackendResult[[]Beat], filters map[string]string, repoPath string, query string) BackendResult[[]Beat] {
+func (c *ErrorSuppressionCache) WithErrorSuppression(fn string, result BackendResult[[]Bead], filters map[string]string, repoPath string, query string) BackendResult[[]Bead] {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -114,7 +114,7 @@ func (c *ErrorSuppressionCache) WithErrorSuppression(fn string, result BackendRe
 
 	if hasFailure && now.Sub(failure.firstFailedAt) >= c.window {
 		delete(c.resultCache, key)
-		return ErrResult[[]Beat](NewBackendError(ErrorCodeUnavailable, DegradedErrorMessage, WithRetryable(true)))
+		return ErrResult[[]Bead](NewBackendError(ErrorCodeUnavailable, DegradedErrorMessage, WithRetryable(true)))
 	}
 
 	cached, hasCached := c.resultCache[key]
@@ -130,15 +130,15 @@ func (c *ErrorSuppressionCache) WithErrorSuppression(fn string, result BackendRe
 		if !hasFailure {
 			c.failureState[key] = &failureState{firstFailedAt: now}
 		}
-		return ErrResult[[]Beat](NewBackendError(ErrorCodeUnavailable, DegradedErrorMessage, WithRetryable(true)))
+		return ErrResult[[]Bead](NewBackendError(ErrorCodeUnavailable, DegradedErrorMessage, WithRetryable(true)))
 	}
 
 	if !hasFailure {
 		c.failureState[key] = &failureState{firstFailedAt: now}
 	}
 
-	beats := cached.data
-	return OkResult(beats)
+	beads := cached.data
+	return OkResult(beads)
 }
 
 func (c *ErrorSuppressionCache) evictIfNeeded() {

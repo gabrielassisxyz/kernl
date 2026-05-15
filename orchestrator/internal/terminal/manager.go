@@ -35,8 +35,8 @@ var exitedStatuses = map[SessionStatus]bool{
 
 type TerminalSession struct {
 	ID             string        `json:"id"`
-	BeatID         string        `json:"beatId"`
-	BeatTitle      string        `json:"beatTitle,omitempty"`
+	BeadID         string        `json:"beadId"`
+	BeadTitle      string        `json:"beatTitle,omitempty"`
 	RepoPath        string        `json:"repoPath,omitempty"`
 	Status          SessionStatus `json:"status"`
 	StartedAt       string        `json:"startedAt"`
@@ -78,8 +78,8 @@ type PendingApprovalRecord struct {
 	FailureReason    string         `json:"failureReason,omitempty"`
 	Actionable       bool           `json:"actionable"`
 	ActionableReason string         `json:"actionableReason,omitempty"`
-	BeatID           string         `json:"beatId,omitempty"`
-	BeatTitle        string         `json:"beatTitle,omitempty"`
+	BeadID           string         `json:"beadId,omitempty"`
+	BeadTitle        string         `json:"beatTitle,omitempty"`
 	RepoPath         string         `json:"repoPath,omitempty"`
 	Adapter          string         `json:"adapter,omitempty"`
 	Source           string         `json:"source,omitempty"`
@@ -185,9 +185,9 @@ type ProcessHandle interface {
 }
 
 type InteractionLog interface {
-	LogBeatState(beatID, state, phase, label string)
+	LogBeadState(beadID, state, phase, label string)
 	LogEnd(exitCode int, status string)
-	LogTokenUsage(beatID string, usage session.TokenUsageCounts)
+	LogTokenUsage(beadID string, usage session.TokenUsageCounts)
 }
 
 type TerminalManager struct {
@@ -222,7 +222,7 @@ func WithMaxSessions(n int) ManagerOption {
 	}
 }
 
-func (m *TerminalManager) CreateSession(ctx context.Context, beatID, repoPath string) (*SessionEntry, error) {
+func (m *TerminalManager) CreateSession(ctx context.Context, beadID, repoPath string) (*SessionEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (m *TerminalManager) CreateSession(ctx context.Context, beatID, repoPath st
 	id := m.generateID()
 	sess := &TerminalSession{
 		ID:        id,
-		BeatID:    beatID,
+		BeadID:    beadID,
 		RepoPath:   repoPath,
 		Status:     StatusRunning,
 		StartedAt:  time.Now().UTC().Format(time.RFC3339),
@@ -257,7 +257,7 @@ func (m *TerminalManager) CreateSession(ctx context.Context, beatID, repoPath st
 		Session:                     sess,
 		Events:                       make(chan session.TerminalEvent, MaxBuffer),
 		Buffer:                       make([]session.TerminalEvent, 0, MaxBuffer),
-		Runtime:                      session.NewSessionRuntime(beatID, repoPath),
+		Runtime:                      session.NewSessionRuntime(beadID, repoPath),
 		Watchdog:                     watchdog,
 		TakeLoopLifecycle:            make(map[int]*TakeLoopIterationTrace),
 		PendingApprovals:             make(map[string]*PendingApprovalRecord),
@@ -269,7 +269,7 @@ func (m *TerminalManager) CreateSession(ctx context.Context, beatID, repoPath st
 
 	m.sessions[id] = entry
 	slog.Info("[terminal-manager] session created",
-		"sessionId", id, "beatId", beatID, "repoPath", repoPath)
+		"sessionId", id, "beadId", beadID, "repoPath", repoPath)
 	return entry, nil
 }
 

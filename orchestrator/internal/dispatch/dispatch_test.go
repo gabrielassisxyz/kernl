@@ -101,12 +101,12 @@ func TestRunDispatch_CrossAgentReviewFallback(t *testing.T) {
 	wf := makeSDLCWorkflow()
 	settings := makeBaseSettings()
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "planning", "claude")
+	tracker.Record("bead-1", "planning", "claude")
 
 	var events []session.TerminalEvent
 	ctx := &TakeLoopDispatchContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		PushEvent:                func(evt session.TerminalEvent) { events = append(events, evt) },
 		FailedAgentsPerQueueType: map[string]map[string]bool{"plan_review": {"codex": true}},
 		ClaimsPerQueueType:       map[string]int{},
@@ -166,12 +166,12 @@ func TestRunDispatch_CrossAgentReviewNoAlternative(t *testing.T) {
 	}
 
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "planning", "claude")
+	tracker.Record("bead-1", "planning", "claude")
 
 	var events []session.TerminalEvent
 	ctx := &TakeLoopDispatchContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		PushEvent:                func(evt session.TerminalEvent) { events = append(events, evt) },
 		FailedAgentsPerQueueType: map[string]map[string]bool{"plan_review": {"claude": true}},
 		ClaimsPerQueueType:       map[string]int{},
@@ -213,12 +213,12 @@ func TestRunDispatch_CrossAgentInvariantHonored(t *testing.T) {
 	}
 
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "planning", "claude")
+	tracker.Record("bead-1", "planning", "claude")
 
 	var events []session.TerminalEvent
 	ctx := &TakeLoopDispatchContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		PushEvent:                func(evt session.TerminalEvent) { events = append(events, evt) },
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -266,7 +266,7 @@ func TestRunDispatch_NormalSelection(t *testing.T) {
 	var events []session.TerminalEvent
 	ctx := &TakeLoopDispatchContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		PushEvent:                func(evt session.TerminalEvent) { events = append(events, evt) },
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -341,7 +341,7 @@ func TestSelectStepAgent_ErrorRetryExcludesFailedAgent(t *testing.T) {
 	var events []session.TerminalEvent
 	loopCtx := &TakeLoopContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		AgentID:                  "codex",
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -366,12 +366,12 @@ func TestSelectStepAgent_ReviewExcludesCurrentAndPrior(t *testing.T) {
 	wf := makeSDLCWorkflow()
 	settings := makeBaseSettings()
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "planning", "claude")
+	tracker.Record("bead-1", "planning", "claude")
 
 	var events []session.TerminalEvent
 	loopCtx := &TakeLoopContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		AgentID:                  "current-agent",
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -401,7 +401,7 @@ func TestSelectStepAgent_SoftRotation(t *testing.T) {
 	var events []session.TerminalEvent
 	loopCtx := &TakeLoopContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		AgentID:                  "",
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -426,7 +426,7 @@ func TestHandleMaxClaims(t *testing.T) {
 	var events []session.TerminalEvent
 	ctx := &TakeLoopDispatchContext{
 		ID:        "term-test",
-		BeatID:    "beat-1",
+		BeadID:    "bead-1",
 		PushEvent: func(evt session.TerminalEvent) { events = append(events, evt) },
 	}
 
@@ -450,7 +450,7 @@ func TestHandleMaxClaims(t *testing.T) {
 func TestComputeStepExclusions_FailedAndErrorAgents(t *testing.T) {
 	loopCtx := &TakeLoopContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		AgentID:                  "",
 		FailedAgentsPerQueueType: map[string]map[string]bool{"implementation": {"agent-a": true}},
 		ClaimsPerQueueType:       map[string]int{},
@@ -478,11 +478,11 @@ func TestComputeStepExclusions_FailedAndErrorAgents(t *testing.T) {
 
 func TestComputeStepExclusions_ReviewExcludesCurrentAndPrior(t *testing.T) {
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "planning", "prior-agent")
+	tracker.Record("bead-1", "planning", "prior-agent")
 
 	loopCtx := &TakeLoopContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		AgentID:                  "my-agent",
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -511,7 +511,7 @@ func TestComputeStepExclusions_ReviewExcludesCurrentAndPrior(t *testing.T) {
 func TestComputeStepExclusions_SoftRotation(t *testing.T) {
 	loopCtx := &TakeLoopContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		AgentID:                  "",
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},
@@ -542,7 +542,7 @@ func TestRunDispatch_DispatchFailureEmitsBanner(t *testing.T) {
 	var events []session.TerminalEvent
 	ctx := &TakeLoopDispatchContext{
 		ID:                       "term-test",
-		BeatID:                   "beat-1",
+		BeadID:                   "bead-1",
 		PushEvent:                func(evt session.TerminalEvent) { events = append(events, evt) },
 		FailedAgentsPerQueueType: map[string]map[string]bool{},
 		ClaimsPerQueueType:       map[string]int{},

@@ -313,8 +313,8 @@ func TestSwapPoolsAgent_MergesWhenReplacementExists(t *testing.T) {
 
 func TestStepAgentTracker_RecordAndGet(t *testing.T) {
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "implementation", "claude")
-	got, ok := tracker.Get("beat-1", "implementation")
+	tracker.Record("bead-1", "implementation", "claude")
+	got, ok := tracker.Get("bead-1", "implementation")
 	if !ok {
 		t.Fatal("expected to find recorded agent")
 	}
@@ -325,7 +325,7 @@ func TestStepAgentTracker_RecordAndGet(t *testing.T) {
 
 func TestStepAgentTracker_Missing(t *testing.T) {
 	tracker := NewStepAgentTracker()
-	_, ok := tracker.Get("beat-1", "implementation")
+	_, ok := tracker.Get("bead-1", "implementation")
 	if ok {
 		t.Error("expected not found for unrecorded key")
 	}
@@ -333,9 +333,9 @@ func TestStepAgentTracker_Missing(t *testing.T) {
 
 func TestStepAgentTracker_Overwrite(t *testing.T) {
 	tracker := NewStepAgentTracker()
-	tracker.Record("beat-1", "implementation", "claude")
-	tracker.Record("beat-1", "implementation", "codex")
-	got, ok := tracker.Get("beat-1", "implementation")
+	tracker.Record("bead-1", "implementation", "claude")
+	tracker.Record("bead-1", "implementation", "codex")
+	got, ok := tracker.Get("bead-1", "implementation")
 	if !ok {
 		t.Fatal("expected to find recorded agent")
 	}

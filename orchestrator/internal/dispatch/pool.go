@@ -9,22 +9,22 @@ import (
 
 type DispatchFailureError struct {
 	PoolKey string
-	BeatID  string
+	BeadID  string
 	Missing string
 	Fix     string
 }
 
 func (e *DispatchFailureError) Error() string {
 	return fmt.Sprintf(
-		"KERNL DISPATCH FAILURE: %s not found for pool key %q (beat %s); fix: %s",
-		e.Missing, e.PoolKey, e.BeatID, e.Fix,
+		"KERNL DISPATCH FAILURE: %s not found for pool key %q (bead %s); fix: %s",
+		e.Missing, e.PoolKey, e.BeadID, e.Fix,
 	)
 }
 
-func NewDispatchFailureError(poolKey, beatID, missing, fix string) *DispatchFailureError {
+func NewDispatchFailureError(poolKey, beadID, missing, fix string) *DispatchFailureError {
 	return &DispatchFailureError{
 		PoolKey: poolKey,
-		BeatID:  beatID,
+		BeadID:  beadID,
 		Missing: missing,
 		Fix:     fix,
 	}

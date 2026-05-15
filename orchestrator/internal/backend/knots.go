@@ -99,7 +99,7 @@ func (k *KnotsBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 	return descriptors, nil
 }
 
-func (k *KnotsBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (k *KnotsBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	args := []string{"ls", "--all", "--json"}
 	if filters != nil && filters.State != "" {
 		args = []string{"ls", "--json", "--status", filters.State}
@@ -119,15 +119,15 @@ func (k *KnotsBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, 
 	if err := json.Unmarshal([]byte(result.stdout), &records); err != nil {
 		return nil, fmt.Errorf("kno ls parse: %w", err)
 	}
-	beats := make([]Beat, len(records))
+	beads := make([]Bead, len(records))
 	for i, rec := range records {
-		beats[i] = knotRecordToBeat(rec, repoPath)
+		beads[i] = knotRecordToBead(rec, repoPath)
 	}
-	return beats, nil
+	return beads, nil
 }
 
-func (k *KnotsBackend) ListReady(filters *BeatListFilters, repoPath string) ([]Beat, error) {
-	readyFilters := &BeatListFilters{}
+func (k *KnotsBackend) ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error) {
+	readyFilters := &BeadListFilters{}
 	if filters != nil {
 		*readyFilters = *filters
 	}
@@ -135,7 +135,7 @@ func (k *KnotsBackend) ListReady(filters *BeatListFilters, repoPath string) ([]B
 	return k.List(readyFilters, repoPath)
 }
 
-func (k *KnotsBackend) Get(id string, repoPath string) (*Beat, error) {
+func (k *KnotsBackend) Get(id string, repoPath string) (*Bead, error) {
 	result, err := k.execRead(context.Background(), []string{"show", id, "--json"})
 	if err != nil {
 		return nil, fmt.Errorf("kno show %s: %w", id, err)
@@ -147,11 +147,11 @@ func (k *KnotsBackend) Get(id string, repoPath string) (*Beat, error) {
 	if err := json.Unmarshal([]byte(result.stdout), &rec); err != nil {
 		return nil, fmt.Errorf("kno show parse: %w", err)
 	}
-	beat := knotRecordToBeat(rec, repoPath)
-	return &beat, nil
+	bead := knotRecordToBead(rec, repoPath)
+	return &bead, nil
 }
 
-func (k *KnotsBackend) Create(input CreateBeatInput, repoPath string) (*Beat, error) {
+func (k *KnotsBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
 	args := []string{"new"}
 	if input.Type != "" {
 		args = append(args, "--type", input.Type)
@@ -183,14 +183,14 @@ func (k *KnotsBackend) Create(input CreateBeatInput, repoPath string) (*Beat, er
 		createdID = strings.TrimSpace(strings.TrimPrefix(result.stdout, "created"))
 	}
 
-	beat, getErr := k.Get(createdID, repoPath)
+	bead, getErr := k.Get(createdID, repoPath)
 	if getErr != nil {
-		return &Beat{ID: createdID, Title: input.Title, Type: input.Type}, nil
+		return &Bead{ID: createdID, Title: input.Title, Type: input.Type}, nil
 	}
-	return beat, nil
+	return bead, nil
 }
 
-func (k *KnotsBackend) Update(id string, input UpdateBeatInput, repoPath string) error {
+func (k *KnotsBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
 	args := []string{"update", id}
 	if input.Title != "" {
 		args = append(args, fmt.Sprintf("--title=%s", input.Title))
@@ -263,12 +263,12 @@ func (k *KnotsBackend) Delete(id string, repoPath string) error {
 	return fmt.Errorf("KERNL DISPATCH FAILURE: knots backend does not support delete; use update to close instead")
 }
 
-func (k *KnotsBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (k *KnotsBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	all, err := k.List(filters, repoPath)
 	if err != nil {
 		return nil, err
 	}
-	var matches []Beat
+	var matches []Bead
 	lowerQ := strings.ToLower(query)
 	for i := range all {
 		if strings.Contains(strings.ToLower(all[i].Title), lowerQ) || strings.Contains(strings.ToLower(all[i].ID), lowerQ) {
@@ -278,7 +278,7 @@ func (k *KnotsBackend) Search(query string, filters *BeatListFilters, repoPath s
 	return matches, nil
 }
 
-func (k *KnotsBackend) Query(expression string, options *BeatQueryOptions, repoPath string) ([]Beat, error) {
+func (k *KnotsBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
 	return k.List(nil, repoPath)
 }
 
@@ -352,7 +352,7 @@ func (k *KnotsBackend) RemoveDependency(blockerID string, blockedID string, repo
 	return nil
 }
 
-func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeatDependency, error) {
+func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
 	args := []string{"edge", "list", id, "--direction", "both", "--json"}
 	if options != nil && options.Type != "" {
 		args = append(args, "--type", options.Type)
@@ -368,7 +368,7 @@ func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *Dep
 	if err := json.Unmarshal([]byte(result.stdout), &edges); err != nil {
 		return nil, fmt.Errorf("kno edge list parse: %w", err)
 	}
-	deps := make([]BeatDependency, len(edges))
+	deps := make([]BeadDependency, len(edges))
 	for i, e := range edges {
 		depType := e.Kind
 		if e.Kind == "blocked_by" {
@@ -376,12 +376,12 @@ func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *Dep
 		} else if e.Kind == "parent_of" {
 			depType = "parent-child"
 		}
-		deps[i] = BeatDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}
+		deps[i] = BeadDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}
 	}
 	return deps, nil
 }
 
-func (k *KnotsBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
+func (k *KnotsBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
 	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: knots backend buildTakePrompt not yet implemented; use scope refinement worker")
 }
 
@@ -668,7 +668,7 @@ type knoEdge struct {
 	Dst  string `json:"dst"`
 }
 
-func knotRecordToBeat(rec knoRecord, repoPath string) Beat {
+func knotRecordToBead(rec knoRecord, repoPath string) Bead {
 	priority := 2
 	if rec.Priority != nil {
 		p := *rec.Priority
@@ -712,7 +712,7 @@ func knotRecordToBeat(rec knoRecord, repoPath string) Beat {
 		notes = rec.Body
 	}
 
-	return Beat{
+	return Bead{
 		ID:          rec.ID,
 		Type:        beatType,
 		State:       rec.State,

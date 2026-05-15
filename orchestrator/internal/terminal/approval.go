@@ -216,7 +216,7 @@ func pushApprovalFailureEvent(entry *SessionEntry, record *PendingApprovalRecord
 	evt := session.TerminalEvent{
 		Type:    "stderr",
 		Content: data,
-		BeatID:  entry.Session.BeatID,
+		BeadID:  entry.Session.BeadID,
 		Time:    time.Now().UnixMilli(),
 	}
 

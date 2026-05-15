@@ -8,7 +8,7 @@ import (
 
 func TestPerformApprovalAction_NotFound(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	result := PerformApprovalAction(entry, "nonexistent", ActionAccept)
 	if result.OK {
@@ -24,7 +24,7 @@ func TestPerformApprovalAction_NotFound(t *testing.T) {
 
 func TestPerformApprovalAction_UnsupportedAction(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-1",
@@ -57,7 +57,7 @@ func TestPerformApprovalAction_UnsupportedAction(t *testing.T) {
 
 func TestPerformApprovalAction_MissingReplyTarget(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-1",
@@ -79,7 +79,7 @@ func TestPerformApprovalAction_MissingReplyTarget(t *testing.T) {
 
 func TestPerformApprovalAction_NoResponder(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-1",
@@ -101,7 +101,7 @@ func TestPerformApprovalAction_NoResponder(t *testing.T) {
 
 func TestPerformApprovalAction_Success(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-1",
@@ -140,7 +140,7 @@ func TestPerformApprovalAction_Success(t *testing.T) {
 
 func TestPerformApprovalAction_DeclineRejects(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-2",
@@ -168,7 +168,7 @@ func TestPerformApprovalAction_DeclineRejects(t *testing.T) {
 
 func TestPerformApprovalAction_AlwaysApprove(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-3",
@@ -196,7 +196,7 @@ func TestPerformApprovalAction_AlwaysApprove(t *testing.T) {
 
 func TestPerformApprovalAction_ReplyFailed(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-4",
@@ -248,7 +248,7 @@ func TestPerformApprovalAction_ReplyFailed(t *testing.T) {
 
 func TestPerformApprovalAction_RetrySuccessClearsFailureReason(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-5",
@@ -294,7 +294,7 @@ func TestPerformApprovalAction_RetrySuccessClearsFailureReason(t *testing.T) {
 
 func TestPerformApprovalAction_ResponderError(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-6",
@@ -328,7 +328,7 @@ func TestPerformApprovalAction_ResponderError(t *testing.T) {
 
 func TestPerformApprovalAction_ClaudeBridgeSuccess(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:      "approval-7",
@@ -412,7 +412,7 @@ func TestNormalizeSupportedActions(t *testing.T) {
 
 func TestCleanupSessionResources_MarksManualRequired(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	entry.RecordPendingApproval(&PendingApprovalRecord{
 		ApprovalID: "approval-1",
@@ -436,7 +436,7 @@ func TestCleanupSessionResources_MarksManualRequired(t *testing.T) {
 
 func TestCleanupSessionResources_MultipleApprovals(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	for i := 0; i < 3; i++ {
 		entry.RecordPendingApproval(&PendingApprovalRecord{
@@ -461,7 +461,7 @@ func TestCleanupSessionResources_MultipleApprovals(t *testing.T) {
 
 func TestPendingApprovalRecord_Fields(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "beat-1", "/repo")
+	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:       "approval-1",
@@ -475,8 +475,8 @@ func TestPendingApprovalRecord_Fields(t *testing.T) {
 			PermissionID:    "perm_1",
 		},
 		Actionable:        true,
-		BeatID:            "beat-1",
-		BeatTitle:         "Fix bug",
+		BeadID:            "bead-1",
+		BeadTitle:         "Fix bug",
 		RepoPath:          "/repo",
 		Adapter:           "opencode",
 		Source:            "permission.asked",
@@ -490,8 +490,8 @@ func TestPendingApprovalRecord_Fields(t *testing.T) {
 	if !ok {
 		t.Fatal("expected to find approval")
 	}
-	if found.BeatID != "beat-1" {
-		t.Errorf("expected beatId=beat-1, got %s", found.BeatID)
+	if found.BeadID != "bead-1" {
+		t.Errorf("expected beadId=bead-1, got %s", found.BeadID)
 	}
 	if found.NativeSessionID != "ses_1" {
 		t.Errorf("expected nativeSessionId=ses_1, got %s", found.NativeSessionID)
