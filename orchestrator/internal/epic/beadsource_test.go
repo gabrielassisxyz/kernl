@@ -8,9 +8,13 @@ import (
 
 type fakeBackend struct {
 	beads []backend.Bead
+	state map[string]string
 }
 
 func (f *fakeBackend) Get(id string, _ string) (*backend.Bead, error) {
+	if state, ok := f.state[id]; ok {
+		return &backend.Bead{ID: id, State: state}, nil
+	}
 	for _, b := range f.beads {
 		if b.ID == id {
 			return &b, nil
