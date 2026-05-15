@@ -1,0 +1,22 @@
+settings:
+  agents:
+    opencode:
+      command: opencode
+      args: ["run", "--format", "json"]
+      type: claude
+      vendor: anthropic
+      model: claude-sonnet-4-6
+      label: sonnet
+  pools:
+    default:
+      agents:
+        - agentId: opencode
+          weight: 1
+  defaults:
+    interactiveSessionTimeoutMinutes: 30
+registry:
+  repos: []
+orchestrator:
+  worktreeRoot: ""
+  maxConcurrentBeads: 2
+  runStatePath: ""
