@@ -8,6 +8,7 @@ import (
 var (
 	doctorFn func(configPath string) error           = runDoctor
 	serveFn  func(configPath string) error           = runServe
+	epicFn   func(configPath string, args []string) error = runEpic
 	beadFn   func(configPath string, args []string) error = runBead
 	helpFn   func() error                           = printHelp
 )
@@ -49,7 +50,7 @@ func Dispatch(args []string) error {
 	case "doctor":
 		return doctorFn(configPath)
 	case "epic":
-		return fmt.Errorf("KERNL DISPATCH FAILURE: 'epic' subcommand is not yet implemented")
+		return epicFn(configPath, args[1:])
 	case "bead":
 		return beadFn(configPath, args[1:])
 	case "--help", "-h", "help":
