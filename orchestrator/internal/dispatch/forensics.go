@@ -20,16 +20,16 @@ func nowFrom(deps *ForensicDeps) string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
 }
 
-func captureBeatSnapshotData(ctx CaptureContext, deps *ForensicDeps) (beat *backend.Beat, leases []backend.Beat, errors []string) {
+func captureBeadSnapshotData(ctx CaptureContext, deps *ForensicDeps) (bead *backend.Bead, leases []backend.Bead, errors []string) {
 	if deps == nil || deps.ShowKnot == nil {
 		errors = append(errors, "showKnot: dependency not available")
 		return nil, nil, errors
 	}
-	b, err := deps.ShowKnot(ctx.BeatID, ctx.RepoPath)
+	b, err := deps.ShowKnot(ctx.BeadID, ctx.RepoPath)
 	if err != nil {
 		errors = append(errors, fmt.Sprintf("showKnot: %s", err.Error()))
 	} else {
-		beat = b
+		bead = b
 	}
 
 	if deps.ListLeases != nil {
@@ -37,18 +37,18 @@ func captureBeatSnapshotData(ctx CaptureContext, deps *ForensicDeps) (beat *back
 		if err != nil {
 			errors = append(errors, fmt.Sprintf("listLeases: %s", err.Error()))
 		} else {
-			leases = leasesForBeat(ctx.BeatID, ctx.SessionID, ls)
+			leases = leasesForBead(ctx.BeadID, ctx.SessionID, ls)
 		}
 	}
 
-	return beat, leases, errors
+	return bead, leases, errors
 }
 
-func leasesForBeat(beatID, sessionID string, all []backend.Beat) []backend.Beat {
-	var matched []backend.Beat
+func leasesForBead(beadID, sessionID string, all []backend.Bead) []backend.Bead {
+	var matched []backend.Bead
 	for _, l := range all {
 		nickname, _ := l.Metadata["nickname"].(string)
-		if strings.Contains(nickname, beatID) || strings.Contains(nickname, sessionID) {
+		if strings.Contains(nickname, beadID) || strings.Contains(nickname, sessionID) {
 			matched = append(matched, l)
 		}
 	}
@@ -58,13 +58,13 @@ func leasesForBeat(beatID, sessionID string, all []backend.Beat) []backend.Beat 
 	return matched
 }
 
-func CaptureBeatSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, deps *ForensicDeps) BeatSnapshot {
+func CaptureBeadSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, deps *ForensicDeps) BeadSnapshot {
 	capturedAt := nowFrom(deps)
-	base := BeatSnapshot{
+	base := BeadSnapshot{
 		Boundary:      boundary,
 		CapturedAt:    capturedAt,
 		SessionID:     ctx.SessionID,
-		BeatID:        ctx.BeatID,
+		BeadID:        ctx.BeadID,
 		AgentInfo:     ctx.AgentInfo,
 		LeaseID:       ctx.LeaseID,
 		Iteration:     ctx.Iteration,
@@ -74,14 +74,14 @@ func CaptureBeatSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, 
 		ChildPID:      ctx.ChildPID,
 	}
 
-	beat, leases, captureErrors := captureBeatSnapshotData(ctx, deps)
+	bead, leases, captureErrors := captureBeadSnapshotData(ctx, deps)
 
 	snapshot := base
 	snapshot.ObservedState = ctx.ObservedState
-	if beat != nil && snapshot.ObservedState == "" {
-		snapshot.ObservedState = beat.State
+	if bead != nil && snapshot.ObservedState == "" {
+		snapshot.ObservedState = bead.State
 	}
-	snapshot.Beat = beat
+	snapshot.Bead = bead
 	snapshot.Leases = leases
 	if len(captureErrors) > 0 {
 		snapshot.CaptureErrors = captureErrors
@@ -95,7 +95,7 @@ func CaptureBeatSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, 
 	var snapshotPath string
 	pathBytes, err := writer.Write(snapshot)
 	if err != nil {
-		slog.Error("dispatch forensics write failed", "boundary", boundary, "beat", ctx.BeatID, "error", err)
+		slog.Error("dispatch forensics write failed", "boundary", boundary, "bead", ctx.BeadID, "error", err)
 	} else {
 		snapshotPath = pathBytes
 	}
@@ -105,10 +105,10 @@ func CaptureBeatSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, 
 		logAudit = defaultLogAudit
 	}
 	logAudit(fmt.Sprintf("beat_snapshot_%s", boundary), map[string]any{
-		"message":       fmt.Sprintf("Captured beat snapshot at boundary %s.", boundary),
+		"message":       fmt.Sprintf("Captured bead snapshot at boundary %s.", boundary),
 		"repoPath":      ctx.RepoPath,
 		"sessionId":     ctx.SessionID,
-		"beatId":        ctx.BeatID,
+		"beadId":        ctx.BeadID,
 		"knotsLeaseId":  ctx.LeaseID,
 		"iteration":     ctx.Iteration,
 		"observedState":  snapshot.ObservedState,
@@ -124,7 +124,7 @@ func defaultLogAudit(event string, payload map[string]any) {
 	slog.Info(event, "payload", payload)
 }
 
-func RunPostTurnForensics(pre, post BeatSnapshot, preSnapshotPath, postSnapshotPath string, signals *ClassifierSignals, deps *ForensicDeps) PostTurnForensicResult {
+func RunPostTurnForensics(pre, post BeadSnapshot, preSnapshotPath, postSnapshotPath string, signals *ClassifierSignals, deps *ForensicDeps) PostTurnForensicResult {
 	classification := ClassifyTurnFailure(pre, post, signals)
 	if classification == nil {
 		return PostTurnForensicResult{Classified: false}
@@ -137,7 +137,7 @@ func RunPostTurnForensics(pre, post BeatSnapshot, preSnapshotPath, postSnapshotP
 
 	body := BuildForensicBannerBody(ForensicBannerInput{
 		Category:         classification.Category,
-		BeatID:           post.BeatID,
+		BeadID:           post.BeadID,
 		SessionID:        post.SessionID,
 		LeaseID:          post.LeaseID,
 		Iteration:        iteration,
@@ -163,7 +163,7 @@ func RunPostTurnForensics(pre, post BeatSnapshot, preSnapshotPath, postSnapshotP
 	logAudit("dispatch_forensic_classified", map[string]any{
 		"message":             fmt.Sprintf("Dispatch forensic classified: %s.", classification.Category),
 		"sessionId":           post.SessionID,
-		"beatId":              post.BeatID,
+		"beadId":              post.BeadID,
 		"knotsLeaseId":        post.LeaseID,
 		"category":            string(classification.Category),
 		"reasoning":           classification.Reasoning,
@@ -180,14 +180,14 @@ func RunPostTurnForensics(pre, post BeatSnapshot, preSnapshotPath, postSnapshotP
 
 type fsSnapshotWriter struct{}
 
-func (f *fsSnapshotWriter) Write(snapshot BeatSnapshot) (string, error) {
+func (f *fsSnapshotWriter) Write(snapshot BeadSnapshot) (string, error) {
 	logRoot := resolveLogRoot()
 	date := snapshot.CapturedAt[:10]
 	p := SnapshotPath(SnapshotPathInput{
 		LogRoot:    logRoot,
 		Date:       date,
 		SessionID:  snapshot.SessionID,
-		BeatID:     snapshot.BeatID,
+		BeadID:     snapshot.BeadID,
 		Boundary:   snapshot.Boundary,
 		CapturedAt: snapshot.CapturedAt,
 	})

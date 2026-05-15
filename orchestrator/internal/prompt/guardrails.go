@@ -2,13 +2,13 @@ package prompt
 
 type ExecutionBoundary struct {
 	AllowedExitStates []string
-	BeatID           string
+	BeadID           string
 	StepName         string
 }
 
 func FormatBoundary(b ExecutionBoundary) string {
 	boundary := "KERNL EXECUTION BOUNDARY\n"
-	boundary += "Beat: " + b.BeatID + "\n"
+	boundary += "Bead: " + b.BeadID + "\n"
 	boundary += "Step: " + b.StepName + "\n"
 	boundary += "Allowed exit states: "
 	for i, s := range b.AllowedExitStates {

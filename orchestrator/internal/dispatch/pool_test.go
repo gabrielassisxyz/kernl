@@ -240,7 +240,7 @@ func TestResolveDispatchAgent_DanglingAgent(t *testing.T) {
 }
 
 func TestDispatchFailureError_Message(t *testing.T) {
-	e := NewDispatchFailureError("implementation", "beat-1", "pool agents", "add agents to pool")
+	e := NewDispatchFailureError("implementation", "bead-1", "pool agents", "add agents to pool")
 	msg := e.Error()
 	if msg == "" {
 		t.Fatal("error message should not be empty")

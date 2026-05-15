@@ -19,7 +19,7 @@ func TestLeaseNickname(t *testing.T) {
 			input: &EnsureLeaseInput{
 				Source:     LeaseSourceTerminalManagerTake,
 				SessionID: "sess-123",
-				BeatID:    "beat-1",
+				BeadID:    "bead-1",
 			},
 			expected: "kernl:terminal_manager_take:sess-123",
 		},
@@ -28,17 +28,17 @@ func TestLeaseNickname(t *testing.T) {
 			input: &EnsureLeaseInput{
 				Source:           LeaseSourceStructuredPrepareTake,
 				ExecutionLeaseID: "lease-456",
-				BeatID:           "beat-1",
+				BeadID:           "bead-1",
 			},
 			expected: "kernl:structured_prepare_take:lease-456",
 		},
 		{
-			name: "uses beat ID when no session or execution lease ID",
+			name: "uses bead ID when no session or execution lease ID",
 			input: &EnsureLeaseInput{
 				Source: LeaseSourceStructuredPreparePoll,
-				BeatID: "beat-2",
+				BeadID: "bead-2",
 			},
-			expected: "kernl:structured_prepare_poll:beat-2",
+			expected: "kernl:structured_prepare_poll:bead-2",
 		},
 		{
 			name: "falls back to runtime when no IDs",
@@ -262,7 +262,7 @@ func TestBuildCreateLeaseOptions(t *testing.T) {
 		RepoPath:   "/tmp/repo",
 		Source:      LeaseSourceTerminalManagerTake,
 		SessionID:  "sess-1",
-		BeatID:     "beat-1",
+		BeadID:     "bead-1",
 		AgentInfo:  info,
 	}
 
@@ -292,7 +292,7 @@ func TestBuildCreateLeaseOptionsNilAgentInfo(t *testing.T) {
 	input := &EnsureLeaseInput{
 		RepoPath:  "/tmp/repo",
 		Source:     LeaseSourceDoctorActiveLeases,
-		BeatID:    "beat-2",
+		BeadID:    "bead-2",
 		AgentInfo: nil,
 	}
 

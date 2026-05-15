@@ -123,7 +123,7 @@ func TestWatchdog_FiresEvenAfterResultObserved(t *testing.T) {
 	})
 	w.SetPID(0)
 
-	runtime := NewSessionRuntime("beat-1", "/repo")
+	runtime := NewSessionRuntime("bead-1", "/repo")
 	runtime.MarkResultObserved("turn_ended")
 
 	ctx := context.Background()

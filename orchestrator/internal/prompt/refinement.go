@@ -1,7 +1,7 @@
 package prompt
 
 type RefinementJob struct {
-	BeatID          string
+	BeadID          string
 	RepoPath        string
 	ExcludeAgentIDs []string
 }

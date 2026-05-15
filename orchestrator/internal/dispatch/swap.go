@@ -266,11 +266,11 @@ func NewStepAgentTracker() *StepAgentTracker {
 	return &StepAgentTracker{m: make(map[string]string)}
 }
 
-func (t *StepAgentTracker) Record(beatID, step, agentID string) {
-	t.m[fmt.Sprintf("%s:%s", beatID, step)] = agentID
+func (t *StepAgentTracker) Record(beadID, step, agentID string) {
+	t.m[fmt.Sprintf("%s:%s", beadID, step)] = agentID
 }
 
-func (t *StepAgentTracker) Get(beatID, step string) (string, bool) {
-	v, ok := t.m[fmt.Sprintf("%s:%s", beatID, step)]
+func (t *StepAgentTracker) Get(beadID, step string) (string, bool) {
+	v, ok := t.m[fmt.Sprintf("%s:%s", beadID, step)]
 	return v, ok
 }

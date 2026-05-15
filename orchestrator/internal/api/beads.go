@@ -5,39 +5,39 @@ import (
 	"net/http"
 )
 
-func RegisterBeatRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/beats", listBeatsHandler)
-	mux.HandleFunc("GET /api/beats/{id}", getBeatHandler)
-	mux.HandleFunc("POST /api/beats", createBeatHandler)
-	mux.HandleFunc("PATCH /api/beats/{id}", updateBeatHandler)
-	mux.HandleFunc("POST /api/beats/{id}/close", closeBeatHandler)
-	mux.HandleFunc("POST /api/beats/{id}/mark-terminal", markTerminalHandler)
-	mux.HandleFunc("POST /api/beats/{id}/rollback", rollbackBeatHandler)
-	mux.HandleFunc("POST /api/beats/{id}/refine-scope", refineScopeHandler)
+func RegisterBeadRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/beads", listBeadsHandler)
+	mux.HandleFunc("GET /api/beads/{id}", getBeadHandler)
+	mux.HandleFunc("POST /api/beads", createBeadHandler)
+	mux.HandleFunc("PATCH /api/beads/{id}", updateBeadHandler)
+	mux.HandleFunc("POST /api/beads/{id}/close", closeBeadHandler)
+	mux.HandleFunc("POST /api/beads/{id}/mark-terminal", markTerminalHandler)
+	mux.HandleFunc("POST /api/beads/{id}/rollback", rollbackBeadHandler)
+	mux.HandleFunc("POST /api/beads/{id}/refine-scope", refineScopeHandler)
 }
 
-func listBeatsHandler(w http.ResponseWriter, r *http.Request) {
+func listBeadsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode([]struct{}{})
 }
 
-func getBeatHandler(w http.ResponseWriter, r *http.Request) {
+func getBeadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct{}{})
 }
 
-func createBeatHandler(w http.ResponseWriter, r *http.Request) {
+func createBeadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(struct{}{})
 }
 
-func updateBeatHandler(w http.ResponseWriter, r *http.Request) {
+func updateBeadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct{}{})
 }
 
-func closeBeatHandler(w http.ResponseWriter, r *http.Request) {
+func closeBeadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct{}{})
 }
@@ -47,7 +47,7 @@ func markTerminalHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(struct{}{})
 }
 
-func rollbackBeatHandler(w http.ResponseWriter, r *http.Request) {
+func rollbackBeadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(struct{}{})
 }

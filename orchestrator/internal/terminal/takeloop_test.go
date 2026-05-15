@@ -37,7 +37,7 @@ func TestClassifyIterationSuccess_AdvancesToNextQueue(t *testing.T) {
 	wf := makeTestWorkflow()
 	got := ClassifyIterationSuccess(0, "ready_for_implementation", "ready_for_review", wf)
 	if !got {
-		t.Error("expected success when beat advances from queue to next queue via action")
+		t.Error("expected success when bead advances from queue to next queue via action")
 	}
 }
 
@@ -69,7 +69,7 @@ func TestClassifyIterationSuccess_StuckInActiveState(t *testing.T) {
 	wf := makeTestWorkflow()
 	got := ClassifyIterationSuccess(0, "implementation", "implementation", wf)
 	if got {
-		t.Error("expected failure when beat stays in same active state")
+		t.Error("expected failure when bead stays in same active state")
 	}
 }
 
@@ -88,7 +88,7 @@ func TestTakeLoopContext_RecordFailedAgent(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	ctx.RecordFailedAgent("implementation", "agent-a")
 	ctx.RecordFailedAgent("implementation", "agent-b")
@@ -111,7 +111,7 @@ func TestTakeLoopContext_RecordFailedAgent_EmptyArgs(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	ctx.RecordFailedAgent("", "agent-a")
 	ctx.RecordFailedAgent("implementation", "")
@@ -128,7 +128,7 @@ func TestTakeLoopContext_IncrementClaims(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	c1 := ctx.IncrementClaims("implementation")
 	if c1 != 1 {
@@ -155,7 +155,7 @@ func TestTakeLoopContext_ComputeExclusions_FailedAgents(t *testing.T) {
 		ClaimsPerQueueType:    make(map[string]int),
 		LastAgentPerQueueType: make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	exclusions := ctx.ComputeExclusions("implementation", false, "", "", "")
 	if len(exclusions) != 1 || exclusions[0] != "agent-a" {
@@ -170,7 +170,7 @@ func TestTakeLoopContext_ComputeExclusions_ReviewExclusion(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	exclusions := ctx.ComputeExclusions("review", true, "current-agent", "prior-action-agent", "")
 	foundCurrent := false
@@ -198,7 +198,7 @@ func TestTakeLoopContext_ComputeExclusions_SoftRotation(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    map[string]string{"implementation": "last-agent"},
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	exclusions := ctx.ComputeExclusions("implementation", false, "", "", "")
 	found := false
@@ -219,7 +219,7 @@ func TestTakeLoopContext_ComputeExclusions_ErrorAgentExcluded(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	exclusions := ctx.ComputeExclusions("implementation", false, "", "", "error-agent")
 	found := false
@@ -243,7 +243,7 @@ func TestBuildOutcomeRecord(t *testing.T) {
 	now := time.Now()
 	ctx := &TakeLoopContext{
 		ID:            "sess-1",
-		BeatID:        "beat-1",
+		BeadID:        "bead-1",
 		Entry:         entry,
 		TakeIteration: &IterationCounter{Value: 2},
 		ClaimedAt:     &now,
@@ -251,8 +251,8 @@ func TestBuildOutcomeRecord(t *testing.T) {
 
 	record := BuildOutcomeRecord(ctx, "agent-a", "Claude", "ready_for_implementation", "implementation", 0, "implementation", true, true)
 
-	if record.BeatID != "beat-1" {
-		t.Errorf("expected beatId=beat-1, got %s", record.BeatID)
+	if record.BeadID != "bead-1" {
+		t.Errorf("expected beadId=bead-1, got %s", record.BeadID)
 	}
 	if record.Success != true {
 		t.Error("expected success=true")
@@ -348,7 +348,7 @@ func TestClassifyIterationSuccess_StaysSameState(t *testing.T) {
 	wf := makeTestWorkflow()
 	got := ClassifyIterationSuccess(0, "ready_for_implementation", "ready_for_implementation", wf)
 	if got {
-		t.Error("expected failure when beat stays at same queue state without advancing")
+		t.Error("expected failure when bead stays at same queue state without advancing")
 	}
 }
 
@@ -405,7 +405,7 @@ func TestTakeLoopContext_ClaimsMaxEnforcement(t *testing.T) {
 		ClaimsPerQueueType:       make(map[string]int),
 		LastAgentPerQueueType:    make(map[string]string),
 	}
-	ctx := NewTakeLoopContext(entry, &backend.Beat{ID: "beat-1"}, "/repo")
+	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-1"}, "/repo")
 
 	for i := 1; i <= MaxClaimsPerQueueType; i++ {
 		ctx.IncrementClaims("implementation")

@@ -519,55 +519,55 @@ func TestInferRetakeState(t *testing.T) {
 	}
 }
 
-func TestBeatRequiresHumanAction(t *testing.T) {
+func TestBeadRequiresHumanAction(t *testing.T) {
 	descriptors := BuiltinWorkflowDescriptors()
 	workflowsByID := WorkflowDescriptorByID(descriptors)
 
-	t.Run("returns true when beat.RequiresHumanAction is true", func(t *testing.T) {
-		beat := &backend.Beat{ID: "1", State: "plan_review", ProfileID: "autopilot", RequiresHumanAction: true}
-		if !BeatRequiresHumanAction(beat, workflowsByID) {
+	t.Run("returns true when bead.RequiresHumanAction is true", func(t *testing.T) {
+		bead := &backend.Bead{ID: "1", State: "plan_review", ProfileID: "autopilot", RequiresHumanAction: true}
+		if !BeadRequiresHumanAction(bead, workflowsByID) {
 			t.Error("expected true")
 		}
 	})
 
-	t.Run("returns false when beat.RequiresHumanAction is false", func(t *testing.T) {
-		beat := &backend.Beat{ID: "2", State: "planning", ProfileID: "semiauto", RequiresHumanAction: false}
-		if BeatRequiresHumanAction(beat, workflowsByID) {
+	t.Run("returns false when bead.RequiresHumanAction is false", func(t *testing.T) {
+		bead := &backend.Bead{ID: "2", State: "planning", ProfileID: "semiauto", RequiresHumanAction: false}
+		if BeadRequiresHumanAction(bead, workflowsByID) {
 			t.Error("expected false")
 		}
 	})
 
 	t.Run("derives from workflow when RequiresHumanAction not set", func(t *testing.T) {
-		beat := &backend.Beat{ID: "3", State: "ready_for_plan_review", ProfileID: "semiauto"}
-		if !BeatRequiresHumanAction(beat, workflowsByID) {
+		bead := &backend.Bead{ID: "3", State: "ready_for_plan_review", ProfileID: "semiauto"}
+		if !BeadRequiresHumanAction(bead, workflowsByID) {
 			t.Error("expected true for semiauto ready_for_plan_review")
 		}
 	})
 
 	t.Run("returns false when workflow not found and no explicit flag", func(t *testing.T) {
-		beat := &backend.Beat{ID: "4", State: "planning", ProfileID: "nonexistent"}
-		if BeatRequiresHumanAction(beat, workflowsByID) {
+		bead := &backend.Bead{ID: "4", State: "planning", ProfileID: "nonexistent"}
+		if BeadRequiresHumanAction(bead, workflowsByID) {
 			t.Error("expected false for missing workflow")
 		}
 	})
 }
 
-func TestBeatInRetake(t *testing.T) {
+func TestBeadInRetake(t *testing.T) {
 	descriptors := BuiltinWorkflowDescriptors()
 	workflowsByID := WorkflowDescriptorByID(descriptors)
 
 	t.Run("returns true for legacy retake states", func(t *testing.T) {
 		for _, s := range []string{"retake", "retry", "rejected", "refining", "rework"} {
-			beat := &backend.Beat{ID: "r", State: s, ProfileID: "autopilot"}
-			if !BeatInRetake(beat, workflowsByID) {
+			bead := &backend.Bead{ID: "r", State: s, ProfileID: "autopilot"}
+			if !BeadInRetake(bead, workflowsByID) {
 				t.Errorf("expected true for state %q", s)
 			}
 		}
 	})
 
 	t.Run("returns false when workflow not found and not in legacy retake", func(t *testing.T) {
-		beat := &backend.Beat{ID: "r2", State: "implementation", ProfileID: "nonexistent"}
-		if BeatInRetake(beat, workflowsByID) {
+		bead := &backend.Bead{ID: "r2", State: "implementation", ProfileID: "nonexistent"}
+		if BeadInRetake(bead, workflowsByID) {
 			t.Error("expected false for missing workflow and non-retake state")
 		}
 	})
@@ -955,54 +955,54 @@ func TestWfToSteps(t *testing.T) {
 	})
 }
 
-func TestResolveWorkflowForBeat(t *testing.T) {
+func TestResolveWorkflowForBead(t *testing.T) {
 	descriptors := BuiltinWorkflowDescriptors()
 	workflowsByID := WorkflowDescriptorByID(descriptors)
 
 	t.Run("resolves by profileId", func(t *testing.T) {
-		beat := &backend.Beat{ID: "1", ProfileID: "autopilot"}
-		wf := ResolveWorkflowForBeat(beat, workflowsByID)
+		bead := &backend.Bead{ID: "1", ProfileID: "autopilot"}
+		wf := ResolveWorkflowForBead(bead, workflowsByID)
 		if wf == nil || wf.ID != "autopilot" {
 			t.Errorf("expected autopilot, got %v", wf)
 		}
 	})
 
 	t.Run("prefers profileId over workflowId", func(t *testing.T) {
-		beat := &backend.Beat{ID: "3", ProfileID: "autopilot", WorkflowID: "semiauto"}
-		wf := ResolveWorkflowForBeat(beat, workflowsByID)
+		bead := &backend.Bead{ID: "3", ProfileID: "autopilot", WorkflowID: "semiauto"}
+		wf := ResolveWorkflowForBead(bead, workflowsByID)
 		if wf == nil || wf.ID != "autopilot" {
 			t.Errorf("expected autopilot (profileId wins), got %v", wf)
 		}
 	})
 
 	t.Run("uses workflowId when profileId missing", func(t *testing.T) {
-		beat := &backend.Beat{ID: "2", ProfileID: "nonexistent_profile", WorkflowID: "semiauto"}
-		wf := ResolveWorkflowForBeat(beat, workflowsByID)
+		bead := &backend.Bead{ID: "2", ProfileID: "nonexistent_profile", WorkflowID: "semiauto"}
+		wf := ResolveWorkflowForBead(bead, workflowsByID)
 		if wf == nil || wf.ID != "semiauto" {
 			t.Errorf("expected semiauto via workflowId, got %v", wf)
 		}
 	})
 
 	t.Run("returns nil for unknown workflow", func(t *testing.T) {
-		beat := &backend.Beat{ID: "4", ProfileID: "nonexistent"}
-		wf := ResolveWorkflowForBeat(beat, workflowsByID)
+		bead := &backend.Bead{ID: "4", ProfileID: "nonexistent"}
+		wf := ResolveWorkflowForBead(bead, workflowsByID)
 		if wf != nil {
 			t.Errorf("expected nil for unknown workflow, got %v", wf)
 		}
 	})
 
 	t.Run("uses fallback when provided", func(t *testing.T) {
-		beat := &backend.Beat{ID: "5", ProfileID: "nonexistent"}
+		bead := &backend.Bead{ID: "5", ProfileID: "nonexistent"}
 		fallback := DefaultWorkflowDescriptor()
-		wf := ResolveWorkflowForBeat(beat, workflowsByID, &fallback)
+		wf := ResolveWorkflowForBead(bead, workflowsByID, &fallback)
 		if wf == nil || wf.ID != "autopilot" {
 			t.Errorf("expected fallback autopilot, got %v", wf)
 		}
 	})
 
 	t.Run("resolves legacy profile IDs", func(t *testing.T) {
-		beat := &backend.Beat{ID: "6", ProfileID: "beads-coarse"}
-		wf := ResolveWorkflowForBeat(beat, workflowsByID)
+		bead := &backend.Bead{ID: "6", ProfileID: "beads-coarse"}
+		wf := ResolveWorkflowForBead(bead, workflowsByID)
 		if wf == nil || wf.ID != "autopilot" {
 			t.Errorf("expected autopilot for legacy beads-coarse, got %v", wf)
 		}

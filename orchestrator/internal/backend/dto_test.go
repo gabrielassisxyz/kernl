@@ -27,149 +27,149 @@ func TestNormalizeBead_FieldMappingAndDefaults(t *testing.T) {
 		Metadata:           map[string]any{"source": "import"},
 	}
 
-	beat := NormalizeBead(raw)
+	bead := NormalizeBead(raw)
 
-	if beat.ID != "proj.epic.1" {
-		t.Errorf("expected ID proj.epic.1, got %s", beat.ID)
+	if bead.ID != "proj.epic.1" {
+		t.Errorf("expected ID proj.epic.1, got %s", bead.ID)
 	}
-	if beat.Title != "Implement widget" {
-		t.Errorf("expected Title 'Implement widget', got %s", beat.Title)
+	if bead.Title != "Implement widget" {
+		t.Errorf("expected Title 'Implement widget', got %s", bead.Title)
 	}
-	if beat.Description != "Build the widget component" {
-		t.Errorf("expected Description, got %s", beat.Description)
+	if bead.Description != "Build the widget component" {
+		t.Errorf("expected Description, got %s", bead.Description)
 	}
-	if beat.Notes != "See design doc" {
-		t.Errorf("expected Notes 'See design doc', got %s", beat.Notes)
+	if bead.Notes != "See design doc" {
+		t.Errorf("expected Notes 'See design doc', got %s", bead.Notes)
 	}
-	if beat.Acceptance != "Widget renders correctly" {
-		t.Errorf("expected Acceptance 'Widget renders correctly', got %s", beat.Acceptance)
+	if bead.Acceptance != "Widget renders correctly" {
+		t.Errorf("expected Acceptance 'Widget renders correctly', got %s", bead.Acceptance)
 	}
-	if beat.Type != "feature" {
-		t.Errorf("expected Type feature, got %s", beat.Type)
+	if bead.Type != "feature" {
+		t.Errorf("expected Type feature, got %s", bead.Type)
 	}
-	if beat.Priority != 3 {
-		t.Errorf("expected Priority 3, got %d", beat.Priority)
+	if bead.Priority != 3 {
+		t.Errorf("expected Priority 3, got %d", bead.Priority)
 	}
-	if len(beat.Labels) != 2 || beat.Labels[0] != "frontend" || beat.Labels[1] != "v2" {
-		t.Errorf("expected Labels [frontend, v2], got %v", beat.Labels)
+	if len(bead.Labels) != 2 || bead.Labels[0] != "frontend" || bead.Labels[1] != "v2" {
+		t.Errorf("expected Labels [frontend, v2], got %v", bead.Labels)
 	}
-	if beat.Assignee != "alice" {
-		t.Errorf("expected Assignee alice, got %s", beat.Assignee)
+	if bead.Assignee != "alice" {
+		t.Errorf("expected Assignee alice, got %s", bead.Assignee)
 	}
-	if beat.Owner != "bob" {
-		t.Errorf("expected Owner bob, got %s", beat.Owner)
+	if bead.Owner != "bob" {
+		t.Errorf("expected Owner bob, got %s", bead.Owner)
 	}
-	if beat.ParentID != "proj.epic" {
-		t.Errorf("expected ParentID proj.epic, got %s", beat.ParentID)
+	if bead.ParentID != "proj.epic" {
+		t.Errorf("expected ParentID proj.epic, got %s", bead.ParentID)
 	}
-	if beat.Due != "2026-03-01" {
-		t.Errorf("expected Due 2026-03-01, got %s", beat.Due)
+	if bead.Due != "2026-03-01" {
+		t.Errorf("expected Due 2026-03-01, got %s", bead.Due)
 	}
-	if beat.Estimate != 120 {
-		t.Errorf("expected Estimate 120, got %d", beat.Estimate)
+	if bead.Estimate != 120 {
+		t.Errorf("expected Estimate 120, got %d", bead.Estimate)
 	}
-	if beat.CreatedAt != "2026-01-01T00:00:00Z" {
-		t.Errorf("expected CreatedAt, got %s", beat.CreatedAt)
+	if bead.CreatedAt != "2026-01-01T00:00:00Z" {
+		t.Errorf("expected CreatedAt, got %s", bead.CreatedAt)
 	}
-	if beat.UpdatedAt != "2026-02-01T00:00:00Z" {
-		t.Errorf("expected UpdatedAt, got %s", beat.UpdatedAt)
+	if bead.UpdatedAt != "2026-02-01T00:00:00Z" {
+		t.Errorf("expected UpdatedAt, got %s", bead.UpdatedAt)
 	}
-	if beat.ClosedAt != "2026-02-15T00:00:00Z" {
-		t.Errorf("expected ClosedAt, got %s", beat.ClosedAt)
+	if bead.ClosedAt != "2026-02-15T00:00:00Z" {
+		t.Errorf("expected ClosedAt, got %s", bead.ClosedAt)
 	}
-	if beat.Metadata == nil {
+	if bead.Metadata == nil {
 		t.Error("expected Metadata to be non-nil")
 	}
-	if beat.Metadata["close_reason"] != "completed" {
-		t.Errorf("expected close_reason in metadata, got %v", beat.Metadata)
+	if bead.Metadata["close_reason"] != "completed" {
+		t.Errorf("expected close_reason in metadata, got %v", bead.Metadata)
 	}
-	if beat.Metadata["source"] != "import" {
-		t.Errorf("expected source in metadata, got %v", beat.Metadata)
+	if bead.Metadata["source"] != "import" {
+		t.Errorf("expected source in metadata, got %v", bead.Metadata)
 	}
 }
 
 func TestNormalizeBead_ParentInference_DottedID(t *testing.T) {
 	raw := RawBead{ID: "a.b.c", Title: "Child"}
-	beat := NormalizeBead(raw)
-	if beat.ParentID != "a.b" {
-		t.Errorf("expected inferred parent a.b, got %s", beat.ParentID)
+	bead := NormalizeBead(raw)
+	if bead.ParentID != "a.b" {
+		t.Errorf("expected inferred parent a.b, got %s", bead.ParentID)
 	}
 }
 
 func TestNormalizeBead_ParentInference_ExplicitOverridesDotted(t *testing.T) {
 	raw := RawBead{ID: "a.b.c", Title: "Child", Parent: "x.y"}
-	beat := NormalizeBead(raw)
-	if beat.ParentID != "x.y" {
-		t.Errorf("expected explicit parent x.y, got %s", beat.ParentID)
+	bead := NormalizeBead(raw)
+	if bead.ParentID != "x.y" {
+		t.Errorf("expected explicit parent x.y, got %s", bead.ParentID)
 	}
 }
 
 func TestNormalizeBead_ParentInference_TopLevelNoParent(t *testing.T) {
 	raw := RawBead{ID: "toplevel", Title: "Root"}
-	beat := NormalizeBead(raw)
-	if beat.ParentID != "" {
-		t.Errorf("expected empty parent, got %s", beat.ParentID)
+	bead := NormalizeBead(raw)
+	if bead.ParentID != "" {
+		t.Errorf("expected empty parent, got %s", bead.ParentID)
 	}
 }
 
 func TestNormalizeBead_DefaultsInvalidType(t *testing.T) {
 	raw := RawBead{ID: "x", Title: "T", IssueType: "banana"}
-	beat := NormalizeBead(raw)
-	if beat.Type != "task" {
-		t.Errorf("expected default type task, got %s", beat.Type)
+	bead := NormalizeBead(raw)
+	if bead.Type != "task" {
+		t.Errorf("expected default type task, got %s", bead.Type)
 	}
 }
 
 func TestNormalizeBead_DefaultsInvalidStatus(t *testing.T) {
 	raw := RawBead{ID: "x", Title: "T", Status: "limbo"}
-	beat := NormalizeBead(raw)
-	if beat.State != "ready_for_implementation" {
-		t.Errorf("expected default state ready_for_implementation, got %s", beat.State)
+	bead := NormalizeBead(raw)
+	if bead.State != "ready_for_implementation" {
+		t.Errorf("expected default state ready_for_implementation, got %s", bead.State)
 	}
 }
 
 func TestNormalizeBead_DefaultsOutOfRangePriority(t *testing.T) {
 	raw := RawBead{ID: "x", Title: "T", Priority: 99}
-	beat := NormalizeBead(raw)
-	if beat.Priority != 2 {
-		t.Errorf("expected default priority 2, got %d", beat.Priority)
+	bead := NormalizeBead(raw)
+	if bead.Priority != 2 {
+		t.Errorf("expected default priority 2, got %d", bead.Priority)
 	}
 }
 
 func TestNormalizeBead_MinimalFields(t *testing.T) {
 	raw := RawBead{ID: "minimal", Title: "Bare minimum"}
-	beat := NormalizeBead(raw)
+	bead := NormalizeBead(raw)
 
-	if beat.ID != "minimal" {
-		t.Errorf("expected ID minimal, got %s", beat.ID)
+	if bead.ID != "minimal" {
+		t.Errorf("expected ID minimal, got %s", bead.ID)
 	}
-	if beat.Title != "Bare minimum" {
-		t.Errorf("expected Title, got %s", beat.Title)
+	if bead.Title != "Bare minimum" {
+		t.Errorf("expected Title, got %s", bead.Title)
 	}
-	if beat.Type != "task" {
-		t.Errorf("expected default type task, got %s", beat.Type)
+	if bead.Type != "task" {
+		t.Errorf("expected default type task, got %s", bead.Type)
 	}
-	if beat.Priority != 2 {
-		t.Errorf("expected default priority 2, got %d", beat.Priority)
+	if bead.Priority != 2 {
+		t.Errorf("expected default priority 2, got %d", bead.Priority)
 	}
-	if len(beat.Labels) != 0 {
-		t.Errorf("expected empty labels, got %v", beat.Labels)
+	if len(bead.Labels) != 0 {
+		t.Errorf("expected empty labels, got %v", bead.Labels)
 	}
-	if beat.Acceptance != "" {
-		t.Errorf("expected empty acceptance, got %s", beat.Acceptance)
+	if bead.Acceptance != "" {
+		t.Errorf("expected empty acceptance, got %s", bead.Acceptance)
 	}
 }
 
 func TestNormalizeBead_FilterEmptyLabels(t *testing.T) {
 	raw := RawBead{ID: "x", Title: "T", Labels: []string{"a", "", "  ", "b"}}
-	beat := NormalizeBead(raw)
+	bead := NormalizeBead(raw)
 	expected := []string{"a", "b"}
-	if len(beat.Labels) != len(expected) {
-		t.Fatalf("expected %d labels, got %d: %v", len(expected), len(beat.Labels), beat.Labels)
+	if len(bead.Labels) != len(expected) {
+		t.Fatalf("expected %d labels, got %d: %v", len(expected), len(bead.Labels), bead.Labels)
 	}
 	for i, v := range expected {
-		if beat.Labels[i] != v {
-			t.Errorf("label[%d]: expected %s, got %s", i, v, beat.Labels[i])
+		if bead.Labels[i] != v {
+			t.Errorf("label[%d]: expected %s, got %s", i, v, bead.Labels[i])
 		}
 	}
 }
@@ -181,9 +181,9 @@ func TestNormalizeBead_AcceptanceCriteriaPreferredOverAcceptance(t *testing.T) {
 		AcceptanceCriteria: "Primary",
 		Acceptance:         "Fallback",
 	}
-	beat := NormalizeBead(raw)
-	if beat.Acceptance != "Primary" {
-		t.Errorf("expected acceptance_criteria preferred, got %s", beat.Acceptance)
+	bead := NormalizeBead(raw)
+	if bead.Acceptance != "Primary" {
+		t.Errorf("expected acceptance_criteria preferred, got %s", bead.Acceptance)
 	}
 }
 
@@ -193,9 +193,9 @@ func TestNormalizeBead_AcceptanceFallback(t *testing.T) {
 		Title:      "T",
 		Acceptance: "Fallback",
 	}
-	beat := NormalizeBead(raw)
-	if beat.Acceptance != "Fallback" {
-		t.Errorf("expected acceptance fallback, got %s", beat.Acceptance)
+	bead := NormalizeBead(raw)
+	if bead.Acceptance != "Fallback" {
+		t.Errorf("expected acceptance fallback, got %s", bead.Acceptance)
 	}
 }
 
@@ -206,9 +206,9 @@ func TestNormalizeBead_EstimatedMinutesPreferredOverEstimate(t *testing.T) {
 		EstimatedMinutes: 90,
 		Estimate:         60,
 	}
-	beat := NormalizeBead(raw)
-	if beat.Estimate != 90 {
-		t.Errorf("expected estimated_minutes preferred (90), got %d", beat.Estimate)
+	bead := NormalizeBead(raw)
+	if bead.Estimate != 90 {
+		t.Errorf("expected estimated_minutes preferred (90), got %d", bead.Estimate)
 	}
 }
 
@@ -218,9 +218,9 @@ func TestNormalizeBead_EstimateFallback(t *testing.T) {
 		Title:     "T",
 		Estimate:  60,
 	}
-	beat := NormalizeBead(raw)
-	if beat.Estimate != 60 {
-		t.Errorf("expected estimate fallback (60), got %d", beat.Estimate)
+	bead := NormalizeBead(raw)
+	if bead.Estimate != 60 {
+		t.Errorf("expected estimate fallback (60), got %d", bead.Estimate)
 	}
 }
 
@@ -231,12 +231,12 @@ func TestNormalizeBead_CreatedUpdatedAtFallbacks(t *testing.T) {
 		Created: "2026-01-01T00:00:00Z",
 		Updated: "2026-02-01T00:00:00Z",
 	}
-	beat := NormalizeBead(raw)
-	if beat.CreatedAt != "2026-01-01T00:00:00Z" {
-		t.Errorf("expected created fallback, got %s", beat.CreatedAt)
+	bead := NormalizeBead(raw)
+	if bead.CreatedAt != "2026-01-01T00:00:00Z" {
+		t.Errorf("expected created fallback, got %s", bead.CreatedAt)
 	}
-	if beat.UpdatedAt != "2026-02-01T00:00:00Z" {
-		t.Errorf("expected updated fallback, got %s", beat.UpdatedAt)
+	if bead.UpdatedAt != "2026-02-01T00:00:00Z" {
+		t.Errorf("expected updated fallback, got %s", bead.UpdatedAt)
 	}
 }
 
@@ -246,19 +246,19 @@ func TestNormalizeBead_InvariantParsing(t *testing.T) {
 		Title: "Invariant parse",
 		Notes: "Operator note\n\n[Invariants]\nScope: src/lib\nState: remain queued\n\nTail note",
 	}
-	beat := NormalizeBead(raw)
+	bead := NormalizeBead(raw)
 
-	if len(beat.Invariants) != 2 {
-		t.Fatalf("expected 2 invariants, got %d", len(beat.Invariants))
+	if len(bead.Invariants) != 2 {
+		t.Fatalf("expected 2 invariants, got %d", len(bead.Invariants))
 	}
-	if beat.Invariants[0].Kind != InvariantKindScope || beat.Invariants[0].Condition != "src/lib" {
-		t.Errorf("expected Scope: src/lib, got %v", beat.Invariants[0])
+	if bead.Invariants[0].Kind != InvariantKindScope || bead.Invariants[0].Condition != "src/lib" {
+		t.Errorf("expected Scope: src/lib, got %v", bead.Invariants[0])
 	}
-	if beat.Invariants[1].Kind != InvariantKindState || beat.Invariants[1].Condition != "remain queued" {
-		t.Errorf("expected State: remain queued, got %v", beat.Invariants[1])
+	if bead.Invariants[1].Kind != InvariantKindState || bead.Invariants[1].Condition != "remain queued" {
+		t.Errorf("expected State: remain queued, got %v", bead.Invariants[1])
 	}
-	if beat.Notes != "Operator note\n\nTail note" {
-		t.Errorf("expected cleaned notes, got %q", beat.Notes)
+	if bead.Notes != "Operator note\n\nTail note" {
+		t.Errorf("expected cleaned notes, got %q", bead.Notes)
 	}
 }
 
@@ -268,15 +268,15 @@ func TestNormalizeBead_InvariantOnlyNotes(t *testing.T) {
 		Title: "Invariant only",
 		Notes: "[Invariants]\nScope: src/lib",
 	}
-	beat := NormalizeBead(raw)
-	if len(beat.Invariants) != 1 {
-		t.Fatalf("expected 1 invariant, got %d", len(beat.Invariants))
+	bead := NormalizeBead(raw)
+	if len(bead.Invariants) != 1 {
+		t.Fatalf("expected 1 invariant, got %d", len(bead.Invariants))
 	}
-	if beat.Invariants[0].Condition != "src/lib" {
-		t.Errorf("expected src/lib, got %s", beat.Invariants[0].Condition)
+	if bead.Invariants[0].Condition != "src/lib" {
+		t.Errorf("expected src/lib, got %s", bead.Invariants[0].Condition)
 	}
-	if beat.Notes != "" {
-		t.Errorf("expected empty notes, got %q", beat.Notes)
+	if bead.Notes != "" {
+		t.Errorf("expected empty notes, got %q", bead.Notes)
 	}
 }
 
@@ -286,12 +286,12 @@ func TestNormalizeBead_InvalidInvariantHeaderNoLines(t *testing.T) {
 		Title: "Invariant marker only",
 		Notes: "Operator note\n\n[Invariants]\nnot-an-invariant\nTail note",
 	}
-	beat := NormalizeBead(raw)
-	if beat.Invariants != nil {
-		t.Errorf("expected nil invariants, got %v", beat.Invariants)
+	bead := NormalizeBead(raw)
+	if bead.Invariants != nil {
+		t.Errorf("expected nil invariants, got %v", bead.Invariants)
 	}
-	if beat.Notes != "Operator note\n\n[Invariants]\nnot-an-invariant\nTail note" {
-		t.Errorf("expected unchanged notes, got %q", beat.Notes)
+	if bead.Notes != "Operator note\n\n[Invariants]\nnot-an-invariant\nTail note" {
+		t.Errorf("expected unchanged notes, got %q", bead.Notes)
 	}
 }
 
@@ -301,15 +301,15 @@ func TestNormalizeBead_TrimmedInvariantConditions(t *testing.T) {
 		Title: "Invariant trim",
 		Notes: "[Invariants]\nScope:   src/lib/components   \nState:   must remain queued   ",
 	}
-	beat := NormalizeBead(raw)
-	if len(beat.Invariants) != 2 {
-		t.Fatalf("expected 2 invariants, got %d", len(beat.Invariants))
+	bead := NormalizeBead(raw)
+	if len(bead.Invariants) != 2 {
+		t.Fatalf("expected 2 invariants, got %d", len(bead.Invariants))
 	}
-	if beat.Invariants[0].Condition != "src/lib/components" {
-		t.Errorf("expected trimmed condition, got %s", beat.Invariants[0].Condition)
+	if bead.Invariants[0].Condition != "src/lib/components" {
+		t.Errorf("expected trimmed condition, got %s", bead.Invariants[0].Condition)
 	}
-	if beat.Invariants[1].Condition != "must remain queued" {
-		t.Errorf("expected trimmed condition, got %s", beat.Invariants[1].Condition)
+	if bead.Invariants[1].Condition != "must remain queued" {
+		t.Errorf("expected trimmed condition, got %s", bead.Invariants[1].Condition)
 	}
 }
 
@@ -320,12 +320,12 @@ func TestNormalizeBead_WorkflowStateLabelAuthoritative(t *testing.T) {
 		Status:  "open",
 		Labels:  []string{"wf:state:plan_review", "wf:profile:semiauto"},
 	}
-	beat := NormalizeBead(raw)
-	if beat.State != "plan_review" {
-		t.Errorf("expected state plan_review from label, got %s", beat.State)
+	bead := NormalizeBead(raw)
+	if bead.State != "plan_review" {
+		t.Errorf("expected state plan_review from label, got %s", bead.State)
 	}
-	if beat.ProfileID != "semiauto" {
-		t.Errorf("expected profileId semiauto from label, got %s", beat.ProfileID)
+	if bead.ProfileID != "semiauto" {
+		t.Errorf("expected profileId semiauto from label, got %s", bead.ProfileID)
 	}
 }
 
@@ -336,23 +336,23 @@ func TestNormalizeBead_CloseReasonInMetadata(t *testing.T) {
 		CloseReason: "completed",
 		Metadata:    map[string]any{"source": "import"},
 	}
-	beat := NormalizeBead(raw)
-	if beat.Metadata["close_reason"] != "completed" {
-		t.Errorf("expected close_reason in metadata, got %v", beat.Metadata)
+	bead := NormalizeBead(raw)
+	if bead.Metadata["close_reason"] != "completed" {
+		t.Errorf("expected close_reason in metadata, got %v", bead.Metadata)
 	}
-	if beat.Metadata["source"] != "import" {
-		t.Errorf("expected source preserved in metadata, got %v", beat.Metadata)
+	if bead.Metadata["source"] != "import" {
+		t.Errorf("expected source preserved in metadata, got %v", bead.Metadata)
 	}
 }
 
 func TestNormalizeBead_EmptyLabelsNil(t *testing.T) {
 	raw := RawBead{ID: "x", Title: "T"}
-	beat := NormalizeBead(raw)
-	if beat.Labels == nil {
+	bead := NormalizeBead(raw)
+	if bead.Labels == nil {
 		t.Error("expected non-nil empty labels slice")
 	}
-	if len(beat.Labels) != 0 {
-		t.Errorf("expected 0 labels, got %d", len(beat.Labels))
+	if len(bead.Labels) != 0 {
+		t.Errorf("expected 0 labels, got %d", len(bead.Labels))
 	}
 }
 
@@ -364,9 +364,9 @@ func TestNormalizeBead_ParentFromDependencies(t *testing.T) {
 			{SourceID: "proj.1", TargetID: "proj.1.2", DepType: "parent-child"},
 		},
 	}
-	beat := NormalizeBead(raw)
-	if beat.ParentID != "proj.1" {
-		t.Errorf("expected parent from dependency proj.1, got %s", beat.ParentID)
+	bead := NormalizeBead(raw)
+	if bead.ParentID != "proj.1" {
+		t.Errorf("expected parent from dependency proj.1, got %s", bead.ParentID)
 	}
 	raw2 := RawBead{
 		ID:    "proj.1.2",
@@ -385,7 +385,7 @@ func TestNormalizeBead_ParentFromDependencies(t *testing.T) {
 // ── DenormalizeBead tests ─────────────────────────────────────────
 
 func TestDenormalizeBead_FieldMapping(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:          "proj.epic.1",
 		Title:       "Implement widget",
 		Description: "Build the widget component",
@@ -406,7 +406,7 @@ func TestDenormalizeBead_FieldMapping(t *testing.T) {
 		Metadata:    map[string]any{"source": "import"},
 	}
 
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 
 	if raw.ID != "proj.epic.1" {
 		t.Errorf("expected ID, got %s", raw.ID)
@@ -462,7 +462,7 @@ func TestDenormalizeBead_FieldMapping(t *testing.T) {
 }
 
 func TestDenormalizeBead_OmitsUndefinedFields(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:        "minimal",
 		Title:     "Bare",
 		Type:      "task",
@@ -472,7 +472,7 @@ func TestDenormalizeBead_OmitsUndefinedFields(t *testing.T) {
 		CreatedAt: "2026-01-01T00:00:00Z",
 		UpdatedAt: "2026-01-01T00:00:00Z",
 	}
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 
 	if raw.Description != "" {
 		t.Errorf("expected empty Description, got %s", raw.Description)
@@ -504,7 +504,7 @@ func TestDenormalizeBead_OmitsUndefinedFields(t *testing.T) {
 }
 
 func TestDenormalizeBead_InvariantEmbedding(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:         "inv-3",
 		Title:      "Invariant write",
 		Notes:      "Operator note",
@@ -520,7 +520,7 @@ func TestDenormalizeBead_InvariantEmbedding(t *testing.T) {
 		UpdatedAt: "2026-01-01T00:00:00Z",
 	}
 
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 	expected := "Operator note\n\n[Invariants]\nScope: src/lib\nState: remain queued"
 	if raw.Notes != expected {
 		t.Errorf("expected embedded invariants, got %q", raw.Notes)
@@ -528,7 +528,7 @@ func TestDenormalizeBead_InvariantEmbedding(t *testing.T) {
 }
 
 func TestDenormalizeBead_InvariantSectionOnly(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:        "inv-4",
 		Title:     "Invariant section only",
 		Type:      "task",
@@ -542,14 +542,14 @@ func TestDenormalizeBead_InvariantSectionOnly(t *testing.T) {
 		UpdatedAt: "2026-01-01T00:00:00Z",
 	}
 
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 	if raw.Notes != "[Invariants]\nScope: src/lib" {
 		t.Errorf("expected invariant section only, got %q", raw.Notes)
 	}
 }
 
 func TestDenormalizeBead_SkipsBlankInvariantConditions(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:        "inv-5",
 		Title:     "Invariant blank",
 		Notes:     "Operator note",
@@ -565,7 +565,7 @@ func TestDenormalizeBead_SkipsBlankInvariantConditions(t *testing.T) {
 		UpdatedAt: "2026-01-01T00:00:00Z",
 	}
 
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 	expected := "Operator note\n\n[Invariants]\nState: must remain queued"
 	if raw.Notes != expected {
 		t.Errorf("expected blank invariants skipped, got %q", raw.Notes)
@@ -573,7 +573,7 @@ func TestDenormalizeBead_SkipsBlankInvariantConditions(t *testing.T) {
 }
 
 func TestDenormalizeBead_AddsWorkflowLabels(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:        "x",
 		Title:     "T",
 		Type:      "task",
@@ -583,7 +583,7 @@ func TestDenormalizeBead_AddsWorkflowLabels(t *testing.T) {
 		CreatedAt: "2026-01-01T00:00:00Z",
 		UpdatedAt: "2026-01-01T00:00:00Z",
 	}
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 
 	hasStateLabel := false
 	hasProfileLabel := false
@@ -732,7 +732,7 @@ func TestRoundTrip_EstimatedMinutes(t *testing.T) {
 }
 
 func TestRoundTrip_Invariants(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:         "inv-5",
 		Title:      "Invariant round-trip",
 		Notes:      "Visible note",
@@ -745,7 +745,7 @@ func TestRoundTrip_Invariants(t *testing.T) {
 		UpdatedAt:  "2026-01-01T00:00:00Z",
 	}
 
-	serialized := DenormalizeBead(beat)
+	serialized := DenormalizeBead(bead)
 	restored := NormalizeBead(serialized)
 
 	if restored.Notes != "Visible note" {
@@ -800,7 +800,7 @@ func TestRoundTrip_Timestamps(t *testing.T) {
 
 // ── Compat status mapping ────────────────────────────────────────
 
-func TestMapBeatStateToCompatStatus(t *testing.T) {
+func TestMapBeadStateToCompatStatus(t *testing.T) {
 	tests := []struct {
 		state    string
 		expected string
@@ -823,9 +823,9 @@ func TestMapBeatStateToCompatStatus(t *testing.T) {
 		{"unknown_state", "open"},
 	}
 	for _, tt := range tests {
-		got := mapBeatStateToCompatStatus(tt.state)
+		got := mapBeadStateToCompatStatus(tt.state)
 		if got != tt.expected {
-			t.Errorf("mapBeatStateToCompatStatus(%q) = %q, want %q", tt.state, got, tt.expected)
+			t.Errorf("mapBeadStateToCompatStatus(%q) = %q, want %q", tt.state, got, tt.expected)
 		}
 	}
 }
@@ -851,9 +851,9 @@ func TestRoundTrip_ExplicitParent(t *testing.T) {
 }
 
 func TestDenormalizeBead_CloseReasonInMetadata(t *testing.T) {
-	beat := Beat{
+	bead := Bead{
 		ID:        "x",
-		Title:     "Closed beat",
+		Title:     "Closed bead",
 		Type:      "task",
 		State:     "shipped",
 		Priority:  2,
@@ -862,7 +862,7 @@ func TestDenormalizeBead_CloseReasonInMetadata(t *testing.T) {
 		UpdatedAt: "2026-01-01T00:00:00Z",
 		Metadata:  map[string]any{"close_reason": "completed"},
 	}
-	raw := DenormalizeBead(beat)
+	raw := DenormalizeBead(bead)
 	if raw.CloseReason != "completed" {
 		t.Errorf("expected close_reason in raw, got %s", raw.CloseReason)
 	}

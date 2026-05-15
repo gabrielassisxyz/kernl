@@ -44,7 +44,7 @@ func TestKnotsBackend_DeleteReturnsError(t *testing.T) {
 	}
 }
 
-func TestKnotRecordToBeat(t *testing.T) {
+func TestKnotRecordToBead(t *testing.T) {
 	priority := 3
 	rec := knoRecord{
 		ID:          "knot-1",
@@ -61,57 +61,57 @@ func TestKnotRecordToBeat(t *testing.T) {
 		UpdatedAt:   "2024-01-02T00:00:00Z",
 		LeaseID:     "lease-abc",
 	}
-	beat := knotRecordToBeat(rec, "/repo/test")
+	bead := knotRecordToBead(rec, "/repo/test")
 
-	if beat.ID != "knot-1" {
-		t.Errorf("expected ID knot-1, got %s", beat.ID)
+	if bead.ID != "knot-1" {
+		t.Errorf("expected ID knot-1, got %s", bead.ID)
 	}
-	if beat.Type != "feature" {
-		t.Errorf("expected type feature, got %s", beat.Type)
+	if bead.Type != "feature" {
+		t.Errorf("expected type feature, got %s", bead.Type)
 	}
-	if beat.State != "implementation" {
-		t.Errorf("expected state implementation, got %s", beat.State)
+	if bead.State != "implementation" {
+		t.Errorf("expected state implementation, got %s", bead.State)
 	}
-	if beat.Title != "Test Knot" {
-		t.Errorf("expected title Test Knot, got %s", beat.Title)
+	if bead.Title != "Test Knot" {
+		t.Errorf("expected title Test Knot, got %s", bead.Title)
 	}
-	if beat.Priority != 3 {
-		t.Errorf("expected priority 3, got %d", beat.Priority)
+	if bead.Priority != 3 {
+		t.Errorf("expected priority 3, got %d", bead.Priority)
 	}
-	if beat.Acceptance != "Must pass tests" {
-		t.Errorf("expected acceptance, got %s", beat.Acceptance)
+	if bead.Acceptance != "Must pass tests" {
+		t.Errorf("expected acceptance, got %s", bead.Acceptance)
 	}
-	if len(beat.Labels) != 2 {
-		t.Errorf("expected 2 labels, got %d", len(beat.Labels))
+	if len(bead.Labels) != 2 {
+		t.Errorf("expected 2 labels, got %d", len(bead.Labels))
 	}
-	if beat.ProfileID != "autopilot" {
-		t.Errorf("expected profileID autopilot, got %s", beat.ProfileID)
+	if bead.ProfileID != "autopilot" {
+		t.Errorf("expected profileID autopilot, got %s", bead.ProfileID)
 	}
-	if beat.Metadata["lease_id"] != "lease-abc" {
-		t.Errorf("expected metadata lease_id, got %v", beat.Metadata["lease_id"])
+	if bead.Metadata["lease_id"] != "lease-abc" {
+		t.Errorf("expected metadata lease_id, got %v", bead.Metadata["lease_id"])
 	}
 }
 
-func TestKnotRecordToBeat_Defaults(t *testing.T) {
+func TestKnotRecordToBead_Defaults(t *testing.T) {
 	rec := knoRecord{
 		ID:    "knot-2",
 		Title: "No Type No Priority",
 		State: "ready_for_implementation",
 	}
-	beat := knotRecordToBeat(rec, "/repo")
+	bead := knotRecordToBead(rec, "/repo")
 
-	if beat.Type != "task" {
-		t.Errorf("expected default type task, got %s", beat.Type)
+	if bead.Type != "task" {
+		t.Errorf("expected default type task, got %s", bead.Type)
 	}
-	if beat.Priority != 2 {
-		t.Errorf("expected default priority 2, got %d", beat.Priority)
+	if bead.Priority != 2 {
+		t.Errorf("expected default priority 2, got %d", bead.Priority)
 	}
-	if len(beat.Labels) != 0 {
-		t.Errorf("expected empty labels, got %v", beat.Labels)
+	if len(bead.Labels) != 0 {
+		t.Errorf("expected empty labels, got %v", bead.Labels)
 	}
 }
 
-func TestKnotRecordToBeat_LeaseMetadata(t *testing.T) {
+func TestKnotRecordToBead_LeaseMetadata(t *testing.T) {
 	rec := knoRecord{
 		ID:    "knot-3",
 		Title: "With Lease",
@@ -128,16 +128,16 @@ func TestKnotRecordToBeat_LeaseMetadata(t *testing.T) {
 			},
 		},
 	}
-	beat := knotRecordToBeat(rec, "/repo")
-	if beat.Metadata["agent_type"] != "claude" {
-		t.Errorf("expected agent_type claude, got %v", beat.Metadata["agent_type"])
+	bead := knotRecordToBead(rec, "/repo")
+	if bead.Metadata["agent_type"] != "claude" {
+		t.Errorf("expected agent_type claude, got %v", bead.Metadata["agent_type"])
 	}
-	if beat.Metadata["provider"] != "anthropic" {
-		t.Errorf("expected provider anthropic, got %v", beat.Metadata["provider"])
+	if bead.Metadata["provider"] != "anthropic" {
+		t.Errorf("expected provider anthropic, got %v", bead.Metadata["provider"])
 	}
 }
 
-func TestKnotRecordToBeat_ZeroPriority(t *testing.T) {
+func TestKnotRecordToBead_ZeroPriority(t *testing.T) {
 	zero := 0
 	rec := knoRecord{
 		ID:       "knot-zero",
@@ -145,21 +145,21 @@ func TestKnotRecordToBeat_ZeroPriority(t *testing.T) {
 		State:    "ready_for_implementation",
 		Priority: &zero,
 	}
-	beat := knotRecordToBeat(rec, "")
-	if beat.Priority != 2 {
-		t.Errorf("expected default priority 2 for zero, got %d", beat.Priority)
+	bead := knotRecordToBead(rec, "")
+	if bead.Priority != 2 {
+		t.Errorf("expected default priority 2 for zero, got %d", bead.Priority)
 	}
 }
 
-func TestKnotRecordToBeat_NilPriority(t *testing.T) {
+func TestKnotRecordToBead_NilPriority(t *testing.T) {
 	rec := knoRecord{
 		ID:    "knot-nil",
 		Title: "Nil Priority",
 		State: "ready_for_implementation",
 	}
-	beat := knotRecordToBeat(rec, "")
-	if beat.Priority != 2 {
-		t.Errorf("expected default priority 2 for nil, got %d", beat.Priority)
+	bead := knotRecordToBead(rec, "")
+	if bead.Priority != 2 {
+		t.Errorf("expected default priority 2 for nil, got %d", bead.Priority)
 	}
 }
 
@@ -277,7 +277,7 @@ func TestKnotsBackend_EdgeDepDependencyMapping(t *testing.T) {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	deps := make([]BeatDependency, len(edges))
+	deps := make([]BeadDependency, len(edges))
 	expectedTypes := []string{"blocks", "parent-child"}
 	for i, e := range edges {
 		depType := e.Kind
@@ -286,7 +286,7 @@ func TestKnotsBackend_EdgeDepDependencyMapping(t *testing.T) {
 		} else if e.Kind == "parent_of" {
 			depType = "parent-child"
 		}
-		deps[i] = BeatDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}
+		deps[i] = BeadDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}
 		if deps[i].Type != expectedTypes[i] {
 			t.Errorf("edge %d: expected type %s, got %s", i, expectedTypes[i], deps[i].Type)
 		}

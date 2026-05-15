@@ -25,17 +25,17 @@ func safeSegment(value string) string {
 func SnapshotPath(input SnapshotPathInput) string {
 	ts := strings.ReplaceAll(input.CapturedAt, ":", "-")
 	ts = strings.ReplaceAll(ts, ".", "-")
-	fileName := fmt.Sprintf("%s-%s-%s.json", ts, input.Boundary, safeSegment(input.BeatID))
+	fileName := fmt.Sprintf("%s-%s-%s.json", ts, input.Boundary, safeSegment(input.BeadID))
 	return fmt.Sprintf("%s/%s/%s/%s/%s", input.LogRoot, DispatchForensicsSlug, input.Date, safeSegment(input.SessionID), fileName)
 }
 
-func stepHistoryOf(beat *backend.Beat) []StepEntry {
-	if beat == nil {
+func stepHistoryOf(bead *backend.Bead) []StepEntry {
+	if bead == nil {
 		return nil
 	}
-	raw, ok := beat.Metadata["step_history"]
+	raw, ok := bead.Metadata["step_history"]
 	if !ok {
-		raw, ok = beat.Metadata["stepHistory"]
+		raw, ok = bead.Metadata["stepHistory"]
 	}
 	if !ok {
 		return nil
@@ -94,15 +94,15 @@ func parseStepEntries(raw any) []StepEntry {
 	return result
 }
 
-func newStepEntries(pre, post BeatSnapshot) []StepEntry {
+func newStepEntries(pre, post BeadSnapshot) []StepEntry {
 	preIDs := make(map[string]bool)
-	for _, s := range stepHistoryOf(pre.Beat) {
+	for _, s := range stepHistoryOf(pre.Bead) {
 		if s.ID != "" {
 			preIDs[s.ID] = true
 		}
 	}
 	var result []StepEntry
-	for _, s := range stepHistoryOf(post.Beat) {
+	for _, s := range stepHistoryOf(post.Bead) {
 		if s.ID != "" && !preIDs[s.ID] {
 			result = append(result, s)
 		}
@@ -110,7 +110,7 @@ func newStepEntries(pre, post BeatSnapshot) []StepEntry {
 	return result
 }
 
-func leaseStateOf(lease *backend.Beat) string {
+func leaseStateOf(lease *backend.Bead) string {
 	if lease == nil {
 		return ""
 	}
@@ -124,7 +124,7 @@ func leaseStateOf(lease *backend.Beat) string {
 	return ""
 }
 
-func findLeaseByID(leases []backend.Beat, id string) *backend.Beat {
+func findLeaseByID(leases []backend.Bead, id string) *backend.Bead {
 	if leases == nil || id == "" {
 		return nil
 	}
@@ -136,7 +136,7 @@ func findLeaseByID(leases []backend.Beat, id string) *backend.Beat {
 	return nil
 }
 
-func classifyConcurrentClaim(newSteps []StepEntry, ourLeaseID string, postLeases []backend.Beat) *ForensicClassification {
+func classifyConcurrentClaim(newSteps []StepEntry, ourLeaseID string, postLeases []backend.Bead) *ForensicClassification {
 	for _, s := range newSteps {
 		if s.LeaseID != "" && s.LeaseID != ourLeaseID {
 			conflicting := findLeaseByID(postLeases, s.LeaseID)
@@ -144,7 +144,7 @@ func classifyConcurrentClaim(newSteps []StepEntry, ourLeaseID string, postLeases
 			agentModel := s.AgentModel
 			agentVersion := s.AgentVersion
 			reasoning := fmt.Sprintf(
-				"step_history gained an action step bound to lease %s (agent=%s/%s/%s); our lease was %s. Another agent claimed this beat between our pre_lease and post_turn snapshots.",
+				"step_history gained an action step bound to lease %s (agent=%s/%s/%s); our lease was %s. Another agent claimed this bead between our pre_lease and post_turn snapshots.",
 				s.LeaseID, agentName, agentModel, agentVersion, ourLeaseID,
 			)
 			return &ForensicClassification{
@@ -188,11 +188,11 @@ func classifyHalfTransition(newSteps []StepEntry, ourLeaseID string, signals *Cl
 	}
 	return &ForensicClassification{
 		Category:  CategoryHalfTransition,
-		Reasoning: fmt.Sprintf("agent's `kno claim` exited non-zero, but step_history contains %d new action step(s) bound to our lease %s. `kno claim` appears to have transitioned the beat state and then errored without rolling back.", len(ourSteps), ourLeaseID),
+		Reasoning: fmt.Sprintf("agent's `kno claim` exited non-zero, but step_history contains %d new action step(s) bound to our lease %s. `kno claim` appears to have transitioned the bead state and then errored without rolling back.", len(ourSteps), ourLeaseID),
 	}
 }
 
-func classifyLeaseTerminated(pre, post BeatSnapshot, ourLeaseID string, signals *ClassifierSignals) *ForensicClassification {
+func classifyLeaseTerminated(pre, post BeadSnapshot, ourLeaseID string, signals *ClassifierSignals) *ForensicClassification {
 	if signals != nil && signals.KernlInitiatedLeaseTerminate {
 		return nil
 	}
@@ -212,7 +212,7 @@ func classifyLeaseTerminated(pre, post BeatSnapshot, ourLeaseID string, signals 
 	}
 }
 
-func ClassifyTurnFailure(pre, post BeatSnapshot, signals *ClassifierSignals) *ForensicClassification {
+func ClassifyTurnFailure(pre, post BeadSnapshot, signals *ClassifierSignals) *ForensicClassification {
 	ourLeaseID := post.LeaseID
 	if ourLeaseID == "" {
 		ourLeaseID = pre.LeaseID
@@ -233,11 +233,11 @@ func ClassifyTurnFailure(pre, post BeatSnapshot, signals *ClassifierSignals) *Fo
 	}
 
 	var preState, postState string
-	if pre.Beat != nil {
-		preState = pre.Beat.State
+	if pre.Bead != nil {
+		preState = pre.Bead.State
 	}
-	if post.Beat != nil {
-		postState = post.Beat.State
+	if post.Bead != nil {
+		postState = post.Bead.State
 	}
 	if len(newSteps) > 0 || preState != postState {
 		return &ForensicClassification{
@@ -250,7 +250,7 @@ func ClassifyTurnFailure(pre, post BeatSnapshot, signals *ClassifierSignals) *Fo
 }
 
 func BuildForensicBannerBody(input ForensicBannerInput) string {
-	heading := fmt.Sprintf("%s: %s on beat %s", DispatchForensicMarker, input.Category, input.BeatID)
+	heading := fmt.Sprintf("%s: %s on bead %s", DispatchForensicMarker, input.Category, input.BeadID)
 	iteration := "?"
 	if input.Iteration > 0 {
 		iteration = fmt.Sprintf("%d", input.Iteration)
@@ -260,8 +260,8 @@ func BuildForensicBannerBody(input ForensicBannerInput) string {
 		leaseID = input.LeaseID
 	}
 	body := fmt.Sprintf(
-		"  session      = %s\n  beat         = %s\n  iteration    = %s\n  lease        = %s\n  preSnapshot  = %s\n  postSnapshot = %s\n\n  reasoning:\n    %s",
-		input.SessionID, input.BeatID, iteration, leaseID, input.PreSnapshotPath, input.PostSnapshotPath,
+		"  session      = %s\n  bead         = %s\n  iteration    = %s\n  lease        = %s\n  preSnapshot  = %s\n  postSnapshot = %s\n\n  reasoning:\n    %s",
+		input.SessionID, input.BeadID, iteration, leaseID, input.PreSnapshotPath, input.PostSnapshotPath,
 		strings.ReplaceAll(input.Reasoning, "\n", "\n    "),
 	)
 	return heading + "\n" + body
@@ -269,7 +269,7 @@ func BuildForensicBannerBody(input ForensicBannerInput) string {
 
 type ForensicBannerInput struct {
 	Category         ForensicCategory
-	BeatID           string
+	BeadID           string
 	SessionID        string
 	LeaseID          string
 	Iteration        int

@@ -13,7 +13,7 @@ type TokenUsageCounts struct {
 }
 
 type TokenUsageLogger interface {
-	LogTokenUsage(beatID string, usage TokenUsageCounts)
+	LogTokenUsage(beadID string, usage TokenUsageCounts)
 }
 
 func readCount(value any) int64 {
@@ -56,10 +56,10 @@ func ExtractTokenUsageFromEvent(dialect adapter.AgentDialect, parsed map[string]
 	return normalizeCodexUsage(parsed["usage"])
 }
 
-func LogTokenUsageForEvent(logger TokenUsageLogger, dialect adapter.AgentDialect, parsed map[string]any, beatID string) {
+func LogTokenUsageForEvent(logger TokenUsageLogger, dialect adapter.AgentDialect, parsed map[string]any, beadID string) {
 	usage := ExtractTokenUsageFromEvent(dialect, parsed)
 	if usage == nil {
 		return
 	}
-	logger.LogTokenUsage(beatID, *usage)
+	logger.LogTokenUsage(beadID, *usage)
 }

@@ -13,10 +13,10 @@ const MaxFollowUpsPerState = 5
 
 const FollowUpSource = "take_loop_follow_up"
 
-func BuildTakeLoopFollowUpPrompt(beatID, state string) string {
+func BuildTakeLoopFollowUpPrompt(beadID, state string) string {
 	return fmt.Sprintf(
-		"Your turn ended but beat `%s` is still in state `%s`. Either complete the action to advance the knot, or run `kno rollback` if you cannot proceed. Do not exit without advancing or rolling back.",
-		beatID, state,
+		"Your turn ended but bead `%s` is still in state `%s`. Either complete the action to advance the knot, or run `kno rollback` if you cannot proceed. Do not exit without advancing or rolling back.",
+		beadID, state,
 	)
 }
 
@@ -60,7 +60,7 @@ func (d *DefaultLeaseHealthChecker) EvaluateLeaseHealth(leaseID, repoPath string
 }
 
 type FollowUpDeps struct {
-	GetBeat          func(beatID, repoPath string) (*backend.Beat, error)
+	GetBead          func(beadID, repoPath string) (*backend.Bead, error)
 	SendUserTurn     SendUserTurnFunc
 	LeaseChecker     LeaseHealthChecker
 	InteractionLog   InteractionLog
@@ -69,13 +69,13 @@ type FollowUpDeps struct {
 func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 	tag := fmt.Sprintf("[terminal-manager] [%s] [take-loop]", ctx.ID)
 
-	state, err := fetchBeatState(ctx, deps)
+	state, err := fetchBeadState(ctx, deps)
 	if err != nil || state == "" {
-		slog.Warn(fmt.Sprintf("%s onTurnEnded beat fetch failed", tag), "error", err)
+		slog.Warn(fmt.Sprintf("%s onTurnEnded bead fetch failed", tag), "error", err)
 		return false
 	}
 
-	wf := orchestration.ResolveWorkflowForBeat(ctx.Beat, ctx.WorkflowsByID, ctx.FallbackWorkflow)
+	wf := orchestration.ResolveWorkflowForBead(ctx.Bead, ctx.WorkflowsByID, ctx.FallbackWorkflow)
 	if IsQueueOrTerminalState(state, wf) {
 		ctx.FollowUpAttempts.Count = 0
 		ctx.FollowUpAttempts.LastState = state
@@ -85,10 +85,10 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 	count := RecordFollowUpProgress(ctx.FollowUpAttempts, state)
 	if count > MaxFollowUpsPerState {
 		slog.Warn(fmt.Sprintf(
-			"%s follow-up cap reached for beat=%s state=%s count=%d — stopping in-iteration follow-ups",
-			tag, ctx.BeatID, state, count,
+			"%s follow-up cap reached for bead=%s state=%s count=%d — stopping in-iteration follow-ups",
+			tag, ctx.BeadID, state, count,
 		))
-		emitFollowUpCapBanner(ctx, ctx.BeatID, state, count)
+		emitFollowUpCapBanner(ctx, ctx.BeadID, state, count)
 		return false
 	}
 
@@ -101,53 +101,53 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 			reason = health.Reason
 		}
 		slog.Warn(fmt.Sprintf(
-			"%s refusing follow-up: lease not healthy beat=%s leaseId=%s reason=%s",
-			tag, ctx.BeatID, ctx.Entry.KnotsLeaseID, reason,
+			"%s refusing follow-up: lease not healthy bead=%s leaseId=%s reason=%s",
+			tag, ctx.BeadID, ctx.Entry.KnotsLeaseID, reason,
 		))
 		emitLeaseDeadBanner(ctx, state, health)
 		return false
 	}
 
-	prompt := BuildTakeLoopFollowUpPrompt(ctx.BeatID, state)
+	prompt := BuildTakeLoopFollowUpPrompt(ctx.BeadID, state)
 	sent := deps.SendUserTurn(prompt, FollowUpSource)
 	if !sent {
-		slog.Warn(fmt.Sprintf("%s failed to send follow-up prompt for beat=%s state=%s", tag, ctx.BeatID, state))
+		slog.Warn(fmt.Sprintf("%s failed to send follow-up prompt for bead=%s state=%s", tag, ctx.BeadID, state))
 		return false
 	}
 
-	emitFollowUpPushEvent(ctx, ctx.BeatID, state)
+	emitFollowUpPushEvent(ctx, ctx.BeadID, state)
 	return true
 }
 
-func fetchBeatState(ctx *TakeLoopContext, deps FollowUpDeps) (string, error) {
-	beat, err := deps.GetBeat(ctx.BeatID, ctx.RepoPath)
+func fetchBeadState(ctx *TakeLoopContext, deps FollowUpDeps) (string, error) {
+	bead, err := deps.GetBead(ctx.BeadID, ctx.RepoPath)
 	if err != nil {
 		return "", err
 	}
-	if beat == nil {
-		return "", fmt.Errorf("beat %s not found", ctx.BeatID)
+	if bead == nil {
+		return "", fmt.Errorf("bead %s not found", ctx.BeadID)
 	}
-	return beat.State, nil
+	return bead.State, nil
 }
 
-func emitFollowUpPushEvent(ctx *TakeLoopContext, beatID, state string) {
+func emitFollowUpPushEvent(ctx *TakeLoopContext, beadID, state string) {
 	ctx.PushEvent(session.TerminalEvent{
 		Type:   "stdout",
-		BeatID: beatID,
+		BeadID: beadID,
 		Content: fmt.Sprintf(
 			"\x1b[33m--- Take-loop follow-up prompt sent because knot %s in state %s ---\x1b[0m\n",
-			beatID, state,
+			beadID, state,
 		),
 	})
 }
 
-func emitFollowUpCapBanner(ctx *TakeLoopContext, beatID, state string, count int) {
+func emitFollowUpCapBanner(ctx *TakeLoopContext, beadID, state string, count int) {
 	ctx.PushEvent(session.TerminalEvent{
 		Type:   "stderr",
-		BeatID: beatID,
+		BeadID: beadID,
 		Content: fmt.Sprintf(
 			"\x1b[31m--- Take-loop follow-up cap reached: knot %s stuck in state %s after %d consecutive follow-up prompts. Closing session so the take loop can reassess. ---\x1b[0m\n",
-			beatID, state, count,
+			beadID, state, count,
 		),
 	})
 }
@@ -155,10 +155,10 @@ func emitFollowUpCapBanner(ctx *TakeLoopContext, beatID, state string, count int
 func emitLeaseDeadBanner(ctx *TakeLoopContext, state string, health LeaseHealthResult) {
 	ctx.PushEvent(session.TerminalEvent{
 		Type:   "stderr",
-		BeatID: ctx.BeatID,
+		BeadID: ctx.BeadID,
 		Content: fmt.Sprintf(
-			"\x1b[31mKERNL DISPATCH FAILURE: refusing follow-up for beat %s — lease %s is %s (reason: %s)\x1b[0m\n",
-			ctx.BeatID, ctx.Entry.KnotsLeaseID, health.LeaseState, health.Reason,
+			"\x1b[31mKERNL DISPATCH FAILURE: refusing follow-up for bead %s — lease %s is %s (reason: %s)\x1b[0m\n",
+			ctx.BeadID, ctx.Entry.KnotsLeaseID, health.LeaseState, health.Reason,
 		),
 	})
 }

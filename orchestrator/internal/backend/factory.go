@@ -132,7 +132,7 @@ func (a *AutoRoutingBackend) ListWorkflows(repoPath string) ([]WorkflowDescripto
 	return backend.ListWorkflows(repoPath)
 }
 
-func (a *AutoRoutingBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (a *AutoRoutingBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	backend, err := a.backendFor("list", repoPath)
 	if err != nil {
 		return nil, err
@@ -140,7 +140,7 @@ func (a *AutoRoutingBackend) List(filters *BeatListFilters, repoPath string) ([]
 	return backend.List(filters, repoPath)
 }
 
-func (a *AutoRoutingBackend) ListReady(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (a *AutoRoutingBackend) ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	backend, err := a.backendFor("listReady", repoPath)
 	if err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func (a *AutoRoutingBackend) ListReady(filters *BeatListFilters, repoPath string
 	return backend.ListReady(filters, repoPath)
 }
 
-func (a *AutoRoutingBackend) Get(id string, repoPath string) (*Beat, error) {
+func (a *AutoRoutingBackend) Get(id string, repoPath string) (*Bead, error) {
 	backend, err := a.backendFor("get", repoPath)
 	if err != nil {
 		return nil, err
@@ -156,7 +156,7 @@ func (a *AutoRoutingBackend) Get(id string, repoPath string) (*Beat, error) {
 	return backend.Get(id, repoPath)
 }
 
-func (a *AutoRoutingBackend) Create(input CreateBeatInput, repoPath string) (*Beat, error) {
+func (a *AutoRoutingBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
 	backend, err := a.backendFor("create", repoPath)
 	if err != nil {
 		return nil, err
@@ -164,7 +164,7 @@ func (a *AutoRoutingBackend) Create(input CreateBeatInput, repoPath string) (*Be
 	return backend.Create(input, repoPath)
 }
 
-func (a *AutoRoutingBackend) Update(id string, input UpdateBeatInput, repoPath string) error {
+func (a *AutoRoutingBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
 	backend, err := a.backendFor("update", repoPath)
 	if err != nil {
 		return err
@@ -212,7 +212,7 @@ func (a *AutoRoutingBackend) Rewind(id string, targetState string, reason string
 	return backend.Rewind(id, targetState, reason, repoPath)
 }
 
-func (a *AutoRoutingBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (a *AutoRoutingBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	backend, err := a.backendFor("search", repoPath)
 	if err != nil {
 		return nil, err
@@ -220,7 +220,7 @@ func (a *AutoRoutingBackend) Search(query string, filters *BeatListFilters, repo
 	return backend.Search(query, filters, repoPath)
 }
 
-func (a *AutoRoutingBackend) Query(expression string, options *BeatQueryOptions, repoPath string) ([]Beat, error) {
+func (a *AutoRoutingBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
 	backend, err := a.backendFor("query", repoPath)
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ func (a *AutoRoutingBackend) RemoveDependency(blockerID string, blockedID string
 	return backend.RemoveDependency(blockerID, blockedID, repoPath)
 }
 
-func (a *AutoRoutingBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeatDependency, error) {
+func (a *AutoRoutingBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
 	backend, err := a.backendFor("listDependencies", repoPath)
 	if err != nil {
 		return nil, err
@@ -252,12 +252,12 @@ func (a *AutoRoutingBackend) ListDependencies(id string, repoPath string, option
 	return backend.ListDependencies(id, repoPath, options)
 }
 
-func (a *AutoRoutingBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
+func (a *AutoRoutingBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
 	backend, err := a.backendFor("buildTakePrompt", repoPath)
 	if err != nil {
 		return nil, err
 	}
-	return backend.BuildTakePrompt(beatID, options, repoPath)
+	return backend.BuildTakePrompt(beadID, options, repoPath)
 }
 
 func (a *AutoRoutingBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {

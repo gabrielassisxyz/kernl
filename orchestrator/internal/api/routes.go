@@ -12,7 +12,7 @@ func NewRouter(cfg *config.Config) http.Handler {
 
 	mux.HandleFunc("GET /api/health", healthHandler)
 
-	RegisterBeatRoutes(mux)
+	RegisterBeadRoutes(mux)
 	RegisterApprovalRoutes(mux)
 	RegisterStreamRoutes(mux)
 	RegisterAppRoutes(mux)

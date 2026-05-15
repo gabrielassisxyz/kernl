@@ -23,7 +23,7 @@ type EnsureLeaseInput struct {
 	Source           LeaseSource
 	SessionID        string
 	ExecutionLeaseID string
-	BeatID           string
+	BeadID           string
 	ClaimedID        string
 	InteractionType  string
 	AgentInfo        *AgentInfo
@@ -35,7 +35,7 @@ type TerminateLeaseInput struct {
 	SessionID        string
 	ExecutionLeaseID string
 	KnotsLeaseID     string
-	BeatID           string
+	BeadID           string
 	ClaimedID        string
 	InteractionType  string
 	AgentInfo        *AgentInfo
@@ -49,8 +49,8 @@ func leaseNickname(input *EnsureLeaseInput) string {
 		parts = append(parts, input.SessionID)
 	} else if input.ExecutionLeaseID != "" {
 		parts = append(parts, input.ExecutionLeaseID)
-	} else if input.BeatID != "" {
-		parts = append(parts, input.BeatID)
+	} else if input.BeadID != "" {
+		parts = append(parts, input.BeadID)
 	} else {
 		parts = append(parts, "runtime")
 	}
@@ -68,13 +68,13 @@ func leaseNickname(input *EnsureLeaseInput) string {
 }
 
 func EnsureKnotsLease(knots *backend.KnotsBackend, input *EnsureLeaseInput) (string, error) {
-	if input.BeatID != "" {
+	if input.BeadID != "" {
 		slog.Debug("knots lease: pre_lease snapshot",
-			"sessionId", input.SessionID, "beatId", input.BeatID, "repoPath", input.RepoPath)
+			"sessionId", input.SessionID, "beadId", input.BeadID, "repoPath", input.RepoPath)
 	}
 
 	slog.Info("knots lease: requesting lease",
-		"source", input.Source, "beatId", input.BeatID,
+		"source", input.Source, "beadId", input.BeadID,
 		"sessionId", input.SessionID, "repoPath", input.RepoPath)
 
 	opts := buildCreateLeaseOptions(input)
@@ -82,18 +82,18 @@ func EnsureKnotsLease(knots *backend.KnotsBackend, input *EnsureLeaseInput) (str
 	result, err := knots.CreateLease(opts, input.RepoPath)
 	if err != nil {
 		slog.Error("KERNL DISPATCH FAILURE: knots lease create failed",
-			"source", input.Source, "beatId", input.BeatID,
+			"source", input.Source, "beadId", input.BeadID,
 			"sessionId", input.SessionID, "error", err)
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: knots lease create failed for %s: %w", input.Source, err)
 	}
 
 	slog.Info("knots lease: created",
 		"leaseId", result.ID, "source", input.Source,
-		"beatId", input.BeatID, "sessionId", input.SessionID)
+		"beadId", input.BeadID, "sessionId", input.SessionID)
 
-	if input.BeatID != "" {
+	if input.BeadID != "" {
 		slog.Debug("knots lease: post_lease snapshot",
-			"sessionId", input.SessionID, "beatId", input.BeatID,
+			"sessionId", input.SessionID, "beadId", input.BeadID,
 			"leaseId", result.ID, "repoPath", input.RepoPath)
 	}
 
@@ -103,20 +103,20 @@ func EnsureKnotsLease(knots *backend.KnotsBackend, input *EnsureLeaseInput) (str
 func TerminateKnotsRuntimeLease(knots *backend.KnotsBackend, input *TerminateLeaseInput) {
 	slog.Info("knots lease: terminating",
 		"leaseId", input.KnotsLeaseID, "source", input.Source,
-		"reason", input.Reason, "beatId", input.BeatID,
+		"reason", input.Reason, "beadId", input.BeadID,
 		"sessionId", input.SessionID)
 
 	err := knots.TerminateLease(input.KnotsLeaseID, input.RepoPath)
 	if err != nil {
 		slog.Warn("knots lease: terminate failed",
 			"leaseId", input.KnotsLeaseID, "source", input.Source,
-			"error", err, "beatId", input.BeatID)
+			"error", err, "beadId", input.BeadID)
 		return
 	}
 
 	slog.Info("knots lease: terminated",
 		"leaseId", input.KnotsLeaseID, "source", input.Source,
-		"reason", input.Reason, "beatId", input.BeatID)
+		"reason", input.Reason, "beadId", input.BeadID)
 }
 
 func MakeReleaseKnotsLeaseFunc(entry *SessionEntry, knots *backend.KnotsBackend) ReleaseKnotsLeaseFunc {

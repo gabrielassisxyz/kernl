@@ -45,13 +45,13 @@ func (p *stubSessionProvider) PushEvent(id string, evt TerminalEvent) {
 	}
 }
 
-func (p *stubSessionProvider) addSession(id, beatID, beatTitle, repoPath, status string) chan TerminalEvent {
+func (p *stubSessionProvider) addSession(id, beadID, beatTitle, repoPath, status string) chan TerminalEvent {
 	ch := make(chan TerminalEvent, 5000)
 	p.mu.Lock()
 	p.sessions[id] = SessionInfo{
 		ID:        id,
-		BeatID:    beatID,
-		BeatTitle: beatTitle,
+		BeadID:    beadID,
+		BeadTitle: beatTitle,
 		RepoPath:   repoPath,
 		Status:    status,
 	}
@@ -77,7 +77,7 @@ func setupTest(t *testing.T) (*stubSessionProvider, *SessionConnectionManager) {
 
 func TestConnectIdempotent(t *testing.T) {
 	provider, scm := setupTest(t)
-	ch := provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	ch := provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	// Send an event through the provider's channel to verify connection
@@ -96,7 +96,7 @@ func TestConnectIdempotent(t *testing.T) {
 
 func TestDisconnectRemovesEntry(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	ids := scm.GetConnectedIDs()
@@ -118,14 +118,14 @@ func TestDisconnectNonexistentNoop(t *testing.T) {
 
 func TestGetBufferReturnsEvents(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "stdout",
 		Content: "hello",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
@@ -154,7 +154,7 @@ func TestGetBufferUnknownSessionReturnsNil(t *testing.T) {
 
 func TestHasExitedAndExitCode(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 
@@ -168,7 +168,7 @@ func TestHasExitedAndExitCode(t *testing.T) {
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "exit",
 		Content: "0",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    2000,
 	})
 
@@ -206,20 +206,20 @@ func TestDuplicateExitNotifiesOnlyOnce(t *testing.T) {
 		mu.Unlock()
 	})
 
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "exit",
 		Content: "0",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "exit",
 		Content: "1",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    2000,
 	})
 
@@ -252,13 +252,13 @@ func TestExitNonZeroErrorCode(t *testing.T) {
 		mu.Unlock()
 	})
 
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "exit",
 		Content: "1",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
@@ -281,13 +281,13 @@ func TestExitPreservesAbortedStatus(t *testing.T) {
 		mu.Unlock()
 	})
 
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "aborted")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "aborted")
 
 	scm.Connect("s-1")
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "exit",
 		Content: "0",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
@@ -309,7 +309,7 @@ func TestExitPreservesAbortedStatus(t *testing.T) {
 
 func TestSubscribeAndForwardEvents(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	ch, unsub := scm.ConnectAndSubscribe("s-1")
@@ -318,7 +318,7 @@ func TestSubscribeAndForwardEvents(t *testing.T) {
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "stdout",
 		Content: "forwarded",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
@@ -334,7 +334,7 @@ func TestSubscribeAndForwardEvents(t *testing.T) {
 
 func TestBufferBoundedToMaxSize(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 
@@ -342,7 +342,7 @@ func TestBufferBoundedToMaxSize(t *testing.T) {
 		scm.HandleEvent("s-1", TerminalEvent{
 			Type:    "stdout",
 			Content: "msg",
-			BeatID:  "beat-1",
+			BeadID:  "bead-1",
 			Time:    int64(i),
 		})
 	}
@@ -355,8 +355,8 @@ func TestBufferBoundedToMaxSize(t *testing.T) {
 
 func TestGetConnectedIDs(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
-	provider.addSession("s-2", "beat-2", "Title2", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
+	provider.addSession("s-2", "bead-2", "Title2", "/repo", "running")
 
 	scm.Connect("s-1")
 	scm.Connect("s-2")
@@ -375,7 +375,7 @@ func TestGetConnectedIDs(t *testing.T) {
 
 func TestStartSyncConnectsRunningSessions(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.StartSync()
 
@@ -393,7 +393,7 @@ func TestStartSyncConnectsRunningSessions(t *testing.T) {
 
 func TestStopSyncDisconnectsAll(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	if len(scm.GetConnectedIDs()) != 1 {
@@ -417,13 +417,13 @@ func TestAgentFailureNotification(t *testing.T) {
 		mu.Unlock()
 	})
 
-	provider.addSession("s-1", "beat-fail", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-fail", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "agent_failure",
 		Content: "dispatch failed",
-		BeatID:  "beat-fail",
+		BeadID:  "bead-fail",
 		Time:    1000,
 	})
 
@@ -433,8 +433,8 @@ func TestAgentFailureNotification(t *testing.T) {
 	for _, n := range notifications {
 		if n.Kind == NotificationKindFailure {
 			found = true
-			if n.BeatID != "beat-fail" {
-				t.Errorf("expected beatId beat-fail, got %s", n.BeatID)
+			if n.BeadID != "bead-fail" {
+				t.Errorf("expected beadId bead-fail, got %s", n.BeadID)
 			}
 		}
 	}
@@ -445,7 +445,7 @@ func TestAgentFailureNotification(t *testing.T) {
 
 func TestDisconnectCleansUpSubscribers(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	ch, unsub := scm.ConnectAndSubscribe("s-1")
@@ -473,13 +473,13 @@ func TestExitWithNegativeCodeDisconnect(t *testing.T) {
 		mu.Unlock()
 	})
 
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "exit",
 		Content: "-2",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
@@ -494,16 +494,16 @@ func TestExitWithNegativeCodeDisconnect(t *testing.T) {
 	}
 }
 
-func TestBeatStateObservedNoStatusUpdate(t *testing.T) {
+func TestBeadStateObservedNoStatusUpdate(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 
 	scm.HandleEvent("s-1", TerminalEvent{
 		Type:    "beat_state_observed",
 		Content: "shipped",
-		BeatID:  "beat-1",
+		BeadID:  "bead-1",
 		Time:    1000,
 	})
 
@@ -518,7 +518,7 @@ func TestBeatStateObservedNoStatusUpdate(t *testing.T) {
 
 func TestContextCancellation(t *testing.T) {
 	provider, scm := setupTest(t)
-	provider.addSession("s-1", "beat-1", "Title", "/repo", "running")
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
 
 	scm.Connect("s-1")
 	ch, unsub := scm.ConnectAndSubscribe("s-1")

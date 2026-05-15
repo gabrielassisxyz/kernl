@@ -10,22 +10,22 @@ const (
 
 type BackendPort interface {
 	ListWorkflows(repoPath string) ([]WorkflowDescriptor, error)
-	List(filters *BeatListFilters, repoPath string) ([]Beat, error)
-	ListReady(filters *BeatListFilters, repoPath string) ([]Beat, error)
-	Get(id string, repoPath string) (*Beat, error)
-	Create(input CreateBeatInput, repoPath string) (*Beat, error)
-	Update(id string, input UpdateBeatInput, repoPath string) error
+	List(filters *BeadListFilters, repoPath string) ([]Bead, error)
+	ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error)
+	Get(id string, repoPath string) (*Bead, error)
+	Create(input CreateBeadInput, repoPath string) (*Bead, error)
+	Update(id string, input UpdateBeadInput, repoPath string) error
 	Delete(id string, repoPath string) error
 	Close(id string, reason string, repoPath string) (*TerminalState, error)
 	MarkTerminal(id string, targetState string, reason string, repoPath string) error
 	Reopen(id string, reason string, repoPath string) error
 	Rewind(id string, targetState string, reason string, repoPath string) error
-	Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error)
-	Query(expression string, options *BeatQueryOptions, repoPath string) ([]Beat, error)
+	Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error)
+	Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error)
 	AddDependency(blockerID string, blockedID string, repoPath string) error
 	RemoveDependency(blockerID string, blockedID string, repoPath string) error
-	ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeatDependency, error)
-	BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error)
+	ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error)
+	BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error)
 	BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error)
 	Capabilities() BackendCapabilities
 }
@@ -71,7 +71,7 @@ type WorkflowTransition struct {
 	To   string `json:"to"`
 }
 
-type Beat struct {
+type Bead struct {
 	ID                  string         `json:"id"`
 	Aliases             []string       `json:"aliases,omitempty"`
 	Type                string         `json:"type"`
@@ -93,7 +93,7 @@ type Beat struct {
 	RepoPath            string         `json:"repoPath,omitempty"`
 	Metadata            map[string]any `json:"metadata,omitempty"`
 	Invariants          []Invariant   `json:"invariants,omitempty"`
-	Dependencies        []BeatDependency `json:"dependencies,omitempty"`
+	Dependencies        []BeadDependency `json:"dependencies,omitempty"`
 	ProfileID           string         `json:"profileId,omitempty"`
 	WorkflowID          string         `json:"workflowId,omitempty"`
 	WorkflowMode        string         `json:"workflowMode,omitempty"`
@@ -103,7 +103,7 @@ type Beat struct {
 	IsAgentClaimable    bool           `json:"isAgentClaimable,omitempty"`
 }
 
-type CreateBeatInput struct {
+type CreateBeadInput struct {
 	Title        string   `json:"title"`
 	Description  string   `json:"description,omitempty"`
 	Type         string   `json:"type,omitempty"`
@@ -120,7 +120,7 @@ type CreateBeatInput struct {
 	WorkflowID   string   `json:"workflowId,omitempty"`
 }
 
-type UpdateBeatInput struct {
+type UpdateBeadInput struct {
 	Title           string     `json:"title,omitempty"`
 	Description     string     `json:"description,omitempty"`
 	Type            string     `json:"type,omitempty"`
@@ -141,7 +141,7 @@ type UpdateBeatInput struct {
 	ClearInvariants bool       `json:"clearInvariants,omitempty"`
 }
 
-type BeatListFilters struct {
+type BeadListFilters struct {
 	Type                string          `json:"type,omitempty"`
 	State               string          `json:"state,omitempty"`
 	WorkflowID          string          `json:"workflowId,omitempty"`
@@ -155,7 +155,7 @@ type BeatListFilters struct {
 	NextOwnerKind       ActionOwnerKind `json:"nextOwnerKind,omitempty"`
 }
 
-type BeatQueryOptions struct {
+type BeadQueryOptions struct {
 	Limit int    `json:"limit,omitempty"`
 	Sort  string `json:"sort,omitempty"`
 }
@@ -164,7 +164,7 @@ type DependencyListOptions struct {
 	Type string `json:"type,omitempty"`
 }
 
-type BeatDependency struct {
+type BeadDependency struct {
 	ID             string `json:"id,omitempty"`
 	Aliases        []string `json:"aliases,omitempty"`
 	Type           string `json:"type,omitempty"`
@@ -186,7 +186,7 @@ type TerminalState struct {
 
 type TakePromptOptions struct {
 	IsParent      bool     `json:"isParent,omitempty"`
-	ChildBeatIDs  []string `json:"childBeatIds,omitempty"`
+	ChildBeadIDs  []string `json:"childBeadIds,omitempty"`
 	KnotsLeaseID  string   `json:"knotsLeaseId,omitempty"`
 }
 
@@ -212,6 +212,6 @@ type Dependency struct {
 	Type     string `json:"type"`
 }
 
-var _ = BeatInput{}
+var _ = BeadInput{}
 
-type BeatInput = CreateBeatInput
+type BeadInput = CreateBeadInput

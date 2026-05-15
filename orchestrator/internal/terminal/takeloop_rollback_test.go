@@ -9,13 +9,13 @@ import (
 )
 
 type stubRollbackBackend struct {
-	beats     map[string]*backend.Beat
+	beads     map[string]*backend.Bead
 	rewinds   []rewindCall
 	rewindErr error
 }
 
 type rewindCall struct {
-	beatID      string
+	beadID      string
 	targetState string
 	reason      string
 	repoPath    string
@@ -24,22 +24,22 @@ type rewindCall struct {
 func (s *stubRollbackBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
 	return nil, nil
 }
-func (s *stubRollbackBackend) List(filters *backend.BeatListFilters, repoPath string) ([]backend.Beat, error) {
+func (s *stubRollbackBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
-func (s *stubRollbackBackend) ListReady(filters *backend.BeatListFilters, repoPath string) ([]backend.Beat, error) {
+func (s *stubRollbackBackend) ListReady(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
-func (s *stubRollbackBackend) Get(id string, repoPath string) (*backend.Beat, error) {
-	if b, ok := s.beats[id]; ok {
+func (s *stubRollbackBackend) Get(id string, repoPath string) (*backend.Bead, error) {
+	if b, ok := s.beads[id]; ok {
 		return b, nil
 	}
-	return nil, fmt.Errorf("beat %s not found", id)
+	return nil, fmt.Errorf("bead %s not found", id)
 }
-func (s *stubRollbackBackend) Create(input backend.CreateBeatInput, repoPath string) (*backend.Beat, error) {
+func (s *stubRollbackBackend) Create(input backend.CreateBeadInput, repoPath string) (*backend.Bead, error) {
 	return nil, nil
 }
-func (s *stubRollbackBackend) Update(id string, input backend.UpdateBeatInput, repoPath string) error {
+func (s *stubRollbackBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error {
 	return nil
 }
 func (s *stubRollbackBackend) Delete(id string, repoPath string) error {
@@ -55,19 +55,19 @@ func (s *stubRollbackBackend) Reopen(id string, reason string, repoPath string) 
 	return nil
 }
 func (s *stubRollbackBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
-	s.rewinds = append(s.rewinds, rewindCall{beatID: id, targetState: targetState, reason: reason, repoPath: repoPath})
+	s.rewinds = append(s.rewinds, rewindCall{beadID: id, targetState: targetState, reason: reason, repoPath: repoPath})
 	if s.rewindErr != nil {
 		return s.rewindErr
 	}
-	if b, ok := s.beats[id]; ok {
+	if b, ok := s.beads[id]; ok {
 		b.State = targetState
 	}
 	return nil
 }
-func (s *stubRollbackBackend) Search(query string, filters *backend.BeatListFilters, repoPath string) ([]backend.Beat, error) {
+func (s *stubRollbackBackend) Search(query string, filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
-func (s *stubRollbackBackend) Query(expression string, options *backend.BeatQueryOptions, repoPath string) ([]backend.Beat, error) {
+func (s *stubRollbackBackend) Query(expression string, options *backend.BeadQueryOptions, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
 func (s *stubRollbackBackend) AddDependency(blockerID string, blockedID string, repoPath string) error {
@@ -76,10 +76,10 @@ func (s *stubRollbackBackend) AddDependency(blockerID string, blockedID string, 
 func (s *stubRollbackBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
 	return nil
 }
-func (s *stubRollbackBackend) ListDependencies(id string, repoPath string, options *backend.DependencyListOptions) ([]backend.BeatDependency, error) {
+func (s *stubRollbackBackend) ListDependencies(id string, repoPath string, options *backend.DependencyListOptions) ([]backend.BeadDependency, error) {
 	return nil, nil
 }
-func (s *stubRollbackBackend) BuildTakePrompt(beatID string, options *backend.TakePromptOptions, repoPath string) (*backend.TakePromptResult, error) {
+func (s *stubRollbackBackend) BuildTakePrompt(beadID string, options *backend.TakePromptOptions, repoPath string) (*backend.TakePromptResult, error) {
 	return &backend.TakePromptResult{Prompt: "take"}, nil
 }
 func (s *stubRollbackBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
@@ -116,8 +116,8 @@ func makeRollbackWF() *backend.WorkflowDescriptor {
 
 func TestEnforceQueueTerminalInvariant_AlreadySatisfied(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "ready_for_implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "ready_for_implementation"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -129,11 +129,11 @@ func TestEnforceQueueTerminalInvariant_AlreadySatisfied(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "ready_for_implementation"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "ready_for_implementation"},
 	}
 
 	ok, err := EnforceQueueTerminalInvariant(ctx, sb)
@@ -150,8 +150,8 @@ func TestEnforceQueueTerminalInvariant_AlreadySatisfied(t *testing.T) {
 
 func TestEnforceQueueTerminalInvariant_TerminalState(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "shipped"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "shipped"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -163,11 +163,11 @@ func TestEnforceQueueTerminalInvariant_TerminalState(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "shipped"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "shipped"},
 	}
 
 	ok, err := EnforceQueueTerminalInvariant(ctx, sb)
@@ -181,8 +181,8 @@ func TestEnforceQueueTerminalInvariant_TerminalState(t *testing.T) {
 
 func TestEnforceQueueTerminalInvariant_RollsBackActiveState(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -195,12 +195,12 @@ func TestEnforceQueueTerminalInvariant_RollsBackActiveState(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation"},
 		PushEvent: func(evt session.TerminalEvent) {
 			events = append(events, evt)
 		},
@@ -223,8 +223,8 @@ func TestEnforceQueueTerminalInvariant_RollsBackActiveState(t *testing.T) {
 
 func TestEnforceQueueTerminalInvariant_RollbackFails(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 		rewindErr: fmt.Errorf("rollback failed"),
 	}
@@ -238,12 +238,12 @@ func TestEnforceQueueTerminalInvariant_RollbackFails(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation"},
 		PushEvent: func(evt session.TerminalEvent) {
 			events = append(events, evt)
 		},
@@ -270,8 +270,8 @@ func TestEnforceQueueTerminalInvariant_RollbackFails(t *testing.T) {
 
 func TestHandleErrorExit_RecordsFailedAgentAndRollsBack(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -284,19 +284,19 @@ func TestHandleErrorExit_RecordsFailedAgentAndRollsBack(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent: func(evt session.TerminalEvent) {
 			events = append(events, evt)
 		},
 	}
 
 	record := OutcomeRecord{
-		BeatID:       "beat-1",
+		BeadID:       "bead-1",
 		ClaimedStep:  "implementation",
 		Success:      false,
 		ExitCode:     1,
@@ -318,8 +318,8 @@ func TestHandleErrorExit_RecordsFailedAgentAndRollsBack(t *testing.T) {
 
 func TestHandleErrorExit_NoRollbackWhenInQueueState(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "ready_for_implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "ready_for_implementation"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -331,17 +331,17 @@ func TestHandleErrorExit_NoRollbackWhenInQueueState(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 	}
 
 	record := OutcomeRecord{
-		BeatID:       "beat-1",
+		BeadID:       "bead-1",
 		ClaimedStep:  "implementation",
 		Success:      false,
 		ExitCode:     1,
@@ -354,14 +354,14 @@ func TestHandleErrorExit_NoRollbackWhenInQueueState(t *testing.T) {
 		t.Error("expected agent-a to be recorded as failed")
 	}
 	if len(sb.rewinds) != 0 {
-		t.Errorf("expected 0 rewinds (beat already in queue state), got %d", len(sb.rewinds))
+		t.Errorf("expected 0 rewinds (bead already in queue state), got %d", len(sb.rewinds))
 	}
 }
 
 func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "shipped"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "shipped"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -374,12 +374,12 @@ func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "shipped", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "shipped", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 		FinishSession: func(exitCode int) {
 			finished = true
@@ -388,7 +388,7 @@ func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeatID:         "beat-1",
+		BeadID:         "bead-1",
 		Success:        true,
 		ExitCode:       0,
 		PostExitState:  "shipped",
@@ -401,14 +401,14 @@ func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 	}
 }
 
-func TestRollbackBeatState_BeatsMode(t *testing.T) {
+func TestRollbackBeadState_BeadsMode(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 	}
 
-	err := RollbackBeatState("beat-1", "implementation", "ready_for_implementation", "/repo", "", "test rollback", sb)
+	err := RollbackBeadState("bead-1", "implementation", "ready_for_implementation", "/repo", "", "test rollback", sb)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -420,14 +420,14 @@ func TestRollbackBeatState_BeatsMode(t *testing.T) {
 	}
 }
 
-func TestRollbackBeatState_KnotsMode(t *testing.T) {
+func TestRollbackBeadState_KnotsMode(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 	}
 
-	err := RollbackBeatState("beat-1", "implementation", "ready_for_implementation", "/repo", "knots", "test knots rollback", sb)
+	err := RollbackBeadState("bead-1", "implementation", "ready_for_implementation", "/repo", "knots", "test knots rollback", sb)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -441,8 +441,8 @@ func TestRollbackBeatState_KnotsMode(t *testing.T) {
 
 func TestRollbackStepFailure_ActiveStateRollsBack(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -455,12 +455,12 @@ func TestRollbackStepFailure_ActiveStateRollsBack(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent: func(evt session.TerminalEvent) {
 			events = append(events, evt)
 		},
@@ -489,8 +489,8 @@ func TestRollbackStepFailure_ActiveStateRollsBack(t *testing.T) {
 
 func TestRollbackStepFailure_QueueStateNoRollback(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -502,12 +502,12 @@ func TestRollbackStepFailure_QueueStateNoRollback(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 	}
 
@@ -531,8 +531,8 @@ func TestRollbackStepFailure_CannotResolveQueueState(t *testing.T) {
 		StateOwners:   map[string]backend.ActionOwnerKind{"unknown_state": backend.ActionOwnerAgent},
 	}
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "unknown_state", WorkflowID: "wf-minimal"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "unknown_state", WorkflowID: "wf-minimal"},
 		},
 	}
 	entry := &SessionEntry{
@@ -543,12 +543,12 @@ func TestRollbackStepFailure_CannotResolveQueueState(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-minimal": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "unknown_state", WorkflowID: "wf-minimal"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "unknown_state", WorkflowID: "wf-minimal"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 	}
 
@@ -560,7 +560,7 @@ func TestRollbackStepFailure_CannotResolveQueueState(t *testing.T) {
 
 func TestEnforceQueueTerminalInvariant_SkipsOnFetchError(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{},
+		beads: map[string]*backend.Bead{},
 	}
 	wf := makeRollbackWF()
 	entry := &SessionEntry{
@@ -571,11 +571,11 @@ func TestEnforceQueueTerminalInvariant_SkipsOnFetchError(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-missing",
+		BeadID:           "bead-missing",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-missing", State: "implementation"},
+		Bead:             &backend.Bead{ID: "bead-missing", State: "implementation"},
 	}
 
 	ok, err := EnforceQueueTerminalInvariant(ctx, sb)
@@ -589,15 +589,15 @@ func TestEnforceQueueTerminalInvariant_SkipsOnFetchError(t *testing.T) {
 
 func TestRollbackInvariantViolation_RollbackSucceeds(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 	}
 	wf := makeRollbackWF()
 	var events []session.TerminalEvent
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
@@ -605,7 +605,7 @@ func TestRollbackInvariantViolation_RollbackSucceeds(t *testing.T) {
 			events = append(events, evt)
 		},
 	}
-	current := &backend.Beat{ID: "beat-1", State: "implementation"}
+	current := &backend.Bead{ID: "bead-1", State: "implementation"}
 
 	ok, err := RollbackInvariantViolation(ctx, current, wf, "[terminal-manager] [sess-1] [invariant]", sb)
 	if err != nil {
@@ -621,8 +621,8 @@ func TestRollbackInvariantViolation_RollbackSucceeds(t *testing.T) {
 
 func TestConcurrentAbortDuringRollback(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -636,12 +636,12 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 		SessionAborted: func() bool { return aborted },
 		FinishSession: func(exitCode int) {
@@ -651,7 +651,7 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeatID:       "beat-1",
+		BeadID:       "bead-1",
 		ClaimedStep:  "implementation",
 		Success:      false,
 		ExitCode:     1,
@@ -667,8 +667,8 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 
 func TestHandleErrorExit_NoAlternativeAgent(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "ready_for_implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "ready_for_implementation"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -681,12 +681,12 @@ func TestHandleErrorExit_NoAlternativeAgent(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "ready_for_implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 		FinishSession: func(exitCode int) {
 			finishCalled = true
@@ -695,7 +695,7 @@ func TestHandleErrorExit_NoAlternativeAgent(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeatID:                    "beat-1",
+		BeadID:                    "bead-1",
 		ClaimedStep:               "implementation",
 		Success:                   false,
 		ExitCode:                  1,
@@ -713,15 +713,15 @@ func TestHandleErrorExit_NoAlternativeAgent(t *testing.T) {
 	}
 }
 
-func TestRollbackBeatState_Error(t *testing.T) {
+func TestRollbackBeadState_Error(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation"},
 		},
 		rewindErr: fmt.Errorf("db connection failed"),
 	}
 
-	err := RollbackBeatState("beat-1", "implementation", "ready_for_implementation", "/repo", "", "test", sb)
+	err := RollbackBeadState("bead-1", "implementation", "ready_for_implementation", "/repo", "", "test", sb)
 	if err == nil {
 		t.Error("expected error when Rewind fails")
 	}
@@ -729,8 +729,8 @@ func TestRollbackBeatState_Error(t *testing.T) {
 
 func TestRollbackStepFailure_RollbackError(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		},
 		rewindErr: fmt.Errorf("rollback failed"),
 	}
@@ -743,12 +743,12 @@ func TestRollbackStepFailure_RollbackError(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 	}
 
@@ -766,8 +766,8 @@ func TestMaxClaimsPerQueueTypeIsThree(t *testing.T) {
 
 func TestHandleTakeIterationClose_AbortedSession(t *testing.T) {
 	sb := &stubRollbackBackend{
-		beats: map[string]*backend.Beat{
-			"beat-1": {ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		beads: map[string]*backend.Bead{
+			"bead-1": {ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		},
 	}
 	wf := makeRollbackWF()
@@ -781,12 +781,12 @@ func TestHandleTakeIterationClose_AbortedSession(t *testing.T) {
 	}
 	ctx := &TakeLoopContext{
 		ID:               "sess-1",
-		BeatID:           "beat-1",
+		BeadID:           "bead-1",
 		RepoPath:         "/repo",
 		WorkflowsByID:    map[string]*backend.WorkflowDescriptor{"wf-sdlc": wf},
 		FallbackWorkflow: wf,
 		Entry:            entry,
-		Beat:             &backend.Beat{ID: "beat-1", State: "implementation", WorkflowID: "wf-sdlc"},
+		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
 		SessionAborted: func() bool { return aborted },
 		FinishSession: func(exitCode int) {

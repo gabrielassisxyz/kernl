@@ -216,7 +216,7 @@ func embedInvariantsInNotes(notes string, invariants []Invariant) string {
 	return notes + "\n\n" + section
 }
 
-func NormalizeBead(raw RawBead) Beat {
+func NormalizeBead(raw RawBead) Bead {
 	id := raw.ID
 	rawType := firstNonEmpty(raw.IssueType, "task")
 	bdType := rawType
@@ -264,16 +264,16 @@ func NormalizeBead(raw RawBead) Beat {
 		metadata["close_reason"] = raw.CloseReason
 	}
 
-	deps := make([]BeatDependency, 0, len(raw.Dependencies))
+	deps := make([]BeadDependency, 0, len(raw.Dependencies))
 	for _, d := range raw.Dependencies {
-		deps = append(deps, BeatDependency{
+		deps = append(deps, BeadDependency{
 			SourceID: d.SourceID,
 			TargetID: d.TargetID,
 			Type:     d.DepType,
 		})
 	}
 
-	beat := Beat{
+	bead := Bead{
 		ID:           id,
 		Type:         bdType,
 		State:        state,
@@ -296,16 +296,16 @@ func NormalizeBead(raw RawBead) Beat {
 		ProfileID:    profileID,
 	}
 	if len(invariants) > 0 {
-		beat.Invariants = invariants
+		bead.Invariants = invariants
 	}
-	return beat
+	return bead
 }
 
-func DenormalizeBead(beat Beat) RawBead {
-	status := mapBeatStateToCompatStatus(beat.State)
+func DenormalizeBead(bead Bead) RawBead {
+	status := mapBeadStateToCompatStatus(bead.State)
 
-	labels := make([]string, len(beat.Labels))
-	copy(labels, beat.Labels)
+	labels := make([]string, len(bead.Labels))
+	copy(labels, bead.Labels)
 
 	hasStateLabel := false
 	hasProfileLabel := false
@@ -317,63 +317,63 @@ func DenormalizeBead(beat Beat) RawBead {
 			hasProfileLabel = true
 		}
 	}
-	if !hasStateLabel && beat.State != "" {
-		labels = append(labels, "wf:state:"+beat.State)
+	if !hasStateLabel && bead.State != "" {
+		labels = append(labels, "wf:state:"+bead.State)
 	}
 	profileID := "autopilot_no_planning"
-	if beat.ProfileID != "" {
-		profileID = beat.ProfileID
+	if bead.ProfileID != "" {
+		profileID = bead.ProfileID
 	}
 	if !hasProfileLabel {
 		labels = append(labels, "wf:profile:"+profileID)
 	}
 
-	notesWithInvariants := embedInvariantsInNotes(beat.Notes, beat.Invariants)
+	notesWithInvariants := embedInvariantsInNotes(bead.Notes, bead.Invariants)
 
 	raw := RawBead{
-		ID:       beat.ID,
-		Title:    beat.Title,
-		IssueType: beat.Type,
+		ID:       bead.ID,
+		Title:    bead.Title,
+		IssueType: bead.Type,
 		Status:   status,
-		Priority: beat.Priority,
+		Priority: bead.Priority,
 		Labels:   labels,
-		CreatedAt: beat.CreatedAt,
-		UpdatedAt: beat.UpdatedAt,
+		CreatedAt: bead.CreatedAt,
+		UpdatedAt: bead.UpdatedAt,
 	}
-	if beat.Description != "" {
-		raw.Description = beat.Description
+	if bead.Description != "" {
+		raw.Description = bead.Description
 	}
 	if notesWithInvariants != "" {
 		raw.Notes = notesWithInvariants
 	}
-	if beat.Acceptance != "" {
-		raw.AcceptanceCriteria = beat.Acceptance
+	if bead.Acceptance != "" {
+		raw.AcceptanceCriteria = bead.Acceptance
 	}
-	if beat.Assignee != "" {
-		raw.Assignee = beat.Assignee
+	if bead.Assignee != "" {
+		raw.Assignee = bead.Assignee
 	}
-	if beat.Owner != "" {
-		raw.Owner = beat.Owner
+	if bead.Owner != "" {
+		raw.Owner = bead.Owner
 	}
-	if beat.ParentID != "" {
-		raw.Parent = beat.ParentID
+	if bead.ParentID != "" {
+		raw.Parent = bead.ParentID
 	}
-	if beat.Due != "" {
-		raw.Due = beat.Due
+	if bead.Due != "" {
+		raw.Due = bead.Due
 	}
-	if beat.Estimate > 0 {
-		raw.EstimatedMinutes = beat.Estimate
+	if bead.Estimate > 0 {
+		raw.EstimatedMinutes = bead.Estimate
 	}
-	if beat.ClosedAt != "" {
-		raw.ClosedAt = beat.ClosedAt
+	if bead.ClosedAt != "" {
+		raw.ClosedAt = bead.ClosedAt
 	}
-	if beat.Metadata != nil {
-		if cr, ok := beat.Metadata["close_reason"].(string); ok && cr != "" {
+	if bead.Metadata != nil {
+		if cr, ok := bead.Metadata["close_reason"].(string); ok && cr != "" {
 			raw.CloseReason = cr
 		}
-		raw.Metadata = beat.Metadata
+		raw.Metadata = bead.Metadata
 	}
-	for _, d := range beat.Dependencies {
+	for _, d := range bead.Dependencies {
 		raw.Dependencies = append(raw.Dependencies, RawDependency{
 			SourceID: d.SourceID,
 			TargetID: d.TargetID,
@@ -383,7 +383,7 @@ func DenormalizeBead(beat Beat) RawBead {
 	return raw
 }
 
-func mapBeatStateToCompatStatus(state string) string {
+func mapBeadStateToCompatStatus(state string) string {
 	switch state {
 	case "deferred":
 		return "deferred"

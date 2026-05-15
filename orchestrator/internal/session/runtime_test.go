@@ -9,7 +9,7 @@ import (
 )
 
 func newTestRuntime(dialect string, interactive bool) *SessionRuntime {
-	return NewSessionRuntimeWithCapabilities("beat-1", "/repo", dialect, interactive)
+	return NewSessionRuntimeWithCapabilities("bead-1", "/repo", dialect, interactive)
 }
 
 func pipeReaderWriter() (*strings.Reader, *strings.Builder) {
@@ -724,7 +724,7 @@ func TestCloseDiagnostics_Normal(t *testing.T) {
 }
 
 func TestCloseDiagnostics_NilRuntime(t *testing.T) {
-	r := NewSessionRuntime("beat-1", "/repo")
+	r := NewSessionRuntime("bead-1", "/repo")
 	d := CaptureChildCloseDiagnostics(r, 1, "SIGTERM")
 	if d.ExitReason != "normal" {
 		t.Errorf("expected normal for nil exitReason, got %s", d.ExitReason)
@@ -800,7 +800,7 @@ func TestShouldTreatTurnEndedSignalAsClean(t *testing.T) {
 }
 
 func TestSessionRuntime_StderrPassthrough(t *testing.T) {
-	r := NewSessionRuntime("beat-1", "/repo")
+	r := NewSessionRuntime("bead-1", "/repo")
 	ctx := context.Background()
 
 	stdout := strings.NewReader("")
@@ -838,7 +838,7 @@ func TestSessionRuntime_StderrPassthrough(t *testing.T) {
 }
 
 func TestSessionRuntime_NonJSONStdout(t *testing.T) {
-	r := NewSessionRuntime("beat-1", "/repo")
+	r := NewSessionRuntime("bead-1", "/repo")
 	ctx := context.Background()
 
 	stdout := strings.NewReader("plain text output\n")

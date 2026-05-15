@@ -6,16 +6,16 @@ import (
 	"time"
 )
 
-func stubBeat(id string) Beat {
-	return Beat{ID: id, Title: "stub", Type: "task", State: "open", Priority: 2}
+func stubBead(id string) Bead {
+	return Bead{ID: id, Title: "stub", Type: "task", State: "open", Priority: 2}
 }
 
-func okBeats(beats []Beat) BackendResult[[]Beat] {
-	return OkResult(beats)
+func okBeads(beads []Bead) BackendResult[[]Bead] {
+	return OkResult(beads)
 }
 
-func failBeats(msg string) BackendResult[[]Beat] {
-	return ErrResult[[]Beat](NewBackendError(ErrorCodeInternal, msg))
+func failBeads(msg string) BackendResult[[]Bead] {
+	return ErrResult[[]Bead](NewBackendError(ErrorCodeInternal, msg))
 }
 
 func TestIsSuppressibleError_MatchesLockRelatedMessages(t *testing.T) {
@@ -43,9 +43,9 @@ func TestIsSuppressibleError_MatchesLockRelatedMessages(t *testing.T) {
 
 func TestErrorSuppression_PassesThroughSuccessfulResults(t *testing.T) {
 	cache := newTestCache()
-	beats := []Beat{stubBeat("b-1")}
-	result := okBeats(beats)
-	out := cache.WithErrorSuppression("listBeats", result, nil, "", "")
+	beads := []Bead{stubBead("b-1")}
+	result := okBeads(beads)
+	out := cache.WithErrorSuppression("listBeads", result, nil, "", "")
 
 	if !out.OK {
 		t.Error("expected OK result")
@@ -57,8 +57,8 @@ func TestErrorSuppression_PassesThroughSuccessfulResults(t *testing.T) {
 
 func TestErrorSuppression_ReturnsDegradedWhenNoCacheForLockError(t *testing.T) {
 	cache := newTestCache()
-	result := failBeats("database is locked")
-	out := cache.WithErrorSuppression("listBeats", result, nil, "", "")
+	result := failBeads("database is locked")
+	out := cache.WithErrorSuppression("listBeads", result, nil, "", "")
 
 	if out.OK {
 		t.Error("expected error result")
@@ -73,10 +73,10 @@ func TestErrorSuppression_ReturnsDegradedWhenNoCacheForLockError(t *testing.T) {
 
 func TestErrorSuppression_ReturnsCachedDataOnFirstLockFailure(t *testing.T) {
 	cache := newTestCache()
-	beats := []Beat{stubBeat("b-1")}
-	cache.WithErrorSuppression("listBeats", okBeats(beats), nil, "", "")
+	beads := []Bead{stubBead("b-1")}
+	cache.WithErrorSuppression("listBeads", okBeads(beads), nil, "", "")
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("database locked"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("database locked"), nil, "", "")
 	if !out.OK {
 		t.Error("expected OK result from cache")
 	}
@@ -87,11 +87,11 @@ func TestErrorSuppression_ReturnsCachedDataOnFirstLockFailure(t *testing.T) {
 
 func TestErrorSuppression_KeepsReturningCachedDataWithinWindow(t *testing.T) {
 	cache := newTestCache()
-	beats := []Beat{stubBeat("b-1")}
-	cache.WithErrorSuppression("listBeats", okBeats(beats), nil, "", "")
-	cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	beads := []Bead{stubBead("b-1")}
+	cache.WithErrorSuppression("listBeads", okBeads(beads), nil, "", "")
+	cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("locked again"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("locked again"), nil, "", "")
 	if !out.OK {
 		t.Error("expected cached OK result")
 	}
@@ -102,8 +102,8 @@ func TestErrorSuppression_ReturnsDegradedAfterWindowExpires(t *testing.T) {
 	now := time.Now()
 	cache.nowFunc = func() time.Time { return now }
 
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
-	cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 
 	internals := cache.Internals()
 	failKeys := make([]string, 0)
@@ -117,7 +117,7 @@ func TestErrorSuppression_ReturnsDegradedAfterWindowExpires(t *testing.T) {
 	now = now.Add(3 * time.Minute)
 	cache.nowFunc = func() time.Time { return now }
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 	if out.OK {
 		t.Error("expected error after window expired")
 	}
@@ -128,15 +128,15 @@ func TestErrorSuppression_ReturnsDegradedAfterWindowExpires(t *testing.T) {
 
 func TestErrorSuppression_ClearsFailureOnRecovery(t *testing.T) {
 	cache := newTestCache()
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
-	cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 
 	internals := cache.Internals()
 	if len(internals.FailureState()) != 1 {
 		t.Error("expected 1 failure state entry")
 	}
 
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
 	if len(internals.FailureState()) != 0 {
 		t.Error("expected failure state cleared on recovery")
 	}
@@ -144,13 +144,13 @@ func TestErrorSuppression_ClearsFailureOnRecovery(t *testing.T) {
 
 func TestErrorSuppression_SeparateCacheForDifferentSignatures(t *testing.T) {
 	cache := newTestCache()
-	beatA := stubBeat("a")
-	beatB := stubBeat("b")
+	beatA := stubBead("a")
+	beatB := stubBead("b")
 
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{beatA}), nil, "/repo-a", "")
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{beatB}), nil, "/repo-b", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{beatA}), nil, "/repo-a", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{beatB}), nil, "/repo-b", "")
 
-	outA := cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "/repo-a", "")
+	outA := cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "/repo-a", "")
 	if !outA.OK || (*outA.Data)[0].ID != "a" {
 		t.Errorf("expected cached repo-a data")
 	}
@@ -158,15 +158,15 @@ func TestErrorSuppression_SeparateCacheForDifferentSignatures(t *testing.T) {
 
 func TestErrorSuppression_DistinguishesByQuery(t *testing.T) {
 	cache := newTestCache()
-	cache.WithErrorSuppression("searchBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "alpha")
-	cache.WithErrorSuppression("searchBeats", okBeats([]Beat{}), nil, "", "beta")
+	cache.WithErrorSuppression("searchBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "alpha")
+	cache.WithErrorSuppression("searchBeads", okBeads([]Bead{}), nil, "", "beta")
 
-	out := cache.WithErrorSuppression("searchBeats", failBeats("locked"), nil, "", "alpha")
+	out := cache.WithErrorSuppression("searchBeads", failBeads("locked"), nil, "", "alpha")
 	if !out.OK || len(*out.Data) != 1 {
 		t.Error("expected cached result for query=alpha")
 	}
 
-	outBeta := cache.WithErrorSuppression("searchBeats", failBeats("locked"), nil, "", "beta")
+	outBeta := cache.WithErrorSuppression("searchBeads", failBeads("locked"), nil, "", "beta")
 	if !outBeta.OK || len(*outBeta.Data) != 0 {
 		t.Error("expected cached empty result for query=beta")
 	}
@@ -174,9 +174,9 @@ func TestErrorSuppression_DistinguishesByQuery(t *testing.T) {
 
 func TestErrorSuppression_DoesNotSuppressNonLockErrors(t *testing.T) {
 	cache := newTestCache()
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("Failed to parse bd list output"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("Failed to parse bd list output"), nil, "", "")
 	if out.OK {
 		t.Error("expected error for non-suppressible error")
 	}
@@ -187,9 +187,9 @@ func TestErrorSuppression_DoesNotSuppressNonLockErrors(t *testing.T) {
 
 func TestErrorSuppression_DoesNotSuppressGenericFailures(t *testing.T) {
 	cache := newTestCache()
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("bd list failed"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("bd list failed"), nil, "", "")
 	if out.OK {
 		t.Error("expected error for non-suppressible error")
 	}
@@ -201,8 +201,8 @@ func TestErrorSuppression_DoesNotSuppressGenericFailures(t *testing.T) {
 func TestErrorSuppression_EvictsOldestWhenOverMaxEntries(t *testing.T) {
 	cache := newTestCache()
 	for i := 0; i <= MaxCacheEntries; i++ {
-		beats := []Beat{stubBeat("b-1")}
-		cache.WithErrorSuppression("listBeats", okBeats(beats), nil, fmt.Sprintf("/repo-%d", i), "")
+		beads := []Bead{stubBead("b-1")}
+		cache.WithErrorSuppression("listBeads", okBeads(beads), nil, fmt.Sprintf("/repo-%d", i), "")
 	}
 	internals := cache.Internals()
 	rc := internals.ResultCache()
@@ -216,8 +216,8 @@ func TestErrorSuppression_DegradedAfterWindowWithNoCache(t *testing.T) {
 	now := time.Now()
 	cache.nowFunc = func() time.Time { return now }
 
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
-	cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 
 	internals := cache.Internals()
 	failKeys := make([]string, 0)
@@ -235,7 +235,7 @@ func TestErrorSuppression_DegradedAfterWindowWithNoCache(t *testing.T) {
 	internals.SetResultCacheTimestamp(cacheKeys[0], now.Add(-11*time.Minute))
 	internals.SetFailureFirstFailedAt(failKeys[0], now.Add(-3*time.Minute))
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 	if out.OK {
 		t.Error("expected error after window expired")
 	}
@@ -249,8 +249,8 @@ func TestErrorSuppression_TTLExpiryDuringFailure(t *testing.T) {
 	now := time.Now()
 	cache.nowFunc = func() time.Time { return now }
 
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), nil, "", "")
-	cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), nil, "", "")
+	cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 
 	internals := cache.Internals()
 	cacheKeys := make([]string, 0)
@@ -265,7 +265,7 @@ func TestErrorSuppression_TTLExpiryDuringFailure(t *testing.T) {
 	internals.SetResultCacheTimestamp(cacheKeys[0], now.Add(-11*time.Minute))
 	internals.SetFailureFirstFailedAt(failKeys[0], now)
 
-	out := cache.WithErrorSuppression("listBeats", failBeats("locked"), nil, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("locked"), nil, "", "")
 	if out.OK {
 		t.Error("expected error when cache TTL expired")
 	}
@@ -277,10 +277,10 @@ func TestErrorSuppression_TTLExpiryDuringFailure(t *testing.T) {
 func TestErrorSuppression_FilterKeyOrderIndependent(t *testing.T) {
 	cache := newTestCache()
 	filtersA := map[string]string{"status": "open", "type": "bug"}
-	cache.WithErrorSuppression("listBeats", okBeats([]Beat{stubBeat("b-1")}), filtersA, "", "")
+	cache.WithErrorSuppression("listBeads", okBeads([]Bead{stubBead("b-1")}), filtersA, "", "")
 
 	filtersB := map[string]string{"type": "bug", "status": "open"}
-	out := cache.WithErrorSuppression("listBeats", failBeats("locked"), filtersB, "", "")
+	out := cache.WithErrorSuppression("listBeads", failBeads("locked"), filtersB, "", "")
 	if !out.OK {
 		t.Error("expected cached hit with reordered filters")
 	}
@@ -295,8 +295,8 @@ func newTestCache() *ErrorSuppressionCache {
 func TestCacheKey_Deterministic(t *testing.T) {
 	cache := NewErrorSuppressionCache()
 
-	key1 := cache.CacheKey("listBeats", map[string]string{"status": "open", "type": "bug"}, "/repo", "query")
-	key2 := cache.CacheKey("listBeats", map[string]string{"type": "bug", "status": "open"}, "/repo", "query")
+	key1 := cache.CacheKey("listBeads", map[string]string{"status": "open", "type": "bug"}, "/repo", "query")
+	key2 := cache.CacheKey("listBeads", map[string]string{"type": "bug", "status": "open"}, "/repo", "query")
 
 	if key1 != key2 {
 		t.Errorf("expected same cache key for same filters in different order, got %q vs %q", key1, key2)

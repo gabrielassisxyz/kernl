@@ -477,12 +477,12 @@ func TestCreateFallsBackToRawOutput(t *testing.T) {
 		bdBin:    script,
 	}
 
-	beat, err := b.Create(CreateBeatInput{Title: "Test Task"}, tmpDir)
+	bead, err := b.Create(CreateBeadInput{Title: "Test Task"}, tmpDir)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if beat.ID != "proj.42" {
-		t.Errorf("expected ID proj.42, got %q", beat.ID)
+	if bead.ID != "proj.42" {
+		t.Errorf("expected ID proj.42, got %q", bead.ID)
 	}
 }
 

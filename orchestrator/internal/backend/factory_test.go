@@ -23,23 +23,23 @@ func (s *stubBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, erro
 	s.record("ListWorkflows")
 	return BuiltinWorkflowDescriptors(), nil
 }
-func (s *stubBackend) List(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (s *stubBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	s.record("List")
 	return nil, nil
 }
-func (s *stubBackend) ListReady(filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (s *stubBackend) ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	s.record("ListReady")
 	return nil, nil
 }
-func (s *stubBackend) Get(id string, repoPath string) (*Beat, error) {
+func (s *stubBackend) Get(id string, repoPath string) (*Bead, error) {
 	s.record("Get")
-	return &Beat{ID: id}, nil
+	return &Bead{ID: id}, nil
 }
-func (s *stubBackend) Create(input CreateBeatInput, repoPath string) (*Beat, error) {
+func (s *stubBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
 	s.record("Create")
-	return &Beat{ID: "new"}, nil
+	return &Bead{ID: "new"}, nil
 }
-func (s *stubBackend) Update(id string, input UpdateBeatInput, repoPath string) error {
+func (s *stubBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
 	s.record("Update")
 	return nil
 }
@@ -63,11 +63,11 @@ func (s *stubBackend) Rewind(id string, targetState string, reason string, repoP
 	s.record("Rewind")
 	return nil
 }
-func (s *stubBackend) Search(query string, filters *BeatListFilters, repoPath string) ([]Beat, error) {
+func (s *stubBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
 	s.record("Search")
 	return nil, nil
 }
-func (s *stubBackend) Query(expression string, options *BeatQueryOptions, repoPath string) ([]Beat, error) {
+func (s *stubBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
 	s.record("Query")
 	return nil, nil
 }
@@ -79,11 +79,11 @@ func (s *stubBackend) RemoveDependency(blockerID string, blockedID string, repoP
 	s.record("RemoveDependency")
 	return nil
 }
-func (s *stubBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeatDependency, error) {
+func (s *stubBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
 	s.record("ListDependencies")
 	return nil, nil
 }
-func (s *stubBackend) BuildTakePrompt(beatID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
+func (s *stubBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
 	s.record("BuildTakePrompt")
 	return &TakePromptResult{Prompt: "take"}, nil
 }
@@ -269,7 +269,7 @@ func TestAutoRoutingBackend_CapabilitiesForRepo_Empty_ReturnsFull(t *testing.T) 
 
 func TestAutoRoutingBackend_Create_NoRepo_Throws(t *testing.T) {
 	arb := NewAutoRoutingBackend(&config.Config{})
-	_, err := arb.Create(CreateBeatInput{Title: "test"}, "")
+	_, err := arb.Create(CreateBeadInput{Title: "test"}, "")
 	if err == nil {
 		t.Fatal("expected error for empty repoPath")
 	}
@@ -434,8 +434,8 @@ func TestAutoRoutingBackend_DelegatesAllMethods(t *testing.T) {
 	}
 	_, _ = arb.ListReady(nil, "/repo")
 	_, _ = arb.Get("id", "/repo")
-	_, _ = arb.Create(CreateBeatInput{Title: "t"}, "/repo")
-	_ = arb.Update("id", UpdateBeatInput{}, "/repo")
+	_, _ = arb.Create(CreateBeadInput{Title: "t"}, "/repo")
+	_ = arb.Update("id", UpdateBeadInput{}, "/repo")
 	_ = arb.Delete("id", "/repo")
 	_, _ = arb.Close("id", "reason", "/repo")
 	_ = arb.MarkTerminal("id", "shipped", "reason", "/repo")
