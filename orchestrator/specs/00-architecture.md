@@ -1,6 +1,6 @@
-# Foolery Go Port — System Architecture & Cross-Domain Contracts
+# Kernl System Architecture & Cross-Domain Contracts
 
-This document synthesizes the system-wide behavioral contracts and component interactions across all domains (backend, session, dispatch, prompt, transport, orchestration). It is derived from the TypeScript Foolery test suite and serves as the authoritative blueprint for the Go port.
+This document synthesizes the system-wide behavioral contracts and component interactions across all domains (backend, session, dispatch, prompt, transport, orchestration). It is derived from the TypeScript Foolery test suite and serves as the authoritative blueprint for the Go port, now re-aligned with the kernl-native workflow (see §2.6 and §3).
 
 > **Principle:** Every contract below is what the Go port MUST preserve. Implementation choices (goroutines vs. event emitters, channels vs. callbacks) are secondary to the observable behavior.
 
@@ -8,7 +8,7 @@ This document synthesizes the system-wide behavioral contracts and component int
 
 ## 1. System Overview
 
-Foolery is a keyboard-first orchestration app for agent-driven software work. The Go backend manages beat state, dispatches agents, streams results, and maintains a session registry. The Vue 3 frontend consumes SSE, queries beats, and renders terminal sessions.
+Kernl is a keyboard-first orchestration app for agent-driven software work. The Go backend manages beat state, dispatches agents, streams results, and maintains a session registry. The Vue 3 frontend consumes SSE, queries beats, and renders terminal sessions.
 
 ### Core Components
 
@@ -34,7 +34,7 @@ Foolery is a keyboard-first orchestration app for agent-driven software work. Th
 ### 2.1 Fail Loudly, Never Silently
 Every lookup failure for a configured resource MUST:
 1. Return an error that halts the current operation.
-2. Log a structured error containing the greppable marker `FOOLERY DISPATCH FAILURE` (or subsystem marker).
+2. Log a structured error containing the greppable marker `KERNL DISPATCH FAILURE` (or subsystem marker).
 3. Surface the failure to any visible session buffer as a stderr banner event.
 4. Name the missing thing (beat id, state, pool key, workflow id, action name) and the exact config that fixes it.
 5. NEVER return `Object.values(x)[0]`, `?? "default"`, or any silent fallback.
@@ -57,6 +57,60 @@ Every lookup failure for a configured resource MUST:
 ### 2.5 Registry Permissions
 - Registry file MUST be created/chmod-ed to `0o600`.
 - `inspectRegistryPermissions` MUST detect looser modes and report `needsFix: true`.
+
+### 2.6 Workflow (kernl-native)
+
+The kernl-native workflow replaces the legacy foolery 13-state machine with a simple 6-state model using bd built-in + custom statuses. The core loop: worker agents advance child beads; a merger agent integrates them into the epic branch; humans approve the final PR; `kernl sweep` closes beads automatically.
+
+#### Child bead lifecycle
+```
+┌─── child (child bead of an epic) ───────────────────────────────────┐
+│                                                                      │
+│  open ──claim──> in_progress ──agent_done──> awaiting_integration   │
+│                       │                              │               │
+│                       └──agent_failed/stuck──> blocked               │
+│                                                      │               │
+│                            merger picks up ──> closed (merged into   │
+│                                                      epic branch)    │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+#### Epic lifecycle
+```
+┌─── epic (parent bead) ──────────────────────────────────────────────┐
+│                                                                      │
+│  open ──claim──> in_progress ──all children done──>                  │
+│                       │             merger spawned                   │
+│                       │             merger completes OK              │
+│                       │                  │                           │
+│                       │                  └──> awaiting_pr_review     │
+│                       │                              │               │
+│                       │                              │ kernl sweep   │
+│                       │                              │ detects PR    │
+│                       │                              │ merged        │
+│                       │                              ▼               │
+│                       └──merger fails──> blocked    closed           │
+│                                                                      │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+**States:** 4 built-in (`open`, `in_progress`, `blocked`, `closed`) + 2 custom registered via `bd config set status.custom` (`awaiting_integration`, `awaiting_pr_review`). AgentState runtime (spawning/working/done/stuck/failed) lives in `~/.kernl/state/<bead-id>.json`, NOT in bd description (D1=C divergence from gastown — avoids concurrent-write lost-update on description field).
+
+### 2.7 Persistence Layers
+
+State is split across three orthogonal layers, mirroring the gastown architecture:
+
+| Layer | Store | Contents | Write frequency |
+|---|---|---|---|
+| **Layer 1 — bd status built-in** | `bd update --status <value>` (validated set: `open`, `in_progress`, `blocked`, `closed`) | IssueStatus: the bead's position in the workflow | Low (1× per transition) |
+| **Layer 2 — bd status.custom** | `bd config set status.custom "awaiting_integration,awaiting_pr_review"` (registered idempotently via `EnsureCustomStatuses`) | Extension statuses that bd validates after registration | Low (1× per transition) |
+| **Layer 3 — description fields** | `bd.description` — parsed/written via `getMetadataField`/`addMetadataField` (key: value per line) | Stable fields: `worktree_path`, `worktree_branch`, `epic_branch`, `pr_url`, `merge_conflict_at`, `merge_outcome` | 1–2× per bead lifetime |
+| **Divergence (D1=C)** | `~/.kernl/state/<bead-id>.json` (atomic write via tempfile+rename, mutex per bead_id) | High-frequency AgentState runtime: `agent_state`, `agent_session_id`, `last_heartbeat_at`, `follow_up_count` | High (every heartbeat/tick) |
+
+**bd is sole source of truth for trigger logic** (D2=A). MergeManager and EpicExecutor always consult `bd list` to decide transitions, never read the JSON local store. JSON is observability/audit only — lost on crash, recoverable with defaults.
+
+**Custom status registration** is idempotent, cached in-memory with a sentinel file for staleness detection, and merges with existing customs (preserves registrations from other consumers).
 
 ---
 
@@ -84,7 +138,7 @@ WorkflowDescriptor.queueActions[state] → poolKey
     → selectFromPool(entries, excludeAgentId?) → AgentConfig
 ```
 
-**Invariant:** If any lookup in this chain fails, the system MUST throw a `DispatchFailureError` with marker `FOOLERY DISPATCH FAILURE`, naming the missing `poolKey` and the exact config path (`settings.pools.<poolKey>`).
+**Invariant:** If any lookup in this chain fails, the system MUST throw a `DispatchFailureError` with marker `KERNL DISPATCH FAILURE`, naming the missing `poolKey` and the exact config path (`settings.pools.<poolKey>`).
 
 ### 3.3 Session Spawning
 ```
@@ -198,7 +252,7 @@ Transport adapters detect approval requests in their event streams and extract:
 - Two events differing only in `permissionId` MUST collapse to the same escalation identity (coalesced in-place).
 
 ### 6.4 Session Buffer Visibility
-- Approval banner events MUST be pushed to the session event bus as visible stderr/stdout banners containing `FOOLERY APPROVAL REQUIRED`.
+- Approval banner events MUST be pushed to the session event bus as visible stderr/stdout banners containing `KERNL APPROVAL REQUIRED`.
 - Claude / Copilot approvals → stdout.
 - Codex / Gemini / OpenCode approvals → stderr.
 
@@ -207,7 +261,7 @@ Transport adapters detect approval requests in their event streams and extract:
 ## 7. Prompt System Architecture
 
 ### 7.1 Execution Boundary Wrappers
-Every execution prompt MUST be wrapped in a `FOOLERY EXECUTION BOUNDARY` block that:
+Every execution prompt MUST be wrapped in a `KERNL EXECUTION BOUNDARY` block that:
 - Restricts the agent to exactly one workflow action.
 - Names the allowed workflow exit state(s).
 - Contains a hard stop instruction after the authorized step (for `take` prompts).
@@ -250,7 +304,7 @@ Beat creation endpoint
 | Terminal | `shipped`, `abandoned` | false | `none` |
 | Deferred | `deferred` | false | `none` |
 
-**Invariant:** Semiauto human-owned review steps (`plan_review`) MUST have `requiresHumanAction=true` and `isAgentClaimable=false`.
+**Invariant:** Human-gated review steps (`plan_review`) MUST have `requiresHumanAction=true` and `isAgentClaimable=false`.
 
 ### 8.2 Valid Next States
 - MUST derive exclusively from loom `workflow.transitions`.
@@ -329,7 +383,7 @@ User triggers take on beat
   → resolveDispatchAgent(ctx, pool settings)
     → derivePoolKey(workflow, state) → settings.pools[poolKey]
     → selectFromPool(pool, agents, excludeAgentIds)
-    → [FAIL] DispatchFailureError("FOOLERY DISPATCH FAILURE")
+    → [FAIL] DispatchFailureError("KERNL DISPATCH FAILURE")
   → createSession entry (chan TerminalEvent, cap 5000)
   → create Knots lease (single-beat sessions only)
   → validateCwd → [FAIL] mark error, release lease, delay cleanup 5min
@@ -401,7 +455,7 @@ Agent stdout/stderr stream
       Gemini: session/request_permission → auto-reply allow_once
       OpenCode: permission.asked, permission.updated (BFS nested search)
     → Extracted fields: adapter, source, requestId, nativeSessionId, replyTarget
-    → Banner: formatApprovalRequestBanner (FOOLERY APPROVAL REQUIRED marker)
+    → Banner: formatApprovalRequestBanner (KERNL APPROVAL REQUIRED marker)
     → Push banner to session event bus (Claude/Copilot→stdout, others→stderr)
     → terminalApprovalSession.recordPendingApproval(entry, request)
     → approvalRegistry.registerApproval(dto)
@@ -519,7 +573,7 @@ internal/
     app.go               # App update route
     streams.go           # SSE session streaming
   config/
-    foolery.go           # YAML config loading
+    config.go            # YAML config loading
     agent_settings.go    # Agent pool settings
 ```
 
