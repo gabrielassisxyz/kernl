@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -57,7 +58,9 @@ func TestLoadDefaultsPort(t *testing.T) {
 	cfgPath := filepath.Join(dir, "kernl.yaml")
 	content := []byte(`
 settings:
-  agents: {}
+  agents:
+    stub:
+      command: stub
   pools: {}
 registry:
   repos: []
@@ -123,5 +126,27 @@ func TestLoadInvalidYAML(t *testing.T) {
 	_, err := Load(cfgPath)
 	if err == nil {
 		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadRejectsEmptyAgentsWithActionableError(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "kernl.yaml")
+	content := []byte(`settings:
+  agents: {}
+  pools: {}
+`)
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(cfgPath)
+	if err == nil {
+		t.Fatal("expected error for config with zero agents")
+	}
+	for _, want := range []string{"KERNL DISPATCH FAILURE", "settings.agents", "kernl.yaml.example"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q: %v", want, err)
+		}
 	}
 }

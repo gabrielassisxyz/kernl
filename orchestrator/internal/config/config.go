@@ -114,5 +114,9 @@ func Load(path string) (*Config, error) {
 		cfg.Orchestrator.RunStatePath = filepath.Join(home, ".kernl", "runstate.db")
 	}
 
+	if len(cfg.Settings.Agents) == 0 {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: %s defines zero agents under settings.agents — the orchestrator cannot dispatch. Fix: copy kernl.yaml.example and fill in at least one agent. Next: kernl doctor", path)
+	}
+
 	return &cfg, nil
 }
