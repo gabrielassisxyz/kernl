@@ -385,8 +385,9 @@ LOC estimado: ~200 (core + dry-run + subcomando + auto-tick) + ~150 (testes).
   - `implementation_review` → `awaiting_integration`
   - `ready_for_shipment` → `awaiting_integration`
   - `shipment` / `shipment_review` / `shipped` → `closed`
-  - `deferred` → `closed` (com reason "deferred") ou trata como `blocked` dependendo do contexto do teste
-  - `abandoned` → `closed` (com reason "abandoned")
+  - `deferred` → `closed` com `reason: "deferred"` (pausa intencional — preserva semantic legacy; **nunca** vira `blocked`, que tem significado diferente: "kernl precisa de intervenção pra prosseguir")
+  - `abandoned` → `closed` com `reason: "abandoned"` (decisão de não fazer)
+  - Se algum teste especificamente assert sobre a distinção foolery entre `deferred` e `closed`, o teste é **deletado** — o conceito sai do modelo. Runtime do kernl não gera `deferred` nem `abandoned` autonomamente; ambos só aparecem como reasons quando o **humano** roda `bd close <id> --reason=...` manualmente.
 
 **Specs:**
 - `orchestrator/specs/00-architecture.md` — limpa referência a `foolery.go` stale (linha 522), atualiza diagrama do workflow, remove menções a perfis.
