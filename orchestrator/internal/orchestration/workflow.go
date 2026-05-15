@@ -5,7 +5,27 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
+
+// legacyToWorkflowState maps legacy bead state names to workflow.IssueStatus
+// string values for backward compatibility during mechanical refactoring.
+// deferred and abandoned map to StatusClosed so wildcard transitions produce
+// a terminal state in the new model.
+var legacyToWorkflowState = map[string]string{
+	"ready_for_implementation": string(workflow.StatusOpen),
+	"implementation":           string(workflow.StatusInProgress),
+	"implementation_review":    string(workflow.StatusAwaitingIntegration),
+	"ready_for_shipment":       string(workflow.StatusAwaitingIntegration),
+	"shipment":                 string(workflow.StatusClosed),
+	"shipment_review":          string(workflow.StatusClosed),
+	"shipped":                  string(workflow.StatusClosed),
+	"closed":                   string(workflow.StatusClosed),
+	"done":                     string(workflow.StatusClosed),
+	"approved":                 string(workflow.StatusClosed),
+	"deferred":                 string(workflow.StatusClosed),
+	"abandoned":                string(workflow.StatusClosed),
+}
 
 type Step struct {
 	ID    string `json:"id"`
@@ -58,6 +78,10 @@ var statePipelineOrder = map[string]int{
 	"ready_for_shipment_review":      10,
 	"shipment_review":                11,
 	"shipped":                        12,
+	string(workflow.StatusOpen):                4,
+	string(workflow.StatusInProgress):          5,
+	string(workflow.StatusAwaitingIntegration): 7,
+	string(workflow.StatusClosed):              12,
 }
 
 var legacyRetakeStates = map[string]bool{
@@ -210,29 +234,29 @@ func firstActionState(wf *backend.WorkflowDescriptor) string {
 	}
 	if wf.States != nil {
 		for _, s := range wf.States {
-			if s == "implementation" {
-				return s
+			if s == string(workflow.StatusInProgress) || legacyToWorkflowState[s] == string(workflow.StatusInProgress) {
+				return string(workflow.StatusInProgress)
 			}
 		}
 	}
-	return "in_progress"
+	return string(workflow.StatusInProgress)
 }
 
 func terminalStateForClosed(wf *backend.WorkflowDescriptor) string {
 	for _, s := range wf.States {
-		if s == "shipped" {
-			return "shipped"
+		if s == string(workflow.StatusClosed) || legacyToWorkflowState[s] == string(workflow.StatusClosed) {
+			return string(workflow.StatusClosed)
 		}
 	}
 	for _, ts := range wf.TerminalStates {
-		if ts == "closed" {
-			return "closed"
+		if ts == string(workflow.StatusClosed) {
+			return string(workflow.StatusClosed)
 		}
 	}
 	if len(wf.TerminalStates) > 0 {
 		return wf.TerminalStates[0]
 	}
-	return "closed"
+	return string(workflow.StatusClosed)
 }
 
 func NormalizeStateForWorkflow(workflowState string, wf *backend.WorkflowDescriptor) string {
@@ -241,22 +265,29 @@ func NormalizeStateForWorkflow(workflowState string, wf *backend.WorkflowDescrip
 		return wf.InitialState
 	}
 
-	stateSet := make(map[string]bool, len(wf.States))
+	if mapped, ok := legacyToWorkflowState[normalized]; ok {
+		return mapped
+	}
+
+	stateSet := make(map[string]bool, len(wf.States)*2)
 	for _, s := range wf.States {
 		stateSet[s] = true
+		if mapped, ok := legacyToWorkflowState[s]; ok {
+			stateSet[mapped] = true
+		}
 	}
 	if stateSet[normalized] {
 		return normalized
 	}
 
 	if normalized == "impl" {
-		if stateSet["implementation"] {
-			return "implementation"
+		if stateSet[string(workflow.StatusInProgress)] {
+			return string(workflow.StatusInProgress)
 		}
 		return firstActionState(wf)
 	}
 
-	if normalized == "shipped" || normalized == "abandoned" {
+	if normalized == string(workflow.StatusClosed) {
 		return normalized
 	}
 
@@ -283,14 +314,6 @@ func NormalizeStateForWorkflow(workflowState string, wf *backend.WorkflowDescrip
 		return wf.InitialState
 	}
 
-	if normalized == "closed" || normalized == "done" || normalized == "approved" {
-		return terminalStateForClosed(wf)
-	}
-
-	if normalized == "deferred" {
-		return "deferred"
-	}
-
 	return wf.InitialState
 }
 
@@ -301,16 +324,13 @@ func WorkflowStatePhase(wf *backend.WorkflowDescriptor, state string) StepPhase 
 	}
 
 	for _, ts := range wf.TerminalStates {
-		if ts == normalized {
+		if ts == normalized || legacyToWorkflowState[ts] == normalized || legacyToWorkflowState[normalized] == ts {
 			return PhaseTerminal
 		}
 	}
-	if normalized == "deferred" {
-		return PhaseTerminal
-	}
 
 	for _, qs := range wf.QueueStates {
-		if qs == normalized {
+		if qs == normalized || legacyToWorkflowState[qs] == normalized || legacyToWorkflowState[normalized] == qs {
 			return PhaseQueued
 		}
 	}
@@ -318,16 +338,21 @@ func WorkflowStatePhase(wf *backend.WorkflowDescriptor, state string) StepPhase 
 		if _, ok := wf.QueueActions[normalized]; ok {
 			return PhaseQueued
 		}
+		if mapped, ok := legacyToWorkflowState[normalized]; ok {
+			if _, ok2 := wf.QueueActions[mapped]; ok2 {
+				return PhaseQueued
+			}
+		}
 	}
 
 	for _, as := range wf.ActionStates {
-		if as == normalized {
+		if as == normalized || legacyToWorkflowState[as] == normalized || legacyToWorkflowState[normalized] == as {
 			return PhaseActive
 		}
 	}
 	if wf.QueueActions != nil {
 		for _, a := range wf.QueueActions {
-			if a == normalized {
+			if a == normalized || legacyToWorkflowState[a] == normalized || legacyToWorkflowState[normalized] == a {
 				return PhaseActive
 			}
 		}
@@ -416,19 +441,20 @@ func IsQueueOrTerminalWorkflow(state string, wf *backend.WorkflowDescriptor) boo
 			return true
 		}
 	}
-	if state == "deferred" {
-		return true
-	}
 	phase := WorkflowStatePhase(wf, state)
 	return phase != PhaseActive
 }
 
 func IsQueueOrTerminal(state string) bool {
 	switch state {
-	case "ready_for_implementation", "ready_for_planning", "ready_for_review",
-		"ready_for_plan_review", "ready_for_implementation_review", "ready_for_shipment",
+	case "ready_for_planning", "ready_for_review",
+		"ready_for_plan_review", "ready_for_implementation_review",
 		"ready_for_shipment_review",
-		"shipped", "closed", "done", "abandoned", "deferred":
+		string(workflow.StatusOpen), "ready_for_implementation":
+		return true
+	case string(workflow.StatusAwaitingIntegration), "ready_for_shipment":
+		return true
+	case string(workflow.StatusClosed), "shipped", "done", "abandoned", "deferred":
 		return true
 	}
 	return false
@@ -722,7 +748,7 @@ func InferFinalCutState(states []string) string {
 }
 
 func InferRetakeState(states []string, initialState string) string {
-	preferred := []string{"ready_for_implementation", "retake", "retry", "rejected", "refining"}
+	preferred := []string{string(workflow.StatusOpen), "ready_for_implementation", "retake", "retry", "rejected", "refining"}
 	for _, candidate := range preferred {
 		for _, s := range states {
 			if s == candidate {
