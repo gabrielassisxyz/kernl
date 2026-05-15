@@ -107,12 +107,12 @@ type RepoMemoryManagerSyncResult struct {
 
 var registryFilePath = func() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "foolery", "registry.json")
+	return filepath.Join(home, ".config", "kernl", "registry.json")
 }
 
 var configDir = func() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "foolery")
+	return filepath.Join(home, ".config", "kernl")
 }
 
 func defaultMemoryManagerType(repoPath string) MemoryManagerType {
@@ -220,17 +220,17 @@ func LoadRegistry() (Registry, error) {
 func SaveRegistry(reg Registry) error {
 	dir := configDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("FOOLERY DISPATCH FAILURE: creating registry dir %s: %w", dir, err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: creating registry dir %s: %w", dir, err)
 	}
 
 	data, err := json.MarshalIndent(reg, "", "  ")
 	if err != nil {
-		return fmt.Errorf("FOOLERY DISPATCH FAILURE: marshaling registry: %w", err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: marshaling registry: %w", err)
 	}
 
 	path := registryFilePath()
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("FOOLERY DISPATCH FAILURE: writing registry %s: %w", path, err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: writing registry %s: %w", path, err)
 	}
 	return nil
 }

@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/orchestration"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/orchestration"
 )
 
 func makeTestWorkflow() *backend.WorkflowDescriptor {

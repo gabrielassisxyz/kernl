@@ -4,7 +4,7 @@ import "fmt"
 
 func MarkTerminal(beatID, state string) error {
 	if !isTerminalTarget(state) {
-		return fmt.Errorf("FOOLERY WORKFLOW CORRECTION FAILURE: state %q is not a valid terminal target for beat %s", state, beatID)
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: state %q is not a valid terminal target for beat %s", state, beatID)
 	}
 	return nil
 }

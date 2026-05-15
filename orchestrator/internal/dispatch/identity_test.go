@@ -707,8 +707,8 @@ func TestParseOpenCodeModelSelection_RejectsInvalid(t *testing.T) {
 	if !strings.Contains(err.Error(), "expected <providerID>/<modelID>") {
 		t.Errorf("error should mention expected format, got %q", err.Error())
 	}
-	if !strings.Contains(err.Error(), "FOOLERY DISPATCH FAILURE") {
-		t.Errorf("error should contain FOOLERY DISPATCH FAILURE marker, got %q", err.Error())
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error should contain KERNL DISPATCH FAILURE marker, got %q", err.Error())
 	}
 }
 

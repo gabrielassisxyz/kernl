@@ -5,7 +5,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 func makeAgents(names ...string) map[string]config.AgentConfig {
@@ -245,7 +245,7 @@ func TestDispatchFailureError_Message(t *testing.T) {
 	if msg == "" {
 		t.Fatal("error message should not be empty")
 	}
-	if !containsStr(msg, "FOOLERY DISPATCH FAILURE") {
+	if !containsStr(msg, "KERNL DISPATCH FAILURE") {
 		t.Errorf("expected marker in error message, got %q", msg)
 	}
 }

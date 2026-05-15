@@ -36,8 +36,8 @@ func TestKnotsBackend_DeleteReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error from knots Delete")
 	}
-	if !strings.Contains(err.Error(), "FOOLERY DISPATCH FAILURE") {
-		t.Errorf("expected FOOLERY DISPATCH FAILURE marker, got: %s", err.Error())
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("expected KERNL DISPATCH FAILURE marker, got: %s", err.Error())
 	}
 	if !strings.Contains(err.Error(), "does not support delete") {
 		t.Errorf("expected delete not supported message, got: %s", err.Error())

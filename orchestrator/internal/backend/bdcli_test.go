@@ -173,14 +173,14 @@ func TestCanRetryAfterTimeout(t *testing.T) {
 
 func TestShouldUseNoDBByDefault(t *testing.T) {
 	origBD := os.Getenv(bdNoDBEnv)
-	origRead := os.Getenv("FOOLERY_BD_READ_NO_DB")
+	origRead := os.Getenv("KERNL_BD_READ_NO_DB")
 	defer func() {
 		os.Setenv(bdNoDBEnv, origBD)
-		os.Setenv("FOOLERY_BD_READ_NO_DB", origRead)
+		os.Setenv("KERNL_BD_READ_NO_DB", origRead)
 	}()
 
 	os.Unsetenv(bdNoDBEnv)
-	os.Unsetenv("FOOLERY_BD_READ_NO_DB")
+	os.Unsetenv("KERNL_BD_READ_NO_DB")
 
 	if !shouldUseNoDBByDefault([]string{"list"}) {
 		t.Error("shouldUseNoDBByDefault(list) = false, want true for read command")
@@ -189,12 +189,12 @@ func TestShouldUseNoDBByDefault(t *testing.T) {
 		t.Error("shouldUseNoDBByDefault(create) = true, want false for write command")
 	}
 
-	os.Setenv("FOOLERY_BD_READ_NO_DB", "0")
+	os.Setenv("KERNL_BD_READ_NO_DB", "0")
 	if shouldUseNoDBByDefault([]string{"list"}) {
-		t.Error("shouldUseNoDBByDefault(list) with FOOLERY_BD_READ_NO_DB=0 should be false")
+		t.Error("shouldUseNoDBByDefault(list) with KERNL_BD_READ_NO_DB=0 should be false")
 	}
 
-	os.Unsetenv("FOOLERY_BD_READ_NO_DB")
+	os.Unsetenv("KERNL_BD_READ_NO_DB")
 	os.Setenv(bdNoDBEnv, "true")
 	if !shouldUseNoDBByDefault([]string{"create"}) {
 		t.Error("shouldUseNoDBByDefault(create) with BD_NO_DB=true should be true")
@@ -490,7 +490,7 @@ func TestBDPath(t *testing.T) {
 	b := &BdCliBackend{
 		repoPath: "/test/repo",
 		queues:   make(map[string]*repoQueue),
-		locksDir: filepath.Join(os.TempDir(), "foolery-bd-locks-test"),
+		locksDir: filepath.Join(os.TempDir(), "kernl-bd-locks-test"),
 		bdBin:    "custom-bd",
 	}
 	if b.bdBin != "custom-bd" {

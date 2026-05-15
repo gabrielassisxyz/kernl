@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/orchestration"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/orchestration"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 const MaxFollowUpsPerState = 5
@@ -157,7 +157,7 @@ func emitLeaseDeadBanner(ctx *TakeLoopContext, state string, health LeaseHealthR
 		Type:   "stderr",
 		BeatID: ctx.BeatID,
 		Content: fmt.Sprintf(
-			"\x1b[31mFOOLERY DISPATCH FAILURE: refusing follow-up for beat %s — lease %s is %s (reason: %s)\x1b[0m\n",
+			"\x1b[31mKERNL DISPATCH FAILURE: refusing follow-up for beat %s — lease %s is %s (reason: %s)\x1b[0m\n",
 			ctx.BeatID, ctx.Entry.KnotsLeaseID, health.LeaseState, health.Reason,
 		),
 	})

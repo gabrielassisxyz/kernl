@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 func TestCleanString(t *testing.T) {

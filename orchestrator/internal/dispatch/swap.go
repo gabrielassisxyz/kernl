@@ -3,7 +3,7 @@ package dispatch
 import (
 	"fmt"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 type SwapPoolResult struct {

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/adapter"
-	"github.com/gastownhall/foolery/internal/transport"
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
+	"github.com/gabrielassisxyz/kernl/internal/transport"
 )
 
 type TerminalEvent struct {

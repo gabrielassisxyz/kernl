@@ -430,7 +430,7 @@ func ResolveStepForWorkflow(state string, wf WorkflowDescriptor) (*ResolvedStep,
 			return &ResolvedStep{Step: state, Phase: StepPhaseQueued}, nil
 		}
 	}
-	return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: state %s not found in workflow", state)
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: state %s not found in workflow", state)
 }
 
 func DeriveWorkflowRuntimeState(wf WorkflowDescriptor, workflowState string) WorkflowRuntimeState {
@@ -499,9 +499,9 @@ func NextBeat(backend BackendPort, beatID string, expectedState string, repoPath
 	target, ok := ForwardTransitionTarget(beat.State, wf)
 	if !ok {
 		if isTerminalState(beat.State, wf) {
-			return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: state %q is terminal; no forward transition", beat.State)
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: state %q is terminal; no forward transition", beat.State)
 		}
-		return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: no forward transition from state %q", beat.State)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no forward transition from state %q", beat.State)
 	}
 
 	updateErr := backend.Update(beatID, UpdateBeatInput{State: target}, repoPath)
@@ -534,7 +534,7 @@ func ClaimBeat(backend BackendPort, beatID string, repoPath string) (*BeatTransi
 
 	target, ok := ForwardTransitionTarget(beat.State, wf)
 	if !ok {
-		return nil, fmt.Errorf("FOOLERY DISPATCH FAILURE: no forward transition from state %q for beat %s", beat.State, beatID)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no forward transition from state %q for beat %s", beat.State, beatID)
 	}
 
 	updateErr := backend.Update(beatID, UpdateBeatInput{State: target}, repoPath)

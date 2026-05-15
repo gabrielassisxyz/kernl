@@ -86,16 +86,16 @@ func TestBuildRetakeShippingIndex(t *testing.T) {
 func TestFindRunningTerminalForBeat(t *testing.T) {
 	t.Run("reuses only the running session from the same repo when beat ids collide", func(t *testing.T) {
 		terminals := []RetakeTerminal{
-			{SessionID: "session-a", BeatID: "foolery-6428", RepoPath: "/repos/a", Status: "running", StartedAt: "2026-03-17T09:00:00Z"},
-			{SessionID: "session-b", BeatID: "foolery-6428", RepoPath: "/repos/b", Status: "running", StartedAt: "2026-03-17T09:05:00Z"},
+			{SessionID: "session-a", BeatID: "kernl-6428", RepoPath: "/repos/a", Status: "running", StartedAt: "2026-03-17T09:00:00Z"},
+			{SessionID: "session-b", BeatID: "kernl-6428", RepoPath: "/repos/b", Status: "running", StartedAt: "2026-03-17T09:05:00Z"},
 		}
 
-		found := FindRunningTerminalForBeat(terminals, "foolery-6428", "/repos/b")
+		found := FindRunningTerminalForBeat(terminals, "kernl-6428", "/repos/b")
 		if found == nil || found.SessionID != "session-b" {
 			t.Errorf("expected session-b, got %v", found)
 		}
 
-		found = FindRunningTerminalForBeat(terminals, "foolery-6428", "/repos/a")
+		found = FindRunningTerminalForBeat(terminals, "kernl-6428", "/repos/a")
 		if found == nil || found.SessionID != "session-a" {
 			t.Errorf("expected session-a, got %v", found)
 		}

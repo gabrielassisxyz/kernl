@@ -32,5 +32,5 @@ func BuildApprovalLogicalKey(approval *ApprovalRequest) string {
 }
 
 func FormatApprovalRequestBanner(approval *ApprovalRequest) string {
-	return "FOOLERY APPROVAL REQUIRED tool=" + approval.ToolName + " beat=" + approval.BeatID
+	return "KERNL APPROVAL REQUIRED tool=" + approval.ToolName + " beat=" + approval.BeatID
 }

@@ -3,7 +3,7 @@ package dispatch
 import (
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 func TestSwapPoolAgent_ReplacesSingle(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 type BackendType string
@@ -281,7 +281,7 @@ func createConcreteBackend(bt BackendType, repoPath string) BackendEntry {
 		b := NewKnotsBackend(repoPath)
 		return BackendEntry{Port: b, Capabilities: b.Capabilities()}
 	default:
-		panic(fmt.Sprintf("FOOLERY DISPATCH FAILURE: unknown backend type: %s", bt))
+		panic(fmt.Sprintf("KERNL DISPATCH FAILURE: unknown backend type: %s", bt))
 	}
 }
 
@@ -294,12 +294,12 @@ type BackendDispatchError struct {
 
 func (e *BackendDispatchError) Error() string {
 	banner := fmt.Sprintf(
-		"FOOLERY DISPATCH FAILURE: %s %s — method=%s repoPath=%s",
+		"KERNL DISPATCH FAILURE: %s %s — method=%s repoPath=%s",
 		e.Kind, e.Reason, e.Method, e.RepoPath,
 	)
 	if e.RepoPath == "" {
 		banner = fmt.Sprintf(
-			"FOOLERY DISPATCH FAILURE: %s %s — method=%s repoPath=(empty)",
+			"KERNL DISPATCH FAILURE: %s %s — method=%s repoPath=(empty)",
 			e.Kind, e.Reason, e.Method,
 		)
 	}
@@ -318,7 +318,7 @@ func newBackendDispatchError(kind, repoPath, method, reason string) *BackendDisp
 func CreateBackend(bt BackendType, repoPath string) BackendEntry {
 	switch bt {
 	case BackendTypeAuto:
-		panic("FOOLERY DISPATCH FAILURE: CreateBackend with type 'auto' requires AutoRoutingBackend; use NewAutoRoutingBackend instead")
+		panic("KERNL DISPATCH FAILURE: CreateBackend with type 'auto' requires AutoRoutingBackend; use NewAutoRoutingBackend instead")
 	case BackendTypeCLI, BackendTypeBeads:
 		b := NewBdCliBackend(repoPath)
 		return BackendEntry{Port: b, Capabilities: b.Capabilities()}
@@ -326,7 +326,7 @@ func CreateBackend(bt BackendType, repoPath string) BackendEntry {
 		b := NewKnotsBackend(repoPath)
 		return BackendEntry{Port: b, Capabilities: b.Capabilities()}
 	default:
-		panic(fmt.Sprintf("FOOLERY DISPATCH FAILURE: unknown backend type: %s", bt))
+		panic(fmt.Sprintf("KERNL DISPATCH FAILURE: unknown backend type: %s", bt))
 	}
 }
 

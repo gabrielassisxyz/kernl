@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 type DispatchFailureError struct {
@@ -16,7 +16,7 @@ type DispatchFailureError struct {
 
 func (e *DispatchFailureError) Error() string {
 	return fmt.Sprintf(
-		"FOOLERY DISPATCH FAILURE: %s not found for pool key %q (beat %s); fix: %s",
+		"KERNL DISPATCH FAILURE: %s not found for pool key %q (beat %s); fix: %s",
 		e.Missing, e.PoolKey, e.BeatID, e.Fix,
 	)
 }

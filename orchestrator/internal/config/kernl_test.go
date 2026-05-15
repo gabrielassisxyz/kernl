@@ -8,7 +8,7 @@ import (
 
 func TestLoadValidConfig(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "foolery.yaml")
+	cfgPath := filepath.Join(dir, "kernl.yaml")
 	content := []byte(`
 settings:
   agents:
@@ -54,7 +54,7 @@ server:
 
 func TestLoadDefaultsPort(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "foolery.yaml")
+	cfgPath := filepath.Join(dir, "kernl.yaml")
 	content := []byte(`
 settings:
   agents: {}
@@ -80,7 +80,7 @@ registry:
 }
 
 func TestLoadMissingFile(t *testing.T) {
-	_, err := Load("/nonexistent/path/foolery.yaml")
+	_, err := Load("/nonexistent/path/kernl.yaml")
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -88,7 +88,7 @@ func TestLoadMissingFile(t *testing.T) {
 
 func TestLoadInvalidYAML(t *testing.T) {
 	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "foolery.yaml")
+	cfgPath := filepath.Join(dir, "kernl.yaml")
 	content := []byte(`{invalid yaml [[[[`)
 	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
 		t.Fatal(err)

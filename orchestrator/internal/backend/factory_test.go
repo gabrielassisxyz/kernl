@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 type stubBackend struct {
@@ -159,15 +159,15 @@ func TestAutoRoutingBackend_UnknownRepoType_ThrowsDispatchFailure(t *testing.T) 
 	}
 }
 
-func TestAutoRoutingBackend_ErrorContainsFOOLERYMarker(t *testing.T) {
+func TestAutoRoutingBackend_ErrorContainsKERNLMarker(t *testing.T) {
 	arb := NewAutoRoutingBackend(&config.Config{})
 	errTxt := ""
 	_, err := arb.Get("id", "")
 	if err != nil {
 		errTxt = err.Error()
 	}
-	if !containsStr(errTxt, "FOOLERY DISPATCH FAILURE") {
-		t.Errorf("expected error to contain FOOLERY DISPATCH FAILURE, got: %s", errTxt)
+	if !containsStr(errTxt, "KERNL DISPATCH FAILURE") {
+		t.Errorf("expected error to contain KERNL DISPATCH FAILURE, got: %s", errTxt)
 	}
 	if !containsStr(errTxt, "repo_path_missing") {
 		t.Errorf("expected error to contain repo_path_missing, got: %s", errTxt)
@@ -357,7 +357,7 @@ func TestAutoRoutingBackend_CacheExpiry(t *testing.T) {
 func TestBackendDispatchError_Message(t *testing.T) {
 	err := newBackendDispatchError("backend", "/my/repo", "create", "repo_type_unknown")
 	msg := err.Error()
-	if !containsStr(msg, "FOOLERY DISPATCH FAILURE") {
+	if !containsStr(msg, "KERNL DISPATCH FAILURE") {
 		t.Errorf("expected marker in message, got: %s", msg)
 	}
 	if !containsStr(msg, "repo_type_unknown") {

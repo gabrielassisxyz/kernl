@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/config"
-	"github.com/gastownhall/foolery/internal/orchestration"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/orchestration"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 type DispatchArgs struct {
@@ -202,7 +202,7 @@ func agentLabel(cfg *config.AgentConfig) string {
 }
 
 func emitDispatchFailure(ctx *TakeLoopDispatchContext, err *DispatchFailureError) {
-	banner := fmt.Sprintf("\x1b[31mFOOLERY DISPATCH FAILURE: %s (pool=%s beat=%s). Fix: %s\x1b[0m\n", err.Missing, err.PoolKey, err.BeatID, err.Fix)
+	banner := fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: %s (pool=%s beat=%s). Fix: %s\x1b[0m\n", err.Missing, err.PoolKey, err.BeatID, err.Fix)
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stderr",
 		BeatID:  ctx.BeatID,
@@ -213,7 +213,7 @@ func emitDispatchFailure(ctx *TakeLoopDispatchContext, err *DispatchFailureError
 }
 
 func emitDispatchFailureMsg(ctx *TakeLoopDispatchContext, poolKey, beatID, msg string) {
-	banner := fmt.Sprintf("\x1b[31mFOOLERY DISPATCH FAILURE: dispatch failed for pool=%s beat=%s: %s\x1b[0m\n", poolKey, beatID, msg)
+	banner := fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: dispatch failed for pool=%s beat=%s: %s\x1b[0m\n", poolKey, beatID, msg)
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stderr",
 		BeatID:  ctx.BeatID,

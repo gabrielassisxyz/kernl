@@ -28,7 +28,7 @@ var suppressiblePatterns = []string{
 	"permission denied",
 }
 
-const DegradedErrorMessage = "Unable to interact with beads store, try refreshing the page or restarting Foolery. If problems persist, investigate your beads install"
+const DegradedErrorMessage = "Unable to interact with beads store, try refreshing the page or restarting Kernl. If problems persist, investigate your beads install"
 
 func IsSuppressibleError(msg string) bool {
 	lower := strings.ToLower(msg)

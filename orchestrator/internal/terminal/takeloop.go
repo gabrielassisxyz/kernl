@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/gastownhall/foolery/internal/backend"
-	"github.com/gastownhall/foolery/internal/orchestration"
-	"github.com/gastownhall/foolery/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/orchestration"
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 type NextTakeResult struct {
@@ -537,7 +537,7 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 		ctx.PushEvent(session.TerminalEvent{
 			Type:   "stderr",
 			BeatID: ctx.BeatID,
-			Content: fmt.Sprintf("\x1b[31mFOOLERY DISPATCH FAILURE: cannot resolve queue state for \"%s\" — cannot rollback step failure\x1b[0m\n", current.State),
+			Content: fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: cannot resolve queue state for \"%s\" — cannot rollback step failure\x1b[0m\n", current.State),
 			Time:   time.Now().UnixMilli(),
 		})
 		return nil, fmt.Errorf("cannot resolve queue state for %s", current.State)

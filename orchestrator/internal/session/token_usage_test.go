@@ -4,7 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/gastownhall/foolery/internal/adapter"
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 )
 
 func TestExtractTokenUsageFromEvent_CodexTurnCompleted(t *testing.T) {

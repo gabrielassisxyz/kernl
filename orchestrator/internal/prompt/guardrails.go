@@ -7,7 +7,7 @@ type ExecutionBoundary struct {
 }
 
 func FormatBoundary(b ExecutionBoundary) string {
-	boundary := "FOOLERY EXECUTION BOUNDARY\n"
+	boundary := "KERNL EXECUTION BOUNDARY\n"
 	boundary += "Beat: " + b.BeatID + "\n"
 	boundary += "Step: " + b.StepName + "\n"
 	boundary += "Allowed exit states: "
