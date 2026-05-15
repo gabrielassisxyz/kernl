@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
 	"text/tabwriter"
 
+	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/epic"
 )
 
 func runEpic(configPath string, args []string) error {
@@ -22,10 +27,13 @@ func runEpic(configPath string, args []string) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
 	}
 
-	return runEpicWithApp(a, args)
+	return runEpicWithApp(a, args, nil)
 }
 
-func runEpicWithApp(a *app.App, args []string) error {
+func runEpicWithApp(a *app.App, args []string, out func(string)) error {
+	if out == nil {
+		out = func(s string) { fmt.Print(s) }
+	}
 	if len(args) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
 	}
@@ -33,6 +41,8 @@ func runEpicWithApp(a *app.App, args []string) error {
 	switch args[0] {
 	case "list":
 		return runEpicList(a, os.Stdout)
+	case "run":
+		return runEpicRun(a, args[1:], out)
 	default:
 		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown epic subcommand %q — try: kernl epic list", args[0])
 	}
@@ -61,4 +71,70 @@ func runEpicList(a *app.App, w io.Writer) error {
 	}
 
 	return tw.Flush()
+}
+
+func runEpicRun(a *app.App, args []string, out func(string)) error {
+	if len(args) == 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic run requires an epic ID — run: kernl epic run <epic-id>")
+	}
+	if len(a.Config.Registry.Repos) == 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
+	}
+	epicID := args[0]
+	repoPath := a.Config.Registry.Repos[0].Path
+
+	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
+	if err != nil {
+		return err
+	}
+
+	listener, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: starting HTTP listener: %w", err)
+	}
+	actualPort := listener.Addr().(*net.TCPAddr).Port
+
+	handler := api.NewRouter(a)
+	srv := &http.Server{Handler: handler}
+	go func() {
+		srv.Serve(listener)
+	}()
+	defer srv.Close()
+
+	out(fmt.Sprintf("GUI em http://localhost:%d\n", actualPort))
+
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot)
+
+	ex := epic.NewExecutor(epic.ExecutorDeps{
+		Epic: ep,
+		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
+			res, err := a.Driver.RunBead(ctx, app.RunBeadInput{
+				BeadID:   in.BeadID,
+				RepoPath: repoPath,
+				AgentID:  "opencode",
+			})
+			if err != nil {
+				return epic.RunResult{}, err
+			}
+			return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, nil
+		},
+		Worktree:      wm,
+		MaxConcurrent: a.Config.Orchestrator.MaxConcurrentBeads,
+		Emit: func(ev epic.EpicEvent) {
+			a.EpicEvents.Publish(ev)
+			if ev.Type == epic.BeadStateChanged {
+				out(fmt.Sprintf("bead %s → %s\n", ev.BeadID, ev.Detail))
+			}
+		},
+	})
+
+	if err := ex.Run(context.Background()); err != nil {
+		out(fmt.Sprintf("epic %s bloqueado — corrija e rode kernl epic run %s de novo para retomar\n", epicID, epicID))
+		return err
+	}
+
+	metric := ex.Parallelism()
+	out(fmt.Sprintf("epic %s concluído — paralelismo realizado: %.1fx (pico %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
+
+	return nil
 }
