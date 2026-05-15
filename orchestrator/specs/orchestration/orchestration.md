@@ -215,6 +215,37 @@
   [source: foolery/src/lib/__tests__/beat-hierarchy.test.ts:132]
 
 ### 4.3 Ready Ancestor Filtering
+
+```
+                    ┌──────────────────────────────┐
+                    │ For each beat in candidate set│
+                    └──────────────┬───────────────┘
+                                   │
+                                   ▼
+                          ┌─────────────────┐
+                          │ Has parent in   │────No───► KEEP (root beat)
+                          │ beat map?       │
+                          └────────┬────────┘
+                                   │ Yes
+                                   ▼
+                          ┌─────────────────┐
+                          │ Parent is in    │────No───► DROP (broken ancestor chain)
+                          │ visible set?    │
+                          └────────┬────────┘
+                                   │ Yes
+                                   ▼
+                          ┌─────────────────┐
+                          │ Walk full       │────No───► DROP (intermediate parent missing)
+                          │ ancestor chain  │
+                          │ all visible?    │
+                          └────────┬────────┘
+                                   │ Yes
+                                   ▼
+                              ┌─────────┐
+                              │  KEEP   │
+                              └─────────┘
+```
+
 - The system MUST keep descendants only when the full ancestor chain exists and is visible.
   [source: foolery/src/lib/__tests__/ready-ancestor-filter.test.ts:19]
 - The system MUST drop descendants when an intermediate parent is missing.
@@ -684,6 +715,138 @@ Detection → Queue → Worker → Job Runner → Prompt Builder → Agent → O
   [source: foolery/src/lib/__tests__/beats-parity-step.test.ts:35]
 - All states MUST map correctly through `resolveStep` and `deriveWorkflowRuntimeState`.
   [source: foolery/src/lib/__tests__/beats-parity-step.test.ts:52]
+
+---
+
+## 5. Epic Lifecycle & MergeManager
+
+### 5.1 Overview — 11-Step Epic Lifecycle
+
+The epic lifecycle governs how a multi-beat epic progresses from creation through worker execution, merge, PR, and final sweep. Each epic is tracked as a parent beat with child beats; the MergeManager watches for all children to reach `awaiting_integration` before triggering the merge pipeline.
+
+```
+1. Epic Creation     — Parent beat created with workflow=epic, children attached as dependencies.
+2. Branch Creation   — A git branch is created for the epic (naming: epic/<epic-id>).
+3. Worker Dispatch   — For each child beat in ready_for_implementation, a worker is spawned.
+4. Worker Execution  — Workers execute their assigned beat, transitioning through action states.
+5. Gate Review       — Workers' outputs enter plan_review / implementation_review as configured.
+6. Await Integration — Child beats transition to awaiting_integration after passing gates.
+7. Trigger Detection — MergeManager polls: all children in awaiting_integration? If yes, proceed.
+8. Single-Flight Lock — Acquire a per-epic_id mutex; reject concurrent merge attempts (D11=A).
+9. Merger            — Merge worker branches into the epic branch; resolve conflicts via configured strategy.
+10. Push             — Push the merged branch to the remote.
+11. PR + Sweep       — Create a pull request for the epic, then run sweep resilience (see §5.3).
+```
+
+**Invariants:**
+- An epic MUST have at least one child beat.
+- Trigger detection MUST NOT fire while any child is in an action state (including review states, unless explicit skip-gate is configured).
+- Single-flight lock MUST be keyed by `epic_id`; two concurrent MergeManager polls for the same epic MUST serialize.
+
+### 5.2 MergeManager Trigger Detection
+
+The MergeManager uses a single polling query to detect when all children of an epic are ready for integration:
+
+```
+bd list --parent=<epic-id> --status=awaiting_integration --json
+```
+
+**Algorithm (D14=A):**
+1. Run `bd list --parent=<epic-id> --status=awaiting_integration --json`.
+2. Count returned beats: `count_awaiting`.
+3. Fetch total child count for the epic (cached from epic creation): `total_children`.
+4. If `count_awaiting == total_children`, the epic is ready for merge.
+5. If `count_awaiting < total_children`, some children are still in progress. Re-poll after configured interval.
+6. If `count_awaiting == 0` and `total_children > 0`, log `KERNL DISPATCH FAILURE: no children in awaiting_integration for epic <epic-id> — possible state drift — Fix: check child beat states manually`.
+
+**Single-Flight Lock (D11=A):**
+- Before entering the merge step, the MergeManager MUST acquire a per-epic-id mutex.
+- If the lock cannot be acquired (another merge already in flight), the poll cycle MUST skip this epic and retry next cycle.
+- Lock MUST be released after step 10 (Push) succeeds or fails.
+- Lock acquisition timeout: 30s. If timeout expires, log `KERNL DISPATCH FAILURE: single-flight lock timeout for epic <epic-id> — possible deadlock in merge — Fix: investigate prior merge state, release lock manually if needed`.
+
+**Polling configuration:**
+- Default interval: 30s between polls for the same epic.
+- Jitter: ±5s random jitter added to prevent thundering herd across many epics.
+- Backoff: If poll returns zero `awaiting_integration` children consecutively 10+ times, double the interval (max 5 minutes).
+
+### 5.3 Sweep — Three-Layer Resilience
+
+After the PR is created (step 11), the Sweep subsystem ensures the epic workspace is cleaned up and no stale state lingers. It operates in three layers, each degrading independently:
+
+**Layer 1 — Cache MERGED Status:**
+- After successful merge+push, write a `MERGED` marker to the run-state cache (SQLite) keyed by `epic_id`.
+- On startup, the MergeManager checks for cached `MERGED` epics and skips re-polling them.
+- Cache TTL: 7 days. After TTL, the marker is stale and the epic is treated as not-yet-merged (safe re-poll).
+
+**Layer 2 — Circuit Breaker:**
+- Each epic has a failure counter. After 3 consecutive merge failures (any step from 8–11), the circuit opens.
+- Open circuit: MergeManager stops polling that epic entirely. Logs `KERNL DISPATCH FAILURE: circuit breaker open for epic <epic-id> after 3 merge failures — Fix: investigate merge failure root cause, reset circuit breaker manually`.
+- Half-open: After a cooldown period (5 minutes), the circuit moves to half-open and allows ONE retry. If it succeeds, the circuit closes. If it fails, it re-opens.
+- Circuit breaker state is stored in the run-state SQLite.
+
+**Layer 3 — Skip-on-Fail + PR Stale WARN:**
+- If any sweep operation fails (e.g., branch cleanup, label update), the sweep MUST NOT block the overall epic pipeline. Log the failure and continue.
+- After PR creation, if the PR remains unmerged for >48 hours, the sweep subsystem emits a `PR_STALE` warning event to the session buffer:
+  ```
+  KERNL DISPATCH FAILURE: PR for epic <epic-id> is stale (>48h unmerged) — PR URL: <url> — Fix: review and merge or close the PR
+  ```
+- Stale PR warnings repeat every 24 hours until merged, closed, or circuit-breaker opens.
+
+### 5.4 MergeManager State Transition Diagram
+
+```
+                    ┌──────────────┐
+                    │   IDLE       │
+                    └──────┬───────┘
+                           │ poll: all children awaiting_integration?
+                           ▼
+                    ┌──────────────┐
+                    │  DETECTED    │ count_awaiting == total_children
+                    └──────┬───────┘
+                           │ acquire single-flight lock
+                           ▼
+                    ┌──────────────┐
+                    │  LOCKED      │────(lock timeout)───► IDLE + WARN
+                    └──────┬───────┘
+                           │ lock acquired
+                           ▼
+                    ┌──────────────┐
+                    │  MERGING     │
+                    └──────┬───────┘
+                           │
+                    ┌──────┼──────┐
+                    │             │
+                    ▼             ▼
+             ┌──────────┐  ┌──────────────┐
+             │ PUSHING  │  │ MERGE_FAIL   │──(retry < 3)──► MERGING
+             └────┬─────┘  └──────┬───────┘
+                  │               │ (retry >= 3)
+                  ▼               ▼
+             ┌──────────┐  ┌──────────────┐
+             │ PR +     │  │ CIRCUIT_OPEN │──(cooldown)──► HALF_OPEN
+             │ SWEEP    │  └──────────────┘
+             └────┬─────┘
+                  │
+                  ▼
+             ┌──────────┐
+             │ MERGED   │ (cached, 7-day TTL)
+             └──────────┘
+```
+
+### 5.5 Sweep Cleanup Operations
+
+After merge+push+PR, the sweep phase performs these idempotent cleanup operations:
+
+| Operation | On Failure | Recovery |
+|-----------|-----------|----------|
+| Delete epic branch (local) | Skip, log warning | Manual branch cleanup |
+| Delete epic branch (remote) | Skip, log warning | Manual remote branch cleanup |
+| Tag epic beat as `shipped` | Skip, log warning | Manual `bd update` |
+| Tag child beats as `shipped` | Skip, log warning | Manual `bd update` |
+| Clear run-state cache entry | Skip, log warning | TTL auto-cleans |
+
+All sweep operations are fire-and-forget with independent error paths. No operation can block another.
 
 ---
 
