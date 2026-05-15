@@ -3,6 +3,9 @@ orchestrator/web/node_modules/
 __pycache__/
 .beads/*.db
 
+# Bootstrap swarm (throwaway tooling — not part of kernl)
+/scripts/swarm/
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
