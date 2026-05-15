@@ -1,16 +1,17 @@
 package retake
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
+)
 
 // RetakeTargetState is the canonical state used when reopening a bead for
 // regression investigation via ReTake.
-const RetakeTargetState = "ready_for_implementation"
+var RetakeTargetState = string(workflow.StatusOpen)
 
 var retakeSourceStates = map[string]bool{
-	"shipped":  true,
-	"closed":   true,
-	"done":     true,
-	"approved": true,
+	string(workflow.StatusClosed): true,
 }
 
 // IsRetakeSourceState returns true if the given state is a valid source for a
@@ -21,7 +22,19 @@ func IsRetakeSourceState(state string) bool {
 	if normalized == "" {
 		return false
 	}
+	if mapped, ok := legacyToWorkflow[normalized]; ok {
+		normalized = mapped
+	}
 	return retakeSourceStates[normalized]
+}
+
+// legacyToWorkflow maps legacy bead state names to workflow.IssueStatus string
+// values for backward compatibility.
+var legacyToWorkflow = map[string]string{
+	"shipped":   string(workflow.StatusClosed),
+	"closed":    string(workflow.StatusClosed),
+	"done":      string(workflow.StatusClosed),
+	"approved":  string(workflow.StatusClosed),
 }
 
 // RetakeTerminal is a minimal representation of a running terminal session

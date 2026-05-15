@@ -1,6 +1,10 @@
 package orchestration
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
+)
 
 func MarkTerminal(beadID, state string) error {
 	if !isTerminalTarget(state) {
@@ -11,7 +15,7 @@ func MarkTerminal(beadID, state string) error {
 
 func isTerminalTarget(state string) bool {
 	switch state {
-	case "shipped", "closed", "done", "abandoned":
+	case string(workflow.StatusClosed):
 		return true
 	default:
 		return false
