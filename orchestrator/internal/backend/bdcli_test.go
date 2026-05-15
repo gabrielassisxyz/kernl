@@ -109,7 +109,7 @@ func TestIsReadOnlyCommand(t *testing.T) {
 		args []string
 		want bool
 	}{
-		{[]string{"list", "--repo", "."}, true},
+		{[]string{"-C", ".", "list"}, true},
 		{[]string{"show", "1"}, true},
 		{[]string{"search", "test"}, true},
 		{[]string{"query", "type:task"}, true},
