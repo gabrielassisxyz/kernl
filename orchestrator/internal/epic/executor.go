@@ -86,17 +86,34 @@ func (ex *Executor) Run(ctx context.Context) error {
 				ex.mu.Unlock()
 				return nil
 			}
+			var msg string
 			if ex.failFast {
-				ex.mu.Unlock()
-				return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s blocked after bead failure — Fix: review failed beads and re-run", ex.deps.Epic.ID)
+				msg = fmt.Sprintf("epic %s blocked after bead failure", ex.deps.Epic.ID)
+			} else {
+				ex.state = EpicFailed
+				msg = fmt.Sprintf("deadlock in epic %s: %d/%d children done", ex.deps.Epic.ID, len(ex.done), len(ex.deps.Epic.Children))
 			}
-			ex.state = EpicFailed
 			ex.mu.Unlock()
-			return fmt.Errorf("KERNL DISPATCH FAILURE: deadlock in epic %s — ReadySet returned no beads but %d/%d children are done — Fix: check the DAG for missing dependencies or cycles", ex.deps.Epic.ID, len(ex.done), len(ex.deps.Epic.Children))
+			ex.emit(EpicEvent{
+				Type:   SessionError,
+				EpicID: ex.deps.Epic.ID,
+				Detail: msg,
+				Time:   time.Now().Unix(),
+			})
+			if ex.failFast {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s — Fix: review failed beads and re-run", msg)
+			}
+			return fmt.Errorf("KERNL DISPATCH FAILURE: %s — Fix: check the DAG for missing dependencies or cycles", msg)
 		}
 		ex.mu.Unlock()
 
 		if err := ex.processWave(ctx, ready); err != nil {
+			ex.emit(EpicEvent{
+				Type:   SessionError,
+				EpicID: ex.deps.Epic.ID,
+				Detail: err.Error(),
+				Time:   time.Now().Unix(),
+			})
 			return err
 		}
 	}
