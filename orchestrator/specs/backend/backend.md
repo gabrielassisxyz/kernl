@@ -170,6 +170,7 @@ exec() → execSerializedAttempt() → execOnce()
 - `createBeat`: returns parsed JSON `id` on success. If JSON parsing fails, it MUST fall back to using the raw stdout trimmed string as the ID. If stdout is empty and parsing fails, return an error. [source: `foolery/src/lib/__tests__/bd-write.test.ts:72`]
 - `deleteBeat`: MUST pass `--force`. [source: `foolery/src/lib/__tests__/bd-write.test.ts:134`]
 - `closeBeat`: MUST pass `--reason` when a reason is provided; MUST omit it otherwise. [source: `foolery/src/lib/__tests__/bd-write.test.ts:159`]
+- `updateBeat`: MUST accept only kernl-native `IssueStatus` values in `input.State` (`"open"`, `"in_progress"`, `"awaiting_integration"`, `"awaiting_pr_review"`, `"blocked"`, `"closed"`). MUST reject foolery-era legacy status strings with a descriptive error. See §4.12 for the full validation contract and legacy-to-kernl mapping. [source: `docs/plans/2026-05-15-kernl-workflow-plan.md:1342-1343`]
 
 ### 4.6 Error Suppression Cache Details
 - Cache key construction: `${fn_name}:${query}:${sorted_filters_JSON}:${repoPath}` — filters sorted alphabetically before serialization for deterministic keys. [source: `foolery/src/lib/bd-error-suppression.ts:50`]
@@ -204,6 +205,75 @@ exec() → execSerializedAttempt() → execOnce()
 ### 4.9 Filters
 - Filter values that are `null`, `undefined`, or empty strings MUST be omitted from CLI args. [source: `foolery/src/lib/__tests__/bd-cli-backend.test.ts:308`]
 - If all filters are empty, the function MUST pass `undefined` (no filters) to the CLI. [source: `foolery/src/lib/__tests__/bd-cli-backend.test.ts:315`]
+
+### 4.10 Custom Statuses
+
+The `BdCliBackend` MUST register kernl custom statuses with `bd` idempotently via `EnsureCustomStatuses(beadsDir string, r BdRunner) error`.
+
+#### 4.10.1 Contract
+
+- **Idempotent:** Calling twice with the same `beadsDir` is a no-op (in-memory cache hit).
+- **Cache + sentinel:** An in-memory `map[string]bool` keyed by absolute `beadsDir` path avoids repeated `bd` invocations. A sentinel file `.beads/.kernl-custom-statuses-installed` is written as an advisory marker, but the hot path is the in-memory cache.
+- **Merges foreign customs:** Reads current customs first via `BdRunner.GetCustomStatuses()`, appends only kernl customs that are missing, sorts the merged list, and writes the **union** back via `SetCustomStatuses`. Never overwrites foreign customs registered by other consumers.
+- **Registered customs:** `"awaiting_integration"` and `"awaiting_pr_review"` (from `workflow.KernlCustomStatuses`).
+- **Called on every backend op:** `NewBdCliBackend(repoPath)` calls `EnsureCustomStatuses(filepath.Join(repoPath, ".beads"), b)` once at backend creation. Returns `(*BdCliBackend, error)` — fails loud if registration fails. [source: `docs/plans/2026-05-15-kernl-workflow-plan.md:960-1058`]
+- **Test hook:** `ResetEnsureCache()` clears the in-memory cache for hermetic tests. [source: `docs/plans/2026-05-15-kernl-workflow-plan.md:1038-1043`]
+
+#### 4.10.2 `BdRunner` Interface
+
+```go
+type BdRunner interface {
+    GetCustomStatuses() ([]string, error)
+    SetCustomStatuses(list []string) error
+}
+```
+
+`BdCliBackend` implements `BdRunner` by delegating to `bd config get/set status.custom`. [source: `docs/plans/2026-05-15-kernl-workflow-plan.md:972-977,1317-1328`]
+
+### 4.11 Description-Field Contracts
+
+Stable metadata fields are stored as `"key: value"` lines in the bead's `description` text. Parsing/writing mirrors `gastown/internal/beads/integration.go:69-128`. [source: `docs/2026-05-15-kernl-workflow-brainstorm-spec.md §3.3, §4.5`]
+
+#### 4.11.1 Primitives
+
+| Function | Signature | Behavior |
+|---|---|---|
+| `GetMetadataField` | `(desc, key string) string` | Extracts first `key: value` line; case-insensitive key match; returns `""` if absent |
+| `AddMetadataField` | `(desc, key, value string) string` | Inserts or updates first occurrence; removes duplicate keys |
+
+#### 4.11.2 Stable Fields & Typed Accessors
+
+| Stable field | Bead type | Set when | Getter | Setter |
+|---|---|---|---|---|
+| `worktree_path` | child | Once at worktree spawn | `GetWorktreePath(d) string` | `SetWorktreePath(d, v) string` |
+| `worktree_branch` | child | Once at worktree spawn | `GetWorktreeBranch(d) string` | `SetWorktreeBranch(d, v) string` |
+| `epic_branch` | epic | Once at epic creation | `GetEpicBranch(d) string` | `SetEpicBranch(d, v) string` |
+| `pr_url` | epic | Once after `gh pr create` | `GetPRURL(d) string` | `SetPRURL(d, v) string` |
+| `merge_conflict_at` | epic | Once if merge detects conflict | `GetMergeConflictAt(d) string` | `SetMergeConflictAt(d, v) string` |
+| `merge_outcome` | epic | Once when merger finishes | `GetMergeOutcome(d) string` | `SetMergeOutcome(d, v) string` |
+
+`merge_outcome` enum values: `"success"`, `"merge_conflict"`, `"push_failed"`, `"pr_create_failed"`, `"pr_already_exists"`. [source: `docs/2026-05-15-kernl-workflow-brainstorm-spec.md §5.3`]
+
+**Design note:** `AgentState` (high-frequency runtime: heartbeat, follow_up_count, session_id) is NOT stored in description. It lives in `~/.kernl/state/<bead-id>.json` to avoid lost-update races between concurrent worker heartbeats and merger description writes. This is the one conscious divergence from the gastown model. [source: `docs/2026-05-15-kernl-workflow-brainstorm-spec.md §3.3`]
+
+### 4.12 Status Validation on Write
+
+`bdcli.Update(input.State)` MUST accept only kernl-native `IssueStatus` values:
+
+| Accepted | Rejected |
+|---|---|
+| `"open"`, `"in_progress"`, `"awaiting_integration"`, `"awaiting_pr_review"`, `"blocked"`, `"closed"` | `"ready_for_implementation"`, `"implementation"`, `"implementation_review"`, `"ready_for_shipment"`, `"shipment"`, `"shipment_review"`, `"shipped"`, `"deferred"`, `"abandoned"`, and any other foolery-era legacy string |
+
+Passing a legacy status string MUST return a descriptive error naming the invalid value and listing the accepted constants. [source: `docs/plans/2026-05-15-kernl-workflow-plan.md:1342-1343`, `docs/2026-05-15-kernl-workflow-brainstorm-spec.md §2`]
+
+Legacy-to-kernl mapping (for migration reference only — NOT performed automatically by the backend):
+
+| Legacy | Kernl native |
+|---|---|
+| `"ready_for_implementation"` | `"open"` |
+| `"implementation"` | `"in_progress"` |
+| `"implementation_review"`, `"ready_for_shipment"` | `"awaiting_integration"` |
+| `"shipment"`, `"shipment_review"`, `"shipped"` | `"closed"` |
 
 ---
 
