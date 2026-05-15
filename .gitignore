@@ -1,0 +1,4 @@
+orchestrator/web/node_modules/
+*.jsonl
+__pycache__/
+.beads/*.db
