@@ -140,7 +140,7 @@ func (h *Harness) BeadState(t *testing.T, beadID string) string {
 }
 
 func (h *Harness) IsAdvanced(state string) bool {
-	return state != "ready_for_implementation"
+	return state != "open"
 }
 
 func (h *Harness) IsTerminal(state string) bool {
