@@ -9,17 +9,19 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/merge"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 	"github.com/gabrielassisxyz/kernl/internal/terminal"
 )
 
 type App struct {
-	Backend    backend.BackendPort
-	Terminal   *terminal.TerminalManager
-	SCM        *session.SessionConnectionManager
-	Driver     *SessionDriver
-	Config     *config.Config
-	EpicEvents *epic.EpicEventHub
+	Backend      backend.BackendPort
+	Terminal     *terminal.TerminalManager
+	SCM          *session.SessionConnectionManager
+	Driver       *SessionDriver
+	Config       *config.Config
+	EpicEvents   *epic.EpicEventHub
+	MergeManager merge.TriggerRouter
 }
 
 func NewApp(cfg *config.Config) (*App, error) {
@@ -118,4 +120,46 @@ func (p *terminalSessionProvider) ListSessionIDs() []session.SessionInfo {
 
 func (p *terminalSessionProvider) PushEvent(id string, evt session.TerminalEvent) {
 	p.tm.PushEvent(id, evt)
+}
+
+func (a *App) EpicMerge(epicID string) error {
+	if len(a.Config.Registry.Repos) == 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
+	}
+	repoPath := a.Config.Registry.Repos[0].Path
+
+	bead, err := a.Backend.Get(epicID, repoPath)
+	if err != nil || bead == nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s — Fix: verify the bead ID exists", epicID, repoPath)
+	}
+	if bead.State != "blocked" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s is %q, expected blocked — Fix: resolve the merge conflict in the worktree first", epicID, bead.State)
+	}
+
+	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "in_progress"}, repoPath); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot re-open epic %s — %w — Fix: verify bd backend is reachable", epicID, err)
+	}
+
+	children, err := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, repoPath)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: listing children for epic %s — %w — Fix: verify bd backend is reachable", epicID, err)
+	}
+	for _, child := range children {
+		if child.State != "awaiting_integration" {
+			continue
+		}
+		a.Backend.Close(child.ID, "merge resolved", repoPath)
+	}
+
+	mg := a.MergeManager
+	if mg == nil {
+		mg = merge.NewManager()
+	}
+	mg.RouteOutcome(epicID)
+
+	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "awaiting_pr_review"}, repoPath); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to awaiting_pr_review — %w", epicID, err)
+	}
+
+	return nil
 }
