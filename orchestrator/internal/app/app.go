@@ -9,6 +9,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/merge"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 	"github.com/gabrielassisxyz/kernl/internal/terminal"
 )
@@ -18,6 +19,7 @@ type App struct {
 	Terminal   *terminal.TerminalManager
 	SCM        *session.SessionConnectionManager
 	Driver     *SessionDriver
+	Merger     merge.MergeDispatchPort
 	Config     *config.Config
 	EpicEvents *epic.EpicEventHub
 }
@@ -44,11 +46,14 @@ func NewApp(cfg *config.Config) (*App, error) {
 		SCM:     scm,
 	})
 
+	merger := merge.NewManager()
+
 	return &App{
 		Backend:    be,
 		Terminal:   tm,
 		SCM:        scm,
 		Driver:     driver,
+		Merger:     merger,
 		Config:     cfg,
 		EpicEvents: epic.NewEpicEventHub(),
 	}, nil
