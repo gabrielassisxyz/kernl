@@ -564,11 +564,10 @@ func TestSessionRuntime_OnTurnEndedCallback(t *testing.T) {
 	pw := &pipeWriter{}
 	r.SetStdin(pw)
 
-	var turnEndedReason string
-	var shouldClose bool
+	turnEndedCalled := make(chan string, 1)
 	r.SetOnTurnEnded(func(reason string) bool {
-		turnEndedReason = reason
-		return shouldClose
+		turnEndedCalled <- reason
+		return false
 	})
 
 	ctx := context.Background()
@@ -582,10 +581,14 @@ func TestSessionRuntime_OnTurnEndedCallback(t *testing.T) {
 	}()
 
 	r.Start(ctx, stdout, stderr)
-	time.Sleep(200 * time.Millisecond)
 
-	if turnEndedReason != "turn_ended" {
-		t.Errorf("expected onTurnEnded called with turn_ended, got %s", turnEndedReason)
+	select {
+	case reason := <-turnEndedCalled:
+		if reason != "turn_ended" {
+			t.Errorf("expected onTurnEnded called with turn_ended, got %s", reason)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("onTurnEnded was not called")
 	}
 }
 
