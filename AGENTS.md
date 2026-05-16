@@ -4,7 +4,8 @@
 > **Core Value:** The human touches only judgment gates; the rest is a dependency graph of beads executed in parallel without continuous supervision. Main metric: zero out-of-gate interventions per epic.
 
 ## 1. Stack & Commands
-- **Backend/CLI:** Go 1.26+, `bd` CLI (gastownhall/beads) ≥ 1.0.4, Dolt, SQLite (run-state), YAML config (`kernl.yaml`)
+- **Backend/CLI:** Go 1.26+, `bd` CLI (gastownhall/beads) ≥ 1.0.4 (required — earlier versions reject kernl status names), Dolt, SQLite (run-state), YAML config (`kernl.yaml`)
+- **Agent Runtime State:** `~/.kernl/state/<bead-id>.json` is the canonical per-bead runtime store (heartbeats, follow-up counts, watchdog state). Purgeable for reset — the orchestrator reconstructs it from bead metadata on restart.
 - **Frontend (future):** Vue 3 (Composition API) + Vite
 - **UI (future):** TUI via Bubble Tea (deferred)
 - **API:** REST JSON + SSE (not gRPC/WebSocket)

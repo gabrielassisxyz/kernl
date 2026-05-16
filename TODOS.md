@@ -48,7 +48,9 @@ Itens diferidos, capturados com contexto suficiente pra serem retomados meses de
 
 ---
 
-## Definir workflow próprio do kernl (substituir state machine herdada do foolery)
+## Definir workflow próprio do kernl (substituir state machine herdada do foolery) — COMPLETED
+
+> **COMPLETED:** The workflow migration PR shipped. Kernl now uses `bd`-native statuses (`open`, `in_progress`, `blocked`, `closed`) with kernl-specific workflow state stored in `metadata.kernl_workflow_state`. Historical context preserved below.
 
 - **What:** O kernl herdou de `acartine/foolery` (referência TS) uma state machine com ~10 estados próprios — `ready_for_implementation`, `implementation`, `implementation_review`, `review`, `shipment_review`, `shipped` — armazenados diretamente no campo `status` dos beads. Bd pré-1.0 aceitava qualquer string ali; **bd 1.0.4 valida `status` contra um set restrito** (`open`, `in_progress`, `blocked`, `closed`, etc.) e rejeita os legados. Precisa decidir o modelo do workflow do kernl daqui pra frente e refatorar 27 arquivos para alinhá-lo com o que o bd aceita.
 - **Why:** Sem isso, integration tests não rodam (Passo A, Passo B, resume tests), o magical moment do PLAN.md (`kernl epic run` end-to-end com workers paralelos contra bd real) não é validável, e toda chamada de write path (`bd update`, `bd close` com state custom) falha contra um bd 1.0+. O kernl está **code-complete mas não operacionalmente validado** contra o bd atual — esse é o gap que separa "tem código" de "MVP funciona".

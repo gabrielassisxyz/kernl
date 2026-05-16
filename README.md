@@ -11,6 +11,8 @@ Multi-agent orchestration where humans only touch judgment points — the rest i
 - **Go 1.26+** — the orchestrator backend
 - **[bd](https://github.com/gastownhall/beads) ≥ 1.0.4** — issue tracking CLI (storage backend)
 - **[opencode](https://github.com/anomalyco/opencode)** — agent CLI (or any Claude Code-compatible agent)
+- **[gh](https://cli.github.com/)** — GitHub CLI (used for sweeping/epic integration)
+- **git worktree** — required for parallel bead isolation (comes with Git 2.5+)
 
 ## Quickstart
 
