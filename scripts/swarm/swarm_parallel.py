@@ -31,6 +31,7 @@ AGENTS_MD        = KERNL_REPO / "AGENTS.md"
 
 MODEL_PRIMARY        = "litellm/deepseek-v4-pro-max"
 MODEL_ORCHESTRATOR   = "litellm/kimi-k2.6"
+MODEL_CLAUDE         = "claude-sonnet-4-6"
 ATTEMPTS_PER_MODEL   = 5
 PRE_MERGE_FIX_RETRIES = 2   # re-spawn worker with go-test output if exit-0 but tests fail
 RETRY_SLEEP_SECONDS  = 30
@@ -190,7 +191,7 @@ class WorkerResult:
         self.commit_sha: Optional[str] = None
         self.error: Optional[str] = None
 
-def run_worker(bead: Bead, dry_run: bool, tailer_lock: Optional[threading.Lock] = None) -> WorkerResult:
+def run_worker(bead: Bead, dry_run: bool, use_claude: bool = False, resume: bool = False, tailer_lock: Optional[threading.Lock] = None) -> WorkerResult:
     result = WorkerResult(bead)
     if dry_run:
         info(f"[DRY-RUN] would dispatch {bead.id} {bead.title!r}")
@@ -198,12 +199,16 @@ def run_worker(bead: Bead, dry_run: bool, tailer_lock: Optional[threading.Lock] 
         return result
 
     base = current_master_head()
-    create_worktree(bead, base)
+    if resume and bead.worktree.exists():
+        info(f"[{bead.id}] --resume: reusing existing worktree {bead.worktree}")
+    else:
+        create_worktree(bead, base)
     prompt = build_prompt(bead)
 
     bead_start = time.monotonic()
     session_id: Optional[str] = None
-    for stage, model in (("primary", MODEL_PRIMARY), ("fallback", MODEL_ORCHESTRATOR)):
+    primary = MODEL_CLAUDE if use_claude else MODEL_PRIMARY
+    for stage, model in (("primary", primary), ("fallback", MODEL_ORCHESTRATOR)):
         for attempt_num in range(1, ATTEMPTS_PER_MODEL + 1):
             elapsed = time.monotonic() - bead_start
             if elapsed >= PER_BEAD_TIMEOUT:
@@ -278,6 +283,7 @@ class Attempt:
         self.bead = bead
         self.model = model
         self.session_id = session_id
+        self._is_claude = model == MODEL_CLAUDE
         self.captured_session_id: Optional[str] = None
         self.stderr_buf: list[str] = []
         self.exit_code: Optional[int] = None
@@ -288,6 +294,14 @@ class Attempt:
         self._tailer: Optional[object] = None  # swarm_tail.Tailer if available
 
     def cmd(self, prompt: str) -> list[str]:
+        if self._is_claude:
+            c = ["claude", "-p",
+                 "--model", self.model,
+                 "--cwd", str(self.bead.worktree)]
+            if self.session_id:
+                c += ["--resume", self.session_id]
+            c += [prompt]
+            return c
         c = ["opencode", "run",
              "--format", "json",
              "--dir", str(self.bead.worktree),
@@ -304,15 +318,34 @@ class Attempt:
         env["OPENCODE_CONFIG"] = str(OPENCODE_CONFIG)
         env["GOFLAGS"] = "-count=1"
         cmd = self.cmd(prompt)
+        extra: dict = {"cwd": str(self.bead.worktree)} if self._is_claude else {}
         self.proc = subprocess.Popen(
             cmd, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1,
+            **extra,
         )
 
-        # --- stdout: NDJSON log + optional human-readable live render ---
+        # --- stdout: plain text for claude, NDJSON for opencode ---
         log_path = LOGS_DIR / f"{self.bead.id}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl"
-        if _tailer_mod is not None:
+        if self._is_claude:
+            txt_path = log_path.with_suffix(".claude.log")
+            sink = self.stdout_sink or sys.stdout
+            lock = self.tailer_lock
+            def _claude_drain():
+                assert self.proc is not None and self.proc.stdout is not None
+                with open(txt_path, "a", encoding="utf-8") as fh:
+                    for line in self.proc.stdout:
+                        fh.write(line); fh.flush()
+                        if lock:
+                            with lock:
+                                sink.write(line); sink.flush()
+                        else:
+                            sink.write(line); sink.flush()
+            t = threading.Thread(target=_claude_drain, daemon=True)
+            t.start()
+            self._tailer = t
+        elif _tailer_mod is not None:
             render_sink = self.stdout_sink
             if self.tailer_lock is not None:
                 class LockingSink:
@@ -771,7 +804,7 @@ Respond ONLY with:
 # ─── batch runner ────────────────────────────────────────────────
 import queue as _queue
 
-def run_batch(beads: list[Bead], dry_run: bool, num_workers: int) -> list[WorkerResult]:
+def run_batch(beads: list[Bead], dry_run: bool, num_workers: int, use_claude: bool = False, resume: bool = False) -> list[WorkerResult]:
     """Dispatch all beads in parallel up to num_workers, return results."""
     q: _queue.Queue[Bead] = _queue.Queue()
     for bead in beads:
@@ -787,7 +820,7 @@ def run_batch(beads: list[Bead], dry_run: bool, num_workers: int) -> list[Worker
             except _queue.Empty:
                 break
             info(f"[batch] worker {worker_idx + 1}/{num_workers} picked {bead.id}")
-            res = run_worker(bead, dry_run, tailer_lock=tailer_lock)
+            res = run_worker(bead, dry_run, use_claude=use_claude, resume=resume, tailer_lock=tailer_lock)
             with results_mu:
                 results.append(res)
             if res.success:
@@ -813,6 +846,8 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-beads", type=int, default=0, help="0 = unbounded")
     parser.add_argument("--workers", type=int, default=MAX_WORKERS, help=f"parallel workers (default {MAX_WORKERS})")
+    parser.add_argument("--claude", action="store_true", help=f"use Claude Code ({MODEL_CLAUDE}) instead of opencode")
+    parser.add_argument("--resume", action="store_true", help="skip worktree creation if it already exists (preserves in-progress work)")
     args = parser.parse_args()
 
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -821,7 +856,7 @@ def main() -> int:
     if not args.dry_run:
         ensure_on_master_clean()
 
-    info(f"kernl parallel swarm — workers={args.workers} max-beads={args.max_beads or 'unbounded'}")
+    info(f"kernl parallel swarm — workers={args.workers} max-beads={args.max_beads or 'unbounded'} claude={args.claude}")
     if args.dry_run: warn("DRY RUN")
 
     processed = 0
@@ -843,7 +878,7 @@ def main() -> int:
         info(f"━" * 72)
         info(f"round: {[b.id for b in batch]} ({len(batch)} beads, {args.workers} workers)")
 
-        results = run_batch(batch, args.dry_run, args.workers)
+        results = run_batch(batch, args.dry_run, args.workers, use_claude=args.claude, resume=args.resume)
 
         # merge orchestrator phase
         merged = merge_batch(results, args.dry_run)
