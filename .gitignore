@@ -11,3 +11,6 @@ __pycache__/
 *.db
 .beads-credential-key
 .vibe-chaos-to-concept/
+
+# bv (beads viewer) local config and caches
+.bv/
