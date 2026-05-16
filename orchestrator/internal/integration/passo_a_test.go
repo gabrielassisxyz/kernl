@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 func TestPassoA_SingleBeadRealOpencode(t *testing.T) {
@@ -25,7 +26,7 @@ func TestPassoA_SingleBeadRealOpencode(t *testing.T) {
 	}
 	_ = res
 	final := h.BeadState(t, beadID)
-	if !h.IsAdvanced(final) {
-		t.Errorf("bead did not advance past ready_for_implementation: state=%q", final)
+	if final != string(workflow.StatusAwaitingIntegration) {
+		t.Errorf("expected awaiting_integration after bead completion, got state=%q", final)
 	}
 }
