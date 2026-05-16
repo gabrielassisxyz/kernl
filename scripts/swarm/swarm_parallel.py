@@ -297,7 +297,8 @@ class Attempt:
         if self._is_claude:
             c = ["claude", "-p",
                  "--model", self.model,
-                 "--cwd", str(self.bead.worktree)]
+                 "--output-format", "stream-json",
+                 "--dangerously-skip-permissions"]
             if self.session_id:
                 c += ["--resume", self.session_id]
             c += [prompt]
@@ -337,11 +338,32 @@ class Attempt:
                 with open(txt_path, "a", encoding="utf-8") as fh:
                     for line in self.proc.stdout:
                         fh.write(line); fh.flush()
-                        if lock:
-                            with lock:
-                                sink.write(line); sink.flush()
-                        else:
-                            sink.write(line); sink.flush()
+                        # extract session_id from stream-json events
+                        if self.captured_session_id is None:
+                            s = line.strip()
+                            if s.startswith("{") and "session_id" in s:
+                                try:
+                                    ev = json.loads(s)
+                                    sid = ev.get("session_id")
+                                    if isinstance(sid, str):
+                                        self.captured_session_id = sid
+                                except json.JSONDecodeError:
+                                    pass
+                        # print assistant text lines to stdout
+                        try:
+                            ev = json.loads(line.strip())
+                            if ev.get("type") == "assistant":
+                                text = ev.get("message", {}).get("content", "")
+                                if isinstance(text, list):
+                                    text = "".join(b.get("text", "") for b in text if isinstance(b, dict))
+                                if text:
+                                    msg = f"[{self.bead.id}] {text.rstrip()}\n"
+                                    if lock:
+                                        with lock: sink.write(msg); sink.flush()
+                                    else:
+                                        sink.write(msg); sink.flush()
+                        except (json.JSONDecodeError, AttributeError):
+                            pass
             t = threading.Thread(target=_claude_drain, daemon=True)
             t.start()
             self._tailer = t
