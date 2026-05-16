@@ -43,6 +43,8 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 		return runEpicList(a, os.Stdout)
 	case "run":
 		return runEpicRun(a, args[1:], out)
+	case "merge":
+		return runEpicMerge(a, args[1:], out)
 	default:
 		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown epic subcommand %q — try: kernl epic list", args[0])
 	}
@@ -135,6 +137,32 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 
 	metric := ex.Parallelism()
 	out(fmt.Sprintf("epic %s concluído — paralelismo realizado: %.1fx (pico %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
+
+	return nil
+}
+
+func runEpicMerge(a *app.App, args []string, out func(string)) error {
+	if len(args) == 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic merge requires an epic ID — run: kernl epic merge <epic-id>")
+	}
+	epicID := args[0]
+
+	if err := a.EpicMerge(epicID); err != nil {
+		return err
+	}
+	repoPath := a.Config.Registry.Repos[0].Path
+
+	bead, _ := a.Backend.Get(epicID, repoPath)
+	state := "unknown"
+	if bead != nil {
+		state = bead.State
+	}
+	out(fmt.Sprintf("epic %s → %s\n", epicID, state))
+
+	children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, repoPath)
+	for _, child := range children {
+		out(fmt.Sprintf("child %s → %s\n", child.ID, child.State))
+	}
 
 	return nil
 }
