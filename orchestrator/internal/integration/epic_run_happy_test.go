@@ -306,7 +306,7 @@ func TestEpicRunHappyPath(t *testing.T) {
 		t.Fatalf("LoadEpic: %v", err)
 	}
 
-	wm := epic.NewWorktreeManager(t.TempDir())
+	wm := epic.NewWorktreeManager(t.TempDir(), repoPath, nil, nil)
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic:          ep,
 		RunBead:       runBead,
