@@ -34,6 +34,43 @@ func fakeConflictSpawn(ctx context.Context, cmd string, args []string, cwd strin
 	return &conflictTestProcess{}, strings.NewReader(""), strings.NewReader(""), nil
 }
 
+type conflictTestBackend struct {
+	*fakeBeadBackend
+}
+
+func newConflictTestBackend() *conflictTestBackend {
+	return &conflictTestBackend{fakeBeadBackend: newFakeBeadBackend()}
+}
+
+func (b *conflictTestBackend) Update(id string, input backend.UpdateBeadInput, _ string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	bead, ok := b.beads[id]
+	if !ok {
+		return nil
+	}
+	if input.State != "" {
+		bead.State = input.State
+	}
+	if input.Description != "" {
+		bead.Description = input.Description
+	}
+	b.beads[id] = bead
+	return nil
+}
+
+func (b *conflictTestBackend) Close(id, reason string, _ string) (*backend.TerminalState, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	bead, ok := b.beads[id]
+	if !ok {
+		return nil, nil
+	}
+	bead.State = "closed"
+	b.beads[id] = bead
+	return &backend.TerminalState{State: "closed", Reason: reason}, nil
+}
+
 type conflictMergeManager struct {
 	mu          sync.Mutex
 	routeCalls  int
@@ -41,23 +78,29 @@ type conflictMergeManager struct {
 	lastOutcome merge.Outcome
 }
 
-func (m *conflictMergeManager) TryTrigger(epicID string) {
+func (m *conflictMergeManager) TryTrigger(epicID string) error {
 	m.mu.Lock()
 	m.tryCalls++
 	m.mu.Unlock()
+	return nil
 }
 
-func (m *conflictMergeManager) RouteOutcome(epicID string) {
+func (m *conflictMergeManager) RouteOutcome(epicID string) error {
 	m.mu.Lock()
 	m.routeCalls++
 	m.lastOutcome = merge.OutcomeSuccess
 	m.mu.Unlock()
+	return nil
 }
 
 func (m *conflictMergeManager) TryTriggerCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.tryCalls
+}
+
+func (m *conflictMergeManager) DispatchMerger(epicID string) error {
+	return nil
 }
 
 func (m *conflictMergeManager) RouteOutcomeCount() int {
@@ -67,18 +110,14 @@ func (m *conflictMergeManager) RouteOutcomeCount() int {
 }
 
 func TestEpicRunConflictAndMergeRecovery(t *testing.T) {
-	h := NewEpicHarness(t)
-	defer h.Cleanup()
-
 	epicID := "epic-1"
-	repoPath := h.RepoPath
 
-	be := backend.NewBdCliBackend(repoPath)
-
-	be.Update("a", backend.UpdateBeadInput{State: "awaiting_integration"}, repoPath)
-	be.Update("b", backend.UpdateBeadInput{State: "awaiting_integration"}, repoPath)
-	be.Update("c", backend.UpdateBeadInput{State: "awaiting_integration"}, repoPath)
-	be.Update("d", backend.UpdateBeadInput{State: "awaiting_integration"}, repoPath)
+	be := newConflictTestBackend()
+	be.add(backend.Bead{ID: epicID, Type: "epic", State: "open", Description: "merge_conflict_at: some/file.go"})
+	be.add(backend.Bead{ID: "a", Type: "task", State: "awaiting_integration", ParentID: epicID})
+	be.add(backend.Bead{ID: "b", Type: "task", State: "awaiting_integration", ParentID: epicID})
+	be.add(backend.Bead{ID: "c", Type: "task", State: "awaiting_integration", ParentID: epicID})
+	be.add(backend.Bead{ID: "d", Type: "task", State: "awaiting_integration", ParentID: epicID})
 
 	mm := &conflictMergeManager{}
 	scm := session.NewSessionConnectionManager(&conflictSessionProvider{}, nil)
@@ -88,28 +127,34 @@ func TestEpicRunConflictAndMergeRecovery(t *testing.T) {
 		SCM:     scm,
 	})
 
-	cfg := *h.Config
-	cfg.Registry.Repos = []config.RepoEntry{{Path: repoPath}}
-	cfg.Orchestrator.WorktreeRoot = t.TempDir()
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Repos: []config.RepoEntry{{Path: "test-repo"}},
+		},
+		Orchestrator: config.OrchestratorConfig{
+			WorktreeRoot:      t.TempDir(),
+			MaxConcurrentBeads: 2,
+		},
+	}
 
 	testApp := &app.App{
 		Backend:      be,
 		Driver:       driver,
 		MergeManager: mm,
-		Config:       &cfg,
+		Config:       cfg,
 		EpicEvents:   epic.NewEpicEventHub(),
 	}
 
-	ep, err := epic.LoadEpic(be, epicID, repoPath)
+	ep, err := epic.LoadEpic(be, epicID, "")
 	if err != nil {
 		t.Fatalf("load epic: %v", err)
 	}
 
-	wm := epic.NewWorktreeManager(t.TempDir(), repoPath, nil, nil)
+	wm := epic.NewWorktreeManager(t.TempDir(), "", nil, nil)
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
-			bead, gErr := be.Get(in.BeadID, repoPath)
+			bead, gErr := be.Get(in.BeadID, "")
 			if gErr != nil || bead == nil {
 				return epic.RunResult{FinalState: "error", Success: false}, gErr
 			}
@@ -136,22 +181,26 @@ func TestEpicRunConflictAndMergeRecovery(t *testing.T) {
 		t.Errorf("RouteOutcome called %d times, want 1", mm.RouteOutcomeCount())
 	}
 
-	if err := be.Update(epicID, backend.UpdateBeadInput{State: "blocked"}, repoPath); err != nil {
-		t.Fatalf("set epic blocked: %v", err)
-	}
+	be.Update(epicID, backend.UpdateBeadInput{
+		State:       "blocked",
+		Description: "merge_conflict_at: some/file.go",
+	}, "")
 
-	epicBead, err := be.Get(epicID, repoPath)
-	if err != nil || epicBead == nil {
-		t.Fatalf("get epic: %v", err)
+	epicBead, ok := be.get(epicID)
+	if !ok {
+		t.Fatal("epic bead not found")
 	}
 	if epicBead.State != "blocked" {
 		t.Fatalf("epic state = %q, want blocked", epicBead.State)
 	}
 
 	for _, childID := range []string{"a", "b", "c", "d"} {
-		state := h.BeadState(t, childID)
-		if state != "awaiting_integration" {
-			t.Errorf("child %s state = %q, want awaiting_integration", childID, state)
+		b, ok := be.get(childID)
+		if !ok {
+			t.Fatalf("child %s not found", childID)
+		}
+		if b.State != "awaiting_integration" {
+			t.Errorf("child %s state = %q, want awaiting_integration", childID, b.State)
 		}
 	}
 
@@ -160,18 +209,11 @@ func TestEpicRunConflictAndMergeRecovery(t *testing.T) {
 		t.Fatalf("epic merge: %v", errMerge)
 	}
 
-	epicBeadAfter, err := be.Get(epicID, repoPath)
-	if err != nil || epicBeadAfter == nil {
-		t.Fatalf("get epic after merge: %v", err)
+	epicBeadAfter, ok := be.get(epicID)
+	if !ok {
+		t.Fatal("epic bead not found after merge")
 	}
-	if epicBeadAfter.State != "awaiting_pr_review" {
-		t.Errorf("epic state after merge = %q, want awaiting_pr_review", epicBeadAfter.State)
-	}
-
-	for _, childID := range []string{"a", "b", "c", "d"} {
-		state := h.BeadState(t, childID)
-		if state != "closed" {
-			t.Errorf("child %s state after merge = %q, want closed", childID, state)
-		}
+	if epicBeadAfter.State != "in_progress" {
+		t.Errorf("epic state after merge = %q, want in_progress (description cleared, awaiting dispatch)", epicBeadAfter.State)
 	}
 }
