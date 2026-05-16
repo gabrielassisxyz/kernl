@@ -105,7 +105,7 @@ func TestEpicRunConflictAndMergeRecovery(t *testing.T) {
 		t.Fatalf("load epic: %v", err)
 	}
 
-	wm := epic.NewWorktreeManager(t.TempDir())
+	wm := epic.NewWorktreeManager(t.TempDir(), repoPath, nil, nil)
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {

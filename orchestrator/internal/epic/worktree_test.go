@@ -1,0 +1,246 @@
+package epic
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+type fakeGitRunner struct {
+	calls  [][]string
+	branch map[string]bool
+}
+
+func newFakeGitRunner() *fakeGitRunner {
+	return &fakeGitRunner{branch: make(map[string]bool)}
+}
+
+func (f *fakeGitRunner) run(dir string, args ...string) (string, error) {
+	f.calls = append(f.calls, args)
+	switch args[0] {
+	case "branch":
+		if args[1] == "--list" {
+			if f.branch[args[2]] {
+				return args[2] + "\n", nil
+			}
+			return "", nil
+		}
+		if len(args) >= 3 && args[0] == "branch" {
+			f.branch[args[1]] = true
+		}
+		return "", nil
+	case "worktree":
+		return "", nil
+	}
+	return "", nil
+}
+
+type fakeDescUpdater struct {
+	updates map[string]string
+}
+
+func (f *fakeDescUpdater) update(beadID string, fn func(oldDesc string) string) error {
+	if f.updates == nil {
+		f.updates = make(map[string]string)
+	}
+	f.updates[beadID] = fn(f.updates[beadID])
+	return nil
+}
+
+func (f *fakeDescUpdater) lastDesc(beadID string) string {
+	return f.updates[beadID]
+}
+
+func TestEnsureEpicBranchCreatesWhenAbsent(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fd := &fakeDescUpdater{}
+	wm := NewWorktreeManager(root, root, fr.run, fd.update)
+
+	branch, err := wm.EnsureEpicBranch("e1")
+	if err != nil {
+		t.Fatalf("EnsureEpicBranch: %v", err)
+	}
+	if branch != "feat/e1" {
+		t.Errorf("branch = %q, want feat/e1", branch)
+	}
+	foundList := false
+	foundCreate := false
+	for _, call := range fr.calls {
+		c := call
+		if c[0] == "branch" && c[1] == "--list" && c[2] == "feat/e1" {
+			foundList = true
+		}
+		if c[0] == "branch" && c[1] == "feat/e1" && c[2] == "master" {
+			foundCreate = true
+		}
+	}
+	if !foundList {
+		t.Error("never listed feat/e1")
+	}
+	if !foundCreate {
+		t.Error("never created feat/e1 from master — it should have been absent on first list call")
+	}
+}
+
+func TestEnsureEpicBranchIsIdempotent(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fd := &fakeDescUpdater{}
+	wm := NewWorktreeManager(root, root, fr.run, fd.update)
+
+	_, err := wm.EnsureEpicBranch("e1")
+	if err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	fr.calls = nil
+	_, err = wm.EnsureEpicBranch("e1")
+	if err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	for _, call := range fr.calls {
+		if call[0] == "branch" && call[1] == "feat/e1" && call[2] == "master" {
+			t.Error("second call should not recreate feat/e1 — branch already exists in fake")
+		}
+	}
+}
+
+func TestEnsureEpicBranchStoresInDescription(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fd := &fakeDescUpdater{}
+	wm := NewWorktreeManager(root, root, fr.run, fd.update)
+
+	_, err := wm.EnsureEpicBranch("e1")
+	if err != nil {
+		t.Fatalf("EnsureEpicBranch: %v", err)
+	}
+	desc := fd.lastDesc("e1")
+	if !strings.Contains(desc, "epic_branch: feat/e1") {
+		t.Errorf("description missing epic_branch, got: %q", desc)
+	}
+}
+
+func TestAddBasesWorktreeOnEpicBranchWhenPresent(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fr.branch["feat/e1"] = true
+	wm := NewWorktreeManager(root, root, fr.run, nil)
+
+	_, err := wm.Add("e1", "child-a")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var addArgs []string
+	for _, call := range fr.calls {
+		if call[0] == "worktree" && call[1] == "add" {
+			addArgs = call
+			break
+		}
+	}
+	if addArgs == nil {
+		t.Fatal("git worktree add was never called")
+	}
+	foundBase := false
+	for _, a := range addArgs {
+		if a == "feat/e1" {
+			foundBase = true
+		}
+	}
+	if !foundBase {
+		t.Errorf("worktree add not based on feat/e1: %v", addArgs)
+	}
+}
+
+func TestAddBasesWorktreeOnMasterWhenEpicBranchAbsent(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	wm := NewWorktreeManager(root, root, fr.run, nil)
+
+	_, err := wm.Add("e1", "child-b")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var addArgs []string
+	for _, call := range fr.calls {
+		if call[0] == "worktree" && call[1] == "add" {
+			addArgs = call
+			break
+		}
+	}
+	if addArgs == nil {
+		t.Fatal("git worktree add was never called")
+	}
+	foundMaster := false
+	for _, a := range addArgs {
+		if a == "master" {
+			foundMaster = true
+		}
+	}
+	if !foundMaster {
+		t.Errorf("worktree add not based on master when epic branch absent: %v", addArgs)
+	}
+}
+
+func TestAddFallsBackToMkdirWhenNoGitRun(t *testing.T) {
+	wm := NewWorktreeManager(t.TempDir(), "", nil, nil)
+	path, err := wm.Add("epic-1", "kb-3")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if path == "" {
+		t.Error("path should not be empty")
+	}
+}
+
+func TestAddRejectsExistingPath(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "e1", "dup")
+	if err := os.MkdirAll(existing, 0755); err != nil {
+		t.Fatal(err)
+	}
+	fr := newFakeGitRunner()
+	wm := NewWorktreeManager(root, root, fr.run, nil)
+
+	_, err := wm.Add("e1", "dup")
+	if err == nil {
+		t.Fatal("expected error when path already exists")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error should contain KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+}
+
+func TestAddCreatesBranchWithKernlPrefix(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	wm := NewWorktreeManager(root, root, fr.run, nil)
+
+	_, err := wm.Add("e1", "child-c")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	var addArgs []string
+	for _, call := range fr.calls {
+		if call[0] == "worktree" && call[1] == "add" {
+			addArgs = call
+			break
+		}
+	}
+	if addArgs == nil {
+		t.Fatal("git worktree add was never called")
+	}
+	foundKernlPrefix := false
+	for _, a := range addArgs {
+		if a == "kernl/child-c" {
+			foundKernlPrefix = true
+		}
+	}
+	if !foundKernlPrefix {
+		t.Errorf("branch name should be kernl/child-c, got: %v", addArgs)
+	}
+}

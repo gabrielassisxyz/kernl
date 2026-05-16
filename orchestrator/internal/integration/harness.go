@@ -214,7 +214,7 @@ func (h *Harness) RunEpic(t *testing.T, epicID string) *epic.Executor {
 		t.Fatalf("RunEpic: load epic %s: %v", epicID, err)
 	}
 
-	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot)
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, h.RepoPath, nil, nil)
 
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,

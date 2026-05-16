@@ -105,7 +105,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 
 	out(fmt.Sprintf("GUI em http://localhost:%d\n", actualPort))
 
-	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot)
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, nil, nil)
 
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
