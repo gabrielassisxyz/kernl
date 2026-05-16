@@ -858,6 +858,8 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--max-beads", type=int, default=0, help="0 = unbounded")
     parser.add_argument("--workers", type=int, default=MAX_WORKERS, help=f"parallel workers (default {MAX_WORKERS})")
+    parser.add_argument("--bead-id", type=str, default="", help="run a specific bead ID instead of auto-picking")
+    parser.add_argument("--bead-sequence", type=str, default="", help="comma-separated ordered list of bead IDs to run sequentially (e.g. 'kernl-62r,kernl-1rh,kernl-t4e')")
     parser.add_argument("--claude", action="store_true", help=f"use Claude Code ({MODEL_CLAUDE}) instead of opencode")
     parser.add_argument("--resume", action="store_true", help="skip worktree creation if it already exists (preserves in-progress work)")
     args = parser.parse_args()
@@ -868,7 +870,72 @@ def main() -> int:
     if not args.dry_run:
         ensure_on_master_clean()
 
+    # build explicit sequence if requested
+    if args.bead_sequence:
+        bead_ids = [b.strip() for b in args.bead_sequence.split(",") if b.strip()]
+        if not bead_ids:
+            err("--bead-sequence provided but empty")
+            return 2
+
+        info(f"kernl bead sequence — order: {bead_ids}")
+        if args.dry_run: warn("DRY RUN")
+
+        summary = {"success": [], "failed": [], "merged": []}
+
+        for bid in bead_ids:
+            info(f"━" * 72)
+            info(f"sequence step: {bid}")
+
+            bead = _show_bead(bid)
+            if bead is None:
+                err(f"KERNL DISPATCH FAILURE: bead {bid} not found in tracker")
+                summary["failed"].append(bid)
+                break
+
+            if bead.issue_type == "epic":
+                err(f"KERNL DISPATCH FAILURE: bead {bid} is an epic — swarms skip epics")
+                summary["failed"].append(bid)
+                break
+
+            # verify bead is open or in_progress (ready for work — reopened beads may be in_progress)
+            r = _bd("show", bid, "--json")
+            if r.returncode == 0:
+                data = json.loads(r.stdout)
+                if isinstance(data, list): data = data[0]
+                status = data.get("status", "")
+                if status not in ("open", "in_progress"):
+                    warn(f"[{bid}] status={status} (expected open or in_progress); skipping")
+                    continue
+
+            # dispatch single bead
+            results = run_batch([bead], args.dry_run, args.workers, use_claude=args.claude, resume=args.resume)
+
+            merged = merge_batch(results, args.dry_run)
+            for res in merged:
+                if not args.dry_run:
+                    close_bead(res.bead.id, f"Merged by parallel swarm ({res.commit_sha[:8]})")
+                    remove_worktree(res.bead)
+                summary["merged"].append(res.bead.id)
+                summary["success"].append(res.bead.id)
+
+            merged_ids = {res.bead.id for res in merged}
+            for res in results:
+                if res.bead.id not in merged_ids:
+                    summary["failed"].append(res.bead.id)
+
+            # stop on failure in non-dry-run
+            if summary["failed"] and not args.dry_run:
+                warn("stopping sequence after failure")
+                break
+
+        info(f"━" * 72)
+        info("SEQUENCE RUN COMPLETE")
+        ok(f"  succeeded+merged: {len(summary['success'])}  {summary['success']}")
+        if summary["failed"]:  err(f"  failed:  {summary['failed']}")
+        return 0 if not summary["failed"] else 1
+
     info(f"kernl parallel swarm — workers={args.workers} max-beads={args.max_beads or 'unbounded'} claude={args.claude}")
+    if args.dry_run: warn("DRY RUN")
     if args.dry_run: warn("DRY RUN")
 
     processed = 0
@@ -884,9 +951,8 @@ def main() -> int:
             info("no more ready beads — done")
             break
 
-        # Use ALL ready beads — not just args.workers.
-        # Workers pick from the queue internally.
-        batch = beads
+        # Respect --max-beads per round (N=1 → sequential single-bead mode)
+        batch = beads[:args.max_beads] if args.max_beads > 0 else beads
         info(f"━" * 72)
         info(f"round: {[b.id for b in batch]} ({len(batch)} beads, {args.workers} workers)")
 
