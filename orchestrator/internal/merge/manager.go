@@ -21,6 +21,7 @@ type Dispatcher interface {
 type TriggerRouter interface {
 	TryTrigger(epicID string) error
 	RouteOutcome(epicID string) error
+	DispatchMerger(epicID string) error
 }
 
 type Manager struct {
@@ -62,6 +63,10 @@ func (m *Manager) TryTrigger(epicID string) error {
 		return err
 	}
 	return nil
+}
+
+func (m *Manager) DispatchMerger(epicID string) error {
+	return m.d.DispatchMerger(epicID)
 }
 
 func (m *Manager) RouteOutcome(epicID string) error {

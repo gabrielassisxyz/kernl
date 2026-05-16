@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/merge"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 	"github.com/gabrielassisxyz/kernl/internal/terminal"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 type App struct {
@@ -132,12 +133,28 @@ func (a *App) EpicMerge(epicID string) error {
 	if err != nil || bead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s — Fix: verify the bead ID exists", epicID, repoPath)
 	}
-	if bead.State != "blocked" {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s is %q, expected blocked — Fix: resolve the merge conflict in the worktree first", epicID, bead.State)
+
+	if bead.State == "in_progress" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s already in_progress — Fix: the merge dispatch is already in flight, wait for the merger agent to complete", epicID)
 	}
 
-	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "in_progress"}, repoPath); err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot re-open epic %s — %w — Fix: verify bd backend is reachable", epicID, err)
+	if bead.State != "blocked" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s is %q, expected blocked — Fix: the epic must be blocked due to a merge issue before manual re-dispatch", epicID, bead.State)
+	}
+
+	hasConflictAt := workflow.GetMergeConflictAt(bead.Description) != ""
+	outcomeStr := workflow.GetMergeOutcome(bead.Description)
+
+	hasRecoverableOutcome := false
+	if outcomeStr != "" {
+		o, err := merge.ParseOutcome(outcomeStr)
+		if err == nil && (o == merge.OutcomePushFailed || o == merge.OutcomePRCreateFailed) {
+			hasRecoverableOutcome = true
+		}
+	}
+
+	if !hasConflictAt && !hasRecoverableOutcome {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s has no recovery signal — neither merge_conflict_at nor a recoverable merge_outcome (push_failed, pr_create_failed) found in description — Fix: the epic must have a merge conflict or failed merge outcome before re-dispatch", epicID)
 	}
 
 	children, err := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, repoPath)
@@ -145,23 +162,25 @@ func (a *App) EpicMerge(epicID string) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: listing children for epic %s — %w — Fix: verify bd backend is reachable", epicID, err)
 	}
 	for _, child := range children {
-		if child.State != "awaiting_integration" {
-			continue
+		if child.State != "awaiting_integration" && child.State != "closed" {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: child %s is %q, must be awaiting_integration or closed — Fix: ensure all children have completed their work before re-dispatching the merge", child.ID, child.State)
 		}
-		a.Backend.Close(child.ID, "merge resolved", repoPath)
 	}
 
-	mg := a.MergeManager
-	if mg == nil {
-		if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "awaiting_pr_review"}, repoPath); err != nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to awaiting_pr_review — %w", epicID, err)
-		}
-		return nil
-	}
-	_ = mg.RouteOutcome(epicID)
+	desc := workflow.RemoveMergeConflictAt(bead.Description)
+	desc = workflow.RemoveMergeOutcome(desc)
 
-	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "awaiting_pr_review"}, repoPath); err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to awaiting_pr_review — %w", epicID, err)
+	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{
+		State:       "in_progress",
+		Description: desc,
+	}, repoPath); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot re-open epic %s — %w — Fix: verify bd backend is reachable", epicID, err)
+	}
+
+	if a.MergeManager != nil {
+		if err := a.MergeManager.DispatchMerger(epicID); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: dispatching merger for epic %s — %w", epicID, err)
+		}
 	}
 
 	return nil

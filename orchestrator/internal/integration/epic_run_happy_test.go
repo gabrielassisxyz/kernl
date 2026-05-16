@@ -261,6 +261,8 @@ func (e *epicRunMerge) TryTrigger(string) error {
 	return nil
 }
 
+func (e *epicRunMerge) DispatchMerger(string) error { return nil }
+
 func (e *epicRunMerge) RouteOutcome(string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

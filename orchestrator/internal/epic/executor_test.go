@@ -154,6 +154,8 @@ func (f *fakeMergeManager) RouteOutcome(string) error {
 	return nil
 }
 
+func (f *fakeMergeManager) DispatchMerger(string) error { return nil }
+
 func (f *fakeMergeManager) TryTriggerCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
