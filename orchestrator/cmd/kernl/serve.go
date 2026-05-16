@@ -14,10 +14,34 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/logging"
 	"github.com/gabrielassisxyz/kernl/internal/preflight"
+	"github.com/gabrielassisxyz/kernl/internal/sweep"
 )
+
+type sweepRunner interface {
+	Tick() error
+}
+
+var sweeperFactory = defaultSweeperFactory
+
+func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
+	if len(cfg.Registry.Repos) == 0 {
+		return nil, nil
+	}
+	repoPath := cfg.Registry.Repos[0].Path
+	b := backend.NewBdCliBackend(repoPath)
+	adapter := &sweepBackendAdapter{b: b, dir: repoPath}
+	ghAdapter := &ghCliAdapter{}
+	sweepCfg := sweep.Config{
+		PRStaleWarnDays:  cfg.Sweep.PRStaleWarnDays,
+		FailureThreshold: cfg.Sweep.FailureThreshold,
+		BackoffMinutes:   cfg.Sweep.BackoffMinutes,
+	}
+	return sweep.New(adapter, ghAdapter, sweepCfg), nil
+}
 
 func runServe(configPath string) error {
 	logLevel := os.Getenv("KERNL_LOG_LEVEL")
@@ -60,6 +84,9 @@ func runServe(configPath string) error {
 		IdleTimeout:  120 * time.Second,
 	}
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	go func() {
 		fmt.Printf("kernl serving — API http://localhost:%s\n", port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -68,21 +95,41 @@ func runServe(configPath string) error {
 		}
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	if cfg.Sweep.AutoIntervalSeconds > 0 {
+		sw, err := sweeperFactory(cfg)
+		if err != nil {
+			slog.Warn("sweep auto-tick disabled", "error", err)
+		} else if sw != nil {
+			go startAutoTick(ctx, sw, time.Duration(cfg.Sweep.AutoIntervalSeconds)*time.Second)
+		}
+	}
+
+	<-ctx.Done()
 
 	slog.Info("shutting down")
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "error", err)
 		os.Exit(1)
 	}
 
 	fmt.Println("kernl stopped")
 	return nil
+}
+
+func startAutoTick(ctx context.Context, sw sweepRunner, interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			_ = sw.Tick()
+		}
+	}
 }
 
 func hardCheckFailed(r *preflight.Report) bool {
