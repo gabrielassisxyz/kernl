@@ -13,18 +13,7 @@ type TriggerRouter interface {
 	RouteOutcome(epicID string)
 }
 
-// MergeDispatchPort is the boundary used by the epic merge subcommand to
-// manually re-dispatch a merger agent for a blocked epic.
-type MergeDispatchPort interface {
-	TriggerRouter
-
-	// DispatchMerger manually dispatches a merger agent for the given epic,
-	// skipping the normal trigger check since the caller already verified
-	// that conditions are met.
-	DispatchMerger(epicID string) error
-}
-
-// Manager implements TriggerRouter and MergeDispatchPort.
+// Manager implements TriggerRouter.
 // Concrete merge orchestration (single-flight mutex, bd polling, merger
 // agent spawning, PR creation, etc.) is added in later beads.
 type Manager struct{}
@@ -39,6 +28,3 @@ func (m *Manager) TryTrigger(epicID string) {}
 
 // RouteOutcome is a no-op until merger orchestration is wired.
 func (m *Manager) RouteOutcome(epicID string) {}
-
-// DispatchMerger is a no-op until merger orchestration is wired.
-func (m *Manager) DispatchMerger(epicID string) error { return nil }
