@@ -6,11 +6,12 @@ import (
 )
 
 var (
-	doctorFn func(configPath string) error           = runDoctor
-	serveFn  func(configPath string) error           = runServe
-	epicFn   func(configPath string, args []string) error = runEpic
-	beadFn   func(configPath string, args []string) error = runBead
-	helpFn   func() error                           = printHelp
+	doctorFn func(configPath string) error                 = runDoctor
+	serveFn  func(configPath string) error                 = runServe
+	epicFn   func(configPath string, args []string) error  = runEpic
+	beadFn   func(configPath string, args []string) error  = runBead
+	sweepFn  func(configPath string, args []string) error  = runSweep
+	helpFn   func() error                                  = printHelp
 )
 
 func main() {
@@ -53,6 +54,8 @@ func Dispatch(args []string) error {
 		return epicFn(configPath, args[1:])
 	case "bead":
 		return beadFn(configPath, args[1:])
+	case "sweep":
+		return sweepFn(configPath, args[1:])
 	case "--help", "-h", "help":
 		return helpFn()
 	default:
@@ -71,6 +74,7 @@ Subcommands:
   doctor       Run system checks (env, binaries, config)
   epic         Manage epics (bead graphs)
   bead         Manage individual beads
+  sweep        Close epics whose PRs are merged in master
 
 Flags:
   --config, -c Path to kernl.yaml (default: kernl.yaml)
