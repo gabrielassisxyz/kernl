@@ -254,20 +254,21 @@ func newEpicRunMerge(b *fakeBeadBackend, epicID, prURL, repoPath string, childCo
 	}
 }
 
-func (e *epicRunMerge) TryTrigger(string) {
+func (e *epicRunMerge) TryTrigger(string) error {
 	e.mu.Lock()
 	e.done++
 	e.mu.Unlock()
+	return nil
 }
 
-func (e *epicRunMerge) RouteOutcome(string) {
+func (e *epicRunMerge) RouteOutcome(string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.merged {
-		return
+		return nil
 	}
 	e.merged = true
-	_ = e.b.Update(e.id, backend.UpdateBeadInput{
+	return e.b.Update(e.id, backend.UpdateBeadInput{
 		State:       "awaiting_pr_review",
 		Description: fmt.Sprintf("merge_outcome: success\npr_url: %s", e.prURL),
 	}, e.path)

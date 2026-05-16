@@ -75,7 +75,7 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		})
 
 		if !epicBlocked && r.result.FinalState == "awaiting_integration" && ex.deps.MergeManager != nil {
-			ex.deps.MergeManager.TryTrigger(ex.deps.Epic.ID)
+			_ = ex.deps.MergeManager.TryTrigger(ex.deps.Epic.ID)
 		}
 	}
 

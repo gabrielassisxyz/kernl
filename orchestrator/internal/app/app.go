@@ -153,9 +153,12 @@ func (a *App) EpicMerge(epicID string) error {
 
 	mg := a.MergeManager
 	if mg == nil {
-		mg = merge.NewManager()
+		if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "awaiting_pr_review"}, repoPath); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to awaiting_pr_review — %w", epicID, err)
+		}
+		return nil
 	}
-	mg.RouteOutcome(epicID)
+	_ = mg.RouteOutcome(epicID)
 
 	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "awaiting_pr_review"}, repoPath); err != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to awaiting_pr_review — %w", epicID, err)
