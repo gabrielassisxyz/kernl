@@ -140,16 +140,18 @@ type fakeMergeManager struct {
 	routeOutcomeCalls int
 }
 
-func (f *fakeMergeManager) TryTrigger(string) {
+func (f *fakeMergeManager) TryTrigger(string) error {
 	f.mu.Lock()
 	f.tryTriggerCalls++
 	f.mu.Unlock()
+	return nil
 }
 
-func (f *fakeMergeManager) RouteOutcome(string) {
+func (f *fakeMergeManager) RouteOutcome(string) error {
 	f.mu.Lock()
 	f.routeOutcomeCalls++
 	f.mu.Unlock()
+	return nil
 }
 
 func (f *fakeMergeManager) TryTriggerCount() int {
