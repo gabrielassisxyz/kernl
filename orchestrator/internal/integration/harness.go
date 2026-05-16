@@ -117,7 +117,7 @@ func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 	if out, err := gitAdd.CombinedOutput(); err != nil {
 		t.Fatalf("git add failed: %v\n%s", err, out)
 	}
-	gitCommit := exec.Command("git", "-C", repoDir, "commit", "-m", "fixture")
+	gitCommit := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "fixture")
 	if out, err := gitCommit.CombinedOutput(); err != nil {
 		t.Fatalf("git commit failed: %v\n%s", err, out)
 	}
