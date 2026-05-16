@@ -133,3 +133,115 @@ func TestExecutorRunsIndependentChildrenConcurrently(t *testing.T) {
 		t.Errorf("b and c should run concurrently, peak = %d", peak)
 	}
 }
+
+type fakeMergeManager struct {
+	mu                sync.Mutex
+	tryTriggerCalls   int
+	routeOutcomeCalls int
+}
+
+func (f *fakeMergeManager) TryTrigger(string) {
+	f.mu.Lock()
+	f.tryTriggerCalls++
+	f.mu.Unlock()
+}
+
+func (f *fakeMergeManager) RouteOutcome(string) {
+	f.mu.Lock()
+	f.routeOutcomeCalls++
+	f.mu.Unlock()
+}
+
+func (f *fakeMergeManager) TryTriggerCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tryTriggerCalls
+}
+
+func (f *fakeMergeManager) RouteOutcomeCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.routeOutcomeCalls
+}
+
+func TestExecutorCallsTryTriggerOnLastAwaitingIntegration(t *testing.T) {
+	ep := wideEpic(t, 3)
+	mm := &fakeMergeManager{}
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		return RunResult{FinalState: "awaiting_integration", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic: ep, RunBead: runBead, Worktree: fakeWT(),
+		MaxConcurrent: 5, MergeManager: mm,
+	})
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if mm.TryTriggerCount() != 3 {
+		t.Errorf("TryTrigger called %d times, want 3", mm.TryTriggerCount())
+	}
+	if mm.RouteOutcomeCount() != 1 {
+		t.Errorf("RouteOutcome called %d times, want 1", mm.RouteOutcomeCount())
+	}
+}
+
+func TestExecutorCallsTryTriggerOnEarlierTransitions(t *testing.T) {
+	ep := diamondEpic(t)
+	mm := &fakeMergeManager{}
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		return RunResult{FinalState: "awaiting_integration", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic: ep, RunBead: runBead, Worktree: fakeWT(),
+		MaxConcurrent: 5, MergeManager: mm,
+	})
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if mm.TryTriggerCount() != 4 {
+		t.Errorf("TryTrigger called %d times, want 4", mm.TryTriggerCount())
+	}
+	if mm.RouteOutcomeCount() != 1 {
+		t.Errorf("RouteOutcome called %d times, want 1", mm.RouteOutcomeCount())
+	}
+}
+
+func TestExecutorSkipsTryTriggerWhenBlocked(t *testing.T) {
+	ep := wideEpic(t, 1)
+	mm := &fakeMergeManager{}
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		return RunResult{FinalState: "blocked", Success: false}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic: ep, RunBead: runBead, Worktree: fakeWT(),
+		MaxConcurrent: 5, MergeManager: mm,
+	})
+	_ = ex.Run(context.Background())
+	if mm.TryTriggerCount() != 0 {
+		t.Errorf("TryTrigger called %d times, want 0 when blocked", mm.TryTriggerCount())
+	}
+	if mm.RouteOutcomeCount() != 0 {
+		t.Errorf("RouteOutcome called %d times, want 0 when blocked", mm.RouteOutcomeCount())
+	}
+}
+
+func TestExecutorRouteOutcomeInvokedOnceOnCompletion(t *testing.T) {
+	ep := wideEpic(t, 2)
+	mm := &fakeMergeManager{}
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic: ep, RunBead: runBead, Worktree: fakeWT(),
+		MaxConcurrent: 5, MergeManager: mm,
+	})
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if mm.RouteOutcomeCount() != 1 {
+		t.Errorf("RouteOutcome called %d times, want 1", mm.RouteOutcomeCount())
+	}
+	if mm.TryTriggerCount() != 0 {
+		t.Errorf("TryTrigger called %d times, want 0 (final state was %q)", mm.TryTriggerCount(), "done")
+	}
+}
