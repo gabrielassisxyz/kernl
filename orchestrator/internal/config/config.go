@@ -70,11 +70,19 @@ type OrchestratorConfig struct {
 	RunStatePath       string `yaml:"runStatePath,omitempty"`
 }
 
+type SweepConfig struct {
+	AutoIntervalSeconds int    `yaml:"auto_interval_seconds"`
+	PRStaleWarnDays     int    `yaml:"pr_stale_warn_days"`
+	FailureThreshold    int    `yaml:"failure_threshold"`
+	BackoffMinutes      []int  `yaml:"backoff_minutes"`
+}
+
 type Config struct {
 	Settings     Settings           `yaml:"settings"`
 	Registry     RegistryConfig     `yaml:"registry"`
 	Server       ServerConfig       `yaml:"server"`
 	Orchestrator OrchestratorConfig `yaml:"orchestrator"`
+	Sweep        SweepConfig        `yaml:"sweep"`
 }
 
 func Load(path string) (*Config, error) {
@@ -112,6 +120,19 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for run-state path default: %w", err)
 		}
 		cfg.Orchestrator.RunStatePath = filepath.Join(home, ".kernl", "runstate.db")
+	}
+
+	if cfg.Sweep.AutoIntervalSeconds == 0 {
+		cfg.Sweep.AutoIntervalSeconds = 60
+	}
+	if cfg.Sweep.PRStaleWarnDays == 0 {
+		cfg.Sweep.PRStaleWarnDays = 7
+	}
+	if cfg.Sweep.FailureThreshold == 0 {
+		cfg.Sweep.FailureThreshold = 3
+	}
+	if len(cfg.Sweep.BackoffMinutes) == 0 {
+		cfg.Sweep.BackoffMinutes = []int{5, 15, 60}
 	}
 
 	if len(cfg.Settings.Agents) == 0 {
