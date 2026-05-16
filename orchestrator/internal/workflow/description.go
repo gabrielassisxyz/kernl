@@ -69,3 +69,22 @@ func GetMergeConflictAt(d string) string    { return GetMetadataField(d, "merge_
 func SetMergeConflictAt(d, v string) string { return AddMetadataField(d, "merge_conflict_at", v) }
 func GetMergeOutcome(d string) string       { return GetMetadataField(d, "merge_outcome") }
 func SetMergeOutcome(d, v string) string    { return AddMetadataField(d, "merge_outcome", v) }
+
+func RemoveMetadataField(desc, key string) string {
+	desc = stripBOM(desc)
+	keyLower := strings.ToLower(key)
+	var b strings.Builder
+	wrote := false
+	for _, line := range strings.Split(desc, "\n") {
+		m := metadataLineRE.FindStringSubmatch(line)
+		if m != nil && strings.ToLower(m[1]) == keyLower {
+			continue
+		}
+		if wrote {
+			b.WriteString("\n")
+		}
+		b.WriteString(line)
+		wrote = true
+	}
+	return b.String()
+}
