@@ -297,7 +297,7 @@ class Attempt:
         if self._is_claude:
             c = ["claude", "-p",
                  "--model", self.model,
-                 "--output-format", "stream-json",
+                 "--output-format", "json",
                  "--dangerously-skip-permissions"]
             if self.session_id:
                 c += ["--resume", self.session_id]
@@ -335,35 +335,25 @@ class Attempt:
             lock = self.tailer_lock
             def _claude_drain():
                 assert self.proc is not None and self.proc.stdout is not None
+                raw = self.proc.stdout.read()
                 with open(txt_path, "a", encoding="utf-8") as fh:
-                    for line in self.proc.stdout:
-                        fh.write(line); fh.flush()
-                        # extract session_id from stream-json events
-                        if self.captured_session_id is None:
-                            s = line.strip()
-                            if s.startswith("{") and "session_id" in s:
-                                try:
-                                    ev = json.loads(s)
-                                    sid = ev.get("session_id")
-                                    if isinstance(sid, str):
-                                        self.captured_session_id = sid
-                                except json.JSONDecodeError:
-                                    pass
-                        # print assistant text lines to stdout
-                        try:
-                            ev = json.loads(line.strip())
-                            if ev.get("type") == "assistant":
-                                text = ev.get("message", {}).get("content", "")
-                                if isinstance(text, list):
-                                    text = "".join(b.get("text", "") for b in text if isinstance(b, dict))
-                                if text:
-                                    msg = f"[{self.bead.id}] {text.rstrip()}\n"
-                                    if lock:
-                                        with lock: sink.write(msg); sink.flush()
-                                    else:
-                                        sink.write(msg); sink.flush()
-                        except (json.JSONDecodeError, AttributeError):
-                            pass
+                    fh.write(raw)
+                # parse single JSON result
+                try:
+                    result = json.loads(raw.strip())
+                    sid = result.get("session_id")
+                    if isinstance(sid, str):
+                        self.captured_session_id = sid
+                    # print final result text
+                    text = result.get("result") or result.get("content") or ""
+                    if text:
+                        msg = f"[{self.bead.id}] {str(text)[:200]}\n"
+                        if lock:
+                            with lock: sink.write(msg); sink.flush()
+                        else:
+                            sink.write(msg); sink.flush()
+                except (json.JSONDecodeError, AttributeError):
+                    pass
             t = threading.Thread(target=_claude_drain, daemon=True)
             t.start()
             self._tailer = t
