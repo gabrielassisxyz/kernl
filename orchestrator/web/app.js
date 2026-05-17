@@ -126,6 +126,10 @@
       }
       if (newState) beads[bid].state = newState;
       if (title)    beads[bid].title = title;
+      // Track the wall-clock of the most recent change so the card can
+      // show "10s ago" / "2m ago" — helps tell stalled stages from
+      // actively-progressing ones.
+      beads[bid].__updated = new Date().toLocaleTimeString();
     }
 
     var sid = pick(evt, 'sessionID', 'SessionID', 'sessionId');
@@ -159,24 +163,53 @@
     renderErrors();
   }
 
+  // Render order for category sections — top of list = most urgent to watch.
+  var CATEGORY_ORDER = ['active', 'review', 'gate', 'queued', 'blocked', 'done', 'unknown'];
+  var CATEGORY_LABEL = {
+    active:  'Active (agent working)',
+    review:  'Under review',
+    gate:    'Human / merger gate',
+    queued:  'Queued',
+    blocked: 'Blocked',
+    done:    'Done',
+    unknown: 'Unknown state'
+  };
+
   function renderBeads() {
     var ids = Object.keys(beads);
     if (!ids.length) {
       el.beadList.innerHTML = '<div class="empty">no beads</div>';
       return;
     }
-    var html = '';
+
+    // Bucket by category so reading the panel scales past 3 beads.
+    var groups = {};
     ids.sort().forEach(function (id) {
-      var b = beads[id];
+      var b     = beads[id];
       var state = pick(b, 'state', 'State') || 'unknown';
-      var title = pick(b, 'title', 'Title');
       var cat   = classifyState(state);
+      (groups[cat] = groups[cat] || []).push({ id: id, state: state, title: pick(b, 'title', 'Title'), updated: b.__updated });
+    });
+
+    var html = '';
+    CATEGORY_ORDER.forEach(function (cat) {
+      var bucket = groups[cat];
+      if (!bucket || !bucket.length) return;
       var style = CATEGORY_STYLE[cat] || CATEGORY_STYLE.unknown;
-      html += '<div class="bead-card" style="border-left: 4px solid ' + style.color + '">'
-        + '<span class="bead-id">' + esc(id) + '</span>'
-        + '<span class="bead-state" style="color:' + style.color + '" title="' + esc(cat) + '">' + esc(state) + '</span>'
-        + '<span class="bead-title">' + esc(title) + '</span>'
-        + '</div>';
+      html += '<div class="bead-group">'
+        + '<h3 class="bead-group-header" style="border-left: 4px solid ' + style.color + ';color:' + style.color + '">'
+        + esc(CATEGORY_LABEL[cat] || cat) + ' <span class="bead-group-count">' + bucket.length + '</span>'
+        + '</h3>';
+      bucket.forEach(function (b) {
+        var when = b.updated ? ' · <span class="bead-updated">' + esc(b.updated) + '</span>' : '';
+        html += '<div class="bead-card" style="border-left: 4px solid ' + style.color + '">'
+          + '<span class="bead-id">' + esc(b.id) + '</span>'
+          + '<span class="bead-state" style="color:' + style.color + '" title="' + esc(cat) + '">' + esc(b.state) + '</span>'
+          + '<span class="bead-title">' + esc(b.title) + '</span>'
+          + when
+          + '</div>';
+      });
+      html += '</div>';
     });
     el.beadList.innerHTML = html;
   }

@@ -76,6 +76,15 @@ func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
 		return path, nil
 	}
 
+	// Always prune stale worktree registrations before adding — covers the
+	// case where the dir was rm -rf'd externally so git's bookkeeping in
+	// .git/worktrees/<name>/ still claims the path is registered. Without
+	// this, `git worktree add` fails with "missing but already registered".
+	_, _ = m.gitRun(m.repoPath, "worktree", "prune")
+	// Also force-delete any stale bead branch from a prior run so we don't
+	// collide with `add -b kernl/<bead>`.
+	_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+beadID)
+
 	baseBranch := "master"
 	epicBranch := "feat/" + epicID
 	output, err := m.gitRun(m.repoPath, "branch", "--list", epicBranch)

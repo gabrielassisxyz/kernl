@@ -31,6 +31,28 @@ header h1 {
 .status-connecting   { background: #422006; color: #fcd34d; }
 .status-disconnected { background: #450a0a; color: #fca5a5; }
 
+.bead-group { margin-bottom: 1rem; }
+.bead-group-header {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.25rem;
+  opacity: 0.85;
+}
+.bead-group-count {
+  background: rgba(255,255,255,0.08);
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  margin-left: 0.3rem;
+}
+.bead-updated {
+  font-size: 0.7rem;
+  color: #64748b;
+  margin-left: auto;
+}
+
 #epic-selector {
   display: flex;
   align-items: center;
