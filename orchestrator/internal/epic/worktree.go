@@ -2,6 +2,7 @@ package epic
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,14 @@ func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
 	path := filepath.Join(m.root, epicID, beadID)
 
 	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s already exists — a previous run left it. Fix: remove the directory and re-run the epic", path)
+		// Auto-recover from a leftover worktree from a previous failed run.
+		// Loud warning, not loud error — the user previously had to manually
+		// `rm -rf ~/.kernl/worktrees/<epic>` between every failed epic run.
+		slog.Warn("worktree leftover detected, auto-cleaning",
+			"path", path, "epic", epicID, "bead", beadID)
+		if err := m.removeLeftover(path, beadID); err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s exists and auto-clean failed — %w — Fix: remove the directory manually", path, err)
+		}
 	}
 
 	if m.gitRun == nil {
@@ -80,4 +88,18 @@ func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
 	}
 
 	return path, nil
+}
+
+// removeLeftover deletes a stranded worktree from a previous failed run.
+// Tries `git worktree remove --force` first so git's bookkeeping stays
+// consistent; falls back to plain os.RemoveAll when gitRun is unwired
+// (hermetic tests, or paths that were never registered with git).
+func (m *WorktreeManager) removeLeftover(path, beadID string) error {
+	if m.gitRun != nil {
+		// Best effort — ignore exit codes since the path may have been removed
+		// from git's index already.
+		_, _ = m.gitRun(m.repoPath, "worktree", "remove", "--force", path)
+		_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+beadID)
+	}
+	return os.RemoveAll(path)
 }
