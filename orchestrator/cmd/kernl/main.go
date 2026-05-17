@@ -3,11 +3,12 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 )
 
 var (
 	doctorFn func(configPath string) error                 = runDoctor
-	serveFn  func(configPath string) error                 = runServe
+	serveFn  func(configPath string, port int) error       = runServe
 	epicFn   func(configPath string, args []string) error  = runEpic
 	beadFn   func(configPath string, args []string) error  = runBead
 	sweepFn  func(configPath string, args []string) error  = runSweep
@@ -35,6 +36,23 @@ func parseConfigPath(args []string) (configPath string, rest []string) {
 	return "", args
 }
 
+func parsePort(args []string) (port int, rest []string) {
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--port" || args[i] == "-p" {
+			if i+1 < len(args) {
+				p, err := strconv.Atoi(args[i+1])
+				if err == nil {
+					port = p
+				}
+				rest = append(rest, args[:i]...)
+				rest = append(rest, args[i+2:]...)
+				return
+			}
+		}
+	}
+	return 0, args
+}
+
 func Dispatch(args []string) error {
 	if len(args) == 0 {
 		return helpFn()
@@ -45,9 +63,11 @@ func Dispatch(args []string) error {
 		configPath = "kernl.yaml"
 	}
 
+	port, args := parsePort(args)
+
 	switch args[0] {
 	case "serve":
-		return serveFn(configPath)
+		return serveFn(configPath, port)
 	case "doctor":
 		return doctorFn(configPath)
 	case "epic":
@@ -67,7 +87,7 @@ func printHelp() error {
 	fmt.Println(`kernl — multi-agent orchestration runner
 
 Usage:
-  kernl [--config <path>] <subcommand> [args...]
+  kernl [--config <path>] [--port <port>] <subcommand> [args...]
 
 Subcommands:
   serve        Start the HTTP API server
@@ -78,7 +98,8 @@ Subcommands:
 
 Flags:
   --config, -c Path to kernl.yaml (default: kernl.yaml)
-  --help, -h   Show this help
+  --port,  -p  Server port (default: from kernl.yaml, or 8080)
+  --help,  -h  Show this help
 
 Run 'kernl <subcommand> --help' for subcommand-specific help.`)
 	return nil
