@@ -72,37 +72,30 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ### Task Structure
 
-Every task in the plan MUST include a `**Bead Mapping:**` block. This block is what makes the plan deterministically convertible to beads.
+Every task in the plan MUST include a fenced ```` ```json ```` **bead block** immediately after the heading. This block is the source of truth for `vc-convert-plan-to-beads` and is parsed by `scripts/extract_beads.py` — no LLM re-interpretation. Free-form markdown after the bead block becomes the bead's `description` and `acceptance_criteria` (split at the **Acceptance Criteria** heading).
+
+**Format:**
 
 ```markdown
-### Task N: [Component Name]
+### Task <id>: [Component Name]
 
-**Bead Mapping:**
-- type: `task` | `epic` | `story` | `chore` | `spike`
-  - Use `epic` for major tracks or subsystems that contain child tasks.
-  - Use `story` for user-facing deliverables with acceptance criteria.
-  - Use `task` for implementation steps, refactors, or infrastructure work.
-  - Use `chore` for cleanup, dependency updates, or non-functional work.
-  - Use `spike` for research or exploration tasks.
-  - GLM-5.1 may refine `epic` into `story`/`task` children; the breakdown must preserve the epic relationship.
-- Priority: `0` (critical) | `1` (high) | `2` (medium) | `3` (low) | `4` (backlog)
-  - Lower number = higher priority. This determines execution order.
-  - If Task B depends on Task A, Task A MUST have a strictly lower priority number than Task B.
-  - Priority and Dependencies MUST agree. If they conflict, the dependency list is the source of truth and priority must be corrected.
-- Estimated Minutes: [positive integer, 2-5 minutes per action; sum all actions for the task total]
-- Dependencies: `none` | `Task X`, `Task Y`, ...
-  - List ALL tasks that MUST complete before this task can start.
-  - Use exact heading references: `Task 1`, `Task 2`, etc.
-  - If `none`, the task has no blockers.
-- Parent: `none` | `Task X`
-  - Use when this task belongs to a track/epic declared earlier.
-  - Child tasks automatically inherit blocking dependency on their parent epic.
-- Status: `open` (default — only override if plan specifies deferred work)
-
-**Files:**
-- Create: `exact/path/to/file.py`
-- Modify: `exact/path/to/existing.py:123-145`
-- Test: `tests/exact/path/to/test.py`
+​```json
+{
+  "key": "task-<id>",
+  "title": "Component Name",
+  "type": "task",
+  "priority": 1,
+  "estimated_minutes": 45,
+  "dependencies": ["task-1", "task-2"],
+  "parent": "task-feature-epic",
+  "status": "open",
+  "files": {
+    "create": ["exact/path/to/file.py"],
+    "modify": ["exact/path/to/existing.py:123-145"],
+    "test":   ["tests/exact/path/to/test.py"]
+  }
+}
+​```
 
 **Description / Steps:**
 - [ ] **Step 1: Write the failing test**
@@ -142,16 +135,46 @@ git commit -m "feat: add specific feature"
 - [ ] [Another verifiable statement]
 ```
 
-### Bead Mapping Rules
+### Bead Block Field Reference
 
-**These are plan failures — never write them:**
-- **Missing or incomplete `**Bead Mapping:**` block.** Every `### Task` MUST have one.
-- **Ambiguous or non-verifiable acceptance criteria.** "Works correctly", "good UX", "handles edge cases" are plan failures. Criteria MUST be verifiable through a command, test, or observable outcome.
-- **Missing or vague dependencies.** If a task depends on another, list it explicitly. "Depends on earlier work" or "after setup" are not valid dependency declarations.
-- **Cyclic dependencies.** Task A depends on Task B AND Task B depends on Task A is a plan failure.
-- **Priority contradictions.** If Task B depends on Task A, Task B's priority MUST be numerically higher than Task A's.
-- **Missing Files section.** Every task MUST declare which files it touches (create, modify, test).
-- **Type confusion.** A task with children must be `epic` (or have child tasks referencing it as `Parent`). A leaf task must be `task`, `story`, `chore`, or `spike`.
+| Field | Required | Notes |
+|---|---|---|
+| `key` | yes | Pre-normalized. Convention: `task-<id>` (URL-safe, lowercase, hyphens). The script does NOT re-normalize — what you write is what bd gets. |
+| `title` | yes | Max 500 chars. Defaults to the heading text if omitted. |
+| `type` | yes | One of `task`, `epic`, `story`, `chore`, `spike`, `bug`, `feature`, `decision`, `message`, `milestone`. Use `epic` for tracks containing children. |
+| `priority` | yes | Integer `0`-`4`. Lower = higher priority. MUST be strictly greater than any dependency's priority. |
+| `dependencies` | yes (use `[]` if none) | Array of `key` strings — exact bead keys, not "Task 1" references. The script validates each exists. |
+| `parent` | no | A `key` whose `type` is `epic`. Emits a `parent-child` edge in addition to setting `parent_key` on the node. |
+| `status` | no | Defaults to `"open"`. |
+| `estimated_minutes` | no | Non-negative integer. Sum of 2-5min per step. |
+| `files` | no | Object: `{"create": [...], "modify": [...], "test": [...]}`. Becomes `metadata.files`. |
+| `description` | no | If present in JSON, overrides the markdown-captured description. Usually omit and let the markdown supply it. |
+| `acceptance_criteria` | no | Same as above — usually omit. |
+
+### Bead Block Rules
+
+**These are plan failures — caught by `extract_beads.py --validate`:**
+- **Missing ```` ```json ```` bead block** under any `### Task` heading.
+- **Invalid JSON** in the bead block.
+- **Duplicate `key`** across tasks.
+- **Cyclic `dependencies`** (DFS cycle detection).
+- **Priority contradictions** (`from.priority <= to.priority` for any dependency edge).
+- **Unknown dependency** referencing a `key` that does not exist.
+- **Parent that is not an `epic`.**
+- **Acceptance criteria that are ambiguous or non-verifiable** — "works correctly", "good UX", "handles edge cases" are plan failures even if the JSON validates. Criteria MUST be verifiable through a command, test, or observable outcome.
+- **Missing `files`** — every task MUST declare which files it touches.
+- **Type confusion** — a task referenced by a `parent` field must be `epic`.
+
+### Pre-flight Validation (mandatory before declaring the plan done)
+
+After writing or editing the plan, run:
+
+```bash
+python3 .claude/skills/vibe-engineering-mastery/skills/vc-convert-plan-to-beads/scripts/extract_beads.py \
+    docs/plans/YYYY-MM-DD-<feature>-plan.md --validate
+```
+
+Exit code 0 = all bead blocks parse, all validations pass. Exit code 2 = the script printed specific errors on stderr — fix them in the plan and re-run. Do NOT mark the plan done until validation is green.
 
 ### No Placeholders
 
