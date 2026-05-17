@@ -101,3 +101,29 @@ func TestLoadEpicBuildsDAGFromBackend(t *testing.T) {
 		t.Errorf("ready = %v, want [c1]", ready)
 	}
 }
+
+// Regression for the 2026-05-17 epic-run failure: bd's `list --json` output
+// stores `issue_id` as the dependent and `depends_on_id` as the blocker,
+// which RawDependency parses into SourceID=dependent / TargetID=blocker.
+// The loader used to assert TargetID == child.ID, but in the bd convention
+// SourceID is the child. Accept both shapes so the wire format works
+// without bd-side normalization.
+func TestLoadEpicAcceptsBdNativeDepConvention(t *testing.T) {
+	be := &fakeBackend{beads: []backend.Bead{
+		{ID: "e", Type: "epic"},
+		{ID: "c1", ParentID: "e"},
+		{ID: "c2", ParentID: "e", Dependencies: []backend.BeadDependency{
+			// SourceID = the child (dependent), TargetID = the blocker —
+			// exactly what `bd list --json` returns for a c2 that depends on c1.
+			{SourceID: "c2", TargetID: "c1", Type: "blocks"},
+		}},
+	}}
+	ep, err := LoadEpic(be, "e", "/repo")
+	if err != nil {
+		t.Fatalf("LoadEpic: %v", err)
+	}
+	ready := ep.DAG.ReadySet(map[string]bool{})
+	if !sameSet(ready, []string{"c1"}) {
+		t.Errorf("ready = %v, want [c1] — c2 should be blocked by c1", ready)
+	}
+}
