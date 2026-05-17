@@ -99,6 +99,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		// agent owns the transition from active (X) → next queued (ready_for_X_review);
 		// claiming again from an active state would mask agent failures.
 		runtime := backend.DeriveWorkflowRuntimeState(wf, bead.State)
+		activeState := bead.State
 		if runtime.IsAgentClaimable {
 			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
 			if ok {
@@ -111,12 +112,25 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					return RunBeadResult{FinalState: bead.State, Success: false},
 						fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s: %w", deps.BeadID, bead.State, nextState, err)
 				}
+				activeState = nextState
 			}
 		}
 
+		// Build the prompt that tells the agent what to do AND how to end
+		// the stage (the agent must `bd update --status <next>` so the
+		// orchestrator's polling loop sees the workflow advance).
+		var promptNextState string
+		if nextAfterActive, ok := backend.ForwardTransitionTarget(activeState, wf); ok {
+			promptNextState = nextAfterActive
+		}
+		prompt := BuildBeadStagePrompt(bead, activeState, promptNextState, deps.RepoPath, deps.Worktree)
+		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, prompt)
+
 		agentInput.BeadID = deps.BeadID
-		// Agent works inside the bead's isolated worktree, not the canonical repo.
-		agentInput.RepoPath = deps.Worktree
+		// bd reads/writes stay on the canonical repo; the agent process is
+		// chrooted into the bead's isolated worktree via Cwd.
+		agentInput.RepoPath = deps.RepoPath
+		agentInput.Cwd = deps.Worktree
 
 		res, err := deps.Driver.RunBead(ctx, agentInput)
 		if err != nil {
@@ -162,5 +176,34 @@ func filterOutLabelPrefix(labels []string, prefix string) []string {
 			out = append(out, l)
 		}
 	}
+	return out
+}
+
+// appendOpencodeStageFlags adds the per-stage flags opencode needs to
+// (a) work in the correct directory, (b) carry a recognizable session title
+// in the agent UI, and (c) actually receive the prompt — mirroring the
+// shape used by scripts/swarm/swarm_parallel.py:cmd().
+//
+// Idempotent: if a flag is already present (e.g. user configured --dir in
+// kernl.yaml), it is left alone.
+func appendOpencodeStageFlags(args []string, beadID, worktree, prompt string) []string {
+	hasFlag := func(flag string) bool {
+		for _, a := range args {
+			if a == flag {
+				return true
+			}
+		}
+		return false
+	}
+	out := append([]string(nil), args...)
+	if worktree != "" && !hasFlag("--dir") {
+		out = append(out, "--dir", worktree)
+	}
+	if !hasFlag("--title") {
+		out = append(out, "--title", "kernl:"+beadID)
+	}
+	// Positional prompt goes LAST — opencode treats trailing positionals
+	// as the message.
+	out = append(out, prompt)
 	return out
 }
