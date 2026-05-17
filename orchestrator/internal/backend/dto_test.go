@@ -361,7 +361,7 @@ func TestNormalizeBead_ParentFromDependencies(t *testing.T) {
 		ID:    "proj.1.2",
 		Title: "Child",
 		Dependencies: []RawDependency{
-			{SourceID: "proj.1", TargetID: "proj.1.2", DepType: "parent-child"},
+			{SourceID: "proj.1.2", TargetID: "proj.1", DepType: "parent-child"},
 		},
 	}
 	bead := NormalizeBead(raw)
@@ -373,7 +373,7 @@ func TestNormalizeBead_ParentFromDependencies(t *testing.T) {
 		Title: "Child",
 		Parent: "explicit.parent",
 		Dependencies: []RawDependency{
-			{SourceID: "proj.1", TargetID: "proj.1.2", DepType: "parent-child"},
+			{SourceID: "proj.1.2", TargetID: "proj.1", DepType: "parent-child"},
 		},
 	}
 	beat2 := NormalizeBead(raw2)

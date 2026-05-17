@@ -33,6 +33,9 @@ func LoadEpic(be backend.BackendPort, epicID, repoPath string) (*Epic, error) {
 	for _, child := range children {
 		deps := make([]string, 0)
 		for _, d := range child.Dependencies {
+			if d.Type == "parent-child" {
+				continue
+			}
 			if d.SourceID == "" || d.TargetID == "" {
 				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — missing SourceID or TargetID — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID)
 			}

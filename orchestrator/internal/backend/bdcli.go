@@ -155,9 +155,13 @@ func (b *BdCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, 
 	if err != nil {
 		return nil, fmt.Errorf("bd list: %w", err)
 	}
-	var result []Bead
-	if err := json.Unmarshal(out, &result); err != nil {
+	var raw []RawBead
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, fmt.Errorf("bd list parse: %w", err)
+	}
+	result := make([]Bead, 0, len(raw))
+	for _, r := range raw {
+		result = append(result, NormalizeBead(r))
 	}
 	return result, nil
 }
@@ -176,11 +180,12 @@ func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
 	}
-	var result Bead
-	if err := json.Unmarshal(out, &result); err != nil {
+	var raw RawBead
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, fmt.Errorf("bd show parse: %w", err)
 	}
-	return &result, nil
+	bead := NormalizeBead(raw)
+	return &bead, nil
 }
 
 func (b *BdCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
@@ -873,6 +878,9 @@ func bdResultToError(result *ExecResult) error {
 	return fmt.Errorf("bd exit %d: %s", result.ExitCode, result.Stderr)
 }
 
+// bd show returns {"..."} (single object)  OR  [{...}] (array with single element)
+// bd list returns [{...}, {...}, ...] (array with multiple elements)
+// parseNDJSONBytes normalizes all to a single valid JSON document — object, array, or encoded-raw.
 func parseNDJSONBytes(data []byte) (json.RawMessage, error) {
 	if len(data) == 0 {
 		return data, nil
@@ -883,15 +891,28 @@ func parseNDJSONBytes(data []byte) (json.RawMessage, error) {
 		return data, nil
 	}
 
-	// bd list --json emits a JSON array (lines with pretty-printed objects);
-	// treat it as a single JSON document rather than line-delimited records.
-	if trimmed[0] == '[' || trimmed[0] == '{' {
+	// fast path: pretty-printed JSON array
+	if trimmed[0] == '[' {
+		var arr []json.RawMessage
+		if err := json.Unmarshal(trimmed, &arr); err == nil {
+			if len(arr) == 1 {
+				return arr[0], nil // unwrap single-element array (bd show)
+			}
+			// multi-element array (bd list)
+			encoded, _ := json.Marshal(arr)
+			return json.RawMessage(encoded), nil
+		}
+	}
+
+	// object
+	if trimmed[0] == '{' {
 		var raw json.RawMessage
 		if err := json.Unmarshal(trimmed, &raw); err == nil {
 			return raw, nil
 		}
 	}
 
+	// fallback: NDJSON line parser
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	var results []json.RawMessage
 	for scanner.Scan() {
