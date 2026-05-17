@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -63,7 +64,11 @@ func execSpawnFunc(ctx context.Context, cmd string, args []string, cwd string, e
 		c.Dir = cwd
 	}
 	if len(env) > 0 {
-		c.Env = env
+		// Layer caller overrides ON TOP of the inherited environment so
+		// PATH / HOME / etc. survive — otherwise an agent with just
+		// OPENCODE_CONFIG=... and nothing else can't find /usr/bin/git,
+		// the bd binary, or the user's home dir.
+		c.Env = append(os.Environ(), env...)
 	}
 	stdout, err := c.StdoutPipe()
 	if err != nil {
