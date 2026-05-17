@@ -6,8 +6,8 @@
 ## 1. Stack & Commands
 - **Backend/CLI:** Go 1.26+, `bd` CLI (gastownhall/beads) ≥ 1.0.4 (required — earlier versions reject kernl status names), Dolt, SQLite (run-state), YAML config (`kernl.yaml`)
 - **Agent Runtime State:** `~/.kernl/state/<bead-id>.json` is the canonical per-bead runtime store (heartbeats, follow-up counts, watchdog state). Purgeable for reset — the orchestrator reconstructs it from bead metadata on restart.
-- **Frontend (future):** Vue 3 (Composition API) + Vite
-- **UI (future):** TUI via Bubble Tea (deferred)
+- **MVP era / Vision era:** today the orchestrator delegates persistence to `bd` (Dolt-backed). Per `docs/VISION.md` §6, the destination is a unified typed knowledge graph in `~/.kernl/graph.db` (SQLite) where `Bead` is just one node type. `bd` is the **MVP backend**; the unified substrate (P0.1 in `docs/suggested-vision-projects.md`) absorbs it later. Do NOT design new persistence around the bd boundary as if it were permanent.
+- **Frontend (future):** Vue 3 (Composition API) + Nuxt (per VISION §12).
 - **API:** REST JSON + SSE (not gRPC/WebSocket)
 - **Run:** `go run ./cmd/kernl` (from inside `orchestrator/`)
 - **Test:** `go test ./...` — Run before every commit. Hermetic by default.
@@ -15,7 +15,7 @@
 - **Lint/Format:** `go vet ./...` + `go fmt ./...` + `golangci-lint run`
 
 ## 2. Architectural Principles
-- **CLI-First Backend:** The Go backend delegates ALL storage mutations to `bd` or `kno` CLI. Never writes `.beads/issues.jsonl` directly.
+- **CLI-First Backend (MVP era):** The Go backend delegates ALL storage mutations to the `bd` CLI. Never writes `.beads/issues.jsonl` directly. (Vision era: this collapses into direct SQLite writes against the unified graph — see §1.)
 - **Goroutine-per-Session:** Each terminal session lives in its own goroutine. No shared EventEmitter; use channels.
 - **No Shared Mutable State:** `sync.Map` or `map + RWMutex` for registries. Never hold unguarded pointers across goroutines.
 - **YAGNI & Flat:** Do NOT generate preventive abstractions. No single-use interfaces, no mappers. Keep file structure flat.
@@ -53,12 +53,12 @@
 - **Comments:** WHY, not WHAT. Docstrings on public functions: intent + 1 usage example.
 - **Logs:** Structured JSON for debugging (`log/slog`). Plain text ONLY for user-facing output.
 
-## 6. Living Documentation & Memory Bank
+## 6. Living Documentation & Session Notes
 Update documentation on every relevant change. Never invent terminology.
-- **Memory Bank:** Maintain `docs/activeContext.md` and `docs/progress.md` for session state.
+- **Session notes (dev-process, NOT product memory):** `docs/activeContext.md` and `docs/progress.md` are agent-handoff scratchpads for the build of Kernl itself. They are NOT the additive `MemoryClaim` model from VISION §7.3 — that one is the product's own memory subsystem (separate concern; see P2.2 in `docs/suggested-vision-projects.md`). Until session-notes structure is formalized, use `bd remember` / `bd memories` for persistent dev knowledge.
 - **`docs/glossary.md`:** Read/update for domain terms to maintain Ubiquitous Language.
 - **`docs/architecture.md` & `docs/features.md`:** Update for structural/capability changes.
-- **Specs (`orchestrator/specs/*.md`):** Authoritative for behavior. Include citations to the TS source when describing behavior.
+- **Specs (`orchestrator/specs/*.md`):** Authoritative for behavior. The orchestrator is Go (ported from foolery-go, also Go) — there is no TS source to cite.
 
 ## 7. Git & Agent Behavior
 - **Branch per task:** `feat/[short-name]` or `fix/[short-name]`. Never work on `main`.
@@ -74,7 +74,6 @@ Update documentation on every relevant change. Never invent terminology.
   - Dolt transactions via `bd` are ACID. No manual file locking needed.
   - SSE in Go: use `net/http` with `w.Header().Set("Content-Type", "text/event-stream")` and `fmt.Fprintf(w, "data: %s\n\n", jsonStr)`.
   - Vue 3 reactivity uses proxies. Mutating state outside Vue's lifecycle can miss updates. Always mutate reactive refs.
-- **Current Build State:** `internal/config/config_test.go` currently has an unused `"strings"` import causing a build failure in that package (`FAIL github.com/gabrielassisxyz/kernl/internal/config [build failed]`). Fix before next feature work if not already resolved.
 - **Resolved Bugs:** [Add tricky bugs solved so they aren't reintroduced]
 
 ## 9. Issue Tracking (bd / beads)

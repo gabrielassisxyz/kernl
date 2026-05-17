@@ -196,21 +196,32 @@ func TestAddFallsBackToMkdirWhenNoGitRun(t *testing.T) {
 	}
 }
 
-func TestAddRejectsExistingPath(t *testing.T) {
+func TestAddRecoversFromExistingPath(t *testing.T) {
+	// A leftover worktree from a previous failed run should be auto-cleaned
+	// so the user does not have to manually `rm -rf` between every retry.
+	// The previous behavior was a loud error; we now warn and recover.
 	root := t.TempDir()
 	existing := filepath.Join(root, "e1", "dup")
 	if err := os.MkdirAll(existing, 0755); err != nil {
 		t.Fatal(err)
 	}
+	// Drop a sentinel file so we can confirm the dir was actually replaced.
+	if err := os.WriteFile(filepath.Join(existing, "leftover.txt"), []byte("stale"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
 	fr := newFakeGitRunner()
 	wm := NewWorktreeManager(root, root, fr.run, nil)
 
-	_, err := wm.Add("e1", "dup")
-	if err == nil {
-		t.Fatal("expected error when path already exists")
+	path, err := wm.Add("e1", "dup")
+	if err != nil {
+		t.Fatalf("expected auto-recover, got error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
-		t.Errorf("error should contain KERNL DISPATCH FAILURE marker, got: %v", err)
+	if path == "" {
+		t.Fatal("expected non-empty path after recovery")
+	}
+	if _, err := os.Stat(filepath.Join(existing, "leftover.txt")); !os.IsNotExist(err) {
+		t.Errorf("leftover file should have been removed during recovery, got: %v", err)
 	}
 }
 

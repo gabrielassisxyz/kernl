@@ -53,18 +53,22 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+cd orchestrator
+go test ./...                       # default suite (hermetic)
+go test -tags=integration ./...     # opt-in integration suite
+go vet ./...
+go run ./cmd/kernl epic run <id>    # drive an epic end-to-end (real agents)
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+See [`docs/VISION.md`](docs/VISION.md) for what Kernl **is** when complete,
+[`docs/suggested-vision-projects.md`](docs/suggested-vision-projects.md) for
+how it decomposes into brainstormable sub-projects, and
+[`docs/STRATEGY.md`](docs/STRATEGY.md) for the current MVP cut. Do not
+duplicate architecture facts here.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+See [`AGENTS.md`](AGENTS.md). Do not duplicate here.

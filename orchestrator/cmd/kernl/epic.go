@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strings"
 	"text/tabwriter"
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
@@ -117,39 +116,19 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
-			bead, err := a.Backend.Get(in.BeadID, repoPath)
-			if err != nil || bead == nil {
-				return epic.RunResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found: %w", in.BeadID, err)
-			}
-
-			wf := backend.ResolveWorkflow(bead)
-			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
-			if ok {
-				var newLabels []string
-				for _, l := range bead.Labels {
-					if !strings.HasPrefix(l, "wf:state:") {
-						newLabels = append(newLabels, l)
-					}
-				}
-				newLabels = append(newLabels, "wf:state:"+nextState)
-				if err := a.Backend.Update(in.BeadID, backend.UpdateBeadInput{
-					State:     nextState,
-					SetLabels: newLabels,
-				}, repoPath); err != nil {
-					return epic.RunResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s: %w", in.BeadID, bead.State, nextState, err)
-				}
-			}
-
-			input, err := app.ResolveAgentForBead(a.Config, a.Backend, in.BeadID, repoPath)
+			res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
+				Backend:  a.Backend,
+				Driver:   a.Driver,
+				Config:   a.Config,
+				BeadID:   in.BeadID,
+				RepoPath: repoPath,
+				Worktree: in.Worktree,
+				Log: func(stage int, state string) {
+					out(fmt.Sprintf("bead %s [stage %d] %s\n", in.BeadID, stage, state))
+				},
+			})
 			if err != nil {
-				return epic.RunResult{}, err
-			}
-			input.BeadID = in.BeadID
-			input.RepoPath = repoPath
-
-			res, err := a.Driver.RunBead(ctx, input)
-			if err != nil {
-				return epic.RunResult{}, err
+				return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, err
 			}
 			return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, nil
 		},
