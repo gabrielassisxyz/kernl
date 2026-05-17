@@ -207,10 +207,25 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	}
 	scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
 	driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawnFn, SCM: scm})
+	pools := map[string]config.PoolConfig{
+		"implementation":          {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"planning":                {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"plan_review":             {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"implementation_review":    {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"shipment":                {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"shipment_review":          {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+	}
+
 	return &app.App{
 		Backend:    be,
 		Driver:     driver,
 		Config: &config.Config{
+			Settings: config.Settings{
+				Agents: map[string]config.AgentConfig{
+					"opencode": {Command: "opencode", Args: []string{"run", "--format", "json"}, Label: "opencode"},
+				},
+				Pools: pools,
+			},
 			Registry:     config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}},
 			Orchestrator: config.OrchestratorConfig{WorktreeRoot: t.TempDir(), MaxConcurrentBeads: 5},
 			Server:       config.ServerConfig{Port: 0},

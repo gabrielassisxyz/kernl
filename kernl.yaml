@@ -1,0 +1,92 @@
+# kernl.yaml — Kernl orchestrator configuration
+#
+# Generated from foolery-style pool config. Deduped to keep only the
+# highest-weight agent per pool. Pool names match the workflow action states
+# the dispatch system actually selects from (see internal/backend/state_machine.go).
+#
+# Opencode model IDs use the `litellm/` prefix (litellm proxy convention).
+# `agentId` in pools/actions references keys in `settings.agents`.
+
+settings:
+  agents:
+    deepseek-v4-pro-max:
+      command: opencode
+      args: ["run", "--format", "json"]
+      type: claude
+      vendor: anthropic
+      model: litellm/deepseek-v4-pro-max
+      label: deepseek-v4-pro-max
+      approvalMode: auto
+
+    deepseek-v4-pro-high:
+      command: opencode
+      args: ["run", "--format", "json"]
+      type: claude
+      vendor: anthropic
+      model: litellm/deepseek-v4-pro-high
+      label: deepseek-v4-pro-high
+      approvalMode: auto
+
+    kimi-k2-6:
+      command: opencode
+      args: ["run", "--format", "json"]
+      type: claude
+      vendor: anthropic
+      model: litellm/kimi-k2-6
+      label: kimi-k2-6
+      approvalMode: auto
+
+  # Workflow-step pools. Consumed by dispatch.SelectStepAgent based on the bead's
+  # current action state (planning, plan_review, implementation, …).
+  pools:
+    planning:
+      agents:
+        - agentId: deepseek-v4-pro-max
+          weight: 1
+
+    plan_review:
+      agents:
+        - agentId: kimi-k2-6
+          weight: 1
+
+    implementation:
+      agents:
+        - agentId: deepseek-v4-pro-high
+          weight: 1
+
+    implementation_review:
+      agents:
+        - agentId: kimi-k2-6
+          weight: 1
+
+    shipment:
+      agents:
+        - agentId: deepseek-v4-pro-max
+          weight: 1
+
+    shipment_review:
+      agents:
+        - agentId: kimi-k2-6
+          weight: 1
+
+  # Single-agent actions (not pools). Each value is one agentId from
+  # settings.agents above.
+  actions:
+    scopeRefinement: kimi-k2-6
+    staleGrooming: kimi-k2-6
+
+  defaults:
+    interactiveSessionTimeoutMinutes: 30
+
+registry:
+  repos:
+    - path: /home/gabriel/repositories/kernl
+      memoryManager: beads
+
+orchestrator:
+  # worktreeRoot: ~/.kernl/worktrees     # default
+  # runStatePath: ~/.kernl/runstate.db   # default
+  maxConcurrentBeads: 3
+
+server:
+  port: 8080

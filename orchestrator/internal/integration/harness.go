@@ -219,11 +219,14 @@ func (h *Harness) RunEpic(t *testing.T, epicID string) *epic.Executor {
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
-			res, err := a.Driver.RunBead(ctx, app.RunBeadInput{
-				BeadID:   in.BeadID,
-				RepoPath: h.RepoPath,
-				AgentID:  "opencode",
-			})
+			input, err := app.ResolveAgentForBead(a.Config, a.Backend, in.BeadID, h.RepoPath)
+			if err != nil {
+				return epic.RunResult{}, err
+			}
+			input.BeadID = in.BeadID
+			input.RepoPath = h.RepoPath
+
+			res, err := a.Driver.RunBead(ctx, input)
 			if err != nil {
 				return epic.RunResult{}, err
 			}

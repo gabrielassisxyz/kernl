@@ -119,7 +119,7 @@ func TestDriverRunBeadAdvancesViaTakeLoop(t *testing.T) {
 		onExit: func() { be.state["kb-1"] = "done" },
 	}
 	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM()})
-	res, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), AgentID: "opencode"})
+	res, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), Command: "opencode", AgentName: "opencode"})
 	if err != nil {
 		t.Fatalf("RunBead: %v", err)
 	}
