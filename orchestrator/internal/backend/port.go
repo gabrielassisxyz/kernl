@@ -129,6 +129,7 @@ type UpdateBeadInput struct {
 	Priority        *int       `json:"priority,omitempty"`
 	ParentID        string     `json:"parentId,omitempty"`
 	Labels          []string   `json:"labels,omitempty"`
+	SetLabels       []string   `json:"setLabels,omitempty"`
 	RemoveLabels    []string   `json:"removeLabels,omitempty"`
 	Assignee        string     `json:"assignee,omitempty"`
 	Due             string     `json:"due,omitempty"`
