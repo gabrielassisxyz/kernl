@@ -28,6 +28,7 @@ header h1 {
 }
 
 .status-connected    { background: #064e3b; color: #6ee7b7; }
+.status-connecting   { background: #422006; color: #fcd34d; }
 .status-disconnected { background: #450a0a; color: #fca5a5; }
 
 #epic-selector {

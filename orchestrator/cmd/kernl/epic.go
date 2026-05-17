@@ -109,7 +109,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	go func() { srv.Serve(listener) }()
 	defer srv.Close()
 
-	out(fmt.Sprintf("GUI em http://localhost:%d\n", actualPort))
+	out(fmt.Sprintf("GUI em http://localhost:%d/?epic=%s\n", actualPort, epicID))
 
 	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, nil, nil)
 
