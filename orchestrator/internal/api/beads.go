@@ -5,17 +5,55 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
+// listBeadsCache memoizes the result of /api/beads for a short window.
+// Without it, the dashboard's 2s polling fallback (+ any other client) all
+// hit `bd list` concurrently and pile up — observed during the kernl-npp
+// run on 2026-05-17 with bd timing out at 5s, then the next request
+// hitting the same path while the first was still in flight.
+type listBeadsCache struct {
+	mu      sync.Mutex
+	data    []backend.Bead
+	at      time.Time
+	ttl     time.Duration
+}
+
+func (c *listBeadsCache) get(load func() ([]backend.Bead, error)) ([]backend.Bead, error) {
+	c.mu.Lock()
+	if c.data != nil && time.Since(c.at) < c.ttl {
+		out := c.data
+		c.mu.Unlock()
+		return out, nil
+	}
+	c.mu.Unlock()
+
+	beads, err := load()
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.data = beads
+	c.at = time.Now()
+	c.mu.Unlock()
+	return beads, nil
+}
+
 func RegisterBeadRoutes(mux *http.ServeMux, a *app.App) {
 	repoPath := a.Config.Registry.Repos[0].Path
 
+	listCache := &listBeadsCache{ttl: 2 * time.Second}
+
 	mux.HandleFunc("GET /api/beads", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		beads, err := a.Backend.List(nil, repoPath)
+		beads, err := listCache.get(func() ([]backend.Bead, error) {
+			return a.Backend.List(nil, repoPath)
+		})
 		if err != nil {
 			slog.Error("KERNL DISPATCH FAILURE: list beads", "error", err)
 			writeError(w, http.StatusInternalServerError, fmt.Sprintf("KERNL DISPATCH FAILURE: list beads — %v — Fix: check backend connectivity and repo path %q", err, repoPath))
