@@ -49,9 +49,9 @@ type RawBead struct {
 }
 
 type RawDependency struct {
-	SourceID   string `json:"sourceId"`
-	TargetID   string `json:"targetId"`
-	DepType    string `json:"type"`
+	SourceID string `json:"issue_id"`
+	TargetID string `json:"depends_on_id"`
+	DepType  string `json:"type"`
 }
 
 var validTypes = map[string]bool{
@@ -93,7 +93,7 @@ func inferParent(id string, explicitParent string, deps []RawDependency) string 
 	}
 	for _, d := range deps {
 		if d.DepType == "parent-child" {
-			return d.SourceID
+			return d.TargetID
 		}
 	}
 	dotIdx := strings.LastIndex(id, ".")
@@ -410,7 +410,7 @@ func clampPriority(p int) int {
 func parentFromDeps(deps []RawDependency) string {
 	for _, d := range deps {
 		if d.DepType == "parent-child" {
-			return d.SourceID
+			return d.TargetID
 		}
 	}
 	return ""
