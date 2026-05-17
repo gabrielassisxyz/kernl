@@ -39,10 +39,21 @@ func LoadEpic(be backend.BackendPort, epicID, repoPath string) (*Epic, error) {
 			if d.SourceID == "" || d.TargetID == "" {
 				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — missing SourceID or TargetID — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID)
 			}
-			if d.TargetID != child.ID {
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — dependency TargetID %q does not match child ID — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID, d.TargetID)
+			// Accept either dep-record convention. bd's `list` output puts
+			// the dependent in SourceID (issue_id) and the blocker in
+			// TargetID (depends_on_id). Earlier orchestrator code + tests
+			// flipped that — keep the loader tolerant so the bd wire format
+			// works without bd-side changes.
+			var blocker string
+			switch {
+			case d.SourceID == child.ID:
+				blocker = d.TargetID
+			case d.TargetID == child.ID:
+				blocker = d.SourceID
+			default:
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — dep (source=%q target=%q) does not reference the child — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID, d.SourceID, d.TargetID)
 			}
-			deps = append(deps, d.SourceID)
+			deps = append(deps, blocker)
 		}
 		nodes = append(nodes, Node{ID: child.ID, DependsOn: deps})
 	}
