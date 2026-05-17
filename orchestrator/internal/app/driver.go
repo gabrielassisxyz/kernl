@@ -35,7 +35,12 @@ type DriverDeps struct {
 // when going through litellm.
 type RunBeadInput struct {
 	BeadID    string
+	// RepoPath is the canonical bd-tracked repo — passed to every backend call.
 	RepoPath  string
+	// Cwd is the working directory for the spawned agent process. Defaults to
+	// RepoPath when empty. Set this to the bead's isolated worktree so the
+	// agent edits files in isolation while bd reads/writes stay on the repo.
+	Cwd       string
 	Command   string
 	Args      []string
 	Env       map[string]string
@@ -77,7 +82,11 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), true)
 
 	envSlice := envMapToSlice(input.Env)
-	proc, stdout, stderr, err := d.spawn(ctx, input.Command, input.Args, input.RepoPath, envSlice)
+	cwd := input.Cwd
+	if cwd == "" {
+		cwd = input.RepoPath
+	}
+	proc, stdout, stderr, err := d.spawn(ctx, input.Command, input.Args, cwd, envSlice)
 	if err != nil {
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: spawn agent %s (%s): %w", input.AgentName, input.Command, err)
 	}
