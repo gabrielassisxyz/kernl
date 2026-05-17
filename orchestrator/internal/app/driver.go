@@ -130,6 +130,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	exitErr := proc.Wait()
 	exitCode := exitCodeFromErr(exitErr)
 
+	capturedSID := r.CapturedSessionID()
 	r.Dispose()
 	w.stop()
 
@@ -139,8 +140,15 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		finalState = finalBead.State
 	}
 
+	// Prefer the real opencode session ID captured from the NDJSON stream;
+	// fall back to the constructed label so callers always get a non-empty ID.
+	resultSessionID := capturedSID
+	if resultSessionID == "" {
+		resultSessionID = sessionID
+	}
+
 	return RunBeadResult{
-		SessionID:  sessionID,
+		SessionID:  resultSessionID,
 		FinalState: finalState,
 		Success:    exitCode == 0,
 	}, nil

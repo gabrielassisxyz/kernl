@@ -65,9 +65,10 @@ type ServerConfig struct {
 }
 
 type OrchestratorConfig struct {
-	WorktreeRoot       string `yaml:"worktreeRoot,omitempty"`
-	MaxConcurrentBeads int    `yaml:"maxConcurrentBeads,omitempty"`
-	RunStatePath       string `yaml:"runStatePath,omitempty"`
+	WorktreeRoot        string `yaml:"worktreeRoot,omitempty"`
+	MaxConcurrentBeads  int    `yaml:"maxConcurrentBeads,omitempty"`
+	RunStatePath        string `yaml:"runStatePath,omitempty"`
+	StageRetryAttempts  int    `yaml:"stageRetryAttempts,omitempty"`
 }
 
 type SweepConfig struct {
@@ -106,6 +107,9 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Orchestrator.MaxConcurrentBeads == 0 {
 		cfg.Orchestrator.MaxConcurrentBeads = 5
+	}
+	if cfg.Orchestrator.StageRetryAttempts == 0 {
+		cfg.Orchestrator.StageRetryAttempts = 2
 	}
 	if cfg.Orchestrator.WorktreeRoot == "" {
 		home, err := os.UserHomeDir()
