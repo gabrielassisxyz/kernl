@@ -239,7 +239,12 @@ func (b *BdCliBackend) Update(id string, input UpdateBeadInput, repoPath string)
 	}
 	if len(input.Labels) > 0 {
 		for _, l := range input.Labels {
-			args = append(args, "--label", l)
+			args = append(args, "--add-label", l)
+		}
+	}
+	if len(input.SetLabels) > 0 {
+		for _, l := range input.SetLabels {
+			args = append(args, "--set-labels", l)
 		}
 	}
 	_, err := b.Exec(context.Background(), args)

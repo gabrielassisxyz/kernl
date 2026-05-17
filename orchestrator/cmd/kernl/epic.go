@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
@@ -90,17 +91,23 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		return err
 	}
 
-	listener, err := net.Listen("tcp", ":0")
+	beadPort := a.Config.Server.Port
+	if beadPort == 0 {
+		beadPort = 8080
+	}
+	beadListenAddr := fmt.Sprintf(":%d", beadPort)
+	listener, err := net.Listen("tcp", beadListenAddr)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: starting HTTP listener: %w", err)
+		listener, err = net.Listen("tcp", ":0")
+		if err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: starting HTTP listener: %w", err)
+		}
 	}
 	actualPort := listener.Addr().(*net.TCPAddr).Port
 
 	handler := api.NewRouter(a)
 	srv := &http.Server{Handler: handler}
-	go func() {
-		srv.Serve(listener)
-	}()
+	go func() { srv.Serve(listener) }()
 	defer srv.Close()
 
 	out(fmt.Sprintf("GUI em http://localhost:%d\n", actualPort))
@@ -110,6 +117,29 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
+			bead, err := a.Backend.Get(in.BeadID, repoPath)
+			if err != nil || bead == nil {
+				return epic.RunResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found: %w", in.BeadID, err)
+			}
+
+			wf := backend.ResolveWorkflow(bead)
+			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
+			if ok {
+				var newLabels []string
+				for _, l := range bead.Labels {
+					if !strings.HasPrefix(l, "wf:state:") {
+						newLabels = append(newLabels, l)
+					}
+				}
+				newLabels = append(newLabels, "wf:state:"+nextState)
+				if err := a.Backend.Update(in.BeadID, backend.UpdateBeadInput{
+					State:     nextState,
+					SetLabels: newLabels,
+				}, repoPath); err != nil {
+					return epic.RunResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s: %w", in.BeadID, bead.State, nextState, err)
+				}
+			}
+
 			input, err := app.ResolveAgentForBead(a.Config, a.Backend, in.BeadID, repoPath)
 			if err != nil {
 				return epic.RunResult{}, err

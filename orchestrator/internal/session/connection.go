@@ -103,7 +103,7 @@ func (m *SessionConnectionManager) Connect(sessionID string) <-chan TerminalEven
 
 	info, exists := m.provider.GetSessionEntry(sessionID)
 	if !exists {
-		slog.Warn("[connection-manager] connect: session not found, buffering anyway",
+		slog.Debug("[connection-manager] connect: session not found, buffering anyway",
 			"sessionId", sessionID)
 		return nil
 	}
