@@ -60,6 +60,7 @@ type SessionRuntime struct {
 	inputCloseTimer *time.Timer
 	lastTurnError string
 	tokenLogger  TokenUsageLogger
+	capturedSessionID string
 }
 
 func NewSessionRuntime(beadID, repoPath string) *SessionRuntime {
@@ -99,6 +100,15 @@ func (r *SessionRuntime) Capabilities() DialectCapabilities {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.capabilities
+}
+
+// CapturedSessionID returns the opencode session ID observed in the NDJSON
+// stream (the "sessionID" field that opencode emits on the first step_start
+// and on every subsequent event). Empty if the stream carried no such field.
+func (r *SessionRuntime) CapturedSessionID() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.capturedSessionID
 }
 
 func (r *SessionRuntime) SetDialect(dialect string) {
@@ -572,6 +582,15 @@ func (r *SessionRuntime) processGeminiEvent(evtType string, obj map[string]any, 
 }
 
 func (r *SessionRuntime) processOpenCodeEvent(evtType string, obj map[string]any, rawLine string, caps DialectCapabilities) {
+	// Capture the opencode session ID from the first event that carries it.
+	// opencode emits "sessionID" (camelCase) on step_start and most events.
+	if sid, _ := obj["sessionID"].(string); sid != "" {
+		r.mu.Lock()
+		if r.capturedSessionID == "" {
+			r.capturedSessionID = sid
+		}
+		r.mu.Unlock()
+	}
 	switch evtType {
 	case "session_idle":
 		r.mu.Lock()
