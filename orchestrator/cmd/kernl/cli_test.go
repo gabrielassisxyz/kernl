@@ -23,7 +23,7 @@ func TestDispatchDoctorRunsPreflight(t *testing.T) {
 
 func TestDispatchServeRunsServer(t *testing.T) {
 	var ran bool
-	serveFn = func(configPath string) error { ran = true; return nil }
+	serveFn = func(configPath string, port int) error { _ = port; ran = true; return nil }
 	t.Cleanup(func() { serveFn = runServe })
 	if err := Dispatch([]string{"serve"}); err != nil || !ran {
 		t.Fatalf("serve not dispatched: ran=%v err=%v", ran, err)

@@ -2,6 +2,7 @@ package backend
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/sha1"
 	"encoding/json"
@@ -143,6 +144,9 @@ func (b *BdCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, 
 		}
 		if filters.Priority != 0 {
 			args = append(args, "--priority", fmt.Sprintf("%d", filters.Priority))
+		}
+		if filters.Parent != "" {
+			args = append(args, "--parent", filters.Parent)
 		}
 	} else {
 		args = append(args, "--all")
@@ -872,6 +876,20 @@ func bdResultToError(result *ExecResult) error {
 func parseNDJSONBytes(data []byte) (json.RawMessage, error) {
 	if len(data) == 0 {
 		return data, nil
+	}
+
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return data, nil
+	}
+
+	// bd list --json emits a JSON array (lines with pretty-printed objects);
+	// treat it as a single JSON document rather than line-delimited records.
+	if trimmed[0] == '[' || trimmed[0] == '{' {
+		var raw json.RawMessage
+		if err := json.Unmarshal(trimmed, &raw); err == nil {
+			return raw, nil
+		}
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
