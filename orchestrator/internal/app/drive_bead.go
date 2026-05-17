@@ -125,6 +125,12 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		}
 		prompt := BuildBeadStagePrompt(bead, activeState, promptNextState, deps.RepoPath, deps.Worktree)
 		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, prompt)
+		// Point opencode at the orchestrator's permission allowlist so
+		// `/tmp/*` writes and worktree access are not auto-rejected (which
+		// silently makes agents bail mid-stage — observed in the kernl-npp
+		// MVP run on 2026-05-17 where every agent gave up after hitting
+		// "permission requested: external_directory (/tmp/*); auto-rejecting").
+		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
 
 		agentInput.BeadID = deps.BeadID
 		// bd reads/writes stay on the canonical repo; the agent process is
@@ -177,6 +183,22 @@ func filterOutLabelPrefix(labels []string, prefix string) []string {
 		}
 	}
 	return out
+}
+
+// injectOpencodeConfigEnv sets OPENCODE_CONFIG to orchestrator/opencode-config.json
+// (alongside go.mod inside the canonical repo) so the spawned agent honors
+// the orchestrator's permission allowlist instead of opencode's defaults
+// (which auto-reject external_directory writes like /tmp/*).
+// Does not overwrite an explicit OPENCODE_CONFIG already set by the caller.
+func injectOpencodeConfigEnv(env map[string]string, repoPath string) map[string]string {
+	if env == nil {
+		env = map[string]string{}
+	}
+	if _, exists := env["OPENCODE_CONFIG"]; exists {
+		return env
+	}
+	env["OPENCODE_CONFIG"] = repoPath + "/orchestrator/opencode-config.json"
+	return env
 }
 
 // appendOpencodeStageFlags adds the per-stage flags opencode needs to
