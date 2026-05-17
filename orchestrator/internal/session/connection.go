@@ -55,8 +55,16 @@ type connection struct {
 	buffer       []BufferedEvent
 	exitReceived bool
 	exitCode     *int
+	beadID       string
 	mu           sync.Mutex
 	nextListener uint64
+}
+
+// ActiveSession is returned by ListActiveSessions.
+type ActiveSession struct {
+	SessionID string `json:"sessionId"`
+	BeadID    string `json:"beadId"`
+	Exited    bool   `json:"exited"`
 }
 
 type SessionConnectionManager struct {
@@ -171,6 +179,10 @@ func (m *SessionConnectionManager) HandleEvent(sessionID string, evt TerminalEve
 
 func (m *SessionConnectionManager) handleEventForConn(conn *connection, sessionID string, evt TerminalEvent) {
 	conn.mu.Lock()
+
+	if conn.beadID == "" && evt.BeadID != "" {
+		conn.beadID = evt.BeadID
+	}
 
 	if len(conn.buffer) < maxConnectionBuffer {
 		conn.buffer = append(conn.buffer, BufferedEvent{
@@ -399,6 +411,32 @@ func (m *SessionConnectionManager) GetConnectedIDs() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// ListActiveSessions returns all sessions that have at least one buffered event,
+// with their associated beadID and exit status.
+func (m *SessionConnectionManager) ListActiveSessions() []ActiveSession {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make([]ActiveSession, 0, len(m.connections))
+	for id, conn := range m.connections {
+		conn.mu.Lock()
+		beadID := conn.beadID
+		exited := conn.exitReceived
+		hasEvents := len(conn.buffer) > 0
+		conn.mu.Unlock()
+
+		if !hasEvents {
+			continue
+		}
+		out = append(out, ActiveSession{
+			SessionID: id,
+			BeadID:    beadID,
+			Exited:    exited,
+		})
+	}
+	return out
 }
 
 // StartSync connects to all currently running sessions.

@@ -19,6 +19,18 @@ func RegisterEpicRoutes(mux *http.ServeMux, a *app.App) {
 		}
 		serveEpicSSE(w, r, a.EpicEvents, epicID)
 	})
+
+	mux.HandleFunc("GET /api/epics/{id}/sessions", func(w http.ResponseWriter, r *http.Request) {
+		if a.SCM == nil {
+			http.Error(w, "session manager not configured", http.StatusInternalServerError)
+			return
+		}
+		sessions := a.SCM.ListActiveSessions()
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(sessions); err != nil {
+			slog.Error("epics/sessions encode", "error", err)
+		}
+	})
 }
 
 func serveEpicSSE(w http.ResponseWriter, r *http.Request, hub *epic.EpicEventHub, epicID string) {

@@ -1,3 +1,4 @@
+update_binary.sh
 orchestrator/web/node_modules/
 *.jsonl
 __pycache__/
