@@ -26,7 +26,11 @@ const (
 	lockWaitTimeoutSig     = "Timed out waiting for bd repo lock"
 	commandTimeoutSig      = "bd command timed out after"
 
-	defaultCommandTimeoutMs = 5000
+	// Bumped from 5000ms after the kernl-npp run on 2026-05-17 showed
+	// `bd list --json` for a multi-child epic with sibling deps taking
+	// 6–10s under concurrent agent activity. Overridable per-call via
+	// ExecOptions.TimeoutMs or globally via KERNL_BD_TIMEOUT_MS.
+	defaultCommandTimeoutMs = 30000
 	defaultLockStaleMs      = 600000
 
 	maxTimeoutRetries = 1
