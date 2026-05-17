@@ -47,14 +47,17 @@ func runBeadCmd(a *app.App, args []string) error {
 	}
 	repoPath := a.Config.Registry.Repos[0].Path
 
-	fmt.Printf("bead %s → implementing\n", beadID)
-	fmt.Printf("agent opencode spawned\n")
+	input, err := app.ResolveAgentForBead(a.Config, a.Backend, beadID, repoPath)
+	if err != nil {
+		return err
+	}
+	input.BeadID = beadID
+	input.RepoPath = repoPath
 
-	res, err := a.Driver.RunBead(context.Background(), app.RunBeadInput{
-		BeadID:   beadID,
-		RepoPath: repoPath,
-		AgentID:  "opencode",
-	})
+	fmt.Printf("bead %s → implementing\n", beadID)
+	fmt.Printf("agent %s spawned (cmd: %s args: %v)\n", input.AgentName, input.Command, input.Args)
+
+	res, err := a.Driver.RunBead(context.Background(), input)
 	if err != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: running bead %s: %w", beadID, err)
 	}

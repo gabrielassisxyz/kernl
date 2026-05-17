@@ -360,7 +360,10 @@ func BuiltinProfileDescriptor(profileID string) WorkflowDescriptor {
 	return m["autopilot"]
 }
 
-func resolveWorkflow(bead *Bead) WorkflowDescriptor {
+// ResolveWorkflow returns the WorkflowDescriptor for a bead, defaulting to
+// the "autopilot" built-in profile when the bead has no explicit profile or
+// workflow ID.
+func ResolveWorkflow(bead *Bead) WorkflowDescriptor {
 	profileID := bead.ProfileID
 	if profileID == "" {
 		profileID = bead.WorkflowID
@@ -495,7 +498,7 @@ func NextBead(backend BackendPort, beadID string, expectedState string, repoPath
 		return nil, stateMismatchError(beadID, expectedState, bead.State)
 	}
 
-	wf := resolveWorkflow(bead)
+	wf := ResolveWorkflow(bead)
 	target, ok := ForwardTransitionTarget(bead.State, wf)
 	if !ok {
 		if isTerminalState(bead.State, wf) {
@@ -521,7 +524,7 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 		return nil, fmt.Errorf("Bead %s not found", beadID)
 	}
 
-	wf := resolveWorkflow(bead)
+	wf := ResolveWorkflow(bead)
 	resolved, resolveErr := ResolveStepForWorkflow(bead.State, wf)
 	if resolveErr != nil || resolved.Phase != StepPhaseQueued {
 		return nil, stateMismatchError(beadID, "queued", bead.State)

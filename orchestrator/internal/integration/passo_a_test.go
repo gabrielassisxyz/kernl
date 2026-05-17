@@ -16,11 +16,13 @@ func TestPassoA_SingleBeadRealOpencode(t *testing.T) {
 
 	beadID := h.SeedBead(t, "ready_for_implementation")
 	a := h.App()
-	res, err := a.Driver.RunBead(context.Background(), app.RunBeadInput{
-		BeadID:   beadID,
-		RepoPath: h.RepoPath,
-		AgentID:  "opencode",
-	})
+	input, err := app.ResolveAgentForBead(a.Config, a.Backend, beadID, h.RepoPath)
+	if err != nil {
+		t.Fatalf("ResolveAgentForBead: %v", err)
+	}
+	input.BeadID = beadID
+	input.RepoPath = h.RepoPath
+	res, err := a.Driver.RunBead(context.Background(), input)
 	if err != nil {
 		t.Fatalf("RunBead: %v", err)
 	}

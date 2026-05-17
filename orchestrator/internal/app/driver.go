@@ -25,10 +25,21 @@ type DriverDeps struct {
 	SCM     *session.SessionConnectionManager
 }
 
+// RunBeadInput tells the driver which bead to run and which agent to spawn.
+//
+// Command is the agent CLI binary (e.g. "opencode"). Args are passed after it.
+// Env is exported into the spawned process if non-empty.
+// AgentName is the logical name of the agent (the key in settings.agents,
+// e.g. "deepseek-v4-pro-high") and is used for the session ID and logs —
+// distinct from the binary, which is the same `opencode` for every agent
+// when going through litellm.
 type RunBeadInput struct {
-	BeadID   string
-	RepoPath string
-	AgentID  string
+	BeadID    string
+	RepoPath  string
+	Command   string
+	Args      []string
+	Env       map[string]string
+	AgentName string
 }
 
 type RunBeadResult struct {
@@ -58,15 +69,24 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 	claimedState := bead.State
 
-	dialect := adapter.ResolveDialect(input.AgentID)
-	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), true)
-
-	proc, stdout, stderr, err := d.spawn(ctx, input.AgentID, nil, input.RepoPath, nil)
-	if err != nil {
-		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: spawn agent %s: %w", input.AgentID, err)
+	if input.Command == "" {
+		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: RunBeadInput.Command empty for bead %s — Fix: resolve an agent from settings.pools before calling RunBead", input.BeadID)
 	}
 
-	sessionID := fmt.Sprintf("%s-%s", input.BeadID, input.AgentID)
+	dialect := adapter.ResolveDialect(input.Command)
+	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), true)
+
+	envSlice := envMapToSlice(input.Env)
+	proc, stdout, stderr, err := d.spawn(ctx, input.Command, input.Args, input.RepoPath, envSlice)
+	if err != nil {
+		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: spawn agent %s (%s): %w", input.AgentName, input.Command, err)
+	}
+
+	agentLabel := input.AgentName
+	if agentLabel == "" {
+		agentLabel = input.Command
+	}
+	sessionID := fmt.Sprintf("%s-%s", input.BeadID, agentLabel)
 	d.scm.Connect(sessionID)
 
 	r.Start(ctx, stdout, stderr)
@@ -195,4 +215,17 @@ func exitCodeFromErr(err error) int {
 		return 0
 	}
 	return 1
+}
+
+// envMapToSlice converts a map[KEY]VALUE to ["KEY=VALUE", ...] for exec.Cmd.
+// Returns nil for empty/nil input so SpawnFunc keeps the inherited environment.
+func envMapToSlice(env map[string]string) []string {
+	if len(env) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(env))
+	for k, v := range env {
+		out = append(out, k+"="+v)
+	}
+	return out
 }

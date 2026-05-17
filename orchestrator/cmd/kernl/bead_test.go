@@ -107,8 +107,19 @@ func TestRunBeadCmdInvokesDriver(t *testing.T) {
 	spawner := &testSpawner{}
 	d := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawner.Spawn, SCM: testSCM()})
 	a := &app.App{
-		Driver: d,
-		Config: &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}}},
+		Backend: be,
+		Driver:  d,
+		Config: &config.Config{
+			Settings: config.Settings{
+				Agents: map[string]config.AgentConfig{
+					"opencode": {Command: "opencode", Args: []string{"run", "--format", "json"}, Label: "opencode"},
+				},
+				Pools: map[string]config.PoolConfig{
+					"implementation": {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+				},
+			},
+			Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}},
+		},
 	}
 
 	err := runBeadWithApp(a, []string{"run", "kb-1"})
