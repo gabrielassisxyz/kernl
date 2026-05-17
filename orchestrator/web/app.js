@@ -1,13 +1,30 @@
 (function () {
-  var BEAD_STATES = {
-    queue:     { label: 'queue',     color: '#6b7280' },
-    active:    { label: 'active',    color: '#3b82f6' },
-    review:    { label: 'review',    color: '#f59e0b' },
-    approved:  { label: 'approved',  color: '#10b981' },
-    rejected:  { label: 'rejected',  color: '#ef4444' },
-    done:      { label: 'done',      color: '#8b5cf6' },
-    cancelled: { label: 'cancelled', color: '#9ca3af' }
+  // Visual category palette. Categories — not raw states — keep the mapping
+  // small and tolerant to workflow vocabulary changes (queued/active/review
+  // are the universal shapes; the workflow defines the verb).
+  var CATEGORY_STYLE = {
+    queued:    { color: '#6b7280' }, // gray — agent-claimable, waiting
+    active:    { color: '#3b82f6' }, // blue — agent working
+    review:    { color: '#f59e0b' }, // amber — under review
+    gate:      { color: '#ec4899' }, // pink — human/merger handoff
+    done:      { color: '#10b981' }, // green — terminal success
+    blocked:   { color: '#ef4444' }, // red — blocked / abandoned
+    unknown:   { color: '#9ca3af' }
   };
+
+  // Map a raw workflow state to one of the visual categories above.
+  // Lives in JS (not Go-shared) because color choices are pure UI concerns.
+  function classifyState(state) {
+    if (!state) return 'unknown';
+    var s = String(state).toLowerCase();
+    if (s === 'closed' || s === 'shipped' || s === 'done')         return 'done';
+    if (s === 'blocked' || s === 'abandoned' || s === 'cancelled' ||
+        s === 'rejected' || s === 'deferred')                       return 'blocked';
+    if (s === 'awaiting_integration' || s === 'awaiting_pr_review') return 'gate';
+    if (s.indexOf('_review') !== -1)                                return 'review';
+    if (s.indexOf('ready_for_') === 0 || s === 'open' || s === 'queue') return 'queued';
+    return 'active'; // planning / implementation / shipment / in_progress
+  }
 
   var el = {
     status:   document.getElementById('connection-status'),
@@ -31,12 +48,24 @@
     el.status.textContent = text;
   }
 
+  // Field accessor that tolerates both camelCase (json tags from Go) and
+  // PascalCase (struct field names) — events come both ways depending on
+  // who emits them.
+  function pick(obj /*, ...keys */) {
+    for (var i = 1; i < arguments.length; i++) {
+      var k = arguments[i];
+      if (obj && obj[k] != null && obj[k] !== '') return obj[k];
+    }
+    return '';
+  }
+
   function connectEpic(epicId) {
     disconnect();
+    setStatus('connecting', 'connecting…');
     var sseUrl = '/api/epics/' + encodeURIComponent(epicId) + '/events';
     source = new EventSource(sseUrl);
     source.onopen = function () {
-      setStatus('connected', 'connected');
+      setStatus('connected', 'connected · ' + epicId);
     };
     source.onmessage = function (e) {
       try {
@@ -46,7 +75,7 @@
     };
     source.onerror = function () {
       setStatus('disconnected', 'disconnected');
-      source.close();
+      if (source) source.close();
       source = null;
       startPolling();
     };
@@ -67,7 +96,10 @@
         .then(function (r) { return r.json(); })
         .then(function (list) {
           beads = {};
-          list.forEach(function (b) { beads[b.ID || b.id] = b; });
+          (list || []).forEach(function (b) {
+            var id = pick(b, 'id', 'ID');
+            if (id) beads[id] = b;
+          });
           render();
         })
         .catch(function () {});
@@ -85,30 +117,34 @@
     eventBuffer.push(evt);
     if (eventBuffer.length > 500) eventBuffer.shift();
 
-    if (evt.BeadID || evt.beadID) {
-      var bid = evt.BeadID || evt.beadID;
+    var bid = pick(evt, 'beadID', 'BeadID', 'beadId');
+    if (bid) {
+      var newState = pick(evt, 'newState', 'NewState', 'state', 'State', 'detail', 'Detail');
+      var title    = pick(evt, 'title', 'Title');
       if (!beads[bid]) {
-        beads[bid] = { ID: bid, Title: bid, State: evt.NewState || 'queue' };
+        beads[bid] = { id: bid, title: bid, state: newState || 'open' };
       }
-      if (evt.NewState) beads[bid].State = evt.NewState;
-      if (evt.Title) beads[bid].Title = evt.Title;
+      if (newState) beads[bid].state = newState;
+      if (title)    beads[bid].title = title;
     }
 
-    if (evt.SessionID || evt.sessionID) {
-      var sid = evt.SessionID || evt.sessionID;
+    var sid = pick(evt, 'sessionID', 'SessionID', 'sessionId');
+    if (sid) {
       sessions[sid] = {
         id: sid,
-        bead: evt.BeadID || evt.beadID || '',
-        agent: evt.Agent || evt.agent || '',
-        started: evt.Time || new Date().toISOString()
+        bead:    pick(evt, 'beadID', 'BeadID', 'beadId'),
+        agent:   pick(evt, 'agent', 'Agent'),
+        started: pick(evt, 'time', 'Time') || new Date().toISOString()
       };
     }
 
-    if (evt.Type === 'SessionError' || evt.type === 'session-error' || evt.error || evt.Error) {
-      var errMsg = evt.error || evt.Error || evt.Type || evt.type || 'unknown error';
+    var type = pick(evt, 'type', 'Type');
+    var errVal = pick(evt, 'error', 'Error');
+    if (type === 'SessionError' || type === 'session-error' || errVal) {
+      var errMsg = errVal || pick(evt, 'detail', 'Detail') || type || 'unknown error';
       errors.push({
-        time: evt.Time || new Date().toISOString(),
-        bead: evt.BeadID || evt.beadID || '',
+        time:    pick(evt, 'time', 'Time') || new Date().toISOString(),
+        bead:    pick(evt, 'beadID', 'BeadID', 'beadId'),
         message: errMsg
       });
       if (errors.length > 50) errors.shift();
@@ -132,11 +168,14 @@
     var html = '';
     ids.sort().forEach(function (id) {
       var b = beads[id];
-      var st = BEAD_STATES[b.State] || { label: b.State || 'unknown', color: '#9ca3af' };
-      html += '<div class="bead-card" style="border-left: 4px solid ' + st.color + '">'
+      var state = pick(b, 'state', 'State') || 'unknown';
+      var title = pick(b, 'title', 'Title');
+      var cat   = classifyState(state);
+      var style = CATEGORY_STYLE[cat] || CATEGORY_STYLE.unknown;
+      html += '<div class="bead-card" style="border-left: 4px solid ' + style.color + '">'
         + '<span class="bead-id">' + esc(id) + '</span>'
-        + '<span class="bead-state" style="color:' + st.color + '">' + esc(st.label) + '</span>'
-        + '<span class="bead-title">' + esc(b.Title || '') + '</span>'
+        + '<span class="bead-state" style="color:' + style.color + '" title="' + esc(cat) + '">' + esc(state) + '</span>'
+        + '<span class="bead-title">' + esc(title) + '</span>'
         + '</div>';
     });
     el.beadList.innerHTML = html;
@@ -194,11 +233,29 @@
     }
   });
 
+  // Initial bead snapshot.
   fetch('/api/beads')
     .then(function (r) { return r.json(); })
     .then(function (list) {
-      list.forEach(function (b) { beads[b.ID || b.id] = b; });
+      (list || []).forEach(function (b) {
+        var id = pick(b, 'id', 'ID');
+        if (id) beads[id] = b;
+      });
       render();
     })
     .catch(function () {});
+
+  // Auto-connect when ?epic=<id> is in the URL. `kernl epic run` prints
+  // a URL with this param so the dashboard latches onto the active run
+  // without the user typing the ID by hand. Also accepts /?epic=<id> or
+  // a hash fragment for paste-friendliness.
+  function autoConnectFromURL() {
+    var fromQuery = new URLSearchParams(window.location.search).get('epic');
+    var fromHash  = window.location.hash && window.location.hash.replace(/^#\/?(epic=)?/, '');
+    var epicId    = fromQuery || fromHash;
+    if (!epicId) return;
+    el.input.value = epicId;
+    connectEpic(epicId);
+  }
+  autoConnectFromURL();
 })();
