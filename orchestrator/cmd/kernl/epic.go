@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
@@ -15,6 +17,20 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 )
+
+// execGitRun shells out to `git -C <dir> <args...>` and returns stdout.
+// Used by WorktreeManager so each bead gets a real isolated git worktree
+// (not just an empty mkdir'd directory, which leaves agents nothing to
+// edit and was the cause of multiple "stuck at state" failures during
+// the kernl-npp MVP run on 2026-05-17).
+func execGitRun(dir string, args ...string) (string, error) {
+	cmdArgs := append([]string{"-C", dir}, args...)
+	out, err := exec.Command("git", cmdArgs...).CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(cmdArgs, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
 
 func runEpic(configPath string, args []string) error {
 	cfg, err := config.Load(configPath)
@@ -111,7 +127,20 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 
 	out(fmt.Sprintf("GUI em http://localhost:%d/?epic=%s\n", actualPort, epicID))
 
-	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, nil, nil)
+	// Only wire real git execution when the repo path is actually a git
+	// repo — hermetic tests use t.TempDir() which is not a git repo, and
+	// the worktree manager already has a no-git mkdir-only fallback for
+	// that case.
+	var gitRunForWM func(dir string, args ...string) (string, error)
+	if _, err := execGitRun(repoPath, "rev-parse", "--git-dir"); err == nil {
+		gitRunForWM = execGitRun
+	}
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, gitRunForWM, nil)
+	if gitRunForWM != nil {
+		if _, err := wm.EnsureEpicBranch(epicID); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot ensure epic branch for %s: %w", epicID, err)
+		}
+	}
 
 	ex := epic.NewExecutor(epic.ExecutorDeps{
 		Epic: ep,
