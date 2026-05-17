@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -90,6 +93,18 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	if err != nil {
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: spawn agent %s (%s): %w", input.AgentName, input.Command, err)
 	}
+
+	// Tee stdout+stderr to per-bead log files so stuck-state failures
+	// always leave forensic breadcrumbs. Best-effort: if the log dir
+	// can't be created or files can't be opened, the agent still runs;
+	// the logs are diagnostic, not load-bearing.
+	stdoutLogPath, stderrLogPath, closeLogs := openStageLogs(input.BeadID, input.AgentName)
+	stdout = io.TeeReader(stdout, stdoutLogPath.w)
+	stderr = io.TeeReader(stderr, stderrLogPath.w)
+	defer closeLogs()
+	slog.Info("agent log files opened",
+		"bead", input.BeadID, "agent", input.AgentName,
+		"stdout", stdoutLogPath.path, "stderr", stderrLogPath.path)
 
 	agentLabel := input.AgentName
 	if agentLabel == "" {
@@ -224,6 +239,55 @@ func exitCodeFromErr(err error) int {
 		return 0
 	}
 	return 1
+}
+
+// stageLog wraps a file writer with its filesystem path so callers can both
+// write to it and report where it lives.
+type stageLog struct {
+	path string
+	w    io.Writer
+}
+
+// discardLog is the fallback used when we cannot open a real log file —
+// the agent still runs, we just lose forensic data for this stage.
+var discardLog = stageLog{path: "(discarded — log open failed)", w: io.Discard}
+
+// openStageLogs opens per-bead per-agent stdout/stderr log files under
+// ~/.kernl/logs/<bead>/<timestamp>-<agent>.{stdout,stderr}.log. Always
+// returns usable stageLogs (real files or io.Discard) plus a single
+// close func the caller must defer.
+func openStageLogs(beadID, agentName string) (stageLog, stageLog, func()) {
+	closers := []func() error{}
+	closeAll := func() {
+		for _, c := range closers {
+			_ = c()
+		}
+	}
+
+	logDir := filepath.Join(os.Getenv("HOME"), ".kernl", "logs", beadID)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		slog.Warn("agent log dir create failed; logs will be discarded",
+			"dir", logDir, "error", err)
+		return discardLog, discardLog, closeAll
+	}
+
+	ts := time.Now().Format("20060102-150405")
+	agent := agentName
+	if agent == "" {
+		agent = "agent"
+	}
+	mkLog := func(stream string) stageLog {
+		p := filepath.Join(logDir, fmt.Sprintf("%s-%s.%s.log", ts, agent, stream))
+		f, err := os.Create(p)
+		if err != nil {
+			slog.Warn("agent log file create failed; stream discarded",
+				"path", p, "error", err)
+			return discardLog
+		}
+		closers = append(closers, f.Close)
+		return stageLog{path: p, w: f}
+	}
+	return mkLog("stdout"), mkLog("stderr"), closeAll
 }
 
 // envMapToSlice converts a map[KEY]VALUE to ["KEY=VALUE", ...] for exec.Cmd.
