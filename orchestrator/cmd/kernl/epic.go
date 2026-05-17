@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -153,7 +154,18 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 				RepoPath: repoPath,
 				Worktree: in.Worktree,
 				Log: func(stage int, state string) {
-					out(fmt.Sprintf("bead %s [stage %d] %s\n", in.BeadID, stage, state))
+					ts := time.Now().Format("15:04:05")
+					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
+					// Republish the per-stage state through the epic hub so
+					// SSE-subscribed clients (the dashboard) see workflow
+					// progress in real time, not only at bead completion.
+					a.EpicEvents.Publish(epic.EpicEvent{
+						Type:   epic.BeadStateChanged,
+						EpicID: ep.ID,
+						BeadID: in.BeadID,
+						Detail: state,
+						Time:   time.Now().Unix(),
+					})
 				},
 			})
 			if err != nil {
@@ -166,7 +178,8 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		Emit: func(ev epic.EpicEvent) {
 			a.EpicEvents.Publish(ev)
 			if ev.Type == epic.BeadStateChanged {
-				out(fmt.Sprintf("bead %s → %s\n", ev.BeadID, ev.Detail))
+				ts := time.Now().Format("15:04:05")
+				out(fmt.Sprintf("[%s] bead %s → %s\n", ts, ev.BeadID, ev.Detail))
 			}
 		},
 	})
