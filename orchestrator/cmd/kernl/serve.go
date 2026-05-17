@@ -43,7 +43,7 @@ func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
 	return sweep.New(adapter, ghAdapter, sweepCfg), nil
 }
 
-func runServe(configPath string) error {
+func runServe(configPath string, port int) error {
 	logLevel := os.Getenv("KERNL_LOG_LEVEL")
 	logging.Init(logLevel)
 
@@ -64,10 +64,13 @@ func runServe(configPath string) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: loading config %s: %w", configPath, err)
 	}
 
-	port := strconv.Itoa(cfg.Server.Port)
-	if port == "0" {
-		port = "8080"
+	srvPort := cfg.Server.Port
+	if port > 0 {
+		srvPort = port
+	} else if srvPort == 0 {
+		srvPort = 8080
 	}
+	portStr := strconv.Itoa(srvPort)
 
 	a, err := app.NewApp(cfg)
 	if err != nil {
@@ -77,7 +80,7 @@ func runServe(configPath string) error {
 	handler := api.NewRouter(a)
 
 	srv := &http.Server{
-		Addr:         ":" + port,
+		Addr:         ":" + portStr,
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
@@ -88,7 +91,7 @@ func runServe(configPath string) error {
 	defer stop()
 
 	go func() {
-		fmt.Printf("kernl serving — API http://localhost:%s\n", port)
+		fmt.Printf("kernl serving — API http://localhost:%s\n", portStr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
