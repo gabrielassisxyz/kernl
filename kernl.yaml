@@ -27,13 +27,13 @@ settings:
       label: deepseek-v4-pro-high
       approvalMode: auto
 
-    kimi-k2-6:
+    kimi-k2.6:
       command: opencode
       args: ["run", "--format", "json"]
       type: claude
       vendor: anthropic
-      model: litellm/kimi-k2-6
-      label: kimi-k2-6
+      model: litellm/kimi-k2.6
+      label: kimi-k2.6
       approvalMode: auto
 
   # Workflow-step pools. Consumed by dispatch.SelectStepAgent based on the bead's
@@ -46,7 +46,7 @@ settings:
 
     plan_review:
       agents:
-        - agentId: kimi-k2-6
+        - agentId: kimi-k2.6
           weight: 1
 
     implementation:
@@ -56,7 +56,7 @@ settings:
 
     implementation_review:
       agents:
-        - agentId: kimi-k2-6
+        - agentId: kimi-k2.6
           weight: 1
 
     shipment:
@@ -66,7 +66,7 @@ settings:
 
     shipment_review:
       agents:
-        - agentId: kimi-k2-6
+        - agentId: kimi-k2.6
           weight: 1
 
   # Single-agent actions (not pools). Each value is one agentId from
