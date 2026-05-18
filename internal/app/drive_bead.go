@@ -75,14 +75,19 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		}
 
 		wf := backend.ResolveWorkflow(bead)
+		slog.Info("DRIVE_TRACE iter top", "bead", deps.BeadID, "iter", i, "state", bead.State, "prevState", prevState, "profile", wf.ID)
 
 		if isWorkflowTerminal(bead.State, wf) {
+			slog.Info("DRIVE_TRACE return terminal", "bead", deps.BeadID, "iter", i, "state", bead.State)
 			return RunBeadResult{FinalState: bead.State, Success: true}, nil
 		}
 		if isHumanGateOrHandoff(bead.State, wf) {
+			runtime := backend.DeriveWorkflowRuntimeState(wf, bead.State)
+			slog.Info("DRIVE_TRACE return human-gate", "bead", deps.BeadID, "iter", i, "state", bead.State, "owner", runtime.NextActionOwnerKind, "reqHuman", runtime.RequiresHumanAction)
 			return RunBeadResult{FinalState: bead.State, Success: true}, nil
 		}
 		if bead.State == string(workflow.StatusBlocked) {
+			slog.Info("DRIVE_TRACE return blocked", "bead", deps.BeadID, "iter", i)
 			return RunBeadResult{FinalState: bead.State, Success: false}, nil
 		}
 
@@ -122,6 +127,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		// claiming again from an active state would mask agent failures.
 		runtime := backend.DeriveWorkflowRuntimeState(wf, bead.State)
 		activeState := bead.State
+		slog.Info("DRIVE_TRACE pre-claim", "bead", deps.BeadID, "iter", i, "state", bead.State, "claimable", runtime.IsAgentClaimable, "owner", runtime.NextActionOwnerKind, "agent", agentInput.AgentName)
 		if runtime.IsAgentClaimable {
 			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
 			if ok {
@@ -131,10 +137,12 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					State:     nextState,
 					SetLabels: newLabels,
 				}, deps.RepoPath); err != nil {
+					slog.Info("DRIVE_TRACE return claim-failed", "bead", deps.BeadID, "iter", i, "from", bead.State, "to", nextState, "err", err)
 					return RunBeadResult{FinalState: bead.State, Success: false},
 						fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s: %w", deps.BeadID, bead.State, nextState, err)
 				}
 				activeState = nextState
+				slog.Info("DRIVE_TRACE claimed", "bead", deps.BeadID, "iter", i, "from", bead.State, "to", nextState)
 			}
 		}
 
@@ -160,14 +168,27 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		agentInput.RepoPath = deps.RepoPath
 		agentInput.Cwd = deps.Worktree
 
+		// Expose canonical bead coords to the spawned agent as env vars so
+		// agent-side scripts (e.g. fake-agent shims, nudge receivers) can
+		// read/write bd without re-parsing CLI flags.
+		if agentInput.Env == nil {
+			agentInput.Env = make(map[string]string)
+		}
+		agentInput.Env["BEAD_ID"] = deps.BeadID
+		agentInput.Env["REPO_PATH"] = deps.RepoPath
+
+		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
 		if err != nil {
+			slog.Info("DRIVE_TRACE return agent-err", "bead", deps.BeadID, "iter", i, "err", err)
 			return RunBeadResult{FinalState: res.FinalState, Success: false},
 				fmt.Errorf("KERNL DISPATCH FAILURE: agent %s for bead %s: %w", agentInput.AgentName, deps.BeadID, err)
 		}
 		if !res.Success {
+			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
 		}
+		slog.Info("DRIVE_TRACE post-spawn ok", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState, "willPrevState", bead.State)
 
 		lastResult = res
 		prevState = bead.State
@@ -250,16 +271,16 @@ func buildRetryPrompt(beadID, currentState, nextState, repoPath string) string {
 		return fmt.Sprintf(
 			"Your previous turn ended without running `bd update --status`. "+
 				"Bead %s is still at %q. Run the required `bd update --status` command now and exit. "+
-				"If you cannot complete the work, run: bd update --status blocked --repo %s %s",
+				"If you cannot complete the work, run: bd -C %s update %s --status blocked",
 			beadID, currentState, repoPath, beadID,
 		)
 	}
 	return fmt.Sprintf(
 		"Your previous turn ended without running `bd update --status %s`. "+
-			"Do that command now and exit: bd update --status %s --repo %s %s\n"+
+			"Do that command now and exit: bd -C %s update %s --status %s\n"+
 			"If you cannot complete the work, write _scratch/STAGE_BLOCKED.md and run: "+
-			"bd update --status blocked --repo %s %s",
-		nextState, nextState, repoPath, beadID,
+			"bd -C %s update %s --status blocked",
+		nextState, repoPath, beadID, nextState,
 		repoPath, beadID,
 	)
 }
