@@ -39,8 +39,8 @@ type DriverDeps struct {
 // when going through litellm.
 type RunBeadInput struct {
 	BeadID    string
-	// RepoPath is the canonical bd-tracked repo — passed to every backend call.
-	RepoPath  string
+	// RepoPath is the canonical bd-tracked repo -- passed to every backend call.
+	RepoPath string
 	// Cwd is the working directory for the spawned agent process. Defaults to
 	// RepoPath when empty. Set this to the bead's isolated worktree so the
 	// agent edits files in isolation while bd reads/writes stay on the repo.
@@ -49,6 +49,11 @@ type RunBeadInput struct {
 	Args      []string
 	Env       map[string]string
 	AgentName string
+	// SessionID is the opencode session to resume via -s. When non-empty
+	// the driver passes it through appendOpencodeStageFlags so the agent
+	// reconnects to its existing conversation context instead of starting
+	// a brand-new session.
+	SessionID string
 }
 
 type RunBeadResult struct {
