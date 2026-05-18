@@ -27,6 +27,7 @@ type BackendPort interface {
 	ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error)
 	BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error)
 	BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error)
+	Comment(id string, body string, repoPath string) error
 	Capabilities() BackendCapabilities
 }
 
@@ -64,6 +65,12 @@ type WorkflowDescriptor struct {
 	ActionStates     []string                     `json:"actionStates,omitempty"`
 	ReviewQueueStates []string                    `json:"reviewQueueStates,omitempty"`
 	HumanQueueStates  []string                    `json:"humanQueueStates,omitempty"`
+	ExitGates         map[string]WorkflowExitGate `json:"exitGates,omitempty"`
+}
+
+type WorkflowExitGate struct {
+	Type string `json:"type"`
+	Path string `json:"path,omitempty"`
 }
 
 type WorkflowTransition struct {

@@ -144,6 +144,7 @@ func (f *fakeBeadBackend) BuildPollPrompt(_ *backend.PollPromptOptions, _ string
 func (f *fakeBeadBackend) ListWorkflows(_ string) ([]backend.WorkflowDescriptor, error) {
 	return nil, nil
 }
+func (f *fakeBeadBackend) Comment(_ string, _ string, _ string) error { return nil }
 func (f *fakeBeadBackend) Capabilities() backend.BackendCapabilities {
 	return backend.BackendCapabilities{}
 }

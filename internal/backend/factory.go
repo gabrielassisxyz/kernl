@@ -268,6 +268,14 @@ func (a *AutoRoutingBackend) BuildPollPrompt(options *PollPromptOptions, repoPat
 	return backend.BuildPollPrompt(options, repoPath)
 }
 
+func (a *AutoRoutingBackend) Comment(id string, body string, repoPath string) error {
+	backend, err := a.backendFor("comment", repoPath)
+	if err != nil {
+		return err
+	}
+	return backend.Comment(id, body, repoPath)
+}
+
 func (a *AutoRoutingBackend) Capabilities() BackendCapabilities {
 	return FullCapabilities
 }

@@ -85,6 +85,7 @@ func (s *stubRollbackBackend) BuildTakePrompt(beadID string, options *backend.Ta
 func (s *stubRollbackBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
+func (s *stubRollbackBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (s *stubRollbackBackend) Capabilities() backend.BackendCapabilities {
 	return backend.BackendCapabilities{}
 }

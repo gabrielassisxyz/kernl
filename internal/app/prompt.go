@@ -8,16 +8,12 @@ import (
 )
 
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
-// at one workflow stage. Mirrors scripts/swarm/swarm_parallel.py:build_prompt
-// in spirit — the agent receives the bead's intent plus the operating rules
-// it must obey, including the bd status advancement that ends the stage.
+// at one workflow stage.
 //
-// nextState is the workflow state the agent must transition to when the
-// stage's work is done; empty means there is no forward transition (the
-// agent should leave the bead at its current state).
+// nextState is the workflow state the orchestrator will advance to when the
+// agent exits cleanly; empty means there is no forward transition.
 //
-// repoPath is the canonical bd repo (NOT the worktree) — that is where
-// `bd update --status` will run when the agent completes.
+// repoPath is the canonical bd repo (NOT the worktree).
 func BuildBeadStagePrompt(bead *backend.Bead, currentState, nextState, repoPath, worktree string) string {
 	var b strings.Builder
 
@@ -29,11 +25,7 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState, nextState, repoPath,
 
 	b.WriteString("## Stage\n\n")
 	fmt.Fprintf(&b, "- Current workflow state: `%s`\n", currentState)
-	if nextState != "" {
-		fmt.Fprintf(&b, "- On success, advance the bead to: `%s`\n", nextState)
-	} else {
-		b.WriteString("- This stage has no forward transition; finish your work and exit.\n")
-	}
+	b.WriteString("- The orchestrator will advance the bead when your stage completes.\n")
 	b.WriteString("\n")
 
 	b.WriteString("## Steps (verbatim from the bead description)\n\n")
@@ -64,21 +56,8 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState, nextState, repoPath,
 	b.WriteString("   ```bash\n")
 	b.WriteString("   git add -A && git commit -m \"<conventional message>\"\n")
 	b.WriteString("   ```\n")
-	b.WriteString("7. DO NOT push. DO NOT switch branches. DO NOT touch `master`. DO NOT run `bd close` — the orchestrator does that.\n")
-
-	if nextState != "" {
-		b.WriteString("\n## 🚨 END-OF-STAGE PROTOCOL — DO NOT SKIP 🚨\n\n")
-		b.WriteString("**Before exiting this session, you MUST run this command verbatim:**\n")
-		b.WriteString("```bash\n")
-		fmt.Fprintf(&b, "bd -C %s update %s --status %s\n", repoPath, bead.ID, nextState)
-		b.WriteString("```\n\n")
-		b.WriteString("This is non-negotiable. The orchestrator polls bd; if the status does not advance, the bead is marked **blocked** and your entire session's work is discarded as 'stuck'. ")
-		b.WriteString("If you genuinely cannot complete the stage:\n")
-		b.WriteString("- Write a file `./_scratch/STAGE_BLOCKED.md` inside the worktree explaining what blocked you and what you tried\n")
-		b.WriteString("- Commit it (`git add -A && git commit -m \"chore: stage blocked\"`)\n")
-		fmt.Fprintf(&b, "- Then still run `bd -C %s update %s --status blocked` so the orchestrator marks it human-needed instead of stuck\n", repoPath, bead.ID)
-		b.WriteString("\nExiting without one of these two commands is the single most common failure mode. **Do not exit until one of them returns exit 0.**\n\n")
-	}
+	b.WriteString("7. Do not run `bd update`, `bd close`, or `bd open`. The orchestrator advances the bead when your stage completes.\n")
+	b.WriteString("8. DO NOT push. DO NOT switch branches. DO NOT touch `master`.\n\n")
 	b.WriteString("If a tool call is auto-rejected (e.g. 'permission requested: external_directory'), STOP and switch to an in-worktree path immediately — do NOT keep retrying the rejected path; the rejection means opencode will not allow it this session.\n\n")
 	b.WriteString("If you cannot proceed because of a missing dependency, fail loud with a descriptive error and stop. Do not invent stubs.\n\n")
 
@@ -89,7 +68,7 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState, nextState, repoPath,
 		fmt.Fprintf(&b, "- Type: `%s`\n", bead.Type)
 	}
 	fmt.Fprintf(&b, "- Worktree: `%s`\n", worktree)
-	fmt.Fprintf(&b, "- Canonical bd repo (for `bd update`): `%s`\n", repoPath)
+	fmt.Fprintf(&b, "- Canonical bd repo: `%s`\n", repoPath)
 
 	return b.String()
 }

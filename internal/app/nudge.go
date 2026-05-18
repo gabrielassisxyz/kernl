@@ -98,7 +98,7 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	if err != nil {
 		return fmt.Errorf("nudge: resolve agent for %s: %w", rec.BeadID, err)
 	}
-	agentInput.Args = appendOpencodeRetryFlags(agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
+	agentInput.Args = appendOpencodeStageFlags(agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
 	agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, rec.RepoPath)
 	agentInput.BeadID = rec.BeadID
 	agentInput.RepoPath = rec.RepoPath
