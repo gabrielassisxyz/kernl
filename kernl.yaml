@@ -9,24 +9,6 @@
 
 settings:
   agents:
-    deepseek-v4-pro-max:
-      command: opencode
-      args: ["run", "--format", "json"]
-      type: claude
-      vendor: anthropic
-      model: litellm/deepseek-v4-pro-max
-      label: deepseek-v4-pro-max
-      approvalMode: auto
-
-    deepseek-v4-pro-high:
-      command: opencode
-      args: ["run", "--format", "json"]
-      type: claude
-      vendor: anthropic
-      model: litellm/deepseek-v4-pro-high
-      label: deepseek-v4-pro-high
-      approvalMode: auto
-
     kimi-k2.6:
       command: opencode
       args: ["run", "--format", "json"]
@@ -41,7 +23,7 @@ settings:
   pools:
     planning:
       agents:
-        - agentId: deepseek-v4-pro-max
+        - agentId: kimi-k2.6
           weight: 1
 
     plan_review:
@@ -51,7 +33,7 @@ settings:
 
     implementation:
       agents:
-        - agentId: deepseek-v4-pro-high
+        - agentId: kimi-k2.6
           weight: 1
 
     implementation_review:
@@ -59,9 +41,19 @@ settings:
         - agentId: kimi-k2.6
           weight: 1
 
+    integration:
+      agents:
+        - agentId: kimi-k2.6
+          weight: 1
+
+    integration_review:
+      agents:
+        - agentId: kimi-k2.6
+          weight: 1
+
     shipment:
       agents:
-        - agentId: deepseek-v4-pro-max
+        - agentId: kimi-k2.6
           weight: 1
 
     shipment_review:
@@ -72,8 +64,8 @@ settings:
   # Single-agent actions (not pools). Each value is one agentId from
   # settings.agents above.
   actions:
-    scopeRefinement: kimi-k2-6
-    staleGrooming: kimi-k2-6
+    scopeRefinement: kimi-k2.6
+    staleGrooming: kimi-k2.6
 
   defaults:
     interactiveSessionTimeoutMinutes: 30

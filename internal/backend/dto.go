@@ -74,6 +74,10 @@ var workflowKnownStates = map[string]bool{
 	"implementation":                   true,
 	"ready_for_implementation_review": true,
 	"implementation_review":            true,
+	"ready_for_integration":           true,
+	"integration":                      true,
+	"ready_for_integration_review":    true,
+	"integration_review":               true,
 	"ready_for_shipment":              true,
 	"shipment":                         true,
 	"ready_for_shipment_review":       true,
@@ -416,9 +420,9 @@ func mapBeadStateToCompatStatus(state string) string {
 		return "blocked"
 	case "shipped", "abandoned", "closed", "done", "approved":
 		return "closed"
-	case "ready_for_implementation", "ready_for_planning", "ready_for_review":
+	case "ready_for_implementation", "ready_for_planning", "ready_for_review", "ready_for_integration", "ready_for_integration_review":
 		return "open"
-	case "planning", "implementation", "shipment_review", "plan_review":
+	case "planning", "implementation", "shipment_review", "plan_review", "integration", "integration_review":
 		return "in_progress"
 	default:
 		return "open"

@@ -45,6 +45,13 @@ func (f *fakeBackend) UpdateStatus(id string, s workflow.IssueStatus) error {
 	return nil
 }
 
+func (f *fakeBackend) UpdateState(id string, state string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.updates = append(f.updates, id+"->"+state)
+	return nil
+}
+
 func (f *fakeBackend) GetDescription(id string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -133,7 +140,7 @@ func TestMergeManager_RouteOutcome_Success(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := b.updates
-	want := []string{"c1->closed", "e1->awaiting_pr_review"}
+	want := []string{"e1->ready_for_integration"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
