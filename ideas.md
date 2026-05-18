@@ -6,7 +6,7 @@ Previously named `nexus` (repository can be seen at /home/gabriel/repositories/n
 ## Decided constraints (treat as fixed)
 
 - **Backend:** Go (chosen for determinism, LLM-friendliness, native concurrency via goroutines)
-- **Frontend:** Vue 3 + Nuxt (progressive, template-based, Vite-native)
+- **Frontend:** Vue 3 + Nuxt (progressive, template-based, Nuxt)
 - **Database:** SQLite (local-first, personal tool)
 - **CSS:** Tailwind v4 + DaisyUI v5, dark theme only
 - **Real-time:** SSE or WebSocket

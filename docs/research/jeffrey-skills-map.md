@@ -131,7 +131,7 @@ Skills pra usar **enquanto construindo o kernl**.
 
 ## D. Pra quando a GUI Vue/TUI aterrissar
 
-A STRATEGY menciona Vue 3 + Nuxt e TUI Bubble Tea (deferred). Backlog item: "GUI inicial com Vue".
+A STRATEGY menciona Vue 3 + Nuxt (VISION §12). Backlog item: "GUI inicial com Vue".
 
 - **`tui-glamorous`** — Bubble Tea (Go TUI) — direct fit se a TUI vier.
 - **`tui-inspector`** — TUI debugging.

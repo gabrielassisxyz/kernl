@@ -1,5 +1,5 @@
 # Orchestration Behavioral Contract Specification — Go Port
-> Extracted from TypeScript Foolery test suite. This document states WHAT the Go backend must do, not HOW the TypeScript implementation does it.
+> Authoritative behavioral contract for the Go backend. This document states WHAT the Go backend must do. Historical provenance: contracts originally inferred from the TypeScript Foolery test suite.
 
 ---
 

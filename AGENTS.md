@@ -98,7 +98,7 @@ When generating a plan, ADR, or Beads epics, execute this loop:
 ## 11. Session Completion (Exit Checklist)
 Work is NOT complete until tests pass and `git push` succeeds.
 1. File issues for remaining work via `bd`.
-2. Update the Memory Bank (`activeContext.md`, `progress.md`) before stopping.
+2. Update the dev session notes (`activeContext.md`, `progress.md`) before stopping.
 3. Run quality gates (`go vet ./...`, `go test ./...`, `golangci-lint run`).
 4. `git pull --rebase` -> `git push`.
 

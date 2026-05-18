@@ -1,6 +1,6 @@
 # Kernl System Architecture & Cross-Domain Contracts
 
-This document synthesizes the system-wide behavioral contracts and component interactions across all domains (backend, session, dispatch, prompt, transport, orchestration). It is derived from the TypeScript Foolery test suite and serves as the authoritative blueprint for the Go port, now re-aligned with the kernl-native workflow (see §2.6 and §3).
+This document synthesizes the system-wide behavioral contracts and component interactions across all domains (backend, session, dispatch, prompt, transport, orchestration). It is the authoritative blueprint for the Go backend. Historical provenance: contracts originally inferred from the TypeScript Foolery test suite; the Go port now re-aligned with the kernl-native workflow (see §2.6 and §3).
 
 > **Principle:** Every contract below is what the Go port MUST preserve. Implementation choices (goroutines vs. event emitters, channels vs. callbacks) are secondary to the observable behavior.
 
