@@ -368,7 +368,7 @@ func TestForwardTransitionTarget_AutopilotTransitions(t *testing.T) {
 		{"ready_for_implementation", "implementation", true},
 		{"implementation", "ready_for_implementation_review", true},
 		{"ready_for_implementation_review", "implementation_review", true},
-		{"implementation_review", "ready_for_shipment", true},
+		{"implementation_review", "ready_for_integration", true},
 		{"ready_for_shipment", "shipment", true},
 		{"shipment", "ready_for_shipment_review", true},
 		{"ready_for_shipment_review", "shipment_review", true},

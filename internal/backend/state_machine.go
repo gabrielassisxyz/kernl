@@ -56,6 +56,8 @@ var agentOwners = map[string]ActionOwnerKind{
 	"plan_review":             ActionOwnerAgent,
 	"implementation":          ActionOwnerAgent,
 	"implementation_review":   ActionOwnerAgent,
+	"integration":             ActionOwnerAgent,
+	"integration_review":      ActionOwnerAgent,
 	"shipment":                ActionOwnerAgent,
 	"shipment_review":         ActionOwnerAgent,
 }
@@ -65,21 +67,38 @@ var semiautoOwners = map[string]ActionOwnerKind{
 	"plan_review":             ActionOwnerHuman,
 	"implementation":          ActionOwnerAgent,
 	"implementation_review":   ActionOwnerHuman,
+	"integration":             ActionOwnerAgent,
+	"integration_review":      ActionOwnerAgent,
 	"shipment":                ActionOwnerAgent,
 	"shipment_review":         ActionOwnerAgent,
 }
 
 type profileConfig struct {
-	ID                      string
-	DisplayName             string
-	Description             string
-	PlanningMode            string
+	ID                       string
+	DisplayName              string
+	Description              string
+	PlanningMode             string
 	ImplementationReviewMode string
-	Output                  string
-	Owners                  map[string]ActionOwnerKind
+	Output                   string
+	Owners                   map[string]ActionOwnerKind
+	InitialState             string // override; empty means compute from PlanningMode
 }
 
 var builtinProfiles = []profileConfig{
+	{
+		ID:                       "epic",
+		DisplayName:              "Epic",
+		Description:              "Epic lifecycle: integration, integration review, shipment, shipment review",
+		PlanningMode:             "skipped",
+		ImplementationReviewMode: "skipped",
+		Output:                   "pr",
+		Owners: map[string]ActionOwnerKind{
+			"integration":        ActionOwnerAgent,
+			"integration_review": ActionOwnerAgent,
+			"shipment":           ActionOwnerAgent,
+			"shipment_review":    ActionOwnerAgent,
+		},
+	},
 	{
 		ID:                      "autopilot",
 		DisplayName:             "Autopilot",
@@ -146,8 +165,13 @@ func canonicalTransitions() []WorkflowTransition {
 		{From: "ready_for_implementation", To: "implementation"},
 		{From: "implementation", To: "ready_for_implementation_review"},
 		{From: "ready_for_implementation_review", To: "implementation_review"},
-		{From: "implementation_review", To: "ready_for_shipment"},
+		{From: "implementation_review", To: "ready_for_integration"},
 		{From: "implementation_review", To: "ready_for_implementation"},
+		{From: "ready_for_integration", To: "integration"},
+		{From: "integration", To: "ready_for_integration_review"},
+		{From: "ready_for_integration_review", To: "integration_review"},
+		{From: "integration_review", To: "ready_for_shipment"},
+		{From: "integration_review", To: "ready_for_integration"},
 		{From: "ready_for_shipment", To: "shipment"},
 		{From: "shipment", To: "ready_for_shipment_review"},
 		{From: "ready_for_shipment_review", To: "shipment_review"},
@@ -165,6 +189,8 @@ func buildStates(cfg profileConfig) []string {
 		"ready_for_plan_review", "plan_review",
 		"ready_for_implementation", "implementation",
 		"ready_for_implementation_review", "implementation_review",
+		"ready_for_integration", "integration",
+		"ready_for_integration_review", "integration_review",
 		"ready_for_shipment", "shipment",
 		"ready_for_shipment_review", "shipment_review",
 		"shipped", "deferred", "abandoned",
@@ -199,7 +225,7 @@ func filterTransitions(states []string, cfg profileConfig) []WorkflowTransition 
 		ct = append(ct, WorkflowTransition{From: "ready_for_planning", To: "ready_for_implementation"})
 	}
 	if cfg.ImplementationReviewMode != "required" {
-		ct = append(ct, WorkflowTransition{From: "implementation", To: "ready_for_shipment"})
+		ct = append(ct, WorkflowTransition{From: "implementation", To: "ready_for_integration"})
 	}
 
 	for _, t := range ct {
@@ -263,7 +289,9 @@ func descriptorFromProfileConfig(cfg profileConfig) WorkflowDescriptor {
 	queueStates, actionStates, queueActions := deriveWorkflowStructureFromConfig(states, transitions, cfg.Owners, terminalStates)
 
 	initialState := "ready_for_planning"
-	if cfg.PlanningMode != "required" {
+	if cfg.InitialState != "" {
+		initialState = cfg.InitialState
+	} else if cfg.PlanningMode != "required" {
 		initialState = "ready_for_implementation"
 	}
 
@@ -387,11 +415,15 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 		"ready_for_implementation_review": 6,
 		"review":                         7,
 		"implementation_review":          7,
-		"ready_for_shipment":             8,
-		"shipment":                       9,
-		"ready_for_shipment_review":      10,
-		"shipment_review":                11,
-		"shipped":                        12,
+		"ready_for_integration":         8,
+		"integration":                    9,
+		"ready_for_integration_review":  10,
+		"integration_review":            11,
+		"ready_for_shipment":            12,
+		"shipment":                       13,
+		"ready_for_shipment_review":      14,
+		"shipment_review":                15,
+		"shipped":                        16,
 	}
 
 	for _, t := range wf.Transitions {

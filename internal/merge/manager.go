@@ -11,6 +11,7 @@ type Backend interface {
 	ListChildrenAwaitingIntegration(epicID string) ([]string, error)
 	CountChildren(epicID string) (int, error)
 	UpdateStatus(id string, s workflow.IssueStatus) error
+	UpdateState(id string, state string) error
 	GetDescription(id string) (string, error)
 }
 
@@ -88,7 +89,10 @@ func (m *Manager) RouteOutcome(epicID string) error {
 	}
 
 	switch outcome {
-	case OutcomeSuccess, OutcomePRAlreadyExists:
+	case OutcomeSuccess:
+		return m.b.UpdateState(epicID, "ready_for_integration")
+	case OutcomePRAlreadyExists:
+		// Legacy: if the merger somehow already had a PR, skip to awaiting_pr_review.
 		children, err := m.b.ListChildrenAwaitingIntegration(epicID)
 		if err != nil {
 			return err
