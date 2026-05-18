@@ -69,11 +69,31 @@ var workflowInitialStates = map[string]bool{
 	"ready_for_review":         true,
 }
 
+var workflowKnownStates = map[string]bool{
+	"ready_for_implementation":         true,
+	"implementation":                   true,
+	"ready_for_implementation_review": true,
+	"implementation_review":            true,
+	"ready_for_shipment":              true,
+	"shipment":                         true,
+	"ready_for_shipment_review":       true,
+	"shipment_review":                  true,
+	"shipped":                          true,
+	"ready_for_planning":              true,
+	"planning":                         true,
+	"ready_for_plan_review":           true,
+	"plan_review":                      true,
+	"deferred":                         true,
+	"blocked":                          true,
+}
+
 func defaultState(labels []string, rawStatus string) string {
-	for _, l := range labels {
-		if strings.HasPrefix(l, "wf:state:") {
-			return strings.TrimPrefix(l, "wf:state:")
-		}
+	// Prefer bd's real status when it is already a known workflow state.
+	// Agents update status via `bd update --status <next>` but may not
+	// touch labels, leaving wf:state:* labels stale. Trusting the
+	// authoritative bd status avoids infinite stuck-state loops.
+	if workflowKnownStates[rawStatus] {
+		return rawStatus
 	}
 	if workflowInitialStates[rawStatus] {
 		return rawStatus
@@ -83,6 +103,11 @@ func defaultState(labels []string, rawStatus string) string {
 	}
 	if rawStatus == "shipped" || rawStatus == "closed" || rawStatus == "done" || rawStatus == "abandoned" {
 		return rawStatus
+	}
+	for _, l := range labels {
+		if strings.HasPrefix(l, "wf:state:") {
+			return strings.TrimPrefix(l, "wf:state:")
+		}
 	}
 	return "ready_for_implementation"
 }
