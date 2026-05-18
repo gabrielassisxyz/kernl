@@ -66,11 +66,26 @@ type WorkflowDescriptor struct {
 	ReviewQueueStates []string                    `json:"reviewQueueStates,omitempty"`
 	HumanQueueStates  []string                    `json:"humanQueueStates,omitempty"`
 	ExitGates         map[string]WorkflowExitGate `json:"exitGates,omitempty"`
+	Stages            map[string]StageContract     `json:"stages,omitempty"`
 }
 
 type WorkflowExitGate struct {
 	Type string `json:"type"`
 	Path string `json:"path,omitempty"`
+}
+
+type StageContract struct {
+	Role           string        `json:"role"`
+	Inputs         []string      `json:"inputs,omitempty"`
+	OutputArtifact StageArtifact `json:"outputArtifact,omitempty"`
+	ForbiddenPaths []string      `json:"forbiddenPaths,omitempty"`
+}
+
+type StageArtifact struct {
+	Path         string `json:"path,omitempty"`
+	Kind         string `json:"kind,omitempty"`
+	CommitMarker string `json:"commitMarker,omitempty"`
+	MustEndWith  string `json:"mustEndWith,omitempty"`
 }
 
 type WorkflowTransition struct {
