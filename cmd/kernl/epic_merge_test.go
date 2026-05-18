@@ -103,6 +103,7 @@ func (b *mergeTestBackend) BuildTakePrompt(beadID string, options *backend.TakeP
 func (b *mergeTestBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
+func (b *mergeTestBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (b *mergeTestBackend) Capabilities() backend.BackendCapabilities {
 	return backend.BackendCapabilities{}
 }

@@ -462,16 +462,11 @@ func (k *KnotsBackend) BuildPollPrompt(options *PollPromptOptions, repoPath stri
 }
 
 func (k *KnotsBackend) Capabilities() BackendCapabilities {
-	return BackendCapabilities{
-		CanCreate:           true,
-		CanUpdate:           true,
-		CanDelete:           false,
-		CanClose:            true,
-		CanManageDependencies: true,
-		CanSearch:           true,
-		CanQuery:            true,
-		CanListReady:        true,
-	}
+	return FullCapabilities
+}
+
+func (k *KnotsBackend) Comment(id string, body string, repoPath string) error {
+	return fmt.Errorf("KERNL DISPATCH FAILURE: knots backend does not support comment")
 }
 
 func (k *KnotsBackend) resolveRepoPath() string {

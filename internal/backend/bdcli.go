@@ -381,6 +381,12 @@ func (b *BdCliBackend) BuildPollPrompt(options *PollPromptOptions, repoPath stri
 	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support buildPollPrompt; use scope refinement worker")
 }
 
+func (b *BdCliBackend) Comment(id string, body string, repoPath string) error {
+	args := withRepo(repoPath, "comment", id, body)
+	_, err := b.exec(context.Background(), args, nil)
+	return err
+}
+
 func (b *BdCliBackend) ExecWithNoDaemonFallback(ctx context.Context, args []string) (json.RawMessage, error) {
 	result, err := b.exec(ctx, args, nil)
 	if err != nil {

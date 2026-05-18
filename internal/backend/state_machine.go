@@ -2,6 +2,8 @@ package backend
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -438,6 +440,24 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 		return t.To, true
 	}
 	return "", false
+}
+
+func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID string) (passed bool, reason string) {
+	gate, ok := wf.ExitGates[fromState]
+	if !ok || gate.Type == "" || gate.Type == "agent_exit_zero" {
+		return true, ""
+	}
+	switch gate.Type {
+	case "artifact_exists":
+		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
+		abs := filepath.Join(worktreePath, resolved)
+		if _, err := os.Stat(abs); os.IsNotExist(err) {
+			return false, "artifact_missing: " + resolved
+		}
+		return true, ""
+	default:
+		return true, ""
+	}
 }
 
 func ResolveStepForWorkflow(state string, wf WorkflowDescriptor) (*ResolvedStep, error) {

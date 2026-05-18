@@ -516,27 +516,164 @@ Change 1  ──►  Change 2  ──►  Change 3
 Each change should be a separate PR / epic in bd. Land Change 1 and live
 on it for at least one full epic run before starting Change 2.
 
-## 5. Bead decomposition (suggested)
+## 5. Sequential implementation steps
 
-When converting this plan to beads via the standard converter, expect
-roughly:
+This plan is executed sequentially by a single implementer (not decomposed
+into beads). Complete every step in a change before moving to the next
+step; complete every step in a change before starting the next change.
 
-- **Epic A: Orchestrator-owned transitions** (Change 1)
-  - 1 planning bead (decompose into impl beads)
-  - 4–6 implementation beads (port.go, state_machine.go, drive_bead.go,
-    prompt.go, opencode_permissions.go, integration test)
-  - 1 plan_review bead, 1 implementation_review bead, 1 shipment bead
-- **Epic B: Per-stage contracts** (Change 2)
-  - 1 planning bead
-  - 6–8 implementation beads (descriptor schema, YAML parser, prompt
-    rewrite, permission translator, builtin descriptor authoring,
-    forbidden-paths sandbox wiring, fallback path, integration test)
-  - Reviews + shipment
-- **Epic C: Artifact handoff convention** (Change 3)
-  - 1 planning bead
-  - 3–4 implementation beads (drive_bead comment hook, gitignore
-    template, bd-comment adapter check, VISION update, integration test)
-  - Reviews + shipment
+### Change 1 — Orchestrator owns the full transition
+
+1. **Add the `ExitGate` field** to `WorkflowTransition` (or a sibling map
+   on `WorkflowDescriptor` if cleaner) in `internal/backend/port.go`.
+   Allowed values: `"agent_exit_zero"` (default) and `"artifact_exists"`.
+   Unknown values are a load-time error.
+2. **Implement `EvaluateExitGate`** in
+   `internal/backend/state_machine.go`. Signature:
+   `func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID string) (passed bool, reason string)`.
+   For `agent_exit_zero`: always `true`. For `artifact_exists`: requires
+   a per-state path template (allowed placeholder `<bead_id>`); returns
+   `false, "artifact_missing: <resolved-path>"` if the file does not
+   exist relative to `worktreePath`.
+3. **Wire post-spawn evaluation** in `internal/app/drive_bead.go`. After
+   `deps.Driver.RunBead` returns with `res.Success == true`, call
+   `EvaluateExitGate`. If passed → `deps.Backend.Update(beadID,
+   UpdateBeadInput{State: nextState, …})`. If failed → `Update` to
+   state `blocked` with a `bd comment` containing `gate_failed: <reason>`.
+4. **Make the orchestrator's `Update` idempotent for the transition
+   window**: if the backend reports "already in target state", treat
+   as success and continue. Add a unit test for this.
+5. **Delete `retryStuckStage`** and its callers in
+   `internal/app/drive_bead.go`. Genuine work-failure retries (gate
+   failed, tests broke) are a different code path and stay; only the
+   "agent exited rc=0 but didn't call bd update" branch is removed.
+6. **Delete the END-OF-STAGE PROTOCOL section** (lines 69–81 today) from
+   `internal/app/prompt.go`. Add a single new line under "Operating
+   rules": `Do not run `bd update`, `bd close`, or `bd open`. The
+   orchestrator advances the bead when your stage completes.`
+7. **Restrict bd-mutating commands** in the opencode permission config
+   injected by `injectOpencodeConfigEnv` (find current location via
+   `grep -rn injectOpencodeConfigEnv internal/`). `bd update`, `bd
+   close`, `bd open` get rejected. `bd show`, `bd list`, `bd comment`
+   stay allowed.
+8. **Write the tests listed in §2.Change 1 Tests**. All hermetic tests
+   must pass; integration test must pass under
+   `go test -tags=integration ./internal/integration/...`.
+9. **Run quality gates**: `go vet ./...`, `go test ./...`,
+   `go test -tags=integration ./...`. All must pass.
+
+### Change 2 — Per-stage contracts
+
+10. **Add `StageContract` and `Stages map[string]StageContract`** to
+    `WorkflowDescriptor` in `internal/backend/port.go`. `StageContract`
+    fields: `Role string`, `Inputs []string`, `OutputArtifact
+    StageArtifact`, `ForbiddenPaths []string`. `StageArtifact` fields:
+    `Path string` (template, supports `<bead_id>`), `Kind string`
+    (`"file"` or `"commits"`), `CommitMarker string` (when
+    `Kind=="commits"`), `MustEndWith string` (optional).
+11. **Extend the YAML loader** (locate via
+    `grep -rn 'yaml.Unmarshal\|yaml.Decoder' internal/`) to parse the
+    `stages:` block. Unknown fields are a load-time error.
+12. **Rewrite `BuildBeadStagePrompt`** in `internal/app/prompt.go` as a
+    contract renderer. New prompt structure (in this exact order):
+    1. `# Bead <ID> — <Title>` (unchanged)
+    2. `## Role` — verbatim from `stages.<state>.role`. Fallback if
+       contract missing: today's generic engineer text.
+    3. `## Inputs available to you` — bullet list from `stages.<state>.inputs`,
+       with file paths resolved (e.g. `.kernl/<bead_id>/plan.md` →
+       resolved path).
+    4. `## Required output` — describes the artifact (path or
+       commit marker + any `must_end_with` constraint).
+    5. `## You may NOT` — forbidden paths + the bd-mutation prohibition
+       from step 6.
+    6. `## Operating rules` — existing rules 1–6 from today (worktree,
+       AGENTS.md, tests, commits); rule 7 (no bd-mutation) moves to §5.
+    7. `## Bead data` — the bead's description and acceptance, framed
+       as data not instructions.
+    8. `## Bead metadata` (unchanged).
+13. **Translate `forbidden_paths` into the opencode permission config**
+    in the same file as step 7. Writes to those globs get rejected at
+    the sandbox layer, not just discouraged in text.
+14. **Author the canonical-vibe-coding stage contracts**: add the
+    `stages:` block to the builtin SDLC descriptor in
+    `internal/backend/factory.go` (find via
+    `grep -n BuiltinWorkflowDescriptors`). Stages to author: `planning`,
+    `plan_review`, `implementation`, `implementation_review`,
+    `integration`, `integration_review`, `shipment`, `shipment_review`.
+    Use the schema from §2.Change 2's YAML example as the source of truth
+    for `planning` / `implementation` / `plan_review`; write the rest by
+    analogy.
+15. **Write the tests listed in §2.Change 2 Tests**. All must pass.
+16. **Run quality gates** as in step 9.
+
+### Change 3 — Artifact-based handoff
+
+17. **Hook a `Backend.Comment` call** in `internal/app/drive_bead.go`
+    after each successful stage advancement (post step 3's success
+    branch). Comment body format:
+    ```
+    stage: <state>
+    agent: <agentID>
+    session_id: <sessionID>
+    artifact: <resolved-artifact-path-or-commit-marker>
+    commit: <HEAD-sha-of-worktree>
+    duration: <Xs>
+    ```
+    Find or add a `Comment(beadID, body, repoPath) error` method on the
+    backend interface in `internal/backend/port.go`.
+18. **Confirm `bd comment` is invoked** by the `BdCliBackend`
+    implementation (`internal/backend/bdcli.go`). If the method is
+    missing, add it; if present, wire it through.
+19. **Ensure `.kernl/` is not gitignored** in the worktree creation
+    path. Locate via `grep -rn 'gitignore\|\.gitignore' internal/worktree/`.
+    If the worktree starts from a template that ignores hidden dirs,
+    explicitly un-ignore `.kernl/` (e.g. `!.kernl/`).
+20. **Write the tests listed in §2.Change 3 Tests**. All must pass.
+21. **Final quality gates**: `go vet ./...`, `go test ./...`,
+    `go test -tags=integration ./...`. All must pass. Run the full
+    plan acceptance check from §6.
+
+## 5a. Implementation rules (non-negotiable)
+
+These rules apply to **every** step above. Violations should be reverted
+before commit.
+
+1. **Sequential.** Complete every step in a change before moving on.
+   Complete every change in full (code + tests passing) before starting
+   the next change. Do not interleave.
+2. **No scope creep.** If a step does not appear above, do not implement
+   it. If you notice unrelated cleanup opportunities, note them in a
+   comment in your final report; do not act on them.
+3. **No premature abstraction.** If a gate type or stage field is not
+   listed in this plan, do not add it "for future use". The plan
+   intentionally ships the minimum.
+4. **Delete what the plan says to delete.** `retryStuckStage`, the
+   END-OF-STAGE PROTOCOL section, the agent-side bd-update language —
+   these are not optional removals. The success criterion §6.8 requires
+   that lines deleted > lines added; if you keep dead code "just in
+   case", you have failed the criterion.
+5. **Match existing style.** Read the surrounding 200 lines before
+   adding code. Match naming, error wrapping (`KERNL DISPATCH FAILURE:
+   <problem> — Fix: <action>`), test naming (`TestFoo_DoesBar`), file
+   layout.
+6. **Hermetic tests.** New `*_test.go` tests use fakes/stubs, no
+   network, no real disk outside `t.TempDir()`. Integration tests
+   behind `//go:build integration`.
+7. **Files < 500 lines, functions 4–40 lines.** From `AGENTS.md`. If a
+   change pushes a file over 500, split before committing.
+8. **No comments restating code.** Only WHY a non-obvious decision was
+   made (e.g. "idempotent because the agent may still try to update
+   during the migration window"). Never WHAT the code does.
+9. **If genuinely ambiguous, stop and ask.** Do not invent a behavior
+   the plan didn't specify. Examples of legitimate ambiguity: the exact
+   YAML key for `ExitGate` (top-level vs nested under transitions); the
+   exact format the existing opencode permission config uses. Examples
+   of non-ambiguity: the names of new fields, the structure of the new
+   prompt — these are specified above.
+10. **Commit per step.** One commit per numbered step, with a
+    conventional message: `feat(<area>): <step summary>` or
+    `refactor(<area>): <step summary>`. This makes the change reviewable
+    and revertable.
 
 ## 6. Acceptance criteria for the plan as a whole
 

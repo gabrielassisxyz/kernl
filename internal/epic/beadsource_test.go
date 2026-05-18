@@ -81,6 +81,7 @@ func (f *fakeBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPa
 func (f *fakeBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
 	return nil, nil
 }
+func (f *fakeBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (f *fakeBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
 
 func TestLoadEpicBuildsDAGFromBackend(t *testing.T) {

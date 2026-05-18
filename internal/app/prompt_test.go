@@ -25,16 +25,38 @@ func TestBuildBeadStagePrompt_IncludesStageInstruction(t *testing.T) {
 		"Run `rg -l",
 		"/tmp/refs.txt exists and is non-empty",
 		"Current workflow state: `implementation`",
-		"On success, advance the bead to: `ready_for_implementation_review`",
-		"bd -C /home/user/repo update kernl-eci --status ready_for_implementation_review",
+		"The orchestrator will advance the bead",
 		"DO NOT push",
-		"DO NOT run `bd close`",
 		"go vet ./... && go test ./...",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt missing %q\n---\n%s\n---", want, prompt)
 		}
+	}
+}
+
+func TestBuildBeadStagePrompt_OmitsEndOfStageProtocol(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
+	prompt := BuildBeadStagePrompt(bead, "planning", "ready_for_plan_review", "/repo", "/wt")
+
+	if strings.Contains(prompt, "END-OF-STAGE PROTOCOL") {
+		t.Errorf("prompt must not contain END-OF-STAGE PROTOCOL:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "bd update --status") {
+		t.Errorf("prompt must not contain bd update --status:\n%s", prompt)
+	}
+}
+
+func TestBuildBeadStagePrompt_ForbidsBdMutation(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
+	prompt := BuildBeadStagePrompt(bead, "planning", "ready_for_plan_review", "/repo", "/wt")
+
+	if !strings.Contains(prompt, "Do not run `bd update`, `bd close`, or `bd open`") {
+		t.Error("prompt must forbid bd mutation")
+	}
+	if !strings.Contains(prompt, "The orchestrator advances the bead") {
+		t.Error("prompt must explain the orchestrator handles advancement")
 	}
 }
 
@@ -45,8 +67,8 @@ func TestBuildBeadStagePrompt_TerminalStageOmitsBdUpdate(t *testing.T) {
 	if strings.Contains(prompt, "bd -C") {
 		t.Errorf("terminal stage should not include `bd update` instruction; got:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "no forward transition") {
-		t.Errorf("expected terminal-stage hint, got:\n%s", prompt)
+	if strings.Contains(prompt, "bd update --status") {
+		t.Errorf("terminal stage should not include `bd update --status`; got:\n%s", prompt)
 	}
 }
 
@@ -54,17 +76,14 @@ func TestAppendOpencodeStageFlags_AddsDirTitleAndPrompt(t *testing.T) {
 	args := []string{"run", "--format", "json", "--model", "litellm/m"}
 	out := appendOpencodeStageFlags(args, "kb-1", "/tmp/wt", "", "PROMPT_BODY")
 
-	// Original args preserved in order
 	for i, a := range args {
 		if out[i] != a {
 			t.Errorf("arg %d mutated: want %q got %q", i, a, out[i])
 		}
 	}
-	// Prompt is the LAST positional
 	if out[len(out)-1] != "PROMPT_BODY" {
 		t.Errorf("prompt must be last arg, got %q", out[len(out)-1])
 	}
-	// --dir and --title present
 	joined := strings.Join(out, " ")
 	if !strings.Contains(joined, "--dir /tmp/wt") {
 		t.Errorf("missing --dir <worktree>: %s", joined)
@@ -75,7 +94,6 @@ func TestAppendOpencodeStageFlags_AddsDirTitleAndPrompt(t *testing.T) {
 }
 
 func TestAppendOpencodeStageFlags_IdempotentWhenDirAlreadySet(t *testing.T) {
-	// If kernl.yaml already includes --dir / --title, do not double them.
 	args := []string{"run", "--dir", "/preconfigured", "--title", "preset"}
 	out := appendOpencodeStageFlags(args, "kb-1", "/tmp/wt", "", "PROMPT")
 

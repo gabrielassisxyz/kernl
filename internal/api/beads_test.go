@@ -66,6 +66,7 @@ func (b *testBackend) BuildTakePrompt(beadID string, options *backend.TakePrompt
 func (b *testBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
+func (b *testBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (b *testBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
 
 func testCfg() *config.Config {

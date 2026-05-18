@@ -82,6 +82,7 @@ func (s *stateMachineBackend) BuildTakePrompt(beadID string, options *TakePrompt
 func (s *stateMachineBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {
 	return nil, nil
 }
+func (s *stateMachineBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (s *stateMachineBackend) Capabilities() BackendCapabilities { return FullCapabilities }
 
 func isExpectedStateMismatchError(msg string) bool {
