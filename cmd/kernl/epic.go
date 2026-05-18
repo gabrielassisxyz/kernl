@@ -205,9 +205,9 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 				},
 			})
 			if err != nil {
-				return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, err
+				return epic.RunResult{SessionID: res.SessionID, FinalState: res.FinalState, Success: res.Success}, err
 			}
-			return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, nil
+			return epic.RunResult{SessionID: res.SessionID, FinalState: res.FinalState, Success: res.Success}, nil
 		},
 		Worktree:       wm,
 		GetWorktree:    rs.Worktree,
