@@ -149,28 +149,28 @@ func DefaultNudgePrompt(preset NudgePreset, beadID, repoPath string) string {
 	case NudgePresetAdvanceStatus:
 		return fmt.Sprintf(`Your previous turn exited cleanly but the bead status was NOT advanced. The orchestrator's polling loop will not progress until you run the required bd update --status command for this stage.
 
-1. Run: bd show %s --repo %s
+1. Run: bd -C %s show %s
    Confirm the current state and figure out which status this stage should advance to.
 2. Verify your work is genuinely complete: git status, git diff, and any required tests for the files you touched. If tests do not pass, fix them first.
 3. If complete: run the bd update --status <next> command for this stage and then exit.
 4. If NOT complete: finish the remaining work first, then advance the status.
-5. If genuinely blocked: run bd update --status blocked --repo %s %s and write a one-paragraph explanation of the block to _scratch/STAGE_BLOCKED.md.
+5. If genuinely blocked: run bd -C %s update %s --status blocked and write a one-paragraph explanation of the block to _scratch/STAGE_BLOCKED.md.
 
 Do not start unrelated work. Do not redo work that is already on disk. Just close out this stage.`,
-			beadID, repoPath, repoPath, beadID,
+			repoPath, beadID, repoPath, beadID,
 		)
 	case NudgePresetGeneric, "":
 		return fmt.Sprintf(`Your previous turn was interrupted before completion (likely an upstream API error, timeout, or rate-limit cut you off mid-task). Resume from where you left off — do NOT restart from scratch.
 
-1. Run: bd show %s --repo %s
+1. Run: bd -C %s show %s
    See the bead's current state and the most recent status transition.
 2. Run git status and git diff in the worktree to see what work is already on disk.
 3. Re-read the stage instructions you received earlier in this conversation.
 4. Continue the work that was in progress. Do NOT start anything new and do NOT redo work that is already complete.
-5. When the stage is genuinely done, run the required bd update --status <next> command and exit. If you are truly blocked, run bd update --status blocked --repo %s %s and document the block.
+5. When the stage is genuinely done, run the required bd update --status <next> command and exit. If you are truly blocked, run bd -C %s update %s --status blocked and document the block.
 
 Be defensive — your previous turn ended unexpectedly, so verify state on disk before acting on memory.`,
-			beadID, repoPath, repoPath, beadID,
+			repoPath, beadID, repoPath, beadID,
 		)
 	}
 	return fmt.Sprintf("Continue from where you left off on bead %s in repo %s.", beadID, repoPath)

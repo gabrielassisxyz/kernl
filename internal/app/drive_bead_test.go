@@ -342,6 +342,12 @@ func TestDriveBeadToTerminal_RetrySucceedsOnSecondAttempt(t *testing.T) {
 	if !strings.Contains(retryPrompt, "bd update --status") {
 		t.Errorf("retry prompt should instruct agent to run bd update --status, got: %q", retryPrompt)
 	}
+	if strings.Contains(retryPrompt, "--repo") {
+		t.Errorf("retry prompt must NOT contain the invalid '--repo' flag, got: %q", retryPrompt)
+	}
+	if !strings.Contains(retryPrompt, "bd -C /tmp/repo") {
+		t.Errorf("retry prompt should use 'bd -C <repo>' syntax, got: %q", retryPrompt)
+	}
 }
 
 func TestDriveBeadToTerminal_RetryExhaustedFailsLoud(t *testing.T) {
