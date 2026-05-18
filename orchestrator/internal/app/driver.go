@@ -23,9 +23,10 @@ type Process interface {
 type SpawnFunc func(ctx context.Context, cmd string, args []string, cwd string, env []string) (Process, io.Reader, io.Reader, error)
 
 type DriverDeps struct {
-	Backend backend.BackendPort
-	Spawn   SpawnFunc
-	SCM     *session.SessionConnectionManager
+	Backend       backend.BackendPort
+	Spawn         SpawnFunc
+	SCM           *session.SessionConnectionManager
+	NudgeRegistry *session.NudgeRegistry
 }
 
 // RunBeadInput tells the driver which bead to run and which agent to spawn.
@@ -60,6 +61,7 @@ type SessionDriver struct {
 	backend backend.BackendPort
 	spawn   SpawnFunc
 	scm     *session.SessionConnectionManager
+	nudges  *session.NudgeRegistry
 }
 
 func NewSessionDriver(deps DriverDeps) *SessionDriver {
@@ -67,8 +69,13 @@ func NewSessionDriver(deps DriverDeps) *SessionDriver {
 		backend: deps.Backend,
 		spawn:   deps.Spawn,
 		scm:     deps.SCM,
+		nudges:  deps.NudgeRegistry,
 	}
 }
+
+// NudgeRegistry exposes the registry to callers (e.g. App.Nudge) that need to
+// query spawn context for an existing session.
+func (d *SessionDriver) NudgeRegistry() *session.NudgeRegistry { return d.nudges }
 
 func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBeadResult, error) {
 	bead, err := d.backend.Get(input.BeadID, input.RepoPath)
@@ -113,6 +120,16 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	sessionID := fmt.Sprintf("%s-%s", input.BeadID, agentLabel)
 	d.scm.Connect(sessionID)
 
+	// Register spawn context so manual /nudge requests can later re-resolve
+	// the agent and respawn against the captured opencode session id.
+	d.nudges.Upsert(sessionID, session.NudgeRecord{
+		BeadID:   input.BeadID,
+		RepoPath: input.RepoPath,
+		Cwd:      cwd,
+		Running:  true,
+	})
+	defer d.nudges.SetRunning(sessionID, false)
+
 	r.Start(ctx, stdout, stderr)
 
 	_ = claimedState
@@ -131,6 +148,9 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	exitCode := exitCodeFromErr(exitErr)
 
 	capturedSID := r.CapturedSessionID()
+	if capturedSID != "" {
+		d.nudges.SetOpencodeSessionID(sessionID, capturedSID)
+	}
 	r.Dispose()
 	w.stop()
 

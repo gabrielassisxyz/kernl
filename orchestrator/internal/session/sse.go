@@ -30,7 +30,10 @@ func (m *SessionConnectionManager) ServeSSE(w http.ResponseWriter, r *http.Reque
 
 	buf := m.GetBuffer(sessionID)
 	for _, evt := range buf {
-		data, err := json.Marshal(evt)
+		data, err := json.Marshal(TerminalEvent{
+			Type:    evt.Type,
+			Content: evt.Data,
+		})
 		if err != nil {
 			continue
 		}
