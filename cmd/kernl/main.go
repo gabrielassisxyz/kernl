@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+
+	"github.com/gabrielassisxyz/kernl/internal/logging"
 )
 
 var (
@@ -54,6 +56,14 @@ func parsePort(args []string) (port int, rest []string) {
 }
 
 func Dispatch(args []string) error {
+	// Configure logging early so every subcommand gets the pretty terminal
+	// handler (or JSON fallback) before anything else writes to slog.
+	logLevel := os.Getenv("KERNL_LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	logging.Init(logLevel)
+
 	if len(args) == 0 {
 		return helpFn()
 	}

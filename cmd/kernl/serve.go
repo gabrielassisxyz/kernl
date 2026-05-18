@@ -16,7 +16,6 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
-	"github.com/gabrielassisxyz/kernl/internal/logging"
 	"github.com/gabrielassisxyz/kernl/internal/preflight"
 	"github.com/gabrielassisxyz/kernl/internal/sweep"
 )
@@ -44,9 +43,6 @@ func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
 }
 
 func runServe(configPath string, port int) error {
-	logLevel := os.Getenv("KERNL_LOG_LEVEL")
-	logging.Init(logLevel)
-
 	report := preflight.Run(preflight.Deps{
 		LookPath:   preflight.LookPath,
 		ConfigPath: configPath,
