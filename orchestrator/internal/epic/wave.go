@@ -42,12 +42,16 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 			return ctx.Err()
 		}
 
+		var sid string
+		if ex.deps.SessionResumes != nil {
+			sid = ex.deps.SessionResumes[beadID]
+		}
 		launched++
-		go func(id string, path string) {
+		go func(id string, path string, sessionID string) {
 			defer func() { <-ex.sem }()
-			result, err := ex.deps.RunBead(ctx, RunInput{BeadID: id, Worktree: path})
+			result, err := ex.deps.RunBead(ctx, RunInput{BeadID: id, Worktree: path, SessionID: sessionID})
 			ch <- beadResult{beadID: id, result: result, err: err}
-		}(beadID, wtPath)
+		}(beadID, wtPath, sid)
 	}
 
 	collected := 0

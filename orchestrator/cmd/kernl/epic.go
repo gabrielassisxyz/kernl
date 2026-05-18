@@ -171,6 +171,13 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	}
 
 	doneSet := resumePlan.DoneSet()
+	// Collect session IDs for beads that have a recorded session.
+	sessionResumes := make(map[string]string)
+	for _, child := range ep.Children {
+		if resumePlan.Action(child.ID) == epic.ResumeSession {
+			sessionResumes[child.ID] = resumePlan.SessionID(child.ID)
+		}
+	}
 	ex := epic.NewExecutorWithDoneSet(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
@@ -178,12 +185,13 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			// future runs know a worktree existed for this bead.
 			_ = rs.SetWorktree(epicID, in.BeadID, in.Worktree)
 			res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
-				Backend:  a.Backend,
-				Driver:   a.Driver,
-				Config:   a.Config,
-				BeadID:   in.BeadID,
-				RepoPath: repoPath,
-				Worktree: in.Worktree,
+				Backend:   a.Backend,
+				Driver:    a.Driver,
+				Config:    a.Config,
+				BeadID:    in.BeadID,
+				RepoPath:  repoPath,
+				Worktree:  in.Worktree,
+				SessionID: in.SessionID,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
@@ -201,8 +209,9 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			}
 			return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, nil
 		},
-		Worktree:      wm,
-		GetWorktree:   rs.Worktree,
+		Worktree:       wm,
+		GetWorktree:    rs.Worktree,
+		SessionResumes: sessionResumes,
 		MaxConcurrent: a.Config.Orchestrator.MaxConcurrentBeads,
 		Emit: func(ev epic.EpicEvent) {
 			a.EpicEvents.Publish(ev)
