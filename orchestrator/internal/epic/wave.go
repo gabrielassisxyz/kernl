@@ -22,9 +22,18 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		ex.tracker.Started(beadID)
 		ex.mu.Unlock()
 
-		wtPath, err := ex.deps.Worktree.Add(ex.deps.Epic.ID, beadID)
-		if err != nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree for bead %s in epic %s — %w — Fix: verify the worktree root is writable", beadID, ex.deps.Epic.ID, err)
+		var wtPath string
+		var err error
+		if ex.deps.GetWorktree != nil {
+			if p, ok := ex.deps.GetWorktree(ex.deps.Epic.ID, beadID); ok {
+				wtPath = p
+			}
+		}
+		if wtPath == "" {
+			wtPath, err = ex.deps.Worktree.Add(ex.deps.Epic.ID, beadID)
+			if err != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree for bead %s in epic %s -- %w -- Fix: verify the worktree root is writable", beadID, ex.deps.Epic.ID, err)
+			}
 		}
 
 		select {
