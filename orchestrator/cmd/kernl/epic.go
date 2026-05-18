@@ -17,6 +17,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/runstate"
 )
 
 // execGitRun shells out to `git -C <dir> <args...>` and returns stdout.
@@ -126,39 +127,74 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	go func() { srv.Serve(listener) }()
 	defer srv.Close()
 
+	// Open the run-state store so we can plan resume actions based on
+	// previous execution state.
+	rs, err := runstate.Open(a.Config.Orchestrator.RunStatePath)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: open runstate %s: %w", a.Config.Orchestrator.RunStatePath, err)
+	}
+	defer rs.Close()
+
+	resumePlan := epic.PlanResume(a.Backend, rs, ep, repoPath)
+	for _, child := range ep.Children {
+		action := resumePlan.Action(child.ID)
+		switch action {
+		case epic.ResumeSkip:
+			out(fmt.Sprintf("bead %s [skip] already at terminal / human-gate state\n", child.ID))
+		case epic.ResumeSession:
+			out(fmt.Sprintf("bead %s [resume] session %s\n", child.ID, resumePlan.SessionID(child.ID)))
+		case epic.ResumeError:
+			out(fmt.Sprintf("bead %s [error] %s\n", child.ID, resumePlan.Detail(child.ID)))
+		}
+	}
+
 	out(fmt.Sprintf("GUI em http://localhost:%d/?epic=%s\n", actualPort, epicID))
 
 	// Only wire real git execution when the repo path is actually a git
-	// repo — hermetic tests use t.TempDir() which is not a git repo, and
+	// repo -- hermetic tests use t.TempDir() which is not a git repo, and
 	// the worktree manager already has a no-git mkdir-only fallback for
 	// that case.
 	var gitRunForWM func(dir string, args ...string) (string, error)
 	if _, err := execGitRun(repoPath, "rev-parse", "--git-dir"); err == nil {
 		gitRunForWM = execGitRun
 	}
-	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, gitRunForWM, nil)
+	// Wire updateDesc so worktree creation stores the path in runstate.
+	wtUpdateDesc := func(beadID string, fn func(string) string) error {
+		// Not used for epic branch; runstate tracks worktrees separately.
+		return nil
+	}
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, gitRunForWM, wtUpdateDesc)
 	if gitRunForWM != nil {
 		if _, err := wm.EnsureEpicBranch(epicID); err != nil {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot ensure epic branch for %s: %w", epicID, err)
 		}
 	}
 
-	ex := epic.NewExecutor(epic.ExecutorDeps{
+	doneSet := resumePlan.DoneSet()
+	// Collect session IDs for beads that have a recorded session.
+	sessionResumes := make(map[string]string)
+	for _, child := range ep.Children {
+		if resumePlan.Action(child.ID) == epic.ResumeSession {
+			sessionResumes[child.ID] = resumePlan.SessionID(child.ID)
+		}
+	}
+	ex := epic.NewExecutorWithDoneSet(epic.ExecutorDeps{
 		Epic: ep,
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
+			// Persist worktree path in runstate before dispatching so
+			// future runs know a worktree existed for this bead.
+			_ = rs.SetWorktree(epicID, in.BeadID, in.Worktree)
 			res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
-				Backend:  a.Backend,
-				Driver:   a.Driver,
-				Config:   a.Config,
-				BeadID:   in.BeadID,
-				RepoPath: repoPath,
-				Worktree: in.Worktree,
+				Backend:   a.Backend,
+				Driver:    a.Driver,
+				Config:    a.Config,
+				BeadID:    in.BeadID,
+				RepoPath:  repoPath,
+				Worktree:  in.Worktree,
+				SessionID: in.SessionID,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
-					// Republish the per-stage state through the epic hub so
-					// SSE-subscribed clients (the dashboard) see workflow
-					// progress in real time, not only at bead completion.
 					a.EpicEvents.Publish(epic.EpicEvent{
 						Type:   epic.BeadStateChanged,
 						EpicID: ep.ID,
@@ -173,16 +209,18 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			}
 			return epic.RunResult{FinalState: res.FinalState, Success: res.Success}, nil
 		},
-		Worktree:      wm,
+		Worktree:       wm,
+		GetWorktree:    rs.Worktree,
+		SessionResumes: sessionResumes,
 		MaxConcurrent: a.Config.Orchestrator.MaxConcurrentBeads,
 		Emit: func(ev epic.EpicEvent) {
 			a.EpicEvents.Publish(ev)
 			if ev.Type == epic.BeadStateChanged {
 				ts := time.Now().Format("15:04:05")
-				out(fmt.Sprintf("[%s] bead %s → %s\n", ts, ev.BeadID, ev.Detail))
+				out(fmt.Sprintf("[%s] bead %s \u2192 %s\n", ts, ev.BeadID, ev.Detail))
 			}
 		},
-	})
+	}, doneSet)
 
 	if err := ex.Run(context.Background()); err != nil {
 		out(fmt.Sprintf("epic %s bloqueado — corrija e rode kernl epic run %s de novo para retomar\n", epicID, epicID))

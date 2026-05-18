@@ -249,3 +249,64 @@ func TestExecutorRouteOutcomeInvokedOnceOnCompletion(t *testing.T) {
 		t.Errorf("TryTrigger called %d times, want 0 (final state was %q)", mm.TryTriggerCount(), "done")
 	}
 }
+
+// TestExecutorResumesSession passes the session ID through RunInput to the
+// bead worker when SessionResumes is wired.
+func TestExecutorResumesSession(t *testing.T) {
+	ep := wideEpic(t, 1)
+	receivedSID := ""
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		receivedSID = in.SessionID
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic:           ep,
+		RunBead:        runBead,
+		Worktree:       fakeWT(),
+		MaxConcurrent:  1,
+		SessionResumes: map[string]string{"w0": "ses-abc123"},
+	})
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if receivedSID != "ses-abc123" {
+		t.Errorf("expected session ID ses-abc123, got %q", receivedSID)
+	}
+}
+
+// TestExecutorReusesWorktreePath verifies that GetWorktree is consulted before
+// creating a fresh worktree.
+func TestExecutorReusesWorktreePath(t *testing.T) {
+	ep := wideEpic(t, 1)
+	wt := fakeWT()
+	reused := false
+	getWT := func(epicID, beadID string) (string, bool) {
+		if beadID == "w0" {
+			reused = true
+			return "/already/exists/w0", true
+		}
+		return "", false
+	}
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		if in.Worktree != "/already/exists/w0" {
+			t.Errorf("expected reused worktree, got %s", in.Worktree)
+		}
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic:          ep,
+		RunBead:       runBead,
+		Worktree:      wt,
+		GetWorktree:   getWT,
+		MaxConcurrent: 1,
+	})
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !reused {
+		t.Error("expected GetWorktree to be called")
+	}
+	if _, called := wt.added["wide-epic/w0"]; called {
+		t.Error("worktree Add should NOT have been called when GetWorktree returned a path")
+	}
+}

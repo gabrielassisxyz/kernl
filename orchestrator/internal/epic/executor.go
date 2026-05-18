@@ -19,8 +19,9 @@ const (
 )
 
 type RunInput struct {
-	BeadID   string
-	Worktree string
+	BeadID    string
+	Worktree  string
+	SessionID string // opencode session ID to resume; empty means fresh spawn
 }
 
 type RunResult struct {
@@ -36,6 +37,15 @@ type ExecutorDeps struct {
 	Epic          *Epic
 	RunBead       func(ctx context.Context, in RunInput) (RunResult, error)
 	Worktree      worktreeAdder
+	// GetWorktree is an optional hook to reuse an existing worktree
+	// path from a prior run (e.g. for session resume). Returns
+	// (path, true) when the path is known and still exists.
+	GetWorktree func(epicID, beadID string) (string, bool)
+	// SessionResumes maps bead IDs to a session ID that should be
+	// passed through RunInput.SessionID so the driver's -s flag
+	// reconnects the agent to its existing context rather than
+	// starting a brand-new session.
+	SessionResumes map[string]string
 	MaxConcurrent int
 	Emit          func(EpicEvent)
 	MergeManager  merge.TriggerRouter
@@ -65,6 +75,19 @@ func NewExecutor(deps ExecutorDeps) *Executor {
 		tracker:    NewParallelismTracker(len(deps.Epic.Children)),
 		sem:        make(chan struct{}, mc),
 	}
+}
+
+// NewExecutorWithDoneSet creates an executor pre-populated with a "done"
+// set, e.g. from a ResumePlan that marks terminal or human-gated beads as
+// already completed.
+func NewExecutorWithDoneSet(deps ExecutorDeps, doneSet map[string]bool) *Executor {
+	ex := NewExecutor(deps)
+	for k, v := range doneSet {
+		if v {
+			ex.done[k] = true
+		}
+	}
+	return ex
 }
 
 type beadResult struct {

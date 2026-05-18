@@ -3,6 +3,7 @@ package epic
 import (
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/runstate"
 )
 
@@ -58,14 +59,74 @@ func storeWithMissingWorktree(t *testing.T, beadID string) *memRunStateStore {
 	return s
 }
 
-func TestPlanResumeSkipsDoneResumesInterruptedRedispatchesGap(t *testing.T) {
+// staticFilter is a deterministic filter for testing.
+type staticFilter struct {
+	terminal  map[string]bool
+	humanGate map[string]bool
+}
+
+func (f *staticFilter) IsTerminal(bead *backend.Bead) bool {
+	return f.terminal[bead.State]
+}
+
+func (f *staticFilter) IsHumanGate(bead *backend.Bead) bool {
+	return f.humanGate[bead.State]
+}
+
+func TestPlanResumeSkipsTerminalAndHumanGate(t *testing.T) {
 	be := &fakeBackend{state: map[string]string{
-		"a": "done",
-		"b": "implementing",
+		"a": "shipped",                        // terminal
+		"b": "ready_for_implementation_review", // human gate
+		"c": "ready_for_implementation",      // fresh dispatch
+	}}
+	f := &staticFilter{
+		terminal:  map[string]bool{"shipped": true},
+		humanGate: map[string]bool{"ready_for_implementation_review": true},
+	}
+	plan := PlanResumeWithFilter(be, memStore(t), diamondEpic(t), "/repo", f)
+
+	if plan.Action("a") != ResumeSkip {
+		t.Errorf("a (shipped) should be skipped, got %s", plan.Action("a"))
+	}
+	if plan.Action("b") != ResumeSkip {
+		t.Errorf("b (human gate) should be skipped, got %s", plan.Action("b"))
+	}
+	if plan.Action("c") != ResumeFreshDispatch {
+		t.Errorf("c should be fresh dispatch, got %s", plan.Action("c"))
+	}
+}
+
+func TestPlanResumeWithDoneSet(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{
+		"a": "shipped",
+		"b": "ready_for_implementation_review",
+		"c": "ready_for_implementation",
+	}}
+	f := &staticFilter{
+		terminal:  map[string]bool{"shipped": true},
+		humanGate: map[string]bool{"ready_for_implementation_review": true},
+	}
+	plan := PlanResumeWithFilter(be, memStore(t), diamondEpic(t), "/repo", f)
+	done := plan.DoneSet()
+	if !done["a"] {
+		t.Errorf("a should be in DoneSet")
+	}
+	if !done["b"] {
+		t.Errorf("b should be in DoneSet")
+	}
+	if done["c"] {
+		t.Errorf("c should NOT be in DoneSet")
+	}
+}
+
+func TestResumeSkipsDoneResumesInterruptedRedispatchesGap(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{
+		"a": "shipped",               // terminal workflow state
+		"b": "implementation",      // active state with session
 		"c": "ready_for_implementation",
 	}}
 	rs := memStore(t)
-	rs.RecordAgent("b", "implementing", runstate.AgentRecord{AgentID: "opencode", SessionID: "term-9", Status: "running"})
+	rs.RecordAgent("b", "implementation", runstate.AgentRecord{AgentID: "opencode", SessionID: "term-9", Status: "running"})
 
 	plan := PlanResume(be, rs, diamondEpic(t), "/repo")
 
