@@ -19,8 +19,9 @@ const (
 )
 
 type RunInput struct {
-	BeadID   string
-	Worktree string
+	BeadID    string
+	Worktree  string
+	SessionID string // opencode session ID to resume; empty means fresh spawn
 }
 
 type RunResult struct {
@@ -39,7 +40,12 @@ type ExecutorDeps struct {
 	// GetWorktree is an optional hook to reuse an existing worktree
 	// path from a prior run (e.g. for session resume). Returns
 	// (path, true) when the path is known and still exists.
-	GetWorktree   func(epicID, beadID string) (string, bool)
+	GetWorktree func(epicID, beadID string) (string, bool)
+	// SessionResumes maps bead IDs to a session ID that should be
+	// passed through RunInput.SessionID so the driver's -s flag
+	// reconnects the agent to its existing context rather than
+	// starting a brand-new session.
+	SessionResumes map[string]string
 	MaxConcurrent int
 	Emit          func(EpicEvent)
 	MergeManager  merge.TriggerRouter

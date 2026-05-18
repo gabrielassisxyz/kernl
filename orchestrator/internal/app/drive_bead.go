@@ -32,6 +32,10 @@ type DriveBeadDeps struct {
 	// when the agent exits rc=0 but did not advance the bead's status. Defaults
 	// to orchestrator.stageRetryAttempts from kernl.yaml (or 2 if unset).
 	StageRetryAttempts int
+	// SessionID is the opencode session to resume via -s. Non-empty means
+	// the bead is being resumed from a previous run rather than dispatched
+	// fresh.
+	SessionID string
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -142,7 +146,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			promptNextState = nextAfterActive
 		}
 		prompt := BuildBeadStagePrompt(bead, activeState, promptNextState, deps.RepoPath, deps.Worktree)
-		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, prompt)
+		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		// Point opencode at the orchestrator's permission allowlist so
 		// `/tmp/*` writes and worktree access are not auto-rejected (which
 		// silently makes agents bail mid-stage — observed in the kernl-npp
@@ -340,7 +344,7 @@ func injectOpencodeConfigEnv(env map[string]string, repoPath string) map[string]
 //
 // Idempotent: if a flag is already present (e.g. user configured --dir in
 // kernl.yaml), it is left alone.
-func appendOpencodeStageFlags(args []string, beadID, worktree, prompt string) []string {
+func appendOpencodeStageFlags(args []string, beadID, worktree, sessionID, prompt string) []string {
 	hasFlag := func(flag string) bool {
 		for _, a := range args {
 			if a == flag {
@@ -352,6 +356,9 @@ func appendOpencodeStageFlags(args []string, beadID, worktree, prompt string) []
 	out := append([]string(nil), args...)
 	if worktree != "" && !hasFlag("--dir") {
 		out = append(out, "--dir", worktree)
+	}
+	if sessionID != "" && !hasFlag("-s") {
+		out = append(out, "-s", sessionID)
 	}
 	if !hasFlag("--title") {
 		out = append(out, "--title", "kernl:"+beadID)

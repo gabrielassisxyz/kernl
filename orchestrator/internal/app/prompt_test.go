@@ -52,7 +52,7 @@ func TestBuildBeadStagePrompt_TerminalStageOmitsBdUpdate(t *testing.T) {
 
 func TestAppendOpencodeStageFlags_AddsDirTitleAndPrompt(t *testing.T) {
 	args := []string{"run", "--format", "json", "--model", "litellm/m"}
-	out := appendOpencodeStageFlags(args, "kb-1", "/tmp/wt", "PROMPT_BODY")
+	out := appendOpencodeStageFlags(args, "kb-1", "/tmp/wt", "", "PROMPT_BODY")
 
 	// Original args preserved in order
 	for i, a := range args {
@@ -77,7 +77,7 @@ func TestAppendOpencodeStageFlags_AddsDirTitleAndPrompt(t *testing.T) {
 func TestAppendOpencodeStageFlags_IdempotentWhenDirAlreadySet(t *testing.T) {
 	// If kernl.yaml already includes --dir / --title, do not double them.
 	args := []string{"run", "--dir", "/preconfigured", "--title", "preset"}
-	out := appendOpencodeStageFlags(args, "kb-1", "/tmp/wt", "PROMPT")
+	out := appendOpencodeStageFlags(args, "kb-1", "/tmp/wt", "", "PROMPT")
 
 	dirCount, titleCount := 0, 0
 	for _, a := range out {
