@@ -4,6 +4,10 @@
 **Bloco:** Núcleo de orquestração ("bloco zero" do Kernl)
 **Prazo do MVP:** 2026-05-15, ~almoço
 **Status:** design aprovado — pronto para `vc-plan`
+> **Archival note (2026-05-18):** This is a historical brainstorm spec from early
+> MVP planning. Some references it contains (Bubble Tea as TUI option, Memory Bank,
+> `kno` as a CLI tool) have since been superseded. See root `AGENTS.md` and
+> `docs/VISION.md` for current architecture.
 
 ---
 

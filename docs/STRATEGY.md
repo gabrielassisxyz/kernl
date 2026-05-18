@@ -5,6 +5,11 @@ last_updated: 2026-05-14
 
 # Kernl — Núcleo de Orquestração — Strategy
 
+> **Related:** This strategy document defines the current MVP cut. For what Kernl
+> is when complete, see [`VISION.md`](VISION.md). For how the vision decomposes
+> into brainstormable sub-projects, see
+> [`suggested-vision-projects.md`](suggested-vision-projects.md).
+
 ## Target problem
 
 Como desenvolvedor solo, você consegue idealizar mais do que consegue executar. O
