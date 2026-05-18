@@ -9,7 +9,7 @@
 - **MVP era / Vision era:** today the orchestrator delegates persistence to `bd` (Dolt-backed). Per `docs/VISION.md` §6, the destination is a unified typed knowledge graph in `~/.kernl/graph.db` (SQLite) where `Bead` is just one node type. `bd` is the **MVP backend**; the unified substrate (P0.1 in `docs/suggested-vision-projects.md`) absorbs it later. Do NOT design new persistence around the bd boundary as if it were permanent.
 - **Frontend (future):** Vue 3 (Composition API) + Nuxt (per VISION §12).
 - **API:** REST JSON + SSE (not gRPC/WebSocket)
-- **Run:** `go run ./cmd/kernl` (from inside `orchestrator/`)
+- **Run:** `go run ./cmd/kernl` (from repo root)
 - **Test:** `go test ./...` — Run before every commit. Hermetic by default.
 - **Test (integration):** `go test -tags=integration ./...` — opt-in, manual only.
 - **Lint/Format:** `go vet ./...` + `go fmt ./...` + `golangci-lint run`

@@ -54,8 +54,7 @@ bd close <id>         # Complete work
 ## Build & Test
 
 ```bash
-cd orchestrator
-go test ./...                       # default suite (hermetic)
+go test ./...                       # default suite (hermetic, run from repo root)
 go test -tags=integration ./...     # opt-in integration suite
 go vet ./...
 go run ./cmd/kernl epic run <id>    # drive an epic end-to-end (real agents)
