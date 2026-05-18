@@ -271,16 +271,16 @@ func buildRetryPrompt(beadID, currentState, nextState, repoPath string) string {
 		return fmt.Sprintf(
 			"Your previous turn ended without running `bd update --status`. "+
 				"Bead %s is still at %q. Run the required `bd update --status` command now and exit. "+
-				"If you cannot complete the work, run: bd update --status blocked --repo %s %s",
+				"If you cannot complete the work, run: bd -C %s update %s --status blocked",
 			beadID, currentState, repoPath, beadID,
 		)
 	}
 	return fmt.Sprintf(
 		"Your previous turn ended without running `bd update --status %s`. "+
-			"Do that command now and exit: bd update --status %s --repo %s %s\n"+
+			"Do that command now and exit: bd -C %s update %s --status %s\n"+
 			"If you cannot complete the work, write _scratch/STAGE_BLOCKED.md and run: "+
-			"bd update --status blocked --repo %s %s",
-		nextState, nextState, repoPath, beadID,
+			"bd -C %s update %s --status blocked",
+		nextState, repoPath, beadID, nextState,
 		repoPath, beadID,
 	)
 }
