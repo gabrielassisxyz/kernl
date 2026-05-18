@@ -86,7 +86,7 @@ registry:
 orchestrator:
   # worktreeRoot: ~/.kernl/worktrees     # default
   # runStatePath: ~/.kernl/runstate.db   # default
-  maxConcurrentBeads: 3
+  maxConcurrentBeads: 9
 
 server:
   port: 8080

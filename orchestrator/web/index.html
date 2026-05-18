@@ -24,6 +24,25 @@
       <h2>Active Sessions</h2>
       <div id="session-list"></div>
     </section>
+    <section id="log-panel" hidden>
+      <h2>
+        <span id="log-title">Agent log</span>
+        <button id="nudge-generic-btn" type="button" class="nudge-btn" title="resume an interrupted agent">Nudge</button>
+        <button id="nudge-status-btn"  type="button" class="nudge-btn" title="agent exited without advancing bead status">Status nudge</button>
+        <button id="log-close" type="button" title="close">×</button>
+      </h2>
+      <div id="log-status" class="log-status"></div>
+      <div id="nudge-composer" hidden>
+        <div class="nudge-composer-label" id="nudge-composer-label"></div>
+        <textarea id="nudge-composer-text" rows="10" spellcheck="false"></textarea>
+        <div class="nudge-composer-actions">
+          <button id="nudge-send-btn" type="button">Send</button>
+          <button id="nudge-cancel-btn" type="button">Cancel</button>
+          <span id="nudge-composer-status" class="nudge-composer-status"></span>
+        </div>
+      </div>
+      <div id="log-stream"></div>
+    </section>
   </main>
   <section id="errors-panel">
     <h2>Errors</h2>

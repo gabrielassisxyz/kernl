@@ -17,13 +17,14 @@ import (
 )
 
 type App struct {
-	Backend      backend.BackendPort
-	Terminal     *terminal.TerminalManager
-	SCM          *session.SessionConnectionManager
-	Driver       *SessionDriver
-	Config       *config.Config
-	EpicEvents   *epic.EpicEventHub
-	MergeManager merge.TriggerRouter
+	Backend       backend.BackendPort
+	Terminal      *terminal.TerminalManager
+	SCM           *session.SessionConnectionManager
+	Driver        *SessionDriver
+	Config        *config.Config
+	EpicEvents    *epic.EpicEventHub
+	MergeManager  merge.TriggerRouter
+	NudgeRegistry *session.NudgeRegistry
 }
 
 func NewApp(cfg *config.Config) (*App, error) {
@@ -40,21 +41,24 @@ func NewApp(cfg *config.Config) (*App, error) {
 
 	provider := &terminalSessionProvider{tm: tm}
 	scm := session.NewSessionConnectionManager(provider, nil)
+	nudges := session.NewNudgeRegistry()
 
 	spawn := execSpawnFunc
 	driver := NewSessionDriver(DriverDeps{
-		Backend: be,
-		Spawn:   spawn,
-		SCM:     scm,
+		Backend:       be,
+		Spawn:         spawn,
+		SCM:           scm,
+		NudgeRegistry: nudges,
 	})
 
 	return &App{
-		Backend:    be,
-		Terminal:   tm,
-		SCM:        scm,
-		Driver:     driver,
-		Config:     cfg,
-		EpicEvents: epic.NewEpicEventHub(),
+		Backend:       be,
+		Terminal:      tm,
+		SCM:           scm,
+		Driver:        driver,
+		Config:        cfg,
+		EpicEvents:    epic.NewEpicEventHub(),
+		NudgeRegistry: nudges,
 	}, nil
 }
 
