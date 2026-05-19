@@ -113,14 +113,23 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		prompt := BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
 		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
+		if agentInput.Env == nil {
+			agentInput.Env = make(map[string]string)
+		}
+		if len(wf.Stages) > 0 {
+			staticConfigPath := deps.RepoPath + "/orchestrator/opencode-config.json"
+			stageCfgPath, cfgErr := writeStageOpencodeConfig(staticConfigPath, deps.Worktree, deps.BeadID, activeState, wf.Stages)
+			if cfgErr != nil {
+				slog.Warn("DRIVE_TRACE stage-opencode-config failed, using static config", "err", cfgErr)
+			} else {
+				agentInput.Env["OPENCODE_CONFIG"] = stageCfgPath
+			}
+		}
 
 		agentInput.BeadID = deps.BeadID
 		agentInput.RepoPath = deps.RepoPath
 		agentInput.Cwd = deps.Worktree
 
-		if agentInput.Env == nil {
-			agentInput.Env = make(map[string]string)
-		}
 		agentInput.Env["BEAD_ID"] = deps.BeadID
 		agentInput.Env["REPO_PATH"] = deps.RepoPath
 
