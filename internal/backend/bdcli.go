@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,17 +19,12 @@ import (
 	"time"
 )
 
+// bdVersionRe matches the first semver-like token (N.N.N) in `bd --version` output.
+var bdVersionRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
 const (
 	bdJSONEnvelopeEnv       = "BD_JSON_ENVELOPE"
 	expectedBdSchemaVersion = 1
-
-	outOfSyncSignature      = "Database out of sync with JSONL"
-	noDaemonFlag            = "--no-daemon"
-	bdNoDBEnv               = "BD_NO_DB"
-	doltNilPanicSignature   = "panic: runtime error: invalid memory address or nil pointer dereference"
-	doltPanicStackSignature = "SetCrashOnFatalError"
-	lockWaitTimeoutSig      = "Timed out waiting for bd repo lock"
-	commandTimeoutSig       = "bd command timed out after"
 
 	// Bumped from 5000ms after the kernl-npp run on 2026-05-17 showed
 	// `bd list --json` for a multi-child epic with sibling deps taking
@@ -94,9 +90,11 @@ type BdCliBackend struct {
 	queues  map[string]*repoQueue
 	queueMu sync.Mutex
 
-	locksDir string
-	bdBin    string
-	bdDB     string
+	locksDir        string
+	bdBin           string
+	bdDB            string
+	versionOnce     sync.Once
+	detectedVersion string
 }
 
 // defaultBdBin is the PATH-resolved bd binary used when BD_BIN is unset.
@@ -113,13 +111,49 @@ func NewBdCliBackend(repoPath string) *BdCliBackend {
 		bdBin = defaultBdBin
 		slog.Debug("BD_BIN unset, resolving 'bd' from PATH")
 	}
-	return &BdCliBackend{
+	b := &BdCliBackend{
 		repoPath: repoPath,
 		queues:   make(map[string]*repoQueue),
 		locksDir: locksDir,
 		bdBin:    bdBin,
 		bdDB:     os.Getenv("BD_DB"),
 	}
+	b.checkBdVersion()
+	return b
+}
+
+// checkBdVersion probes `bd --version` once and warns if the detected version
+// differs from expectedBdVersion. Uses sync.Once so the probe only fires on
+// construction. A probe failure is non-fatal — the orchestrator must not crash
+// over a version check that may simply mean bd is not on PATH yet.
+func (b *BdCliBackend) checkBdVersion() {
+	b.versionOnce.Do(func() {
+		out, err := exec.Command(b.bdBin, "--version").Output()
+		if err != nil {
+			slog.Warn("KERNL BD VERSION DRIFT: bd --version probe failed",
+				"error", err,
+				"expectedBdVersion", expectedBdVersion)
+			return
+		}
+		detected := parseBdVersionString(string(out))
+		b.detectedVersion = detected
+		if detected != expectedBdVersion {
+			slog.Warn("KERNL BD VERSION DRIFT",
+				"detected", detected,
+				"expected", expectedBdVersion)
+		}
+	})
+}
+
+// parseBdVersionString extracts the first semver-like token (N.N.N) from the
+// output of `bd --version`. Returns the raw trimmed output if no semver token
+// is found.
+func parseBdVersionString(raw string) string {
+	re := bdVersionRe
+	if m := re.FindString(raw); m != "" {
+		return m
+	}
+	return strings.TrimSpace(raw)
 }
 
 func (b *BdCliBackend) Capabilities() BackendCapabilities {
