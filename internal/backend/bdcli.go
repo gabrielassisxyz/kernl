@@ -457,8 +457,14 @@ func shouldUseNoDBByDefault(args []string) bool {
 	if isTruthyEnv(bdNoDBEnv) {
 		return true
 	}
-	if os.Getenv("KERNL_BD_READ_NO_DB") == "0" {
-		return false
+	if raw, ok := os.LookupEnv("KERNL_BD_READ_NO_DB"); ok {
+		v := strings.ToLower(strings.TrimSpace(raw))
+		switch v {
+		case "1", "true", "yes", "on":
+			return IsReadOnlyCommand(args)
+		case "0", "false", "no", "off", "":
+			return false
+		}
 	}
 	return IsReadOnlyCommand(args)
 }
