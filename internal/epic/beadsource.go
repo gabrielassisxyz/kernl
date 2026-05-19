@@ -2,6 +2,7 @@ package epic
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
@@ -44,15 +45,28 @@ func LoadEpic(be backend.BackendPort, epicID, repoPath string) (*Epic, error) {
 			// TargetID (depends_on_id). Earlier orchestrator code + tests
 			// flipped that — keep the loader tolerant so the bd wire format
 			// works without bd-side changes.
-			var blocker string
+			var blocker, convention string
 			switch {
 			case d.SourceID == child.ID:
 				blocker = d.TargetID
+				convention = "source-is-dependent"
 			case d.TargetID == child.ID:
 				blocker = d.SourceID
+				convention = "target-is-dependent"
 			default:
 				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — dep (source=%q target=%q) does not reference the child — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID, d.SourceID, d.TargetID)
 			}
+			// Record which bd dep-direction convention was observed so future
+			// bd version drift between source-as-dependent (current `bd list`
+			// output) and target-as-dependent (legacy/test fixtures) is
+			// detectable in logs. See kernl-h2bg.
+			slog.Debug("beadsource.dep_direction_observed",
+				"epic", epicID,
+				"child", child.ID,
+				"blocker", blocker,
+				"convention", convention,
+				"dep_type", d.Type,
+			)
 			deps = append(deps, blocker)
 		}
 		nodes = append(nodes, Node{ID: child.ID, DependsOn: deps})

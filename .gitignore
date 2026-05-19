@@ -15,3 +15,15 @@ __pycache__/
 
 # bv (beads viewer) local config and caches
 .bv/
+
+# br (beads_rust) local state — SQLite mirror + history backups
+.beads/dolt
+.beads/dolt-wal
+.beads/.br_history/
+
+.opencode/
+.claude/
+docs/research/
+
+# Stage artifacts — must survive git add -A in worktrees
+!.kernl/

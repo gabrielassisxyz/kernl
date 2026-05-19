@@ -25,6 +25,7 @@ type RunInput struct {
 }
 
 type RunResult struct {
+	SessionID  string
 	FinalState string
 	Success    bool
 }

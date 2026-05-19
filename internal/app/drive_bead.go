@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
@@ -28,10 +30,6 @@ type DriveBeadDeps struct {
 	Worktree           string
 	Log                func(stage int, state string)
 	MaxStages          int
-	// StageRetryAttempts is how many times to re-spawn the same opencode session
-	// when the agent exits rc=0 but did not advance the bead's status. Defaults
-	// to orchestrator.stageRetryAttempts from kernl.yaml (or 2 if unset).
-	StageRetryAttempts int
 	// SessionID is the opencode session to resume via -s. Non-empty means
 	// the bead is being resumed from a previous run rather than dispatched
 	// fresh.
@@ -55,14 +53,6 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 	maxStages := deps.MaxStages
 	if maxStages <= 0 {
 		maxStages = 16
-	}
-
-	retryLimit := deps.StageRetryAttempts
-	if retryLimit <= 0 && deps.Config != nil {
-		retryLimit = deps.Config.Orchestrator.StageRetryAttempts
-	}
-	if retryLimit <= 0 {
-		retryLimit = 2
 	}
 
 	var lastResult RunBeadResult
@@ -91,40 +81,16 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: bead.State, Success: false}, nil
 		}
 
-		// Same state twice means the agent finished cleanly but did not
-		// advance bead.status. Before failing loud, attempt up to retryLimit
-		// re-spawns of the same opencode session with an explicit follow-up.
-		// Exception: if the workflow has no forward transition from this state,
-		// treat it as a single-stage / degenerate workflow and return success.
-		if i > 0 && bead.State == prevState {
-			if _, ok := backend.ForwardTransitionTarget(bead.State, wf); !ok {
-				return RunBeadResult{FinalState: bead.State, Success: true}, nil
-			}
-			res, retryErr := retryStuckStage(ctx, deps, bead, wf, lastResult.SessionID, retryLimit)
-			if retryErr != nil {
-				return res, retryErr
-			}
-			lastResult = res
-			// Re-read bead state before the next outer iteration.
-			prevState = bead.State
-			continue
-		}
-
 		if deps.Log != nil {
 			deps.Log(i, bead.State)
 		}
 
-		// Resolve the agent BEFORE advancing state so a misconfigured pool
-		// does not strand the bead at an active state with no worker.
 		agentInput, err := ResolveAgentForBead(deps.Config, deps.Backend, deps.BeadID, deps.RepoPath)
 		if err != nil {
 			return RunBeadResult{FinalState: bead.State, Success: false},
 				fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at state %s: %w", deps.BeadID, bead.State, err)
 		}
 
-		// Claim only when the bead is in a queued state (ready_for_X). The
-		// agent owns the transition from active (X) → next queued (ready_for_X_review);
-		// claiming again from an active state would mask agent failures.
 		runtime := backend.DeriveWorkflowRuntimeState(wf, bead.State)
 		activeState := bead.State
 		slog.Info("DRIVE_TRACE pre-claim", "bead", deps.BeadID, "iter", i, "state", bead.State, "claimable", runtime.IsAgentClaimable, "owner", runtime.NextActionOwnerKind, "agent", agentInput.AgentName)
@@ -146,37 +112,30 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			}
 		}
 
-		// Build the prompt that tells the agent what to do AND how to end
-		// the stage (the agent must `bd update --status <next>` so the
-		// orchestrator's polling loop sees the workflow advance).
-		var promptNextState string
-		if nextAfterActive, ok := backend.ForwardTransitionTarget(activeState, wf); ok {
-			promptNextState = nextAfterActive
-		}
-		prompt := BuildBeadStagePrompt(bead, activeState, promptNextState, deps.RepoPath, deps.Worktree)
+		prompt := BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
 		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
-		// Point opencode at the orchestrator's permission allowlist so
-		// `/tmp/*` writes and worktree access are not auto-rejected (which
-		// silently makes agents bail mid-stage — observed in the kernl-npp
-		// MVP run on 2026-05-17 where every agent gave up after hitting
-		// "permission requested: external_directory (/tmp/*); auto-rejecting").
 		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
-
-		agentInput.BeadID = deps.BeadID
-		// bd reads/writes stay on the canonical repo; the agent process is
-		// chrooted into the bead's isolated worktree via Cwd.
-		agentInput.RepoPath = deps.RepoPath
-		agentInput.Cwd = deps.Worktree
-
-		// Expose canonical bead coords to the spawned agent as env vars so
-		// agent-side scripts (e.g. fake-agent shims, nudge receivers) can
-		// read/write bd without re-parsing CLI flags.
 		if agentInput.Env == nil {
 			agentInput.Env = make(map[string]string)
 		}
+		if len(wf.Stages) > 0 {
+			staticConfigPath := deps.RepoPath + "/orchestrator/opencode-config.json"
+			stageCfgPath, cfgErr := writeStageOpencodeConfig(staticConfigPath, deps.Worktree, deps.BeadID, activeState, wf.Stages)
+			if cfgErr != nil {
+				slog.Warn("DRIVE_TRACE stage-opencode-config failed, using static config", "err", cfgErr)
+			} else {
+				agentInput.Env["OPENCODE_CONFIG"] = stageCfgPath
+			}
+		}
+
+		agentInput.BeadID = deps.BeadID
+		agentInput.RepoPath = deps.RepoPath
+		agentInput.Cwd = deps.Worktree
+
 		agentInput.Env["BEAD_ID"] = deps.BeadID
 		agentInput.Env["REPO_PATH"] = deps.RepoPath
 
+		startTime := time.Now()
 		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
 		if err != nil {
@@ -188,128 +147,76 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
 		}
-		slog.Info("DRIVE_TRACE post-spawn ok", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState, "willPrevState", bead.State)
+		duration := time.Since(startTime)
+		slog.Info("DRIVE_TRACE post-spawn ok", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
+
+		gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID)
+		if gatePassed {
+			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
+			if ok {
+				err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: nextState}, deps.RepoPath)
+				if err != nil {
+					beadAfter, getErr := deps.Backend.Get(deps.BeadID, deps.RepoPath)
+					if getErr == nil && beadAfter != nil && beadAfter.State == nextState {
+						slog.Info("DRIVE_TRACE post-spawn update idempotent", "bead", deps.BeadID, "state", nextState)
+					} else {
+						slog.Info("DRIVE_TRACE return advance-failed", "bead", deps.BeadID, "err", err)
+						return RunBeadResult{FinalState: activeState, Success: false},
+							fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s after agent exit: %w", deps.BeadID, activeState, nextState, err)
+					}
+				}
+				artifactPath := resolveArtifactRef(activeState, wf.Stages, deps.BeadID)
+				commitSHA := worktreeHeadSHA(deps.Worktree)
+				if err := deps.Backend.Comment(deps.BeadID, buildStageComment(activeState, agentInput.AgentName, res.SessionID, artifactPath, commitSHA, duration), deps.RepoPath); err != nil {
+					slog.Warn("DRIVE_TRACE comment failed", "bead", deps.BeadID, "err", err)
+				}
+			}
+		} else {
+			_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
+			_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
+			return RunBeadResult{FinalState: "blocked", Success: false}, nil
+		}
 
 		lastResult = res
 		prevState = bead.State
 	}
 
 	return RunBeadResult{FinalState: lastResult.FinalState, Success: false},
-		fmt.Errorf("KERNL DISPATCH FAILURE: bead %s exceeded max stages (%d) — Fix: check workflow for cycles or agents that do not advance state", deps.BeadID, maxStages)
+		fmt.Errorf("KERNL DISPATCH FAILURE: bead %s exceeded max stages (%d) — Fix: check workflow for cycles", deps.BeadID, maxStages)
 }
 
-// retryStuckStage re-spawns the same opencode session up to maxRetries times
-// when the agent exited rc=0 but the bead's status did not advance. Each
-// retry sends a strong follow-up prompt via -s <sessionID> so the agent can
-// finish the interrupted work without losing context.
-func retryStuckStage(ctx context.Context, deps DriveBeadDeps, bead *backend.Bead, wf backend.WorkflowDescriptor, sessionID string, maxRetries int) (RunBeadResult, error) {
-	var promptNextState string
-	if next, ok := backend.ForwardTransitionTarget(bead.State, wf); ok {
-		promptNextState = next
-	}
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		slog.Info("stage retry: agent exited without advancing bead status",
-			"bead", deps.BeadID,
-			"state", bead.State,
-			"attempt", attempt,
-			"maxRetries", maxRetries,
-			"sessionID", sessionID,
-		)
-
-		agentInput, err := ResolveAgentForBead(deps.Config, deps.Backend, deps.BeadID, deps.RepoPath)
-		if err != nil {
-			return RunBeadResult{FinalState: bead.State, Success: false},
-				fmt.Errorf("KERNL DISPATCH FAILURE: bead %s retry %d resolve agent: %w", deps.BeadID, attempt, err)
-		}
-
-		followUp := buildRetryPrompt(deps.BeadID, bead.State, promptNextState, deps.RepoPath)
-		agentInput.Args = appendOpencodeRetryFlags(agentInput.Args, deps.BeadID, deps.Worktree, sessionID, followUp)
-		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
-		agentInput.BeadID = deps.BeadID
-		agentInput.RepoPath = deps.RepoPath
-		agentInput.Cwd = deps.Worktree
-
-		res, err := deps.Driver.RunBead(ctx, agentInput)
-		if err != nil {
-			return RunBeadResult{FinalState: res.FinalState, Success: false},
-				fmt.Errorf("KERNL DISPATCH FAILURE: agent %s for bead %s retry %d: %w", agentInput.AgentName, deps.BeadID, attempt, err)
-		}
-		if !res.Success {
-			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
-		}
-
-		// Check whether the bead advanced after this retry.
-		updated, getErr := deps.Backend.Get(deps.BeadID, deps.RepoPath)
-		if getErr != nil || updated == nil {
-			return res, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found after retry %d: %w", deps.BeadID, attempt, getErr)
-		}
-		if updated.State != bead.State {
-			slog.Info("stage retry succeeded: bead advanced",
-				"bead", deps.BeadID,
-				"from", bead.State,
-				"to", updated.State,
-				"attempt", attempt,
-			)
-			return RunBeadResult{SessionID: res.SessionID, FinalState: updated.State, Success: true}, nil
-		}
-
-		// Use the session ID from this retry for the next one (session chain).
-		if res.SessionID != "" {
-			sessionID = res.SessionID
-		}
-	}
-
-	return RunBeadResult{FinalState: bead.State, Success: false},
-		fmt.Errorf("KERNL DISPATCH FAILURE: bead %s stuck at state %q after %d retries — Fix: the agent for this state must run 'bd update --status %s' before exiting", deps.BeadID, bead.State, maxRetries, promptNextState)
-}
-
-// buildRetryPrompt returns the follow-up message sent to a session that exited
-// without advancing the bead's status.
-func buildRetryPrompt(beadID, currentState, nextState, repoPath string) string {
-	if nextState == "" {
-		return fmt.Sprintf(
-			"Your previous turn ended without running `bd update --status`. "+
-				"Bead %s is still at %q. Run the required `bd update --status` command now and exit. "+
-				"If you cannot complete the work, run: bd -C %s update %s --status blocked",
-			beadID, currentState, repoPath, beadID,
-		)
-	}
+func buildStageComment(state, agentID, sessionID, artifactPath, commitSHA string, duration time.Duration) string {
 	return fmt.Sprintf(
-		"Your previous turn ended without running `bd update --status %s`. "+
-			"Do that command now and exit: bd -C %s update %s --status %s\n"+
-			"If you cannot complete the work, write _scratch/STAGE_BLOCKED.md and run: "+
-			"bd -C %s update %s --status blocked",
-		nextState, repoPath, beadID, nextState,
-		repoPath, beadID,
+		"stage: %s\nagent: %s\nsession_id: %s\nartifact: %s\ncommit: %s\nduration: %s",
+		state,
+		agentID,
+		sessionID,
+		artifactPath,
+		commitSHA,
+		duration.Truncate(time.Millisecond).String(),
 	)
 }
 
-// appendOpencodeRetryFlags builds the arg list for a retry spawn. It reuses
-// the session via -s <sessionID> when one is available so the agent retains
-// its full conversation history. Falls back to --title-only if no session ID
-// was captured from the prior run.
-func appendOpencodeRetryFlags(args []string, beadID, worktree, sessionID, followUpPrompt string) []string {
-	hasFlag := func(flag string) bool {
-		for _, a := range args {
-			if a == flag {
-				return true
-			}
-		}
-		return false
+func resolveArtifactRef(state string, stages map[string]backend.StageContract, beadID string) string {
+	if stages == nil {
+		return ""
 	}
-	out := append([]string(nil), args...)
-	if worktree != "" && !hasFlag("--dir") {
-		out = append(out, "--dir", worktree)
+	sc, ok := stages[state]
+	if !ok {
+		return ""
 	}
-	if !hasFlag("--title") {
-		out = append(out, "--title", "kernl:"+beadID)
+	return strings.ReplaceAll(sc.OutputArtifact.Path, "<bead_id>", beadID)
+}
+
+func worktreeHeadSHA(worktree string) string {
+	if worktree == "" {
+		return ""
 	}
-	if sessionID != "" && !hasFlag("-s") {
-		out = append(out, "-s", sessionID)
+	out, err := exec.Command("git", "-C", worktree, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
 	}
-	out = append(out, followUpPrompt)
-	return out
+	return strings.TrimSpace(string(out))
 }
 
 func isWorkflowTerminal(state string, wf backend.WorkflowDescriptor) bool {

@@ -74,6 +74,7 @@ func (b *epicTestBackend) BuildTakePrompt(beadID string, options *backend.TakePr
 func (b *epicTestBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
+func (b *epicTestBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (b *epicTestBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
 
 func captureEpicList(t *testing.T, be backend.BackendPort) string {
@@ -135,6 +136,14 @@ func (b *epicRunTestBackend) Create(input backend.CreateBeadInput, repoPath stri
 	return nil, nil
 }
 func (b *epicRunTestBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error {
+	for i := range b.beads {
+		if b.beads[i].ID == id {
+			if input.State != "" {
+				b.beads[i].State = input.State
+			}
+			return nil
+		}
+	}
 	return nil
 }
 func (b *epicRunTestBackend) Delete(id string, repoPath string) error { return nil }
@@ -169,6 +178,7 @@ func (b *epicRunTestBackend) BuildTakePrompt(beadID string, options *backend.Tak
 func (b *epicRunTestBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
+func (b *epicRunTestBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (b *epicRunTestBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
 
 type epicRunTestProcess struct {
@@ -199,10 +209,10 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	be := &epicRunTestBackend{
 		beads: []backend.Bead{
 			{ID: "e", Type: "epic", Title: "test epic"},
-			{ID: "a", Type: "task", ParentID: "e"},
-			{ID: "b", Type: "task", ParentID: "e", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "b"}}},
-			{ID: "c", Type: "task", ParentID: "e", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "c"}}},
-			{ID: "d", Type: "task", ParentID: "e", Dependencies: []backend.BeadDependency{{SourceID: "b", TargetID: "d"}, {SourceID: "c", TargetID: "d"}}},
+			{ID: "a", Type: "task", ParentID: "e", State: "ready_for_implementation"},
+			{ID: "b", Type: "task", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "b"}}},
+			{ID: "c", Type: "task", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "c"}}},
+			{ID: "d", Type: "task", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "b", TargetID: "d"}, {SourceID: "c", TargetID: "d"}}},
 		},
 	}
 	scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
@@ -212,6 +222,8 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 		"planning":                {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 		"plan_review":             {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 		"implementation_review":    {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"integration":              {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"integration_review":       {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 		"shipment":                {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 		"shipment_review":          {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 	}

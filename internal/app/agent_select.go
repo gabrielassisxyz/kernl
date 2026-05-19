@@ -69,7 +69,12 @@ func ResolveAgentForBead(cfg *config.Config, be backend.BackendPort, beadID, rep
 	wf := backend.ResolveWorkflow(bead)
 	poolKey := dispatch.DerivePoolKey(&wf, bead.State)
 	if poolKey == "" {
-		poolKey = "implementation"
+		return RunBeadInput{}, fmt.Errorf(
+			"KERNL DISPATCH FAILURE: DerivePoolKey returned empty for bead %s in state %q (workflow %q) — "+
+				"Fix: add a pool mapping for state %q under workflows.%s.queueActions in kernl.yaml, "+
+				"or ensure the workflow definition lists %q as an active state",
+			beadID, bead.State, wf.ID, bead.State, wf.ID, bead.State,
+		)
 	}
 
 	return ResolveAgentForPool(cfg, poolKey)

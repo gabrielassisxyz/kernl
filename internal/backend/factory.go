@@ -268,6 +268,14 @@ func (a *AutoRoutingBackend) BuildPollPrompt(options *PollPromptOptions, repoPat
 	return backend.BuildPollPrompt(options, repoPath)
 }
 
+func (a *AutoRoutingBackend) Comment(id string, body string, repoPath string) error {
+	backend, err := a.backendFor("comment", repoPath)
+	if err != nil {
+		return err
+	}
+	return backend.Comment(id, body, repoPath)
+}
+
 func (a *AutoRoutingBackend) Capabilities() BackendCapabilities {
 	return FullCapabilities
 }
@@ -327,6 +335,141 @@ func CreateBackend(bt BackendType, repoPath string) BackendEntry {
 		return BackendEntry{Port: b, Capabilities: b.Capabilities()}
 	default:
 		panic(fmt.Sprintf("KERNL DISPATCH FAILURE: unknown backend type: %s", bt))
+	}
+}
+
+// CanonicalStageContracts returns the builtin stage contracts for the
+// canonical vibe-coding pipeline. Each entry maps a workflow state name
+// (planning, implementation, plan_review, etc.) to its role contract,
+// allowed inputs, required output artifact, and forbidden globs.
+// Called by descriptorFromProfileConfig when a profile has no custom
+// stages block.
+func CanonicalStageContracts() map[string]StageContract {
+	return map[string]StageContract{
+		"planning": {
+			Role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code.",
+			Inputs: []string{
+				"bead.title",
+				"bead.description",
+				"bead.acceptance",
+				"repo state (read-only)",
+			},
+			OutputArtifact: StageArtifact{
+				Path: ".kernl/<bead_id>/plan.md",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
+			},
+		},
+		"plan_review": {
+			Role: "Review the plan for correctness, completeness, and alignment with the bead's acceptance criteria. Produce a verdict.",
+			Inputs: []string{
+				"bead.description",
+				"bead.acceptance",
+				".kernl/<bead_id>/plan.md",
+			},
+			OutputArtifact: StageArtifact{
+				Path:        ".kernl/<bead_id>/plan-review.md",
+				MustEndWith: "VERDICT: PASS",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
+				".kernl/**/plan.md",
+			},
+		},
+		"implementation": {
+			Role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan.",
+			Inputs: []string{
+				"bead.acceptance",
+				".kernl/<bead_id>/plan.md",
+				".kernl/<bead_id>/plan-review.md",
+			},
+			OutputArtifact: StageArtifact{
+				Kind:         "commits",
+				CommitMarker: "stage: implementation",
+			},
+			ForbiddenPaths: []string{
+				".kernl/**/plan.md",
+				".kernl/**/plan-review.md",
+			},
+		},
+		"implementation_review": {
+			Role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict.",
+			Inputs: []string{
+				"bead.acceptance",
+				".kernl/<bead_id>/plan.md",
+				"implementation commits",
+			},
+			OutputArtifact: StageArtifact{
+				Path:        ".kernl/<bead_id>/implementation-review.md",
+				MustEndWith: "VERDICT: PASS",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
+			},
+		},
+		"integration": {
+			Role: "Integrate this bead's changes into the parent branch. Resolve merge conflicts, ensure cross-bead consistency, and verify the combined codebase passes all tests.",
+			Inputs: []string{
+				"bead.acceptance",
+				"parent branch state",
+				"sibling bead artifacts",
+			},
+			OutputArtifact: StageArtifact{
+				Kind:         "commits",
+				CommitMarker: "stage: integration",
+			},
+			ForbiddenPaths: []string{
+				".kernl/**/plan.md",
+				".kernl/**/plan-review.md",
+			},
+		},
+		"integration_review": {
+			Role: "Review the integration. Verify merge conflicts are resolved, no regressions are introduced, and the combined codebase meets quality gates.",
+			Inputs: []string{
+				"bead.acceptance",
+				"integration commits",
+				"test results",
+			},
+			OutputArtifact: StageArtifact{
+				Path:        ".kernl/<bead_id>/integration-review.md",
+				MustEndWith: "VERDICT: PASS",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
+			},
+		},
+		"shipment": {
+			Role: "Prepare the bead for final merge. Create the pull request, write the PR description with stage summary, and ensure all CI checks are green.",
+			Inputs: []string{
+				"bead.acceptance",
+				"all stage artifacts in .kernl/<bead_id>/",
+			},
+			OutputArtifact: StageArtifact{
+				Kind:         "commits",
+				CommitMarker: "stage: shipment",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
+				".kernl/**/plan.md",
+				".kernl/**/plan-review.md",
+			},
+		},
+		"shipment_review": {
+			Role: "Review the PR for completeness and correctness. Verify the PR description accurately summarizes the work, all stage artifacts are present, and the bead is ready to merge.",
+			Inputs: []string{
+				"bead.acceptance",
+				"PR description",
+				"all stage artifacts in .kernl/<bead_id>/",
+			},
+			OutputArtifact: StageArtifact{
+				Path:        ".kernl/<bead_id>/shipment-review.md",
+				MustEndWith: "VERDICT: PASS",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
+			},
+		},
 	}
 }
 

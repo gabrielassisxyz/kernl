@@ -79,13 +79,14 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		epicBlocked := ex.state == EpicBlocked
 		ex.mu.Unlock()
 
-		ex.emit(EpicEvent{
-			Type:   BeadStateChanged,
-			EpicID: ex.deps.Epic.ID,
-			BeadID: r.beadID,
-			Detail: r.result.FinalState,
-			Time:   time.Now().Unix(),
-		})
+	ex.emit(EpicEvent{
+		Type:      BeadStateChanged,
+		EpicID:    ex.deps.Epic.ID,
+		BeadID:    r.beadID,
+		SessionID: r.result.SessionID,
+		Detail:    r.result.FinalState,
+		Time:      time.Now().Unix(),
+	})
 
 		if !epicBlocked && r.result.FinalState == "awaiting_integration" && ex.deps.MergeManager != nil {
 			_ = ex.deps.MergeManager.TryTrigger(ex.deps.Epic.ID)
@@ -102,11 +103,12 @@ func (ex *Executor) handleBeadFailure(r beadResult) {
 	ex.mu.Unlock()
 
 	ex.emit(EpicEvent{
-		Type:   BeadStateChanged,
-		EpicID: ex.deps.Epic.ID,
-		BeadID: r.beadID,
-		Detail: fmt.Sprintf("blocked: %s", r.result.FinalState),
-		Time:   time.Now().Unix(),
+		Type:      BeadStateChanged,
+		EpicID:    ex.deps.Epic.ID,
+		BeadID:    r.beadID,
+		SessionID: r.result.SessionID,
+		Detail:    fmt.Sprintf("blocked: %s", r.result.FinalState),
+		Time:      time.Now().Unix(),
 	})
 }
 

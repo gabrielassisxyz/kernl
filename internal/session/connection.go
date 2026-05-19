@@ -424,12 +424,7 @@ func (m *SessionConnectionManager) ListActiveSessions() []ActiveSession {
 		conn.mu.Lock()
 		beadID := conn.beadID
 		exited := conn.exitReceived
-		hasEvents := len(conn.buffer) > 0
 		conn.mu.Unlock()
-
-		if !hasEvents {
-			continue
-		}
 		out = append(out, ActiveSession{
 			SessionID: id,
 			BeadID:    beadID,
