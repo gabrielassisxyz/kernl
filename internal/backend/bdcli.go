@@ -595,6 +595,9 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 		}
 
 		if !useNoDB && IsReadOnlyCommand(args) && isEmbeddedDoltPanic(firstResult) {
+			slog.Warn("embedded Dolt panic, retrying with BD_NO_DB=true",
+				"args", args,
+				"stderr", firstResult.Stderr)
 			retryOpts := &ExecOptions{
 				Cwd:       execOpts.Cwd,
 				ForceNoDB: true,
