@@ -1,4 +1,3 @@
-# --- Binaries & build artifacts ---
 /kernl
 orchestrator/kernl
 *.exe
@@ -12,19 +11,16 @@ go.work.sum
 /vendor/
 /pkg/
 
-# --- IDEs ---
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# --- OS ---
 .DS_Store
 Thumbs.db
- ._*
+._*
 
-# --- Python ---
 __pycache__/
 *.pyc
 *.pyo
@@ -33,7 +29,6 @@ __pycache__/
 .envrc
 .pytest_cache/
 
-# --- Beads / Dolt runtime state (never commit) ---
 .beads/
 .dolt/
 *.db
@@ -42,7 +37,6 @@ __pycache__/
 *.db-shm
 .beads-credential-key
 
-# --- Agent local state (Claude, OpenCode, Codex, Cursor, etc.) ---
 .claude/
 .opencode/
 .codex/
@@ -54,10 +48,8 @@ CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
 
-# --- bv (beads viewer) local state ---
 .bv/
 
-# --- Local / runtime config ---
 kernl.yaml
 !kernl.yaml.example
 *.env
@@ -65,7 +57,6 @@ kernl.yaml
 *.local.*
 *.log
 
-# --- Agent ephemeral artifacts ---
 RESEARCH_FINDINGS.md
 TOON_INTEGRATION_BRIEF.md
 SESSION_REPORT.md
@@ -79,54 +70,21 @@ opencode.json
 .agent-mail-project-id
 .agent-mail.yaml
 
-# --- Go build cache ( NEVER commit ) ---
 /.gocache/
 /.gomodcache/
 
-# --- Coverage & profiling ---
 coverage.out
 coverage.html
 *.prof
 *.cover
 
-# --- Node ---
 node_modules/
 
-# --- Misc ephemeral ---
 *.bak
 *.backup
 *.tmp
 .tmp*/
 .scratch/
 
-# --- Nix ---
 result
 result-*
-
-# --- Research / planning docs (private, not upstream) ---
-docs/research/
-docs/brainstorms/
-docs/plans/
-docs/reviews/
-docs/spikes/
-BACKLOG.md
-TODOS.md
-ideas.md
-beads/
-
-# --- Old orchestrator local artifacts (to be removed from repo) ---
-orchestrator/.gitignore
-orchestrator/AGENTS.md
-orchestrator/opencode-config.json
-orchestrator/.claude/
-
-# --- Docs planning (moved to wiki / private notes) ---
-docs/STRATEGY.md
-docs/VISION.md
-docs/suggested-vision-projects.md
-docs/2026-05-14-orchestration-nucleo-mvp-brainstorm-spec.md
-docs/2026-05-15-kernl-workflow-brainstorm-spec.md
-docs/2026-05-17-graph-substrate-brainstorm-spec.md
-docs/PLAN.md
-docs/dev-workflow-skills.md
-docs/agent-log-ui.md
