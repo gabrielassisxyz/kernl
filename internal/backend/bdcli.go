@@ -632,21 +632,10 @@ func execOnce(ctx context.Context, bdBin string, bdDB string, args []string, opt
 		timeoutMs = commandTimeoutMs(args)
 	}
 
-	cmd := exec.CommandContext(ctx, bdBin, fullArgs...)
-	if opts != nil && opts.Cwd != "" {
-		cmd.Dir = opts.Cwd
-	}
-
-	cmd.Env = os.Environ()
-	cmd.Env = append(cmd.Env, bdJSONEnvelopeEnv+"=1")
-	if opts != nil && opts.ForceNoDB {
-		cmd.Env = append(cmd.Env, bdNoDBEnv+"=true")
-	}
-
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 
-	cmd = exec.CommandContext(timeoutCtx, bdBin, fullArgs...)
+	cmd := exec.CommandContext(timeoutCtx, bdBin, fullArgs...)
 	if opts != nil && opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
