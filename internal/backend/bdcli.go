@@ -583,7 +583,7 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 			return execOnce(ctx, b.bdBin, b.bdDB, args, retryOpts)
 		}
 
-		if subcmdArgs := stripRepoPrefix(args); len(subcmdArgs) > 0 && subcmdArgs[0] == "sync" || !isOutOfSyncError(firstResult) {
+		if subcmdArgs := stripRepoPrefix(args); (len(subcmdArgs) > 0 && subcmdArgs[0] == "sync") || !isOutOfSyncError(firstResult) {
 			return firstResult, nil
 		}
 
