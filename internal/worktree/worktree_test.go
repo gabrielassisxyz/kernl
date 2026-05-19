@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -105,6 +106,42 @@ func TestPathReturnsJoinedPath(t *testing.T) {
 	want := filepath.Join("/tmp/kr", "epic-1", "kb-3")
 	if path != want {
 		t.Errorf("path = %q, want %q", path, want)
+	}
+}
+
+func TestWorktreeGitignoreAllowsKernlDir(t *testing.T) {
+	dir := t.TempDir()
+
+	initArgs := []string{"init", "--initial-branch", "main", dir}
+	cmd := exec.Command("git", initArgs...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	gitignorePath := filepath.Join(dir, ".gitignore")
+	content := ".opencode/\n.claude/\n*.jsonl\n.dolt/\n\n!.kernl/\n"
+	if err := os.WriteFile(gitignorePath, []byte(content), 0644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+
+	kernlDir := filepath.Join(dir, ".kernl", "test-id")
+	if err := os.MkdirAll(kernlDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	artifactPath := filepath.Join(kernlDir, "plan.md")
+	if err := os.WriteFile(artifactPath, []byte("## Plan\n"), 0644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	addCmd := exec.Command("git", "-C", dir, "add", "-A")
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add -A: %v\n%s", err, out)
+	}
+
+	checkCmd := exec.Command("git", "-C", dir, "check-ignore", ".kernl/")
+	out, _ := checkCmd.CombinedOutput()
+	if len(strings.TrimSpace(string(out))) > 0 {
+		t.Errorf("git reported .kernl/ as ignored (it should not be):\n%s", string(out))
 	}
 }
 
