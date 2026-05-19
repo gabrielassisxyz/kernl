@@ -1,29 +1,132 @@
-update_binary.sh
-orchestrator/web/node_modules/
-*.jsonl
+# --- Binaries & build artifacts ---
+/kernl
+orchestrator/kernl
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+/vendor/
+/pkg/
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+ ._*
+
+# --- Python ---
 __pycache__/
-.beads/*.db
+*.pyc
+*.pyo
+.venv/
+.env
+.envrc
+.pytest_cache/
 
-# Bootstrap swarm (throwaway tooling — not part of kernl)
-/scripts/swarm/
-
-# Beads / Dolt files (added by bd init)
+# --- Beads / Dolt runtime state (never commit) ---
+.beads/
 .dolt/
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 .beads-credential-key
-.vibe-chaos-to-concept/
 
-# bv (beads viewer) local config and caches
+# --- Agent local state (Claude, OpenCode, Codex, Cursor, etc.) ---
+.claude/
+.opencode/
+.codex/
+.cursor/
+.augment/
+.agents/
+.vibe-chaos-to-concept/
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+
+# --- bv (beads viewer) local state ---
 .bv/
 
-# br (beads_rust) local state — SQLite mirror + history backups
-.beads/dolt
-.beads/dolt-wal
-.beads/.br_history/
+# --- Local / runtime config ---
+kernl.yaml
+!kernl.yaml.example
+*.env
+*.local
+*.local.*
+*.log
 
-.opencode/
-.claude/
+# --- Agent ephemeral artifacts ---
+RESEARCH_FINDINGS.md
+TOON_INTEGRATION_BRIEF.md
+SESSION_REPORT.md
+SESSION_TODO.md
+SESSION_*.md
+artifact-*.json
+artifacts/
+*.mcp.json
+*.mcp.json.*.bak
+opencode.json
+.agent-mail-project-id
+.agent-mail.yaml
+
+# --- Go build cache ( NEVER commit ) ---
+/.gocache/
+/.gomodcache/
+
+# --- Coverage & profiling ---
+coverage.out
+coverage.html
+*.prof
+*.cover
+
+# --- Node ---
+node_modules/
+
+# --- Misc ephemeral ---
+*.bak
+*.backup
+*.tmp
+.tmp*/
+.scratch/
+
+# --- Nix ---
+result
+result-*
+
+# --- Research / planning docs (private, not upstream) ---
 docs/research/
+docs/brainstorms/
+docs/plans/
+docs/reviews/
+docs/spikes/
+BACKLOG.md
+TODOS.md
+ideas.md
+beads/
 
-# Stage artifacts — must survive git add -A in worktrees
-!.kernl/
+# --- Old orchestrator local artifacts (to be removed from repo) ---
+orchestrator/.gitignore
+orchestrator/AGENTS.md
+orchestrator/opencode-config.json
+orchestrator/.claude/
+
+# --- Docs planning (moved to wiki / private notes) ---
+docs/STRATEGY.md
+docs/VISION.md
+docs/suggested-vision-projects.md
+docs/2026-05-14-orchestration-nucleo-mvp-brainstorm-spec.md
+docs/2026-05-15-kernl-workflow-brainstorm-spec.md
+docs/2026-05-17-graph-substrate-brainstorm-spec.md
+docs/PLAN.md
+docs/dev-workflow-skills.md
+docs/agent-log-ui.md
