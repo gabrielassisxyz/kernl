@@ -463,8 +463,22 @@ func shouldUseNoDBByDefault(args []string) bool {
 }
 
 func isTruthyEnv(key string) bool {
-	v := strings.ToLower(os.Getenv(key))
-	return v == "1" || v == "true" || v == "yes"
+	raw, ok := os.LookupEnv(key)
+	if !ok {
+		return false
+	}
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "":
+		return false
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	slog.Warn("KERNL DISPATCH FAILURE: unrecognized truthy env value, treating as false",
+		"key", key, "value", raw)
+	return false
 }
 
 func commandTimeoutMs(args []string) int {
