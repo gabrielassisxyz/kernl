@@ -5,8 +5,10 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -203,8 +205,8 @@ func TestShouldUseNoDBByDefault(t *testing.T) {
 
 func TestIsEmbeddedDoltPanic(t *testing.T) {
 	tests := []struct {
-		result  *ExecResult
-		want    bool
+		result *ExecResult
+		want   bool
 	}{
 		{&ExecResult{Stderr: "panic: runtime error: invalid memory address or nil pointer dereference", ExitCode: 1}, true},
 		{&ExecResult{Stdout: "SetCrashOnFatalError", ExitCode: 1}, true},
@@ -378,6 +380,63 @@ func TestWithRepoSerialization(t *testing.T) {
 	}
 }
 
+func TestUnmarshalBdResponse_EnvelopeUnwrapsData(t *testing.T) {
+	envelope := `{"schema_version":1,"data":{"id":"b1","title":"t"}}`
+	var bead RawBead
+	if err := unmarshalBdResponse([]byte(envelope), &bead); err != nil {
+		t.Fatalf("unmarshalBdResponse: %v", err)
+	}
+	if bead.ID != "b1" {
+		t.Errorf("ID: got %q, want b1", bead.ID)
+	}
+	if bead.Title != "t" {
+		t.Errorf("Title: got %q, want t", bead.Title)
+	}
+}
+
+func TestUnmarshalBdResponse_EnvelopeArray(t *testing.T) {
+	envelope := `{"schema_version":1,"data":[{"id":"b1"},{"id":"b2"}]}`
+	var beads []RawBead
+	if err := unmarshalBdResponse([]byte(envelope), &beads); err != nil {
+		t.Fatalf("unmarshalBdResponse: %v", err)
+	}
+	if len(beads) != 2 {
+		t.Fatalf("expected 2 beads, got %d", len(beads))
+	}
+}
+
+func TestUnmarshalBdResponse_FallbackLegacy(t *testing.T) {
+	legacy := `{"id":"b1","title":"t"}`
+	var bead RawBead
+	if err := unmarshalBdResponse([]byte(legacy), &bead); err != nil {
+		t.Fatalf("unmarshalBdResponse: %v", err)
+	}
+	if bead.ID != "b1" {
+		t.Errorf("ID: got %q, want b1", bead.ID)
+	}
+}
+
+func TestUnmarshalBdResponse_FutureSchemaVersionLogs(t *testing.T) {
+	// Capture slog output by swapping the default handler.
+	var buf strings.Builder
+	oldHandler := slog.Default().Handler()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	defer slog.SetDefault(slog.New(oldHandler))
+
+	envelope := `{"schema_version":99,"data":{"id":"b1"}}`
+	var bead RawBead
+	if err := unmarshalBdResponse([]byte(envelope), &bead); err != nil {
+		t.Fatalf("unmarshalBdResponse: %v", err)
+	}
+	if bead.ID != "b1" {
+		t.Errorf("ID: got %q, want b1", bead.ID)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "schema_version") {
+		t.Error("expected slog warning for unexpected schema_version")
+	}
+}
+
 func TestParseNDJSONBytes(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -443,7 +502,7 @@ func TestParseNDJSONBytes(t *testing.T) {
 func TestExecOnceSetsNoDB(t *testing.T) {
 	tmpDir := t.TempDir()
 	script := filepath.Join(tmpDir, "bd-check-nodb.sh")
-	scriptContent := "#!/bin/sh\nif [ \"$BD_NO_DB\" = \"true\" ]; then echo '{\"id\":\"1\"}'; else echo 'no-db not set' >&2; exit 1; fi\n"
+	scriptContent := "#!/bin/sh\nif [ \"$BD_NO_DB\" = \"true\" ]; then echo '{\"schema_version\":1,\"data\":{\"id\":\"1\"}}'; else echo 'no-db not set' >&2; exit 1; fi\n"
 	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +634,7 @@ func TestBdCliBackendDeleteIncludesForce(t *testing.T) {
 	scriptContent := "#!/bin/sh\n" +
 		"for arg in \"$@\"; do\n" +
 		"  if [ \"$arg\" = \"--force\" ]; then\n" +
-		"    echo '{\"id\":\"1\"}'\n" +
+		"    echo '{\"schema_version\":1,\"data\":{\"id\":\"1\"}}'\n" +
 		"    exit 0\n" +
 		"  fi\n" +
 		"done\n" +
@@ -611,9 +670,8 @@ func TestBdCliBackendCloseWithEmptyReason(t *testing.T) {
 		"    exit 0\n" +
 		"  fi\n" +
 		"done\n" +
-		"echo '{\"state\":\"shipped\"}'\n" +
+		"echo '{\"schema_version\":1,\"data\":{\"state\":\"shipped\"}}'\n" +
 		"exit 0\n"
-
 	script := filepath.Join(tmpDir, "bd-close.sh")
 	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
 		t.Fatal(err)
@@ -642,7 +700,7 @@ func TestBdCliBackendCloseOmitsReasonWhenEmpty(t *testing.T) {
 		"    exit 1\n" +
 		"  fi\n" +
 		"done\n" +
-		"echo '{\"state\":\"shipped\"}'\n" +
+		"echo '{\"schema_version\":1,\"data\":{\"state\":\"shipped\"}}'\n" +
 		"exit 0\n"
 
 	script := filepath.Join(tmpDir, "bd-close-no-reason.sh")
