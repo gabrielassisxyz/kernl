@@ -87,8 +87,6 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	if err != nil || bead == nil {
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", input.BeadID, input.RepoPath, err)
 	}
-	claimedState := bead.State
-
 	if input.Command == "" {
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: RunBeadInput.Command empty for bead %s — Fix: resolve an agent from settings.pools before calling RunBead", input.BeadID)
 	}
@@ -136,8 +134,6 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	defer d.nudges.SetRunning(sessionID, false)
 
 	r.Start(ctx, stdout, stderr)
-
-	_ = claimedState
 
 	w := &sessionPump{
 		scm:       d.scm,
