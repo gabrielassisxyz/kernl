@@ -99,14 +99,19 @@ type BdCliBackend struct {
 	bdDB     string
 }
 
+// defaultBdBin is the PATH-resolved bd binary used when BD_BIN is unset.
+const defaultBdBin = "bd"
+
 func NewBdCliBackend(repoPath string) *BdCliBackend {
 	locksDir := os.Getenv("KERNL_BD_LOCK_DIR")
 	if locksDir == "" {
 		locksDir = filepath.Join(os.TempDir(), "kernl-bd-locks")
+		slog.Debug("KERNL_BD_LOCK_DIR unset, using default", "locksDir", locksDir)
 	}
 	bdBin := os.Getenv("BD_BIN")
 	if bdBin == "" {
-		bdBin = "bd"
+		bdBin = defaultBdBin
+		slog.Debug("BD_BIN unset, resolving 'bd' from PATH")
 	}
 	return &BdCliBackend{
 		repoPath: repoPath,
