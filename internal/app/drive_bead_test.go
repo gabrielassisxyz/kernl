@@ -369,3 +369,31 @@ func TestDriveBead_StageCommentRecorded(t *testing.T) {
 		}
 	}
 }
+
+func TestDriveBeadToTerminal_UnknownStateTriggersDispatchFailure(t *testing.T) {
+	// A bead in an unrecognized state (e.g. from a future bd version) must not
+	// be silently re-queued as "ready_for_implementation". The normalizer
+	// passes the raw status through and the dispatcher must fail loud.
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "limbo"}
+
+	driver := &scriptedDriver{be: be}
+	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		Backend:  be,
+		Driver:   driver,
+		Config:   newDriveTestConfig(),
+		BeadID:   "kb-1",
+		RepoPath: "/tmp/repo",
+		Worktree: "/tmp/worktree",
+	})
+
+	if err == nil {
+		t.Fatal("expected KERNL DISPATCH FAILURE for unknown state, got nil error")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("expected error to contain KERNL DISPATCH FAILURE, got: %v", err)
+	}
+	if driver.calls != 0 {
+		t.Errorf("expected zero agent calls for unroutable state, got %d", driver.calls)
+	}
+}

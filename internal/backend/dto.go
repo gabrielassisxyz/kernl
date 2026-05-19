@@ -91,6 +91,11 @@ var workflowKnownStates = map[string]bool{
 	"blocked":                          true,
 }
 
+// defaultState returns the workflow state for this bead. It is a total
+// function — if rawStatus doesn't match any recognized state it returns it
+// verbatim and lets the dispatcher decide whether it is routable.
+// Fail-loud for unroutable states lives in the dispatcher (see drive_bead.go
+// and ResolveAgentForBead in agent_select.go).
 func defaultState(labels []string, rawStatus string) string {
 	// Prefer bd's real status when it is already a known workflow state.
 	// Agents update status via `bd update --status <next>` but may not
@@ -113,7 +118,7 @@ func defaultState(labels []string, rawStatus string) string {
 			return strings.TrimPrefix(l, "wf:state:")
 		}
 	}
-	return "ready_for_implementation"
+	return rawStatus
 }
 
 func inferParent(id string, explicitParent string, deps []RawDependency) string {
