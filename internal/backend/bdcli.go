@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -500,8 +501,12 @@ func commandTimeoutMs(args []string) int {
 }
 
 func parseIntEnv(v string) int {
-	var n int
-	fmt.Sscanf(v, "%d", &n)
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		slog.Warn("KERNL DISPATCH FAILURE: invalid integer env value, ignoring",
+			"value", v, "err", err)
+		return 0
+	}
 	return n
 }
 
