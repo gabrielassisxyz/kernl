@@ -110,11 +110,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			}
 		}
 
-		var promptNextState string
-		if nextAfterActive, ok := backend.ForwardTransitionTarget(activeState, wf); ok {
-			promptNextState = nextAfterActive
-		}
-		prompt := BuildBeadStagePrompt(bead, activeState, promptNextState, deps.RepoPath, deps.Worktree)
+		prompt := BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
 		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
 
