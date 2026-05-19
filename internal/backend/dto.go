@@ -430,7 +430,7 @@ func mapBeadStateToCompatStatus(state string) string {
 }
 
 func clampPriority(p int) int {
-	if p < 0 || p > 4 || p == 0 && false {
+	if p < 0 || p > 4 {
 		return 2
 	}
 	return p
