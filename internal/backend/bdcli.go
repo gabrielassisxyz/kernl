@@ -18,13 +18,16 @@ import (
 )
 
 const (
-	outOfSyncSignature     = "Database out of sync with JSONL"
-	noDaemonFlag           = "--no-daemon"
-	bdNoDBEnv              = "BD_NO_DB"
-	doltNilPanicSignature  = "panic: runtime error: invalid memory address or nil pointer dereference"
+	bdJSONEnvelopeEnv       = "BD_JSON_ENVELOPE"
+	expectedBdSchemaVersion = 1
+
+	outOfSyncSignature      = "Database out of sync with JSONL"
+	noDaemonFlag            = "--no-daemon"
+	bdNoDBEnv               = "BD_NO_DB"
+	doltNilPanicSignature   = "panic: runtime error: invalid memory address or nil pointer dereference"
 	doltPanicStackSignature = "SetCrashOnFatalError"
-	lockWaitTimeoutSig     = "Timed out waiting for bd repo lock"
-	commandTimeoutSig      = "bd command timed out after"
+	lockWaitTimeoutSig      = "Timed out waiting for bd repo lock"
+	commandTimeoutSig       = "bd command timed out after"
 
 	// Bumped from 5000ms after the kernl-npp run on 2026-05-17 showed
 	// `bd list --json` for a multi-child epic with sibling deps taking
@@ -72,23 +75,23 @@ type ExecResult struct {
 }
 
 type ExecOptions struct {
-	Cwd        string
-	ForceNoDB  bool
-	Env        []string
-	TimeoutMs  int
+	Cwd       string
+	ForceNoDB bool
+	Env       []string
+	TimeoutMs int
 }
 
 type repoQueue struct {
-	tail     chan struct{}
-	pending  int
+	tail    chan struct{}
+	pending int
 }
 
 type BdCliBackend struct {
 	repoPath string
 	mu       sync.Mutex
 
-	queues   map[string]*repoQueue
-	queueMu  sync.Mutex
+	queues  map[string]*repoQueue
+	queueMu sync.Mutex
 
 	locksDir string
 	bdBin    string
@@ -123,7 +126,7 @@ func (b *BdCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 		return nil, fmt.Errorf("bd list-workflows: %w", err)
 	}
 	var result []WorkflowDescriptor
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd list-workflows parse: %w", err)
 	}
 	return result, nil
@@ -160,7 +163,7 @@ func (b *BdCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, 
 		return nil, fmt.Errorf("bd list: %w", err)
 	}
 	var raw []RawBead
-	if err := json.Unmarshal(out, &raw); err != nil {
+	if err := unmarshalBdResponse(out, &raw); err != nil {
 		return nil, fmt.Errorf("bd list parse: %w", err)
 	}
 	result := make([]Bead, 0, len(raw))
@@ -185,7 +188,7 @@ func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
 	}
 	var raw RawBead
-	if err := json.Unmarshal(out, &raw); err != nil {
+	if err := unmarshalBdResponse(out, &raw); err != nil {
 		return nil, fmt.Errorf("bd show parse: %w", err)
 	}
 	bead := NormalizeBead(raw)
@@ -208,7 +211,7 @@ func (b *BdCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, er
 		return nil, bdResultToError(result)
 	}
 	var bead Bead
-	if err := json.Unmarshal([]byte(result.Stdout), &bead); err != nil {
+	if err := unmarshalBdResponse([]byte(result.Stdout), &bead); err != nil {
 		id := strings.TrimSpace(result.Stdout)
 		if id != "" {
 			return &Bead{ID: id}, nil
@@ -268,7 +271,7 @@ func (b *BdCliBackend) Close(id string, reason string, repoPath string) (*Termin
 		return nil, fmt.Errorf("bd close %s: %w", id, err)
 	}
 	var result TerminalState
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd close parse: %w", err)
 	}
 	return &result, nil
@@ -314,7 +317,7 @@ func (b *BdCliBackend) Search(query string, filters *BeadListFilters, repoPath s
 		return nil, fmt.Errorf("bd search: %w", err)
 	}
 	var result []Bead
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd search parse: %w", err)
 	}
 	return result, nil
@@ -335,7 +338,7 @@ func (b *BdCliBackend) Query(expression string, options *BeadQueryOptions, repoP
 		return nil, fmt.Errorf("bd query: %w", err)
 	}
 	var result []Bead
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd query parse: %w", err)
 	}
 	return result, nil
@@ -367,7 +370,7 @@ func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *Dep
 		return nil, fmt.Errorf("bd list-deps: %w", err)
 	}
 	var result []BeadDependency
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd list-deps parse: %w", err)
 	}
 	return result, nil
@@ -613,6 +616,7 @@ func execOnce(ctx context.Context, bdBin string, bdDB string, args []string, opt
 	}
 
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, bdJSONEnvelopeEnv+"=1")
 	if opts != nil && opts.ForceNoDB {
 		cmd.Env = append(cmd.Env, bdNoDBEnv+"=true")
 	}
@@ -625,6 +629,7 @@ func execOnce(ctx context.Context, bdBin string, bdDB string, args []string, opt
 		cmd.Dir = opts.Cwd
 	}
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, bdJSONEnvelopeEnv+"=1")
 	if opts != nil && opts.ForceNoDB {
 		cmd.Env = append(cmd.Env, bdNoDBEnv+"=true")
 	}
@@ -962,4 +967,23 @@ func parseNDJSONOutput(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(raw), nil
+}
+
+// unmarshalBdResponse detects the bd JSON envelope (BD_JSON_ENVELOPE=1 format)
+// and unmarshals the inner payload into v. It logs a warning if schema_version
+// is newer than expected. Legacy non-envelope payloads are handled transparently.
+func unmarshalBdResponse(data []byte, v interface{}) error {
+	var env struct {
+		SchemaVersion int             `json:"schema_version"`
+		Data          json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &env); err == nil && env.Data != nil {
+		if env.SchemaVersion > expectedBdSchemaVersion {
+			slog.Warn("bd JSON envelope schema_version newer than expected",
+				"got", env.SchemaVersion,
+				"expected", expectedBdSchemaVersion)
+		}
+		return json.Unmarshal(env.Data, v)
+	}
+	return json.Unmarshal(data, v)
 }
