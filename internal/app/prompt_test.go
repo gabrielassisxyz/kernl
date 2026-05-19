@@ -17,15 +17,14 @@ func TestBuildBeadStagePrompt_IncludesStageInstruction(t *testing.T) {
 		Type:        "task",
 	}
 
-	prompt := BuildBeadStagePrompt(bead, "implementation", "ready_for_implementation_review", "/home/user/repo", "/home/user/.kernl/worktrees/epic/kernl-eci")
+	prompt := BuildBeadStagePrompt(bead, "implementation", nil, "/home/user/repo", "/home/user/.kernl/worktrees/epic/kernl-eci")
 
 	mustContain := []string{
 		"kernl-eci",
 		"Inventory existing module references for reorg",
 		"Run `rg -l",
 		"/tmp/refs.txt exists and is non-empty",
-		"Current workflow state: `implementation`",
-		"The orchestrator will advance the bead",
+		"The orchestrator advances the bead",
 		"DO NOT push",
 		"go vet ./... && go test ./...",
 	}
@@ -38,7 +37,7 @@ func TestBuildBeadStagePrompt_IncludesStageInstruction(t *testing.T) {
 
 func TestBuildBeadStagePrompt_OmitsEndOfStageProtocol(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
-	prompt := BuildBeadStagePrompt(bead, "planning", "ready_for_plan_review", "/repo", "/wt")
+	prompt := BuildBeadStagePrompt(bead, "planning", nil, "/repo", "/wt")
 
 	if strings.Contains(prompt, "END-OF-STAGE PROTOCOL") {
 		t.Errorf("prompt must not contain END-OF-STAGE PROTOCOL:\n%s", prompt)
@@ -50,7 +49,7 @@ func TestBuildBeadStagePrompt_OmitsEndOfStageProtocol(t *testing.T) {
 
 func TestBuildBeadStagePrompt_ForbidsBdMutation(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
-	prompt := BuildBeadStagePrompt(bead, "planning", "ready_for_plan_review", "/repo", "/wt")
+	prompt := BuildBeadStagePrompt(bead, "planning", nil, "/repo", "/wt")
 
 	if !strings.Contains(prompt, "Do not run `bd update`, `bd close`, or `bd open`") {
 		t.Error("prompt must forbid bd mutation")
@@ -62,7 +61,7 @@ func TestBuildBeadStagePrompt_ForbidsBdMutation(t *testing.T) {
 
 func TestBuildBeadStagePrompt_TerminalStageOmitsBdUpdate(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Last stage", Description: "do the thing"}
-	prompt := BuildBeadStagePrompt(bead, "shipment_review", "", "/repo", "/wt")
+	prompt := BuildBeadStagePrompt(bead, "shipment_review", nil, "/repo", "/wt")
 
 	if strings.Contains(prompt, "bd -C") {
 		t.Errorf("terminal stage should not include `bd update` instruction; got:\n%s", prompt)
