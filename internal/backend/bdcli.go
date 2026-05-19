@@ -511,24 +511,18 @@ func (b *BdCliBackend) exec(ctx context.Context, args []string, opts *ExecOption
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		result, err := b.execSerializedAttempt(ctx, args, opts)
 		if err != nil {
-			msg := "Failed to run bd command"
-			if e, ok := err.(*bdExecError); ok {
-				msg = e.Error()
-			}
-			result = &ExecResult{
+			msg := err.Error()
+			synth := &ExecResult{
 				Stdout:   "",
 				Stderr:   msg,
 				ExitCode: 1,
 				TimedOut: strings.Contains(msg, lockWaitTimeoutSig),
 			}
-			if !canRetryAfterTimeout(args) || attempt >= maxAttempts {
-				return result, nil
-			}
-			if isTimeoutResult(result) {
+			if canRetryAfterTimeout(args) && attempt < maxAttempts && isTimeoutResult(synth) {
 				slog.Debug("bd timeout, retrying", "attempt", attempt, "args", args)
 				continue
 			}
-			return result, nil
+			return synth, err
 		}
 
 		if result.ExitCode == 0 {
