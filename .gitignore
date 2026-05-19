@@ -44,6 +44,7 @@ __pycache__/
 
 .claude/
 .opencode/
+.gemini/
 .codex/
 .cursor/
 .augment/
