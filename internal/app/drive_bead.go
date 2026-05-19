@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
@@ -133,6 +135,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		agentInput.Env["BEAD_ID"] = deps.BeadID
 		agentInput.Env["REPO_PATH"] = deps.RepoPath
 
+		startTime := time.Now()
 		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
 		if err != nil {
@@ -144,6 +147,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
 		}
+		duration := time.Since(startTime)
 		slog.Info("DRIVE_TRACE post-spawn ok", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 
 		gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID)
@@ -161,7 +165,9 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 							fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s after agent exit: %w", deps.BeadID, activeState, nextState, err)
 					}
 				}
-				if err := deps.Backend.Comment(deps.BeadID, buildStageComment(activeState, agentInput.AgentName, res.SessionID, ""), deps.RepoPath); err != nil {
+				artifactPath := resolveArtifactRef(activeState, wf.Stages, deps.BeadID)
+				commitSHA := worktreeHeadSHA(deps.Worktree)
+				if err := deps.Backend.Comment(deps.BeadID, buildStageComment(activeState, agentInput.AgentName, res.SessionID, artifactPath, commitSHA, duration), deps.RepoPath); err != nil {
 					slog.Warn("DRIVE_TRACE comment failed", "bead", deps.BeadID, "err", err)
 				}
 			}
@@ -179,8 +185,38 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		fmt.Errorf("KERNL DISPATCH FAILURE: bead %s exceeded max stages (%d) — Fix: check workflow for cycles", deps.BeadID, maxStages)
 }
 
-func buildStageComment(state, agentID, sessionID, artifactPath string) string {
-	return fmt.Sprintf("stage: %s\nagent: %s\nsession_id: %s\nartifact: %s", state, agentID, sessionID, artifactPath)
+func buildStageComment(state, agentID, sessionID, artifactPath, commitSHA string, duration time.Duration) string {
+	return fmt.Sprintf(
+		"stage: %s\nagent: %s\nsession_id: %s\nartifact: %s\ncommit: %s\nduration: %s",
+		state,
+		agentID,
+		sessionID,
+		artifactPath,
+		commitSHA,
+		duration.Truncate(time.Millisecond).String(),
+	)
+}
+
+func resolveArtifactRef(state string, stages map[string]backend.StageContract, beadID string) string {
+	if stages == nil {
+		return ""
+	}
+	sc, ok := stages[state]
+	if !ok {
+		return ""
+	}
+	return strings.ReplaceAll(sc.OutputArtifact.Path, "<bead_id>", beadID)
+}
+
+func worktreeHeadSHA(worktree string) string {
+	if worktree == "" {
+		return ""
+	}
+	out, err := exec.Command("git", "-C", worktree, "rev-parse", "--short", "HEAD").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func isWorkflowTerminal(state string, wf backend.WorkflowDescriptor) bool {
