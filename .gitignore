@@ -19,3 +19,6 @@ __pycache__/
 .opencode/
 .claude/
 docs/research/
+
+# Stage artifacts — must survive git add -A in worktrees
+!.kernl/
