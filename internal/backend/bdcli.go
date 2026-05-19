@@ -911,7 +911,18 @@ type bdExecError struct {
 func (e *bdExecError) Error() string { return e.msg }
 
 func bdResultToError(result *ExecResult) error {
-	return fmt.Errorf("bd exit %d: %s", result.ExitCode, result.Stderr)
+	stderr := strings.TrimSpace(result.Stderr)
+	stdout := strings.TrimSpace(result.Stdout)
+	switch {
+	case stderr != "" && stdout != "":
+		return fmt.Errorf("bd exit %d: %s | stdout: %s", result.ExitCode, stderr, stdout)
+	case stderr != "":
+		return fmt.Errorf("bd exit %d: %s", result.ExitCode, stderr)
+	case stdout != "":
+		return fmt.Errorf("bd exit %d: stdout: %s", result.ExitCode, stdout)
+	default:
+		return fmt.Errorf("bd exit %d (no output)", result.ExitCode)
+	}
 }
 
 // bd show returns {"..."} (single object)  OR  [{...}] (array with single element)
