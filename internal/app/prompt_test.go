@@ -112,3 +112,92 @@ func TestAppendOpencodeStageFlags_IdempotentWhenDirAlreadySet(t *testing.T) {
 		t.Errorf("--title should appear exactly once, got %d", titleCount)
 	}
 }
+
+func TestBuildBeadStagePrompt_RendersStageContract(t *testing.T) {
+	bead := &backend.Bead{
+		ID:          "kb-1",
+		Title:       "Add dark mode",
+		Description: "Implement dark mode toggle",
+		Acceptance:  "Toggle works in all components",
+	}
+
+	stages := map[string]backend.StageContract{
+		"planning": {
+			Role: "Decompose the bead into an actionable plan.",
+			Inputs: []string{
+				"bead.title",
+				"bead.description",
+			},
+			OutputArtifact: backend.StageArtifact{
+				Path: ".kernl/<bead_id>/plan.md",
+			},
+			ForbiddenPaths: []string{
+				"**/*.go",
+				"**/*.ts",
+			},
+		},
+	}
+
+	prompt := BuildBeadStagePrompt(bead, "planning", stages, "/repo", "/wt")
+
+	mustContain := []string{
+		"Decompose the bead into an actionable plan.",
+		".kernl/kb-1/plan.md",
+		"**/*.go",
+		"**/*.ts",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("contract prompt missing %q\n---\n%s\n---", want, prompt)
+		}
+	}
+}
+
+func TestBuildBeadStagePrompt_BeadIsInputNotInstruction(t *testing.T) {
+	bead := &backend.Bead{
+		ID:          "kb-1",
+		Title:       "Build feature",
+		Description: "Write a function that sorts arrays",
+		Acceptance:  "Tests must pass",
+	}
+
+	stages := map[string]backend.StageContract{
+		"planning": {
+			Role: "Create a plan.",
+			Inputs: []string{"bead.description"},
+		},
+	}
+
+	prompt := BuildBeadStagePrompt(bead, "planning", stages, "/repo", "/wt")
+
+	if strings.Contains(prompt, "## Steps") || strings.Contains(prompt, "## Instructions") {
+		t.Errorf("contract prompt must not contain Steps/Instructions heading. Bead data should appear under 'Bead data':\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Bead data") {
+		t.Errorf("contract prompt missing '## Bead data' heading:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Write a function") {
+		t.Errorf("contract prompt should still contain bead description text:\n%s", prompt)
+	}
+}
+
+func TestBuildBeadStagePrompt_FallbackWhenNoStageBlock(t *testing.T) {
+	bead := &backend.Bead{
+		ID:          "kb-1",
+		Title:       "Fallback bead",
+		Description: "do the work",
+		Acceptance:  "work is done",
+	}
+
+	prompt := BuildBeadStagePrompt(bead, "implementation", nil, "/repo", "/wt")
+
+	if !strings.Contains(prompt, "do the work") {
+		t.Errorf("fallback prompt must contain description; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Operating rules") {
+		t.Error("fallback prompt must include operating rules")
+	}
+	if strings.Contains(prompt, "END-OF-STAGE") {
+		t.Error("fallback prompt must not contain END-OF-STAGE")
+	}
+}
