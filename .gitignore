@@ -94,6 +94,5 @@ node_modules/
 result
 result-*
 
-scripts/swarm/
-update_binary.sh
+scripts/
 
