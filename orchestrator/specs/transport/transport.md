@@ -1,5 +1,5 @@
 # Transport Behavioral Contracts for Foolery Go Port
-> Extracted from TypeScript Foolery test sources. Citations reference the canonical regression suite.
+> Authoritative behavioral contract for the Go backend. Historical citations reference the canonical regression suite from which these contracts were originally derived.
 
 ## Cross-Cutting Principles (per AGENTS.md)
 

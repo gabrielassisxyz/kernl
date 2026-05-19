@@ -1,6 +1,6 @@
 # Foolery Dispatch & Approval Behavioral Contracts (Go Port Spec)
 
-Extracted from TypeScript Foolery test corpus. Each section states the contract (WHAT), followed by invariants, edge cases, failure modes, and citations.
+Authoritative behavioral contract for the Go backend. Each section states the contract (WHAT), followed by invariants, edge cases, failure modes, and historical citations.
 
 ---
 

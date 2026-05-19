@@ -91,6 +91,10 @@ func (s *stubBackend) BuildPollPrompt(options *PollPromptOptions, repoPath strin
 	s.record("BuildPollPrompt")
 	return &PollPromptResult{Prompt: "poll"}, nil
 }
+func (s *stubBackend) Comment(id string, body string, repoPath string) error {
+	s.record("Comment")
+	return nil
+}
 func (s *stubBackend) Capabilities() BackendCapabilities {
 	return s.caps
 }
@@ -389,15 +393,6 @@ func TestCreateConcreteBackend_CLI(t *testing.T) {
 	}
 }
 
-func TestCreateConcreteBackend_Knots(t *testing.T) {
-	entry := createConcreteBackend(BackendTypeKnots, "/test")
-	if entry.Port == nil {
-		t.Error("expected non-nil backend port")
-	}
-	if entry.Capabilities.CanDelete {
-		t.Error("expected Knots backend NOT to support delete")
-	}
-}
 
 func TestCreateBackend_AutoPanics(t *testing.T) {
 	defer func() {

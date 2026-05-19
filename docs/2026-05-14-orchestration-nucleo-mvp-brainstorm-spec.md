@@ -4,6 +4,10 @@
 **Bloco:** Núcleo de orquestração ("bloco zero" do Kernl)
 **Prazo do MVP:** 2026-05-15, ~almoço
 **Status:** design aprovado — pronto para `vc-plan`
+> **Archival note (2026-05-18):** This is a historical brainstorm spec from early
+> MVP planning. Some references it contains (Bubble Tea as TUI option, Memory Bank,
+> `kno` as a CLI tool) have since been superseded. See root `AGENTS.md` and
+> `docs/VISION.md` for current architecture.
 
 ---
 
@@ -131,7 +135,7 @@ de-risking. Se o tempo acabar, A sozinho já é um marco usável.
 
 **Passo A — fumaça (provar o executor; sem cola, sem skills):**
 
-1. Instalar `bd` CLI; verificar `kno` se aplicável.
+1. Instalar `bd` CLI (≥ 1.0.4).
 2. Escrever `foolery.yaml` mínimo: 1 pool com 1 harness (OpenCode), 1 repo registrado.
 3. `go run ./cmd/foolery` — servidor sobe, API + SSE respondem.
 4. Criar 1 bead à mão; disparar take; ver OpenCode spawnar de verdade; bead avança.
@@ -148,7 +152,7 @@ execução do épico `[5]`, GUI `[6]`.
 | D2 | MVP = Abordagem B via A | B é o workflow que o usuário quer; A isola o maior risco (nunca rodou) primeiro |
 | D3 | Isolamento: **1 worktree por bead-filho + cola fina**; `foolery-go` não muda | Paralelismo e isolamento reais sem adicionar git dentro do `foolery-go` |
 | D4 | Review da execução: **só no fim do épico**; no MVP, **fallback manual** — o usuário dispara manualmente um agente para revisar+mergear os worktrees | O loop agêntico completo de integração é uma segunda orquestração com gate de julgamento; construí-lo bem compete com fazer o épico #1 rodar |
-| D5 | GUI: HTML/JS/CSS puro consumindo o SSE existente | Mais leve que TUI nova (Bubble Tea está "deferred" no `foolery-go`); reusa infra |
+| D5 | GUI: HTML/JS/CSS puro consumindo o SSE existente | Mais leve que frontend completo (Vue 3 + Nuxt — VISION §12 — vem pós-MVP); reusa infra SSE já existente |
 | D6 | 1 Yegge loop, não 2 | O planejamento já gera em semi-formato de beads (mudança do usuário) |
 
 ## 7. Riscos e fallbacks
@@ -169,7 +173,7 @@ execução do épico `[5]`, GUI `[6]`.
   fixes → abre PR). É o **bloco imediatamente seguinte** ao MVP.
 - Multi-épico e conflitos entre épicos paralelos.
 - Multi-repo.
-- Encerramento do fluxo com Memory Bank / `ce-compound` / atualização de `AGENTS.md`.
+- Encerramento do fluxo com dev session notes (`activeContext.md`, `progress.md`) / `bd remember` / atualização de `AGENTS.md`.
 - Os 5 caminhos de entrada do `mermaid-diagram.js` (o MVP usa 1).
 - Demais áreas do `ideas.md`: wiki/digital garden, chat, bookmark manager, workflow
   builder com IA-guia, observabilidade, etc.
@@ -187,7 +191,7 @@ caminho "Adicionar Feature/Bug" é leve de propósito). O problema do "frictionl
 - **Tier 0 — Trivial** (typo, one-liner): zero planejamento. Cria 1 bead, dispacha 1
   agente num worktree. Sem Yegge, sem review pipeline.
 - **Tier 1 — Feature pequena** (*daily driver* — o caso "mais complexo mas nem tanto"):
-  planejamento leve. Lê Memory Bank + AGENTS.md → um `vc-brainstorm` enxuto → grafo pequeno
+  planejamento leve. Lê dev session notes (`activeContext.md`, `progress.md`) + AGENTS.md → um `vc-brainstorm` enxuto → grafo pequeno
   de beads → `foolery-go` executa. Sem reviews CEO/design/devex, sem Yegge completo.
 - **Tier 2 — Feature substancial / projeto novo:** pipeline completo
   (`vibe-chaos-to-concept` ou `vibe-engineering-mastery` → reviews → Yegge → beads).

@@ -120,11 +120,11 @@ func TestNormalizeBead_DefaultsInvalidType(t *testing.T) {
 	}
 }
 
-func TestNormalizeBead_DefaultsInvalidStatus(t *testing.T) {
+func TestNormalizeBead_UnknownStatusPassesThrough(t *testing.T) {
 	raw := RawBead{ID: "x", Title: "T", Status: "limbo"}
 	bead := NormalizeBead(raw)
-	if bead.State != "ready_for_implementation" {
-		t.Errorf("expected default state ready_for_implementation, got %s", bead.State)
+	if bead.State != "limbo" {
+		t.Errorf("expected unknown status to pass through as-is, got %s", bead.State)
 	}
 }
 

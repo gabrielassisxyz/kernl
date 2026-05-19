@@ -2,6 +2,8 @@ package backend
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -82,6 +84,7 @@ type profileConfig struct {
 	Output                   string
 	Owners                   map[string]ActionOwnerKind
 	InitialState             string // override; empty means compute from PlanningMode
+	Stages                   map[string]StageContract
 }
 
 var builtinProfiles = []profileConfig{
@@ -342,7 +345,7 @@ func descriptorFromProfileConfig(cfg profileConfig) WorkflowDescriptor {
 		stateOwners[s] = stepOwnerKind(cfg.Owners, s)
 	}
 
-	return WorkflowDescriptor{
+	desc := WorkflowDescriptor{
 		ID:                  cfg.ID,
 		BackingWorkflowID:  cfg.ID,
 		Label:               cfg.DisplayName,
@@ -363,6 +366,13 @@ func descriptorFromProfileConfig(cfg profileConfig) WorkflowDescriptor {
 		Owners:              cfg.Owners,
 		StateOwners:         stateOwners,
 	}
+
+	if cfg.Stages != nil {
+		desc.Stages = cfg.Stages
+	} else {
+		desc.Stages = CanonicalStageContracts()
+	}
+	return desc
 }
 
 var builtinWorkflowCache map[string]WorkflowDescriptor
@@ -438,6 +448,24 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 		return t.To, true
 	}
 	return "", false
+}
+
+func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID string) (passed bool, reason string) {
+	gate, ok := wf.ExitGates[fromState]
+	if !ok || gate.Type == "" || gate.Type == "agent_exit_zero" {
+		return true, ""
+	}
+	switch gate.Type {
+	case "artifact_exists":
+		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
+		abs := filepath.Join(worktreePath, resolved)
+		if _, err := os.Stat(abs); os.IsNotExist(err) {
+			return false, "artifact_missing: " + resolved
+		}
+		return true, ""
+	default:
+		return true, ""
+	}
 }
 
 func ResolveStepForWorkflow(state string, wf WorkflowDescriptor) (*ResolvedStep, error) {

@@ -10,11 +10,19 @@
 ## How to use this list
 
 1. Pick a project from a wave whose dependencies are satisfied.
-2. Open it with `vc-brainstorm` — that session refines the scope, makes
-   architectural choices, and produces a brainstorm-spec.
-3. Then `vc-plan` produces the implementation plan.
-4. Then `vc-convert-plan-to-beads` (or equivalent) turns the plan into beads.
-5. Orchestrator executes.
+2. Open it with `/ce-brainstorm` — that session refines the scope, makes
+   architectural choices, and produces a requirements doc in `docs/brainstorms/`.
+3. Then `/ce-plan` produces the implementation plan in `docs/plans/`.
+4. Then `/beads-workflow` converts the plan into beads with dependencies.
+5. Orchestrator executes (`kernl epic run <epic-id> --autopilot`).
+6. After PR merge, `/ce-compound` (invoked from `shipment` stage and post-merge hook)
+   writes the learning to `docs/solutions/`, which seeds the future graph.
+
+> The `vc-*` skills (`vc-brainstorm`, `vc-plan`, `vc-writing-plans`,
+> `vc-convert-plan-to-beads`, `vibe-engineering-mastery`, `vibe-chaos-to-concept`)
+> are being replaced by the compound-engineering pipeline above. See
+> `docs/spikes/2026-05-19-compound-engineering-pipeline-adoption.md` for the
+> transition plan.
 
 **Do not fork prematurely.** Pick one project, finish it, come back to this list.
 Parallel brainstorms of related projects make late changes very expensive.
@@ -107,6 +115,9 @@ The figure is approximate. Actual edges may be tighter than shown.
   module touches it.
 - **Depends on:** P0.1, P0.3.
 - **Source vision sections:** §7.1.
+- **Skill references:** `cass-memory` (procedural memory pattern — compare with the
+  DA's persistent memory model); `operationalizing-expertise` (mine session history
+  into executable rules — load-bearing for the DA learning-on-user behavior).
 
 ### P1.2 — Workflow engine core (shapes, runtime, canonical pipeline)
 - **Scope:** declarative YAML workflow shape loader. Stage interface (input/output/
@@ -121,6 +132,25 @@ The figure is approximate. Actual edges may be tighter than shown.
 - **Source vision sections:** §8.1, §8.2, §8.5.
 - **Note:** this is the largest single project on the list. Plan to decompose
   further during its brainstorm.
+- **Compounding (embedded, not a new stage):** the `shipment` stage invokes
+  `/ce-compound mode:headless` to write `docs/solutions/<categoria>/*.md` with
+  frontmatter compatible with the future `Solution`/`Learning` node schema. A
+  post-merge hook (GitHub webhook or manual user marker) appends PR review
+  comments to the same compound doc — this is the **primary capture channel**
+  for the human's judgment on what the swarm produced. When P0.1 lands, a
+  migrator transforms each compound doc into a graph node.
+- **Skill references:** `ce-code-review` (multi-persona reviewer pattern for
+  `implementation_review` and `shipment_review` stages — fully autonomous,
+  subagent-parallel, deterministic merge/dedup); `code-review-gemini-swarm-with-ntm`
+  (NTM-based alternative pattern); `ubs` (pre-PR quality scan); `multi-pass-bug-hunting`;
+  `multi-model-triangulation`; `testing-fuzzing`, `testing-metamorphic` (the
+  orchestrator is exactly the "oracle problem" — correct output is unknown but
+  I/O relations are predictable), `testing-golden-artifacts`,
+  `testing-real-service-e2e-no-mocks`; `release-preparations`, `gh-actions`, `gh-cli`
+  (for `shipment`/`shipment_review`); `beads-workflow` (plan→beads converter,
+  replaces `vc-convert-plan-to-beads`); `agent-fungibility-philosophy` (design
+  constraint — workers fungible, DA non-fungible); `cc-hooks` (event hooks for
+  post-stage triggers like "after shipment → /ce-compound").
 
 ---
 
@@ -148,6 +178,9 @@ The figure is approximate. Actual edges may be tighter than shown.
   from PAI's lossy-rewrite model.
 - **Depends on:** P0.1, P1.1.
 - **Source vision sections:** §7.3.
+- **Skill references:** `cass-memory` (compare with `MemoryClaim`/`MemoryRefutation`
+  — different philosophies on how procedural memory accumulates; may inform schema
+  edges and the additive-vs-rewrite decision).
 
 ### P2.3 — Bookmarks module (schema, capture, defuddle agent, lists, highlights)
 - **Scope:** schema for `Bookmark` and `BookmarkList`. Capture paths: CLI, browser
@@ -190,6 +223,9 @@ The figure is approximate. Actual edges may be tighter than shown.
   is headless.
 - **Depends on:** P0.1, P1.1 (chat needs DA).
 - **Source vision sections:** §12.
+- **Skill references:** `tui-glamorous` + `tui-inspector` (deferred TUI variant);
+  `ui-polish` (post-functional iterative polish loop); `e2e-testing-for-webapps`
+  (Playwright pattern for GUI regression tests).
 
 ### P2.7 — Dispatch routing + autonomous mode
 - **Scope:** `kernl epic create` accepts `--workflow=<shape>`. When absent, DA
@@ -199,6 +235,11 @@ The figure is approximate. Actual edges may be tighter than shown.
 - **Why:** turns "we have multiple workflow shapes" from theory into UX.
 - **Depends on:** P1.1, P1.2.
 - **Source vision sections:** §7.6, §8.3.
+- **Skill references:** `agent-fungibility-philosophy` (dispatch must treat workers
+  as fungible); `caam` (account-level switching for Pro/Max subs — **complementary**
+  to `litellm`: litellm = gateway/model picker at the API layer, caam = OS account
+  switcher when an account hits its rate limit; both are useful, different layers);
+  `multi-model-triangulation` (when dispatch escalates to cross-model decisions).
 
 ---
 
@@ -241,6 +282,10 @@ The figure is approximate. Actual edges may be tighter than shown.
   (`inbox-processing-shape` is delivered as part of P2.4 — Inbox.)
 - **Depends on:** P1.2 (engine), P1.1 (DA-driven stages).
 - **Source vision sections:** §8.2 (paralleled shapes list).
+- **Skill references:** `idea-wizard` (brainstorm shape primitive — also enters the
+  external dev pipeline as an alt to `/ce-ideate`); `dueling-idea-wizards`
+  (adversarial ideation shape); `modes-of-reasoning-project-analysis` (multi-
+  perspective analysis shape); `multi-pass-bug-hunting` (bug-hunt shape).
 
 ### P3.6 — Auditor stage implementation (multi-mode full-codebase analysis)
 - **Scope:** the Auditor continuous-stage from VISION §8.1. Multiple modes: code
@@ -250,6 +295,14 @@ The figure is approximate. Actual edges may be tighter than shown.
   analyzed.
 - **Depends on:** P1.2 (engine).
 - **Source vision sections:** §8.1 (Auditor row).
+- **Skill references:** `codebase-audit` (parametric by domain — primary reference);
+  `ux-audit` (`ux` mode); `beads-compliance-and-completion-verification` (compliance
+  mode — kernl's recurring bd-status-drift makes this load-bearing); `mock-code-finder`
+  (placeholder/stub detection mode); `reality-check-for-project` (vision-vs-implementation
+  gap mode); `testing-conformance-harnesses` (spec ↔ implementation harness mode —
+  `orchestrator/specs/*` defines behavior that needs proving); `ce-code-review`
+  (multi-persona reviewer pattern — reuse from P1.2); `simplify-and-refactor-code-isomorphically`;
+  `codebase-pattern-extraction`; `codebase-archaeology`; `codebase-report`.
 
 ### P3.7 — Custom workflow authoring (DA-assist + GUI builder)
 - **Scope:** chat-driven custom workflow creation ("DA, build me a workflow
@@ -259,6 +312,29 @@ The figure is approximate. Actual edges may be tighter than shown.
 - **Depends on:** P1.2, P1.1, P2.6.
 - **Source vision sections:** §8.2 (custom + community), §12 (custom workflow
   creation flow).
+
+### P3.8 — Scheduled maintenance workflows (cron-triggered audit/fix shapes)
+- **Scope:** workflow shapes that run on a cron trigger without manual invocation:
+  codebase audit (security, performance, code quality, doc drift, devex), library
+  updater sweep, beads compliance audit, mock/stub detection, reality-check against
+  vision, git/worktree/stash janitors. Each shape produces remediation beads that
+  enter the normal orchestrator queue. Cron infra (or external scheduler hook). Per-
+  shape configuration: frequency, scope filter, severity threshold for bead creation.
+- **Why:** automates the periodic-hygiene work currently listed manually in
+  `docs/dev-workflow-skills.md`. Without this, the rotation runs only when
+  the user remembers; with it, the substrate self-maintains.
+- **Depends on:** P1.2 (workflow engine), P3.6 (Auditor stage — many cron shapes
+  invoke it).
+- **Source vision sections:** **TBD — VISION § workflow shapes gains a section on
+  scheduled shapes when P3.8 is brainstormed. Updating VISION accordingly is a
+  required deliverable of the P3.8 brainstorm phase.**
+- **Skill references:** `cc-hooks` (cron/event-trigger pattern); `library-updater`;
+  `beads-compliance-and-completion-verification`; `mock-code-finder`;
+  `reality-check-for-project`; `codebase-audit`; `git-repo-janitor`,
+  `git-stash-janitor`, `git-worktree-branch-rationalization` (worktree/repo hygiene);
+  `world-class-doctor-mode-for-cli-tools` (self-healing pattern reference). Manual
+  versions of these rotines live in `docs/dev-workflow-skills.md` and that
+  file is the bridge: each routine there gets a corresponding shape here.
 
 ---
 
@@ -270,6 +346,10 @@ The figure is approximate. Actual edges may be tighter than shown.
   concept/command/error explanation using user's own state.
 - **Depends on:** the modules being explained existing.
 - **Source vision sections:** §14.
+- **Skill references:** `installer-workmanship` (curl|bash installer devex);
+  `world-class-doctor-mode-for-cli-tools` (kernl already has `doctor` — this is the
+  gold-standard pattern to converge on, with capabilities reflection, robot-docs,
+  per-run scoring artifact).
 
 ### P4.2 — LLM-helper skill for Kernl
 - **Scope:** a Claude Code / opencode / Gemini / Cursor skill that knows Kernl
@@ -277,6 +357,9 @@ The figure is approximate. Actual edges may be tighter than shown.
   Published to relevant skill registries.
 - **Depends on:** stable core (Wave 0-2 substantially done).
 - **Source vision sections:** §14.
+- **Skill references:** `agent-ergonomics-and-intuitiveness-maximization-for-cli-tools`
+  (the kernl CLI is consumed primarily by agents — the 10-dimension rubric and
+  robot-mode pattern directly inform this skill's surface).
 
 ### P4.3 — Orchestrator standalone packaging
 - **Scope:** the Orchestrator can be installed and run **without** the rest of
@@ -286,6 +369,10 @@ The figure is approximate. Actual edges may be tighter than shown.
 - **Depends on:** P1.2 substantially complete; clean boundary between orchestrator
   package and the rest of Kernl.
 - **Source vision sections:** §15 (exception).
+- **Skill references:** `installer-workmanship` (standalone install surface);
+  `system-performance-remediation` (perf tooling reference for the standalone
+  binary); `documentation-website-for-software-project` (Nextra docs site for the
+  standalone orchestrator project).
 
 ### P4.4 — Modular view-toggle (super-optional)
 - **Scope:** `enabled_modules` config that hides inactive modules from sidebar
@@ -309,6 +396,8 @@ The figure is approximate. Actual edges may be tighter than shown.
 - **Why optional:** CLI capture and import already cover the bookmark capture
   need. Extension is convenience.
 - **Depends on:** P2.3.
+- **Skill references:** `browser-extension-automation` (extension scaffold and
+  automation patterns).
 
 ### P5.2 — Inbox transports beyond CLI/hotkey (telegram, webhook, generic bot)
 - **Scope:** webhook receiver. Telegram bot integration. Generic bot adapter.

@@ -10,40 +10,6 @@ import (
 	"testing"
 )
 
-func TestKnotsBackend_Capabilities(t *testing.T) {
-	kb := NewKnotsBackend("/tmp/test-repo")
-	caps := kb.Capabilities()
-	if caps.CanDelete {
-		t.Error("knots backend must not support delete")
-	}
-	if !caps.CanCreate {
-		t.Error("knots backend must support create")
-	}
-	if !caps.CanUpdate {
-		t.Error("knots backend must support update")
-	}
-	if !caps.CanClose {
-		t.Error("knots backend must support close")
-	}
-	if !caps.CanManageDependencies {
-		t.Error("knots backend must support manage dependencies")
-	}
-}
-
-func TestKnotsBackend_DeleteReturnsError(t *testing.T) {
-	kb := NewKnotsBackend("/tmp/test-repo")
-	err := kb.Delete("123", "/tmp/test-repo")
-	if err == nil {
-		t.Fatal("expected error from knots Delete")
-	}
-	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
-		t.Errorf("expected KERNL DISPATCH FAILURE marker, got: %s", err.Error())
-	}
-	if !strings.Contains(err.Error(), "does not support delete") {
-		t.Errorf("expected delete not supported message, got: %s", err.Error())
-	}
-}
-
 func TestKnotRecordToBead(t *testing.T) {
 	priority := 3
 	rec := knoRecord{

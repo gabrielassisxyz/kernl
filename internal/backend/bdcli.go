@@ -11,20 +11,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
+// bdVersionRe matches the first semver-like token (N.N.N) in `bd --version` output.
+var bdVersionRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
 const (
-	outOfSyncSignature     = "Database out of sync with JSONL"
-	noDaemonFlag           = "--no-daemon"
-	bdNoDBEnv              = "BD_NO_DB"
-	doltNilPanicSignature  = "panic: runtime error: invalid memory address or nil pointer dereference"
-	doltPanicStackSignature = "SetCrashOnFatalError"
-	lockWaitTimeoutSig     = "Timed out waiting for bd repo lock"
-	commandTimeoutSig      = "bd command timed out after"
+	bdJSONEnvelopeEnv       = "BD_JSON_ENVELOPE"
+	expectedBdSchemaVersion = 1
 
 	// Bumped from 5000ms after the kernl-npp run on 2026-05-17 showed
 	// `bd list --json` for a multi-child epic with sibling deps taking
@@ -72,45 +72,88 @@ type ExecResult struct {
 }
 
 type ExecOptions struct {
-	Cwd        string
-	ForceNoDB  bool
-	Env        []string
-	TimeoutMs  int
+	Cwd       string
+	ForceNoDB bool
+	Env       []string
+	TimeoutMs int
 }
 
 type repoQueue struct {
-	tail     chan struct{}
-	pending  int
+	tail    chan struct{}
+	pending int
 }
 
 type BdCliBackend struct {
 	repoPath string
 	mu       sync.Mutex
 
-	queues   map[string]*repoQueue
-	queueMu  sync.Mutex
+	queues  map[string]*repoQueue
+	queueMu sync.Mutex
 
-	locksDir string
-	bdBin    string
-	bdDB     string
+	locksDir        string
+	bdBin           string
+	bdDB            string
+	versionOnce     sync.Once
+	detectedVersion string
 }
+
+// defaultBdBin is the PATH-resolved bd binary used when BD_BIN is unset.
+const defaultBdBin = "bd"
 
 func NewBdCliBackend(repoPath string) *BdCliBackend {
 	locksDir := os.Getenv("KERNL_BD_LOCK_DIR")
 	if locksDir == "" {
 		locksDir = filepath.Join(os.TempDir(), "kernl-bd-locks")
+		slog.Debug("KERNL_BD_LOCK_DIR unset, using default", "locksDir", locksDir)
 	}
 	bdBin := os.Getenv("BD_BIN")
 	if bdBin == "" {
-		bdBin = "bd"
+		bdBin = defaultBdBin
+		slog.Debug("BD_BIN unset, resolving 'bd' from PATH")
 	}
-	return &BdCliBackend{
+	b := &BdCliBackend{
 		repoPath: repoPath,
 		queues:   make(map[string]*repoQueue),
 		locksDir: locksDir,
 		bdBin:    bdBin,
 		bdDB:     os.Getenv("BD_DB"),
 	}
+	b.checkBdVersion()
+	return b
+}
+
+// checkBdVersion probes `bd --version` once and warns if the detected version
+// differs from expectedBdVersion. Uses sync.Once so the probe only fires on
+// construction. A probe failure is non-fatal — the orchestrator must not crash
+// over a version check that may simply mean bd is not on PATH yet.
+func (b *BdCliBackend) checkBdVersion() {
+	b.versionOnce.Do(func() {
+		out, err := exec.Command(b.bdBin, "--version").Output()
+		if err != nil {
+			slog.Warn("KERNL BD VERSION DRIFT: bd --version probe failed",
+				"error", err,
+				"expectedBdVersion", expectedBdVersion)
+			return
+		}
+		detected := parseBdVersionString(string(out))
+		b.detectedVersion = detected
+		if detected != expectedBdVersion {
+			slog.Warn("KERNL BD VERSION DRIFT",
+				"detected", detected,
+				"expected", expectedBdVersion)
+		}
+	})
+}
+
+// parseBdVersionString extracts the first semver-like token (N.N.N) from the
+// output of `bd --version`. Returns the raw trimmed output if no semver token
+// is found.
+func parseBdVersionString(raw string) string {
+	re := bdVersionRe
+	if m := re.FindString(raw); m != "" {
+		return m
+	}
+	return strings.TrimSpace(raw)
 }
 
 func (b *BdCliBackend) Capabilities() BackendCapabilities {
@@ -123,7 +166,7 @@ func (b *BdCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 		return nil, fmt.Errorf("bd list-workflows: %w", err)
 	}
 	var result []WorkflowDescriptor
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd list-workflows parse: %w", err)
 	}
 	return result, nil
@@ -160,7 +203,7 @@ func (b *BdCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, 
 		return nil, fmt.Errorf("bd list: %w", err)
 	}
 	var raw []RawBead
-	if err := json.Unmarshal(out, &raw); err != nil {
+	if err := unmarshalBdResponse(out, &raw); err != nil {
 		return nil, fmt.Errorf("bd list parse: %w", err)
 	}
 	result := make([]Bead, 0, len(raw))
@@ -185,7 +228,7 @@ func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
 	}
 	var raw RawBead
-	if err := json.Unmarshal(out, &raw); err != nil {
+	if err := unmarshalBdResponse(out, &raw); err != nil {
 		return nil, fmt.Errorf("bd show parse: %w", err)
 	}
 	bead := NormalizeBead(raw)
@@ -208,7 +251,7 @@ func (b *BdCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, er
 		return nil, bdResultToError(result)
 	}
 	var bead Bead
-	if err := json.Unmarshal([]byte(result.Stdout), &bead); err != nil {
+	if err := unmarshalBdResponse([]byte(result.Stdout), &bead); err != nil {
 		id := strings.TrimSpace(result.Stdout)
 		if id != "" {
 			return &Bead{ID: id}, nil
@@ -268,7 +311,7 @@ func (b *BdCliBackend) Close(id string, reason string, repoPath string) (*Termin
 		return nil, fmt.Errorf("bd close %s: %w", id, err)
 	}
 	var result TerminalState
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd close parse: %w", err)
 	}
 	return &result, nil
@@ -314,7 +357,7 @@ func (b *BdCliBackend) Search(query string, filters *BeadListFilters, repoPath s
 		return nil, fmt.Errorf("bd search: %w", err)
 	}
 	var result []Bead
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd search parse: %w", err)
 	}
 	return result, nil
@@ -335,7 +378,7 @@ func (b *BdCliBackend) Query(expression string, options *BeadQueryOptions, repoP
 		return nil, fmt.Errorf("bd query: %w", err)
 	}
 	var result []Bead
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd query parse: %w", err)
 	}
 	return result, nil
@@ -367,7 +410,7 @@ func (b *BdCliBackend) ListDependencies(id string, repoPath string, options *Dep
 		return nil, fmt.Errorf("bd list-deps: %w", err)
 	}
 	var result []BeadDependency
-	if err := json.Unmarshal(out, &result); err != nil {
+	if err := unmarshalBdResponse(out, &result); err != nil {
 		return nil, fmt.Errorf("bd list-deps parse: %w", err)
 	}
 	return result, nil
@@ -379,6 +422,12 @@ func (b *BdCliBackend) BuildTakePrompt(beadID string, options *TakePromptOptions
 
 func (b *BdCliBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {
 	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bd backend does not support buildPollPrompt; use scope refinement worker")
+}
+
+func (b *BdCliBackend) Comment(id string, body string, repoPath string) error {
+	args := withRepo(repoPath, "comment", id, body)
+	_, err := b.exec(context.Background(), args, nil)
+	return err
 }
 
 func (b *BdCliBackend) ExecWithNoDaemonFallback(ctx context.Context, args []string) (json.RawMessage, error) {
@@ -447,15 +496,35 @@ func shouldUseNoDBByDefault(args []string) bool {
 	if isTruthyEnv(bdNoDBEnv) {
 		return true
 	}
-	if os.Getenv("KERNL_BD_READ_NO_DB") == "0" {
-		return false
+	if raw, ok := os.LookupEnv("KERNL_BD_READ_NO_DB"); ok {
+		v := strings.ToLower(strings.TrimSpace(raw))
+		switch v {
+		case "1", "true", "yes", "on":
+			return IsReadOnlyCommand(args)
+		case "0", "false", "no", "off", "":
+			return false
+		}
 	}
 	return IsReadOnlyCommand(args)
 }
 
 func isTruthyEnv(key string) bool {
-	v := strings.ToLower(os.Getenv(key))
-	return v == "1" || v == "true" || v == "yes"
+	raw, ok := os.LookupEnv(key)
+	if !ok {
+		return false
+	}
+	v := strings.ToLower(strings.TrimSpace(raw))
+	switch v {
+	case "":
+		return false
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	slog.Warn("KERNL DISPATCH FAILURE: unrecognized truthy env value, treating as false",
+		"key", key, "value", raw)
+	return false
 }
 
 func commandTimeoutMs(args []string) int {
@@ -477,8 +546,12 @@ func commandTimeoutMs(args []string) int {
 }
 
 func parseIntEnv(v string) int {
-	var n int
-	fmt.Sscanf(v, "%d", &n)
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		slog.Warn("KERNL DISPATCH FAILURE: invalid integer env value, ignoring",
+			"value", v, "err", err)
+		return 0
+	}
 	return n
 }
 
@@ -502,24 +575,18 @@ func (b *BdCliBackend) exec(ctx context.Context, args []string, opts *ExecOption
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		result, err := b.execSerializedAttempt(ctx, args, opts)
 		if err != nil {
-			msg := "Failed to run bd command"
-			if e, ok := err.(*bdExecError); ok {
-				msg = e.Error()
-			}
-			result = &ExecResult{
+			msg := err.Error()
+			synth := &ExecResult{
 				Stdout:   "",
 				Stderr:   msg,
 				ExitCode: 1,
 				TimedOut: strings.Contains(msg, lockWaitTimeoutSig),
 			}
-			if !canRetryAfterTimeout(args) || attempt >= maxAttempts {
-				return result, nil
-			}
-			if isTimeoutResult(result) {
+			if canRetryAfterTimeout(args) && attempt < maxAttempts && isTimeoutResult(synth) {
 				slog.Debug("bd timeout, retrying", "attempt", attempt, "args", args)
 				continue
 			}
-			return result, nil
+			return synth, err
 		}
 
 		if result.ExitCode == 0 {
@@ -567,6 +634,9 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 		}
 
 		if !useNoDB && IsReadOnlyCommand(args) && isEmbeddedDoltPanic(firstResult) {
+			slog.Warn("embedded Dolt panic, retrying with BD_NO_DB=true",
+				"args", args,
+				"stderr", firstResult.Stderr)
 			retryOpts := &ExecOptions{
 				Cwd:       execOpts.Cwd,
 				ForceNoDB: true,
@@ -574,7 +644,7 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 			return execOnce(ctx, b.bdBin, b.bdDB, args, retryOpts)
 		}
 
-		if subcmdArgs := stripRepoPrefix(args); len(subcmdArgs) > 0 && subcmdArgs[0] == "sync" || !isOutOfSyncError(firstResult) {
+		if subcmdArgs := stripRepoPrefix(args); (len(subcmdArgs) > 0 && subcmdArgs[0] == "sync") || !isOutOfSyncError(firstResult) {
 			return firstResult, nil
 		}
 
@@ -601,24 +671,15 @@ func execOnce(ctx context.Context, bdBin string, bdDB string, args []string, opt
 		timeoutMs = commandTimeoutMs(args)
 	}
 
-	cmd := exec.CommandContext(ctx, bdBin, fullArgs...)
-	if opts != nil && opts.Cwd != "" {
-		cmd.Dir = opts.Cwd
-	}
-
-	cmd.Env = os.Environ()
-	if opts != nil && opts.ForceNoDB {
-		cmd.Env = append(cmd.Env, bdNoDBEnv+"=true")
-	}
-
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMs)*time.Millisecond)
 	defer cancel()
 
-	cmd = exec.CommandContext(timeoutCtx, bdBin, fullArgs...)
+	cmd := exec.CommandContext(timeoutCtx, bdBin, fullArgs...)
 	if opts != nil && opts.Cwd != "" {
 		cmd.Dir = opts.Cwd
 	}
 	cmd.Env = os.Environ()
+	cmd.Env = append(cmd.Env, bdJSONEnvelopeEnv+"=1")
 	if opts != nil && opts.ForceNoDB {
 		cmd.Env = append(cmd.Env, bdNoDBEnv+"=true")
 	}
@@ -884,7 +945,18 @@ type bdExecError struct {
 func (e *bdExecError) Error() string { return e.msg }
 
 func bdResultToError(result *ExecResult) error {
-	return fmt.Errorf("bd exit %d: %s", result.ExitCode, result.Stderr)
+	stderr := strings.TrimSpace(result.Stderr)
+	stdout := strings.TrimSpace(result.Stdout)
+	switch {
+	case stderr != "" && stdout != "":
+		return fmt.Errorf("bd exit %d: %s | stdout: %s", result.ExitCode, stderr, stdout)
+	case stderr != "":
+		return fmt.Errorf("bd exit %d: %s", result.ExitCode, stderr)
+	case stdout != "":
+		return fmt.Errorf("bd exit %d: stdout: %s", result.ExitCode, stdout)
+	default:
+		return fmt.Errorf("bd exit %d (no output)", result.ExitCode)
+	}
 }
 
 // bd show returns {"..."} (single object)  OR  [{...}] (array with single element)
@@ -956,4 +1028,23 @@ func parseNDJSONOutput(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(raw), nil
+}
+
+// unmarshalBdResponse detects the bd JSON envelope (BD_JSON_ENVELOPE=1 format)
+// and unmarshals the inner payload into v. It logs a warning if schema_version
+// is newer than expected. Legacy non-envelope payloads are handled transparently.
+func unmarshalBdResponse(data []byte, v interface{}) error {
+	var env struct {
+		SchemaVersion int             `json:"schema_version"`
+		Data          json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(data, &env); err == nil && env.Data != nil {
+		if env.SchemaVersion > expectedBdSchemaVersion {
+			slog.Warn("bd JSON envelope schema_version newer than expected",
+				"got", env.SchemaVersion,
+				"expected", expectedBdSchemaVersion)
+		}
+		return json.Unmarshal(env.Data, v)
+	}
+	return json.Unmarshal(data, v)
 }

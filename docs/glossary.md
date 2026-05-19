@@ -6,7 +6,7 @@
 
 The atomic unit of work in Kernl. A bead is a single task with a defined state, dependencies, and an assigned agent pool. It lives in the Dolt-backed issue tracker (`bd`) and moves through a workflow state machine (queue → active → review → terminal).
 
-**Why not "beat"?** The upstream TypeScript codebase (Foolery) uses "beat". Kernl renamed to "bead" to avoid collision with the common English word and to evoke a bead in a dependency-graph necklace: each bead is discrete but connected. The `orchestrator/specs/00-architecture.md` still uses "beat" when citing TS source behavior verbatim.
+**Why not "beat"?** The upstream codebase (`foolery-go`, which is Go — not TypeScript) uses "beat" as a domain term. Kernl renamed to "bead" to avoid collision with the common English word and to evoke a bead in a dependency-graph necklace: each bead is discrete but connected. The `orchestrator/specs/00-architecture.md` may retain "beat" in older sections inherited from foolery-go.
 
 ## epic
 

@@ -4,6 +4,10 @@
 > **Canonical reference:** https://jeffreys-skills.md/jsm
 > **Last updated:** 2026-05-15
 
+> **Note (2026-05-18):** This skill map was compiled before the root AGENTS.md
+> and orchestrator/AGENTS.md were aligned with VISION.md. References to Bubble Tea
+> as a TUI option are historical — Nuxt is the settled frontend (VISION §12).
+
 ## Como ler este mapa
 
 As skills estão organizadas em **5 buckets de relevância pro Kernl**, com prioridade decrescente:
@@ -127,7 +131,7 @@ Skills pra usar **enquanto construindo o kernl**.
 
 ## D. Pra quando a GUI Vue/TUI aterrissar
 
-A STRATEGY menciona Vue 3 + Nuxt e TUI Bubble Tea (deferred). Backlog item: "GUI inicial com Vue".
+A STRATEGY menciona Vue 3 + Nuxt (VISION §12). Backlog item: "GUI inicial com Vue".
 
 - **`tui-glamorous`** — Bubble Tea (Go TUI) — direct fit se a TUI vier.
 - **`tui-inspector`** — TUI debugging.

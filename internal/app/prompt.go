@@ -8,48 +8,98 @@ import (
 )
 
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
-// at one workflow stage. Mirrors scripts/swarm/swarm_parallel.py:build_prompt
-// in spirit — the agent receives the bead's intent plus the operating rules
-// it must obey, including the bd status advancement that ends the stage.
+// at one workflow stage. When wf.Stages has a contract for currentState it
+// renders a contract-aware prompt; otherwise it falls back to a generic
+// engineer prompt.
 //
-// nextState is the workflow state the agent must transition to when the
-// stage's work is done; empty means there is no forward transition (the
-// agent should leave the bead at its current state).
-//
-// repoPath is the canonical bd repo (NOT the worktree) — that is where
-// `bd update --status` will run when the agent completes.
-func BuildBeadStagePrompt(bead *backend.Bead, currentState, nextState, repoPath, worktree string) string {
-	var b strings.Builder
+// repoPath is the canonical bd repo (NOT the worktree).
+func BuildBeadStagePrompt(bead *backend.Bead, currentState string, stages map[string]backend.StageContract, repoPath, worktree string) string {
+	contract, hasContract := stages[currentState]
 
+	var b strings.Builder
 	fmt.Fprintf(&b, "# Bead %s — %s\n\n", bead.ID, bead.Title)
 
+	renderRole(&b, hasContract, contract)
+	renderInputs(&b, hasContract, contract, bead.ID)
+	renderOutput(&b, hasContract, contract, bead.ID)
+	renderForbidden(&b, hasContract, contract)
+	renderOperatingRules(&b)
+
+	if !hasContract {
+		b.WriteString("## Steps (from the bead description)\n\n")
+	}
+	renderBeadData(&b, bead, hasContract)
+
+	b.WriteString("## Bead metadata\n\n")
+	fmt.Fprintf(&b, "- ID: `%s`\n", bead.ID)
+	fmt.Fprintf(&b, "- Priority: `P%d`\n", bead.Priority)
+	if bead.Type != "" {
+		fmt.Fprintf(&b, "- Type: `%s`\n", bead.Type)
+	}
+	fmt.Fprintf(&b, "- Worktree: `%s`\n", worktree)
+	fmt.Fprintf(&b, "- Canonical bd repo: `%s`\n", repoPath)
+
+	return b.String()
+}
+
+func renderRole(b *strings.Builder, hasContract bool, contract backend.StageContract) {
+	b.WriteString("## Role\n\n")
+	if hasContract && strings.TrimSpace(contract.Role) != "" {
+		b.WriteString(strings.TrimSpace(contract.Role))
+		b.WriteString("\n\n")
+		return
+	}
 	b.WriteString("You are an autonomous engineer executing ONE workflow stage of ONE bead from the kernl orchestrator. ")
 	b.WriteString("The cwd you are running in is a git worktree dedicated to this bead. ")
-	b.WriteString("Follow the Steps below exactly and stop when this stage is complete.\n\n")
+	b.WriteString("Complete this stage's work and stop.\n\n")
+}
 
-	b.WriteString("## Stage\n\n")
-	fmt.Fprintf(&b, "- Current workflow state: `%s`\n", currentState)
-	if nextState != "" {
-		fmt.Fprintf(&b, "- On success, advance the bead to: `%s`\n", nextState)
-	} else {
-		b.WriteString("- This stage has no forward transition; finish your work and exit.\n")
+func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID string) {
+	if !hasContract || len(contract.Inputs) == 0 {
+		return
+	}
+	b.WriteString("## Inputs available to you\n\n")
+	for _, inp := range contract.Inputs {
+		resolved := strings.ReplaceAll(inp, "<bead_id>", beadID)
+		fmt.Fprintf(b, "- %s\n", resolved)
 	}
 	b.WriteString("\n")
+}
 
-	b.WriteString("## Steps (verbatim from the bead description)\n\n")
-	if strings.TrimSpace(bead.Description) != "" {
-		b.WriteString(bead.Description)
-		b.WriteString("\n\n")
-	} else {
-		b.WriteString("_(no description; infer from the title and acceptance criteria)_\n\n")
+func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID string) {
+	if !hasContract {
+		return
 	}
-
-	if strings.TrimSpace(bead.Acceptance) != "" {
-		b.WriteString("## Acceptance criteria\n\n")
-		b.WriteString(bead.Acceptance)
-		b.WriteString("\n\n")
+	artifact := contract.OutputArtifact
+	if artifact.Path == "" && artifact.Kind == "" {
+		return
 	}
+	b.WriteString("## Required output\n\n")
+	if artifact.Path != "" {
+		resolved := strings.ReplaceAll(artifact.Path, "<bead_id>", beadID)
+		fmt.Fprintf(b, "Write the following file: `%s`\n", resolved)
+	}
+	if artifact.Kind == "commits" && artifact.CommitMarker != "" {
+		fmt.Fprintf(b, "Commit your work with the marker: `%s`\n", artifact.CommitMarker)
+	}
+	if artifact.MustEndWith != "" {
+		fmt.Fprintf(b, "The output must end with: `%s`\n", artifact.MustEndWith)
+	}
+	b.WriteString("\n")
+}
 
+func renderForbidden(b *strings.Builder, hasContract bool, contract backend.StageContract) {
+	b.WriteString("## You may NOT\n\n")
+	if hasContract {
+		for _, fp := range contract.ForbiddenPaths {
+			fmt.Fprintf(b, "- Modify `%s`\n", fp)
+		}
+	}
+	b.WriteString("- Do not run `bd update`, `bd close`, or `bd open`. The orchestrator advances the bead when your stage completes.\n")
+	b.WriteString("\n")
+}
+
+func renderOperatingRules(b *strings.Builder) {
 	b.WriteString("## Operating rules\n\n")
 	b.WriteString("1. Edit ONLY files inside this worktree. Do not touch unrelated packages.\n")
 	b.WriteString("2. Scratch files (rg output, inventory lists, anything intermediate): write them INSIDE the worktree (e.g. `./_scratch/<name>`) — NEVER `/tmp/*`. The orchestrator allow-lists `/tmp/**` for reads but several observed bails came from agents trying to write outside the worktree.\n")
@@ -64,32 +114,29 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState, nextState, repoPath,
 	b.WriteString("   ```bash\n")
 	b.WriteString("   git add -A && git commit -m \"<conventional message>\"\n")
 	b.WriteString("   ```\n")
-	b.WriteString("7. DO NOT push. DO NOT switch branches. DO NOT touch `master`. DO NOT run `bd close` — the orchestrator does that.\n")
-
-	if nextState != "" {
-		b.WriteString("\n## 🚨 END-OF-STAGE PROTOCOL — DO NOT SKIP 🚨\n\n")
-		b.WriteString("**Before exiting this session, you MUST run this command verbatim:**\n")
-		b.WriteString("```bash\n")
-		fmt.Fprintf(&b, "bd -C %s update %s --status %s\n", repoPath, bead.ID, nextState)
-		b.WriteString("```\n\n")
-		b.WriteString("This is non-negotiable. The orchestrator polls bd; if the status does not advance, the bead is marked **blocked** and your entire session's work is discarded as 'stuck'. ")
-		b.WriteString("If you genuinely cannot complete the stage:\n")
-		b.WriteString("- Write a file `./_scratch/STAGE_BLOCKED.md` inside the worktree explaining what blocked you and what you tried\n")
-		b.WriteString("- Commit it (`git add -A && git commit -m \"chore: stage blocked\"`)\n")
-		fmt.Fprintf(&b, "- Then still run `bd -C %s update %s --status blocked` so the orchestrator marks it human-needed instead of stuck\n", repoPath, bead.ID)
-		b.WriteString("\nExiting without one of these two commands is the single most common failure mode. **Do not exit until one of them returns exit 0.**\n\n")
-	}
+	b.WriteString("7. DO NOT push. DO NOT switch branches. DO NOT touch `master`.\n\n")
 	b.WriteString("If a tool call is auto-rejected (e.g. 'permission requested: external_directory'), STOP and switch to an in-worktree path immediately — do NOT keep retrying the rejected path; the rejection means opencode will not allow it this session.\n\n")
 	b.WriteString("If you cannot proceed because of a missing dependency, fail loud with a descriptive error and stop. Do not invent stubs.\n\n")
+}
 
-	b.WriteString("## Bead metadata\n\n")
-	fmt.Fprintf(&b, "- ID: `%s`\n", bead.ID)
-	fmt.Fprintf(&b, "- Priority: `P%d`\n", bead.Priority)
-	if bead.Type != "" {
-		fmt.Fprintf(&b, "- Type: `%s`\n", bead.Type)
+func renderBeadData(b *strings.Builder, bead *backend.Bead, hasContract bool) {
+	if hasContract {
+		b.WriteString("## Bead data\n\n")
+	} else {
+		fmt.Fprintf(b, "%s\n\n", bead.Description)
+		if strings.TrimSpace(bead.Acceptance) != "" {
+			b.WriteString("## Acceptance criteria\n\n")
+			b.WriteString(bead.Acceptance)
+			b.WriteString("\n\n")
+		}
+		return
 	}
-	fmt.Fprintf(&b, "- Worktree: `%s`\n", worktree)
-	fmt.Fprintf(&b, "- Canonical bd repo (for `bd update`): `%s`\n", repoPath)
-
-	return b.String()
+	if strings.TrimSpace(bead.Description) != "" {
+		fmt.Fprintf(b, "Description:\n%s\n\n", bead.Description)
+	} else {
+		b.WriteString("Description: _(none; infer from the title)_\n\n")
+	}
+	if strings.TrimSpace(bead.Acceptance) != "" {
+		fmt.Fprintf(b, "Acceptance criteria:\n%s\n\n", bead.Acceptance)
+	}
 }

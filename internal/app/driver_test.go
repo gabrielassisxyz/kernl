@@ -70,6 +70,7 @@ func (b *fakeBackend) BuildTakePrompt(beadID string, options *backend.TakePrompt
 func (b *fakeBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
+func (b *fakeBackend) Comment(id string, body string, repoPath string) error { return nil }
 func (b *fakeBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
 
 type fakeProcess struct {
