@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -323,5 +324,48 @@ func TestDriveBeadToTerminal_BlockedReturnsFalse(t *testing.T) {
 	}
 	if res.Success {
 		t.Error("expected Success=false for blocked bead")
+	}
+}
+
+func TestDriveBead_StageCommentRecorded(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{
+		ID:        "kb-1",
+		State:     "planning",
+		ProfileID: "autopilot",
+	}
+
+	driver := &scriptedDriver{be: be}
+
+	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		Backend:  be,
+		Driver:   driver,
+		Config:   newDriveTestConfig(),
+		BeadID:   "kb-1",
+		RepoPath: "/tmp/repo",
+		Worktree: "/tmp/worktree",
+		MaxStages: 16,
+	})
+	if err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v", err)
+	}
+
+	be.mu.Lock()
+	comments := be.comments
+	be.mu.Unlock()
+
+	if len(comments) == 0 {
+		t.Fatal("expected Comment to be called after stage advancement")
+	}
+
+	for i, c := range comments {
+		if c.ID != "kb-1" {
+			t.Errorf("comment %d: expected bead ID kb-1, got %q", i, c.ID)
+		}
+		for _, field := range []string{"stage:", "agent:", "session_id:", "artifact:", "commit:", "duration:"} {
+			if !strings.Contains(c.Body, field) {
+				t.Errorf("comment %d: expected body to contain %q, got:\n%s", i, field, c.Body)
+			}
+		}
 	}
 }
