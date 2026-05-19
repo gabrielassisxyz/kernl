@@ -66,7 +66,7 @@ type WorkflowDescriptor struct {
 	ReviewQueueStates []string                    `json:"reviewQueueStates,omitempty"`
 	HumanQueueStates  []string                    `json:"humanQueueStates,omitempty"`
 	ExitGates         map[string]WorkflowExitGate `json:"exitGates,omitempty"`
-	Stages            map[string]StageContract     `json:"stages,omitempty"`
+	Stages            map[string]StageContract     `json:"stages,omitempty" yaml:"stages,omitempty"`
 }
 
 type WorkflowExitGate struct {
@@ -75,17 +75,17 @@ type WorkflowExitGate struct {
 }
 
 type StageContract struct {
-	Role           string        `json:"role"`
-	Inputs         []string      `json:"inputs,omitempty"`
-	OutputArtifact StageArtifact `json:"outputArtifact,omitempty"`
-	ForbiddenPaths []string      `json:"forbiddenPaths,omitempty"`
+	Role           string        `json:"role"             yaml:"role"`
+	Inputs         []string      `json:"inputs,omitempty"  yaml:"inputs,omitempty"`
+	OutputArtifact StageArtifact `json:"outputArtifact"    yaml:"output_artifact"`
+	ForbiddenPaths []string      `json:"forbiddenPaths,omitempty" yaml:"forbidden_paths,omitempty"`
 }
 
 type StageArtifact struct {
-	Path         string `json:"path,omitempty"`
-	Kind         string `json:"kind,omitempty"`
-	CommitMarker string `json:"commitMarker,omitempty"`
-	MustEndWith  string `json:"mustEndWith,omitempty"`
+	Path         string `json:"path,omitempty"          yaml:"path,omitempty"`
+	Kind         string `json:"kind,omitempty"          yaml:"kind,omitempty"`
+	CommitMarker string `json:"commitMarker,omitempty"  yaml:"commit_marker,omitempty"`
+	MustEndWith  string `json:"mustEndWith,omitempty"   yaml:"must_end_with,omitempty"`
 }
 
 type WorkflowTransition struct {
