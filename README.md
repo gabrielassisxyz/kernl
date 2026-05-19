@@ -18,16 +18,16 @@ Multi-agent orchestration where humans only touch judgment points — the rest i
 
 ```bash
 # 1. Copy and customize the config
-cp orchestrator/kernl.yaml.example kernl.yaml
+cp kernl.yaml.example kernl.yaml
 
 # 2. Verify your setup
-go run ./orchestrator/cmd/kernl doctor
+go run ./cmd/kernl doctor
 
 # 3. Run the packaged parallel demo (3 beads, 2 waves, real parallelism)
-go run ./orchestrator/cmd/kernl epic run parallel-demo
+go run ./cmd/kernl epic run parallel-demo
 
 # 4. Run an individual bead
-go run ./orchestrator/cmd/kernl bead run <bead-id>
+go run ./cmd/kernl bead run <bead-id>
 ```
 
 ## Monitoring
