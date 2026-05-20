@@ -92,8 +92,8 @@ func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec No
 		return "", fmt.Errorf("createNode: update fts_rowid: %w", err)
 	}
 
-	// Insert tags
-	tags := spec.NodeTags()
+	// Insert tags (deduplicate to avoid UNIQUE constraint violations)
+	tags := dedupStrings(spec.NodeTags())
 	for _, tag := range tags {
 		if err := upsertTag(ctx, tx, tag); err != nil {
 			return "", err

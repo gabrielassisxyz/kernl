@@ -32,6 +32,18 @@ func selectTagsForNode(q tagQuerier, nodeID string) ([]string, error) {
 	return tags, rows.Err()
 }
 
+func dedupStrings(in []string) []string {
+	seen := make(map[string]struct{}, len(in))
+	var out []string
+	for _, s := range in {
+		if _, ok := seen[s]; !ok && s != "" {
+			seen[s] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func placeholders(n int) string {
 	if n <= 0 {
 		return ""
