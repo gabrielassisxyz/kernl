@@ -1,0 +1,1 @@
+CREATE TABEL test_broken (id INTEGER PRIMARY KEY);

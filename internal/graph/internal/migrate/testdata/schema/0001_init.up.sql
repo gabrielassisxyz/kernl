@@ -1,0 +1,1 @@
+CREATE TABLE test_migrate (id INTEGER PRIMARY KEY);
