@@ -3,6 +3,7 @@ package graph
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph/internal/migrate"
@@ -35,6 +36,9 @@ func Open(ctx context.Context, cfg Config) (*Graph, error) {
 
 	if err := runner.Up(ctx); err != nil {
 		pool.Close()
+		if errors.Is(err, migrate.ErrDirty) {
+			return nil, fmt.Errorf("graph: migrate: %w", ErrSchemaLocked)
+		}
 		return nil, fmt.Errorf("graph: migrate: %w", err)
 	}
 
