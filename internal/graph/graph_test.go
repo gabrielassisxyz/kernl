@@ -65,6 +65,32 @@ func TestDoReadDoWrite(t *testing.T) {
 	}
 }
 
+func TestDoubleClose(t *testing.T) {
+	g := openTestGraph(t)
+
+	if err := g.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := g.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestDoWriteClosed(t *testing.T) {
+	g := openTestGraph(t)
+	if err := g.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	err := g.DoWrite(context.Background(), func(wtx *graph.WriteTx) error {
+		_, err := wtx.Exec(`INSERT INTO nodes(id, type, title) VALUES ('n1', 'test', 'Test Node')`)
+		return err
+	})
+	if err == nil {
+		t.Fatal("expected DoWrite on closed graph to fail, got nil")
+	}
+}
+
 func TestOpenIdempotence(t *testing.T) {
 	f, err := os.CreateTemp("", "kernl-idempotent-test-*.db")
 	if err != nil {
