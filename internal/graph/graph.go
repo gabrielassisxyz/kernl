@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph/internal/migrate"
 	"github.com/gabrielassisxyz/kernl/internal/graph/internal/sqlite"
@@ -19,7 +20,7 @@ type Config struct {
 type Graph struct {
 	pool   *sqlite.Pool
 	runner *migrate.Runner
-	closed bool
+	closed atomic.Bool
 }
 
 func Open(ctx context.Context, cfg Config) (*Graph, error) {
@@ -46,10 +47,9 @@ func Open(ctx context.Context, cfg Config) (*Graph, error) {
 }
 
 func (g *Graph) Close() error {
-	if g.closed {
+	if g.closed.Swap(true) {
 		return nil
 	}
-	g.closed = true
 	return g.pool.Close()
 }
 
@@ -84,7 +84,7 @@ func (wtx *WriteTx) Query(query string, args ...any) (*sql.Rows, error) {
 }
 
 func (g *Graph) DoRead(ctx context.Context, fn func(*ReadTx) error) error {
-	if g.closed {
+	if g.closed.Load() {
 		return fmt.Errorf("graph: closed")
 	}
 	tx, err := g.pool.Read.BeginTx(ctx, nil)
@@ -100,7 +100,7 @@ func (g *Graph) DoRead(ctx context.Context, fn func(*ReadTx) error) error {
 }
 
 func (g *Graph) DoWrite(ctx context.Context, fn func(*WriteTx) error) error {
-	if g.closed {
+	if g.closed.Load() {
 		return fmt.Errorf("graph: closed")
 	}
 	tx, err := g.pool.Write.BeginTx(ctx, nil)
