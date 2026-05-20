@@ -78,9 +78,10 @@ func TestSchemaCorrections(t *testing.T) {
 		t.Fatalf("insert revision: %v", err)
 	}
 
+	// Revisions survive node deletion to preserve audit history.
 	_, err = db.Exec(`DELETE FROM nodes WHERE id = 'n1'`)
-	if err == nil {
-		t.Error("expected DELETE to fail because revisions.node_id prevents deletion (no cascade), but it succeeded")
+	if err != nil {
+		t.Fatalf("DELETE returned error: %v", err)
 	}
 
 	var count int
@@ -88,7 +89,15 @@ func TestSchemaCorrections(t *testing.T) {
 		t.Fatalf("count revisions: %v", err)
 	}
 	if count != 1 {
-		t.Error("revision should survive the failed DELETE attempt")
+		t.Errorf("revision should survive the node deletion (node_id becomes NULL)")
+	}
+
+	var nodeID sql.NullString
+	if err := db.QueryRow(`SELECT node_id FROM revisions WHERE id = 'r1'`).Scan(&nodeID); err != nil {
+		t.Fatalf("select node_id: %v", err)
+	}
+	if nodeID.Valid {
+		t.Errorf("expected node_id to be NULL after DELETE (ON DELETE SET NULL), got %q", nodeID.String)
 	}
 }
 
