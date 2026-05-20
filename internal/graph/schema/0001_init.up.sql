@@ -44,7 +44,5 @@ CREATE TABLE node_tags (
 
 CREATE VIRTUAL TABLE nodes_fts USING fts5 (
     title,
-    attrs,
-    content=nodes,
-    content_rowid=fts_rowid
+    attrs
 );
