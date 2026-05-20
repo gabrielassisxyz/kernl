@@ -22,7 +22,7 @@ CREATE TABLE edges (
 
 CREATE TABLE revisions (
     id TEXT PRIMARY KEY,
-    node_id TEXT NOT NULL REFERENCES nodes(id),
+    node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL,
     parent_id TEXT,
     diff TEXT NOT NULL,
     attrs TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(attrs)),
