@@ -54,6 +54,9 @@ CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
 
+# Solutions are compound-engineering artifacts; they live in the wiki vault, not in git.
+docs/solutions/
+
 .bv/
 
 kernl.yaml
