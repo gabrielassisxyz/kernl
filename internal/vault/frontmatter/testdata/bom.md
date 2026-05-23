@@ -1,0 +1,4 @@
+﻿---
+title: "BOM Test"
+---
+body
