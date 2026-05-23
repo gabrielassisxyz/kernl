@@ -1,15 +1,16 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/chat"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
@@ -138,6 +139,32 @@ func chatEventsHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 
+		if !a.Config.LLM.IsSet() {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "data: {\"event\":\"error\",\"message\":\"No LLM provider configured. Add llm section to kernl.yaml.\"}\n\n")
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			return
+		}
+
+		llmClient, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+		if err != nil {
+			slog.Error("create llm client", "error", err)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, "data: {\"event\":\"error\",\"message\":\"Failed to initialize LLM provider: %s\"}\n\n", err.Error())
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			return
+		}
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -150,7 +177,11 @@ func chatEventsHandler(a *app.App) http.HandlerFunc {
 		}
 
 		writer := &sseEventWriter{w: w, flusher: flusher}
-		engine := chat.NewChatEngine(a, id, writer, NoopLLMClient{}, chat.NewGraphPermissionChecker(a))
+		engine, err := chat.NewChatEngine(a, id, writer, llmClient, chat.NewGraphPermissionChecker(a))
+		if err != nil {
+			slog.Error("create chat engine", "error", err)
+			return
+		}
 		if err := engine.RunSession(ctx); err != nil {
 			slog.Error("chat engine run", "error", err)
 		}
@@ -197,11 +228,14 @@ type sseEventWriter struct {
 }
 
 func (s *sseEventWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
-func (s *sseEventWriter) Flush()                        { s.flusher.Flush() }
+func (s *sseEventWriter) Flush()                      { s.flusher.Flush() }
 
-// NoopLLMClient is a placeholder until a real LLM client is wired in.
-type NoopLLMClient struct{}
-
-func (NoopLLMClient) Chat(ctx context.Context, messages []chat.Message, tools []chat.Tool) (*chat.ChatResponse, error) {
-	return &chat.ChatResponse{Content: "Hello! This is a stub response."}, nil
+// configToLLMProviderConfig converts config.LLMConfig to chat.LLMProviderConfig.
+func configToLLMProviderConfig(cfg config.LLMConfig) chat.LLMProviderConfig {
+	return chat.LLMProviderConfig{
+		Provider: cfg.Provider,
+		APIKey:   cfg.APIKey,
+		Model:    cfg.Model,
+		Endpoint: cfg.Endpoint,
+	}
 }

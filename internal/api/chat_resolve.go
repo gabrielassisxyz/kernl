@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -76,8 +77,29 @@ func chatResolveHandler(a *app.App) http.HandlerFunc {
 				slog.Error("ResponseWriter does not support flushing")
 				return
 			}
+
+			if !a.Config.LLM.IsSet() {
+				writer := &sseEventWriter{w: w, flusher: flusher}
+				fmt.Fprintf(writer, "data: {\"event\":\"error\",\"message\":\"No LLM provider configured. Add llm section to kernl.yaml.\"}\n\n")
+				writer.Flush()
+				return
+			}
+
+			llmClient, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+			if err != nil {
+				slog.Error("create llm client", "error", err)
+				writer := &sseEventWriter{w: w, flusher: flusher}
+				fmt.Fprintf(writer, "data: {\"event\":\"error\",\"message\":\"Failed to initialize LLM provider: %s\"}\n\n", err.Error())
+				writer.Flush()
+				return
+			}
+
 			writer := &sseEventWriter{w: w, flusher: flusher}
-			engine := chat.NewChatEngine(a, id, writer, NoopLLMClient{}, chat.NewGraphPermissionChecker(a))
+			engine, err := chat.NewChatEngine(a, id, writer, llmClient, chat.NewGraphPermissionChecker(a))
+			if err != nil {
+				slog.Error("create chat engine", "error", err)
+				return
+			}
 			if err := engine.ResumeSession(ctx, body.Action); err != nil {
 				slog.Error("resume session", "error", err)
 			}

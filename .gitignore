@@ -34,7 +34,6 @@ __pycache__/
 .envrc
 .pytest_cache/
 
-.beads/
 .dolt/
 *.db
 *.db-journal
@@ -88,6 +87,10 @@ coverage.html
 *.cover
 
 node_modules/
+
+# Frontend build artifacts (Nuxt/Vue)
+web/.nuxt/
+web/.output/
 
 *.bak
 *.backup

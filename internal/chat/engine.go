@@ -21,11 +21,12 @@ type PermissionChecker interface {
 	CanRead(ctx context.Context, nodeID string) (bool, DenialReason, error)
 }
 
-// stubPermissionChecker always permits (replaced by U4).
-type stubPermissionChecker struct{}
-
-func (stubPermissionChecker) CanRead(ctx context.Context, nodeID string) (bool, DenialReason, error) {
-	return true, "", nil
+// Resolution describes the user's decision on a pending permission request.
+type Resolution struct {
+	ToolCallID     string
+	Action         string  // "allow" or "deny"
+	RequestedNodeID string
+	Feedback       *string
 }
 
 // ChatEngine handles a single chat session's request/response lifecycle.
@@ -38,9 +39,10 @@ type ChatEngine struct {
 }
 
 // NewChatEngine creates a new chat engine for a session.
-func NewChatEngine(app *app.App, sessionID string, w ChatEventWriter, llm LLMClient, pc PermissionChecker) *ChatEngine {
+// Returns an error if pc is nil — a PermissionChecker must always be provided.
+func NewChatEngine(app *app.App, sessionID string, w ChatEventWriter, llm LLMClient, pc PermissionChecker) (*ChatEngine, error) {
 	if pc == nil {
-		pc = stubPermissionChecker{}
+		return nil, errors.New("permissionChecker is required")
 	}
 	return &ChatEngine{
 		sessionID:         sessionID,
@@ -48,7 +50,7 @@ func NewChatEngine(app *app.App, sessionID string, w ChatEventWriter, llm LLMCli
 		llmClient:         llm,
 		permissionChecker: pc,
 		app:               app,
-	}
+	}, nil
 }
 
 // RunSession loads the chat session, streams LLM output, and handles tool calls.
@@ -107,7 +109,7 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 		return e.emitDoneEvent()
 	}
 
-	// Handle tool calls (stub: always permits, fetch node, recurse).
+	// Handle tool calls: check permission, fetch node, recurse.
 	for _, tc := range resp.ToolCalls {
 		if tc.Function.Name == "read_node" {
 			args := struct {

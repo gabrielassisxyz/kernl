@@ -7,8 +7,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
 
 // flushableRecorder wraps httptest.ResponseRecorder with Flush() for SSE tests.
@@ -19,7 +22,7 @@ type flushableRecorder struct {
 func (f *flushableRecorder) Flush() {}
 
 func TestCreateChatSession(t *testing.T) {
-	a := newTestAppWithGraph(t)
+	a := newTestAppWithGraphWithLLM(t)
 	r := NewRouter(a)
 
 	req := httptest.NewRequest("POST", "/api/chat/sessions", nil)
@@ -42,7 +45,7 @@ func TestCreateChatSession(t *testing.T) {
 }
 
 func TestGetChatSessionNotFound(t *testing.T) {
-	a := newTestAppWithGraph(t)
+	a := newTestAppWithGraphWithLLM(t)
 	r := NewRouter(a)
 
 	req := httptest.NewRequest("GET", "/api/chat/sessions/nonexistent", nil)
@@ -55,7 +58,7 @@ func TestGetChatSessionNotFound(t *testing.T) {
 }
 
 func TestPostMessageAndGetSession(t *testing.T) {
-	a := newTestAppWithGraph(t)
+	a := newTestAppWithGraphWithLLM(t)
 	r := NewRouter(a)
 
 	// Create session.
@@ -95,7 +98,7 @@ func TestPostMessageAndGetSession(t *testing.T) {
 }
 
 func TestChatEventsSSE(t *testing.T) {
-	a := newTestAppWithGraph(t)
+	a := newTestAppWithGraphWithLLM(t)
 
 	// Seed DA identity so engine doesn't error.
 	ctx := context.Background()
@@ -143,7 +146,7 @@ func TestChatEventsSSE(t *testing.T) {
 }
 
 func TestListNodes(t *testing.T) {
-	a := newTestAppWithGraph(t)
+	a := newTestAppWithGraphWithLLM(t)
 	// Seed a note
 	ctx := context.Background()
 	_ = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
@@ -176,5 +179,23 @@ func TestListNodes(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected Test Note in list, got %+v", list)
+	}
+}
+
+func testCfgWithLLM() *config.Config {
+	cfg := testCfg()
+	cfg.LLM = config.LLMConfig{
+		Provider: "noop",
+		Model:    "test-model",
+	}
+	return cfg
+}
+
+func newTestAppWithGraphWithLLM(t *testing.T) *app.App {
+	t.Helper()
+	g := testutil.NewInMemoryTestGraph(t)
+	return &app.App{
+		Graph:  g,
+		Config: testCfgWithLLM(),
 	}
 }
