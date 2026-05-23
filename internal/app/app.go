@@ -6,16 +6,21 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/merge"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 	"github.com/gabrielassisxyz/kernl/internal/terminal"
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
+// App is the top-level application container. Its Close() method must be
+// called to release resources (Graph DB, terminal sessions, etc.).
+// Callers of NewApp should defer a.Close().
 type App struct {
 	Backend       backend.BackendPort
 	Terminal      *terminal.TerminalManager
@@ -25,6 +30,7 @@ type App struct {
 	EpicEvents    *epic.EpicEventHub
 	MergeManager  merge.TriggerRouter
 	NudgeRegistry *session.NudgeRegistry
+	Graph         *graph.Graph
 }
 
 func NewApp(cfg *config.Config) (*App, error) {
@@ -51,6 +57,21 @@ func NewApp(cfg *config.Config) (*App, error) {
 		NudgeRegistry: nudges,
 	})
 
+	graphDBPath := cfg.Vault.Root
+	if graphDBPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for graph db path default: %w", err)
+		}
+		graphDBPath = filepath.Join(home, ".kernl")
+	}
+	g, err := graph.Open(context.Background(), graph.Config{
+		Path: filepath.Join(graphDBPath, "graph.db"),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opening graph: %w", err)
+	}
+
 	return &App{
 		Backend:       be,
 		Terminal:      tm,
@@ -59,6 +80,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 		Config:        cfg,
 		EpicEvents:    epic.NewEpicEventHub(),
 		NudgeRegistry: nudges,
+		Graph:         g,
 	}, nil
 }
 
@@ -130,6 +152,15 @@ func (p *terminalSessionProvider) ListSessionIDs() []session.SessionInfo {
 
 func (p *terminalSessionProvider) PushEvent(id string, evt session.TerminalEvent) {
 	p.tm.PushEvent(id, evt)
+}
+
+// Close releases resources owned by App, including the Graph DB.
+// Callers of NewApp should defer a.Close().
+func (a *App) Close() error {
+	if a.Graph != nil {
+		return a.Graph.Close()
+	}
+	return nil
 }
 
 func (a *App) EpicMerge(epicID string) error {
