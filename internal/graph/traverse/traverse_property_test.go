@@ -59,20 +59,13 @@ func TestNeighborsAtDepthMonotonic(t *testing.T) {
 				return err
 			})
 
-			shSet := make(map[string]struct{}, len(shallow))
-			for _, s := range shallow {
-				shSet[s] = struct{}{}
-			}
+			deepSet := make(map[string]struct{}, len(deep))
 			for _, s := range deep {
-				shSet[s] = struct{}{}
+				deepSet[s] = struct{}{}
 			}
 			for _, s := range shallow {
-				if _, ok := shSet[s]; !ok {
-					// Shallow node should also appear in deeper set (monotonic expansion).
-					// Wait no: if the graph is disconnected, a shallow neighbor might disappear
-					// with greater depth? No, the CTE only expands; it never retracts.
-					// Every node reachable within d hops is also reachable within d+1 hops.
-					t.Fatalf("monotonicity violated at depth %d: %s in shallow but not deep", d, s)
+				if _, ok := deepSet[s]; !ok {
+					t.Fatalf("monotonicity violated at depth %d: %s reachable at depth %d but not at depth %d", d, s, d, d+1)
 				}
 			}
 		}
