@@ -847,3 +847,36 @@ func stemFromPath(absPath string) string {
 	base := filepath.Base(absPath)
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
+
+// cachedPathEntry is one row from note_paths used by ColdStart.
+type cachedPathEntry struct {
+	uuid        string
+	path        string
+	contentHash string
+}
+
+// listAllCachedPaths returns every row in note_paths as a slice.
+// Used by ColdStart to build the disappeared-UUID set.
+func listAllCachedPaths(ctx context.Context, g *graph.Graph) ([]cachedPathEntry, error) {
+	var out []cachedPathEntry
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		rows, err := tx.Query(`SELECT uuid, path, content_hash FROM note_paths`)
+		if err != nil {
+			return fmt.Errorf("listAllCachedPaths: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var e cachedPathEntry
+			var hash sql.NullString
+			if err := rows.Scan(&e.uuid, &e.path, &hash); err != nil {
+				return fmt.Errorf("listAllCachedPaths: scan: %w", err)
+			}
+			if hash.Valid {
+				e.contentHash = hash.String
+			}
+			out = append(out, e)
+		}
+		return rows.Err()
+	})
+	return out, err
+}
