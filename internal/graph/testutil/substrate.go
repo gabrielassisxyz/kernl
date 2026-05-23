@@ -25,12 +25,12 @@ func NewTestGraph(t *testing.T) *graph.Graph {
 }
 
 // NewInMemoryTestGraph opens a shared-cache in-memory Graph and registers cleanup.
-func NewInMemoryTestGraph(t *testing.T) *graph.Graph {
-	t.Helper()
-	g, err := graph.Open(context.Background(), graph.Config{InMemory: true, Path: t.Name()})
+func NewInMemoryTestGraph(tb testing.TB) *graph.Graph {
+	tb.Helper()
+	g, err := graph.Open(context.Background(), graph.Config{InMemory: true, Path: tb.Name()})
 	if err != nil {
-		t.Fatalf("Open: %v", err)
+		tb.Fatalf("Open: %v", err)
 	}
-	t.Cleanup(func() { g.Close() })
+	tb.Cleanup(func() { g.Close() })
 	return g
 }
