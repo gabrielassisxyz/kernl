@@ -11,6 +11,15 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 )
 
+// Diff constants for Note body revision storage.
+// A line diff is stored when both old and new bodies are ≤ MaxDiffBytes
+// and the change ratio (|old-new| / max(old,new,1)) ≤ MaxChangeRatio.
+// Otherwise a full snapshot is stored tagged with kind="snapshot".
+const (
+	MaxDiffBytes    = 256 * 1024   // 256 KiB
+	MaxChangeRatio  = 0.5          // 50% of the larger body
+)
+
 // Note represents a vault note node — all notes share type "note".
 // The user-vs-generated distinction is read from frontmatter author/origin,
 // not folders (KTD-1, R20).
@@ -196,4 +205,141 @@ func ListNotes(ctx context.Context, tx *graph.ReadTx, f NoteFilter) ([]*Note, er
 		})
 	}
 	return out, rows.Err()
+}
+
+// DiffBody implements DiffableNode for Note, producing a self-describing
+// revision payload. For small text bodies it returns a line-oriented forward
+// diff; for large/binary bodies or high change ratios it falls back to a
+// full snapshot tagged with kind="snapshot".
+func (n Note) DiffBody(prev NodeSpec) []byte {
+	p, ok := prev.(Note)
+	if !ok {
+		// Unknown prev type — fall back to snapshot.
+		return n.snapshotDiff()
+	}
+
+	// Detect binary / threshold exceeded.
+	if isBinaryBody(n.Body) || isBinaryBody(p.Body) ||
+		len(n.Body) > MaxDiffBytes || len(p.Body) > MaxDiffBytes {
+		return n.snapshotDiff()
+	}
+
+	// Only apply the change-ratio heuristic when both bodies are non-empty.
+	// Empty↔nonempty transitions always have a ratio of 1.0, but the diff is
+	// trivially compact (a handful of insert/delete ops), so skip the check.
+	if p.Body != "" && n.Body != "" {
+		maxLen := len(p.Body)
+		if len(n.Body) > maxLen {
+			maxLen = len(n.Body)
+		}
+
+		delta := len(n.Body) - len(p.Body)
+		if delta < 0 {
+			delta = -delta
+		}
+		if float64(delta)/float64(maxLen) > MaxChangeRatio {
+			return n.snapshotDiff()
+		}
+	}
+
+	// Line-oriented forward diff.
+	ops := lineDiff(p.Body, n.Body)
+	payload := diffLinePayload{Ops: ops}
+	data, _ := json.Marshal(payload)
+	return data
+}
+
+// snapshotDiff returns a full-snapshot payload tagged with kind="snapshot".
+func (n Note) snapshotDiff() []byte {
+	payload := diffSnapshotPayload{
+		Title: n.Title,
+		Attrs: string(n.NodeAttrs()),
+		Tags:  n.Tags,
+	}
+	data, _ := json.Marshal(payload)
+	return data
+}
+
+// isBinaryBody returns true if data contains a NUL byte (binary indicator).
+func isBinaryBody(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// lineDiffOp represents a single operation in a line-based forward diff.
+type lineDiffOp struct {
+	Op    string `json:"op"`    // "+" or "-"
+	Line  int    `json:"ln"`    // 0-based line index
+	Text  string `json:"t"`     // line content
+}
+
+// diffLinePayload is the self-describing diff payload stored in revisions.
+// kind is implicitly "line-diff" when Ops is non-nil; absence of kind
+// in legacy payloads is interpreted as snapshot.
+type diffLinePayload struct {
+	Ops []lineDiffOp `json:"ops"`
+}
+
+// diffSnapshotPayload is the snapshot payload stored in revisions.
+type diffSnapshotPayload struct {
+	Title string   `json:"title"`
+	Attrs string   `json:"attrs"`
+	Tags  []string `json:"tags"`
+}
+
+// lineDiff computes a minimal line-oriented forward diff from old to new.
+// Uses a simple LCS-based approach that produces "+" and "-" operations.
+func lineDiff(oldBody, newBody string) []lineDiffOp {
+	oldLines := splitLines(oldBody)
+	newLines := splitLines(newBody)
+
+	// Compute LCS table.
+	m, n := len(oldLines), len(newLines)
+	lcs := make([][]int, m+1)
+	for i := range lcs {
+		lcs[i] = make([]int, n+1)
+	}
+	for i := 1; i <= m; i++ {
+		for j := 1; j <= n; j++ {
+			if oldLines[i-1] == newLines[j-1] {
+				lcs[i][j] = lcs[i-1][j-1] + 1
+			} else {
+				if lcs[i-1][j] >= lcs[i][j-1] {
+					lcs[i][j] = lcs[i-1][j]
+				} else {
+					lcs[i][j] = lcs[i][j-1]
+				}
+			}
+		}
+	}
+
+	// Backtrack to produce the diff ops.
+	var ops []lineDiffOp
+	i, j := m, n
+	for i > 0 || j > 0 {
+		if i > 0 && j > 0 && oldLines[i-1] == newLines[j-1] {
+			i--
+			j--
+		} else if j > 0 && (i == 0 || lcs[i][j-1] >= lcs[i-1][j]) {
+			ops = append(ops, lineDiffOp{Op: "+", Line: j - 1, Text: newLines[j-1]})
+			j--
+		} else if i > 0 {
+			ops = append(ops, lineDiffOp{Op: "-", Line: i - 1, Text: oldLines[i-1]})
+			i--
+		}
+	}
+	return ops
+}
+
+// splitLines splits s into lines, handling the empty-string case.
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	lines := strings.Split(s, "\n")
+	return lines
 }

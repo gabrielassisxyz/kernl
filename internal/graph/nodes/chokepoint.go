@@ -250,11 +250,39 @@ func updateNode(ctx context.Context, tx *graph.WriteTx, spec NodeSpec, author Au
 		return fmt.Errorf("updateNode: select prev revision: %w", err)
 	}
 
-	// Build diff content (snapshot JSON for now; DiffableNode support deferred)
+	// Build diff content.
+	// DiffableNode writes a line-oriented diff or snapshot fallback;
+	// other node types keep the existing snapshot path.
 	revisionID := ids.New()
-	snapshotB, err := snapshotJSON(fts.Title, string(newAttrs), newTags)
-	if err != nil {
-		return fmt.Errorf("updateNode: snapshot: %w", err)
+	var diffB []byte
+
+	if dn, ok := spec.(DiffableNode); ok && prevAttrs.Valid {
+		// Reconstruct a minimal prev spec from stored row.
+		prevSpec := Note{
+			Title: "",
+			Body:  "",
+		}
+		if prevTitle.Valid {
+			prevSpec.Title = prevTitle.String
+		}
+		if prevAttrs.Valid && prevAttrs.String != "" {
+			var pa struct {
+				Body   string `json:"body"`
+				Origin string `json:"origin"`
+				Author string `json:"author"`
+			}
+			if err := json.Unmarshal([]byte(prevAttrs.String), &pa); err == nil {
+				prevSpec.Body = pa.Body
+			}
+		}
+		diffB = dn.DiffBody(prevSpec)
+	} else {
+		// Non-DiffableNode: existing snapshot path.
+		var err error
+		diffB, err = snapshotJSON(fts.Title, string(newAttrs), newTags)
+		if err != nil {
+			return fmt.Errorf("updateNode: snapshot: %w", err)
+		}
 	}
 
 	var parentID *string
@@ -264,7 +292,7 @@ func updateNode(ctx context.Context, tx *graph.WriteTx, spec NodeSpec, author Au
 
 	_, err = tx.Exec(
 		`INSERT INTO revisions(id, node_id, parent_id, diff, author) VALUES (?, ?, ?, ?, ?)`,
-		revisionID, meta.ID, parentID, string(snapshotB), author.String(),
+		revisionID, meta.ID, parentID, string(diffB), author.String(),
 	)
 	if err != nil {
 		return fmt.Errorf("updateNode: insert revision: %w", err)
