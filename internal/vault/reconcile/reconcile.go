@@ -15,7 +15,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
@@ -186,25 +188,52 @@ func hashReader(r io.Reader) (string, error) {
 
 // --- Reconciler ---
 
-// Stats captures in-memory counters exposed by the Reconciler for diagnostics.
-type Stats struct {
-	EventsProcessed int64
-	NotesCreated    int64
-	DanglingPromoted int64
+// defaultDeleteWindow is the default move/delete correlation window.
+// A delete is held for this duration before being tombstoned. A same-UUID or
+// same-hash create within the window cancels the tombstone (move semantics).
+const defaultDeleteWindow = time.Second
+
+// pendingDelete holds the metadata for a delete that has not yet been tombstoned.
+type pendingDelete struct {
+	deletedAt   time.Time
+	contentHash string
+	relPath     string // vault-relative path at time of delete
+	nodeID      string
+	stem        string // filename stem at time of delete
+	title       string // node title at time of delete
 }
 
-// Reconciler processes create/change events from the watcher and mutates the graph.
-// It owns the P0.1 chokepoint for note creation, revision recording, wikilink
-// resolution, and path-cache maintenance.
+// Stats captures in-memory counters exposed by the Reconciler for diagnostics.
+type Stats struct {
+	EventsProcessed  int64
+	NotesCreated     int64
+	DanglingPromoted int64
+	NotesTombstoned  int64
+	NotesRevived     int64
+}
+
+// Reconciler processes create/change/delete events from the watcher and
+// mutates the graph. It owns the chokepoint for note creation, revision
+// recording, wikilink resolution, path-cache maintenance, and
+// move/delete-window correlation.
 type Reconciler struct {
 	g         *graph.Graph
 	vaultRoot string // absolute path to the vault root for relative path resolution
 	resolver  *wikilink.Resolver
 
+	// move/delete window — injectable for deterministic testing
+	window time.Duration
+	now    func() time.Time
+
+	pendingMu      sync.Mutex
+	pendingDeletes map[string]*pendingDelete // keyed by nodeID
+
 	// counters — updated atomically
 	eventsProcessed  atomic.Int64
 	notesCreated     atomic.Int64
 	danglingPromoted atomic.Int64
+	notesTombstoned  atomic.Int64
+	notesRevived     atomic.Int64
 }
 
 // New creates a Reconciler for the given graph and vault root.
@@ -214,26 +243,174 @@ func New(g *graph.Graph, vaultRoot string) *Reconciler {
 		abs = vaultRoot
 	}
 	return &Reconciler{
-		g:         g,
-		vaultRoot: abs,
-		resolver:  &wikilink.Resolver{},
+		g:              g,
+		vaultRoot:      abs,
+		resolver:       &wikilink.Resolver{},
+		window:         defaultDeleteWindow,
+		now:            time.Now,
+		pendingDeletes: make(map[string]*pendingDelete),
 	}
+}
+
+// SetDeleteWindow overrides the move/delete correlation window.
+// Useful in tests to make the window expire immediately.
+func (r *Reconciler) SetDeleteWindow(d time.Duration) {
+	r.window = d
+}
+
+// SetClock overrides the clock used for pending-delete timestamps.
+// Used in tests to advance time deterministically.
+func (r *Reconciler) SetClock(fn func() time.Time) {
+	r.now = fn
 }
 
 // Stats returns a snapshot of the reconciler's in-memory counters.
 func (r *Reconciler) Stats() Stats {
 	return Stats{
-		EventsProcessed: r.eventsProcessed.Load(),
-		NotesCreated:    r.notesCreated.Load(),
+		EventsProcessed:  r.eventsProcessed.Load(),
+		NotesCreated:     r.notesCreated.Load(),
 		DanglingPromoted: r.danglingPromoted.Load(),
+		NotesTombstoned:  r.notesTombstoned.Load(),
+		NotesRevived:     r.notesRevived.Load(),
 	}
+}
+
+// OnDelete handles a KindDelete event for absPath.
+//
+// It resolves the path to a UUID via the path cache, records a PENDING delete
+// (using the injected clock), and forgets the path from the cache. It does NOT
+// tombstone the node yet — that happens in FlushExpired after the window elapses.
+// If the path is unknown (no cache entry), the call is a no-op.
+func (r *Reconciler) OnDelete(ctx context.Context, absPath string) error {
+	relPath := r.relPath(absPath)
+
+	// Resolve path → UUID + nodeID inside a read tx
+	var nodeUUID, nodeID, contentHash, nodeTitle string
+	err := r.g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var found bool
+		var err error
+		nodeUUID, found, err = lookupInTx(tx, relPath)
+		if err != nil {
+			return fmt.Errorf("lookup path %q: %w", relPath, err)
+		}
+		if !found {
+			return nil // unknown path — no-op
+		}
+		nodeID = nodeUUID // node id == frontmatter uuid
+
+		// Read title for the pending-delete record
+		err = tx.QueryRow(
+			`SELECT title FROM nodes WHERE id = ? AND type = 'note' AND deleted_at IS NULL`,
+			nodeID,
+		).Scan(&nodeTitle)
+		if err == sql.ErrNoRows {
+			nodeID = "" // already tombstoned or not a note
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("read note title %q: %w", nodeID, err)
+		}
+
+		// Read content hash from path cache
+		err = tx.QueryRow(
+			`SELECT content_hash FROM note_paths WHERE uuid = ?`,
+			nodeUUID,
+		).Scan(&contentHash)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("read content hash %q: %w", nodeUUID, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile OnDelete %q: %w", absPath, err)
+	}
+
+	if nodeID == "" {
+		// No live note found for this path — nothing to do
+		return nil
+	}
+
+	// Forget path from cache (synchronous — outside the window logic)
+	if err := forgetPath(ctx, r.g, relPath); err != nil {
+		return fmt.Errorf("reconcile OnDelete %q: forget: %w", absPath, err)
+	}
+
+	stem := stemFromPath(absPath)
+
+	r.pendingMu.Lock()
+	r.pendingDeletes[nodeID] = &pendingDelete{
+		deletedAt:   r.now(),
+		contentHash: contentHash,
+		relPath:     relPath,
+		nodeID:      nodeID,
+		stem:        stem,
+		title:       nodeTitle,
+	}
+	r.pendingMu.Unlock()
+
+	r.eventsProcessed.Add(1)
+
+	slog.Info("reconcile: delete pending",
+		"event", "delete",
+		"path", absPath,
+		"node_id", nodeID,
+		"decision", "pending",
+	)
+	return nil
+}
+
+// FlushExpired tombstones all pending deletes whose age exceeds the window.
+// Tests call this directly after advancing the injected clock.
+// Returns the count of notes tombstoned and any error.
+func (r *Reconciler) FlushExpired(ctx context.Context) (tombstoned int, err error) {
+	r.pendingMu.Lock()
+	now := r.now()
+	var expired []*pendingDelete
+	for _, pd := range r.pendingDeletes {
+		if now.Sub(pd.deletedAt) >= r.window {
+			expired = append(expired, pd)
+		}
+	}
+	// Remove from map now (before unlock) so concurrent callers don't double-tombstone
+	for _, pd := range expired {
+		delete(r.pendingDeletes, pd.nodeID)
+	}
+	r.pendingMu.Unlock()
+
+	for _, pd := range expired {
+		author := nodes.Author{Name: "human"}
+		txErr := r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+			return nodes.SoftDeleteNoteTx(ctx, tx, pd.nodeID, pd.stem, pd.title, author)
+		})
+		if txErr != nil {
+			// If the node is already gone (e.g. concurrent revive), skip
+			if txErr == graph.ErrNotFound {
+				continue
+			}
+			err = fmt.Errorf("reconcile FlushExpired node %q: %w", pd.nodeID, txErr)
+			return tombstoned, err
+		}
+		tombstoned++
+		r.notesTombstoned.Add(1)
+
+		slog.Info("reconcile: tombstone",
+			"event", "delete",
+			"node_id", pd.nodeID,
+			"path", pd.relPath,
+			"decision", "tombstone",
+		)
+	}
+	return tombstoned, nil
 }
 
 // OnCreate handles a KindCreate event for absPath. It:
 //  1. Reads the file bytes.
 //  2. Parses frontmatter; injects a UUID if absent (writes back to disk).
-//  3. In ONE DoWrite: CreateNote, resolves wikilinks, promotes dangling links
-//     that now resolve to this note, and upserts the path-cache entry.
+//  3. Checks whether a pending delete matches by UUID or content hash
+//     (move/revive detection).
+//  4. In ONE DoWrite: either handles the create as a move/revive or as a
+//     fresh create, resolves wikilinks, promotes dangling links, and upserts
+//     the path-cache entry.
 func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 	raw, err := os.ReadFile(absPath)
 	if err != nil {
@@ -252,6 +429,146 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 	contentHash := HashBytes(raw)
 	noteID := fm.ID
 
+	// --- Move/revive correlation ---
+	// Check whether this create matches a pending delete (move detection)
+	// or a tombstoned node that is returning (revive-after-expiry).
+	pending := r.consumePendingDelete(noteID, contentHash)
+
+	if pending != nil {
+		// Move: cancel the tombstone, update path cache, preserve identity.
+		var promoted int
+		err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+			// Check if the node was tombstoned already (race: expiry ran before us)
+			tombstoned, err := nodes.IsNoteTombstoned(ctx, tx, pending.nodeID)
+			if err != nil {
+				return fmt.Errorf("IsNoteTombstoned: %w", err)
+			}
+
+			if tombstoned {
+				// Revive path: the expiry timer fired before we could cancel it
+				if err := nodes.ReviveNoteTx(ctx, tx, pending.nodeID, pending.stem, title, author); err != nil {
+					return fmt.Errorf("ReviveNoteTx: %w", err)
+				}
+				r.notesRevived.Add(1)
+			}
+			// If not tombstoned, just update the path cache — the node is live
+
+			// Update note's title/body if the frontmatter changed
+			if err := nodes.UpdateNote(ctx, tx, nodes.Note{
+				ID:     pending.nodeID,
+				Title:  title,
+				Body:   body,
+				Origin: fm.Origin,
+				Author: fm.Author,
+				Tags:   fm.Tags,
+			}, author); err != nil {
+				return fmt.Errorf("UpdateNote (move): %w", err)
+			}
+
+			// Re-resolve wikilinks
+			if _, err := r.resolver.ResolveInTx(ctx, tx, pending.nodeID, body); err != nil {
+				return fmt.Errorf("ResolveInTx (move): %w", err)
+			}
+
+			// Promote any dangling links that now point here
+			keys := danglingKeysFor(title, absPath)
+			p, err := wikilink.PromoteDanglingInTx(ctx, tx, pending.nodeID, keys...)
+			if err != nil {
+				return fmt.Errorf("PromoteDanglingInTx (move): %w", err)
+			}
+			promoted = p
+
+			// Upsert path cache to new location
+			if err := upsertInTx(tx, pending.nodeID, relPath, contentHash); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("reconcile OnCreate (move) %q: %w", absPath, err)
+		}
+
+		r.eventsProcessed.Add(1)
+		r.danglingPromoted.Add(int64(promoted))
+
+		slog.Info("reconcile: move",
+			"event", "create",
+			"path", absPath,
+			"node_id", pending.nodeID,
+			"decision", "move",
+			"dangling_promoted", promoted,
+		)
+		return nil
+	}
+
+	// Check whether an already-tombstoned node with this UUID is coming back
+	if noteID != "" {
+		var wasTombstoned bool
+		checkErr := r.g.DoRead(ctx, func(tx *graph.ReadTx) error {
+			var err error
+			wasTombstoned, err = nodes.IsNoteTombstoned(ctx, tx, noteID)
+			return err
+		})
+		if checkErr != nil {
+			return fmt.Errorf("reconcile OnCreate %q: tombstone check: %w", absPath, checkErr)
+		}
+
+		if wasTombstoned {
+			// Revive after expiry — the pending window already fired
+			var promoted int
+			stem := stemFromPath(absPath)
+			err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+				if err := nodes.ReviveNoteTx(ctx, tx, noteID, stem, title, author); err != nil {
+					return fmt.Errorf("ReviveNoteTx: %w", err)
+				}
+				// Update title/body to the new file content
+				if err := nodes.UpdateNote(ctx, tx, nodes.Note{
+					ID:     noteID,
+					Title:  title,
+					Body:   body,
+					Origin: fm.Origin,
+					Author: fm.Author,
+					Tags:   fm.Tags,
+				}, author); err != nil {
+					return fmt.Errorf("UpdateNote (revive): %w", err)
+				}
+
+				keys := danglingKeysFor(title, absPath)
+				p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, keys...)
+				if err != nil {
+					return fmt.Errorf("PromoteDanglingInTx (revive): %w", err)
+				}
+				promoted = p
+
+				if _, err := r.resolver.ResolveInTx(ctx, tx, noteID, body); err != nil {
+					return fmt.Errorf("ResolveInTx (revive): %w", err)
+				}
+
+				if err := upsertInTx(tx, noteID, relPath, contentHash); err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("reconcile OnCreate (revive) %q: %w", absPath, err)
+			}
+
+			r.eventsProcessed.Add(1)
+			r.notesRevived.Add(1)
+			r.danglingPromoted.Add(int64(promoted))
+
+			slog.Info("reconcile: revive",
+				"event", "create",
+				"path", absPath,
+				"node_id", noteID,
+				"decision", "revive",
+				"dangling_promoted", promoted,
+			)
+			return nil
+		}
+	}
+
+	// --- Fresh create ---
 	var promoted int
 	err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		n := nodes.Note{
@@ -488,4 +805,45 @@ func (r *Reconciler) relPath(absPath string) string {
 		return absPath
 	}
 	return rel
+}
+
+// consumePendingDelete checks whether a pending delete matches the given UUID or
+// content hash. If a match is found, the entry is removed from pendingDeletes and
+// returned so the caller can handle it as a move/revive.
+func (r *Reconciler) consumePendingDelete(noteID, contentHash string) *pendingDelete {
+	r.pendingMu.Lock()
+	defer r.pendingMu.Unlock()
+
+	// Primary match: same UUID
+	if noteID != "" {
+		if pd, ok := r.pendingDeletes[noteID]; ok {
+			delete(r.pendingDeletes, noteID)
+			return pd
+		}
+	}
+
+	// Secondary match: content-hash tiebreak (UUID-less files)
+	if contentHash != "" {
+		for id, pd := range r.pendingDeletes {
+			if pd.contentHash == contentHash {
+				delete(r.pendingDeletes, id)
+				return pd
+			}
+		}
+	}
+
+	return nil
+}
+
+// forgetPath removes a path from the note_paths cache.
+func forgetPath(ctx context.Context, g *graph.Graph, relPath string) error {
+	return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return forgetInTx(tx, relPath)
+	})
+}
+
+// stemFromPath returns the filename stem (without extension) for an absolute path.
+func stemFromPath(absPath string) string {
+	base := filepath.Base(absPath)
+	return strings.TrimSuffix(base, filepath.Ext(base))
 }

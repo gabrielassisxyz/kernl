@@ -121,9 +121,48 @@ func UpdateNote(ctx context.Context, tx *graph.WriteTx, n Note, author Author) e
 	return updateNode(ctx, tx, n, author)
 }
 
-// DeleteNote removes a note, preserving a tombstone revision.
+// DeleteNote hard-deletes a note (non-note-safe path), preserving a tombstone revision.
 func DeleteNote(ctx context.Context, tx *graph.WriteTx, id string, author Author) error {
 	return deleteNode(ctx, tx, id, author)
+}
+
+// SoftDeleteNoteTx tombstones a note in the caller's transaction.
+// The node row is kept; deleted_at is set; the FTS row is removed; incoming
+// links_to edges are degraded to dangling_links rows; and a tombstone revision
+// is appended to the history.
+// stem is the filename stem (without extension); title is the display title.
+func SoftDeleteNoteTx(ctx context.Context, tx *graph.WriteTx, id, stem, title string, author Author) error {
+	return softDeleteNote(ctx, tx, id, stem, title, author)
+}
+
+// ReviveNoteTx reverses a soft-delete in the caller's transaction.
+// deleted_at is cleared; the FTS row is re-inserted; a revival revision is
+// appended; and dangling links matching stem/title are re-promoted to edges.
+func ReviveNoteTx(ctx context.Context, tx *graph.WriteTx, id, stem, title string, author Author) error {
+	return reviveNote(ctx, tx, id, stem, title, author)
+}
+
+// rowQuerier is satisfied by both *graph.ReadTx and *graph.WriteTx.
+type rowQuerier interface {
+	QueryRow(string, ...any) *sql.Row
+}
+
+// IsNoteTombstoned reports whether the note with the given ID has been soft-deleted.
+// Accepts both *graph.ReadTx and *graph.WriteTx.
+// Returns false, nil when the node does not exist.
+func IsNoteTombstoned(_ context.Context, tx rowQuerier, id string) (bool, error) {
+	var deletedAt sql.NullString
+	err := tx.QueryRow(
+		`SELECT deleted_at FROM nodes WHERE id = ? AND type = 'note'`,
+		id,
+	).Scan(&deletedAt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("IsNoteTombstoned: %w", err)
+	}
+	return deletedAt.Valid, nil
 }
 
 // ListNotes returns notes matching the filter.
