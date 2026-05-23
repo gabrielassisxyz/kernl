@@ -121,6 +121,30 @@ func parseVersion(name string) (int, error) {
 	return strconv.Atoi(parts[0])
 }
 
+func (r *Runner) UpTo(ctx context.Context, target int) error {
+	ver, dirty, err := r.Current(ctx)
+	if err != nil {
+		return fmt.Errorf("migrate: current: %w", err)
+	}
+	if dirty {
+		return ErrDirty
+	}
+
+	migrations, err := r.loadMigrations()
+	if err != nil {
+		return fmt.Errorf("migrate: load: %w", err)
+	}
+
+	// Only keep migrations with version <= target
+	var filtered []Migration
+	for _, m := range migrations {
+		if m.Version <= target {
+			filtered = append(filtered, m)
+		}
+	}
+	return r.applyUp(ctx, ver, filtered)
+}
+
 func (r *Runner) Up(ctx context.Context) error {
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
