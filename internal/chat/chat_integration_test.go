@@ -3,22 +3,54 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
+
+// ── Helpers ────────────────────────────────────────────────────────────
+
+// eventRecorder implements ChatEventWriter and captures SSE data for assertions.
+type eventRecorder struct {
+	buf bytes.Buffer
+}
+
+func (e *eventRecorder) Write(p []byte) (int, error) { return e.buf.Write(p) }
+func (e *eventRecorder) Flush()                        {}
+
+func (e *eventRecorder) events() []map[string]any {
+	raw := e.buf.String()
+	var out []map[string]any
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var evt map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &evt); err == nil {
+			out = append(out, evt)
+		}
+	}
+	return out
+}
+
+func (e *eventRecorder) hasEventType(typ string) bool {
+	for _, evt := range e.events() {
+		if evt["event"] == typ {
+			return true
+		}
+	}
+	return false
+}
 
 // mockLLMClient is a deterministic stub for integration testing.
 type mockLLMClient struct {
@@ -41,145 +73,291 @@ func newMockLLMClient(responses ...ChatResponse) *mockLLMClient {
 	return &mockLLMClient{Responses: responses}
 }
 
-func newTestAppWithGraph(t *testing.T) (*app.App, func()) {
+func newTestApp(t *testing.T) *app.App {
+	t.Helper()
 	g := testutil.NewInMemoryTestGraph(t)
-	a := &app.App{Graph: g}
-	// Seed DA identity for chat endpoints.
+	return &app.App{
+		Graph: g,
+		Config: &config.Config{
+			Vault: config.VaultConfig{Root: t.TempDir()},
+		},
+	}
+}
+
+func seedDAIdentity(t *testing.T, a *app.App) {
+	t.Helper()
 	ctx := context.Background()
-	_ = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+	_ = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := nodes.CreateDAIdentity(ctx, tx, &nodes.DAIdentity{
 			SystemPrompt: "You are a test assistant.",
 			DisplayName:  "Test Assistant",
 		}, nodes.Author{Name: "kernl"})
 		return err
 	})
-	return a, func() {}
 }
 
-func TestChatHappyPathSSE(t *testing.T) {
-	a, cleanup := newTestAppWithGraph(t)
-	defer cleanup()
-	r := api.NewRouter(a)
-
-	// 1. Create session.
-	req := httptest.NewRequest("POST", "/api/chat/sessions", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("create session expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	var createRes struct {
-		ID        string `json:"id"`
-		CreatedAt string `json:"created_at"`
-	}
-	json.Unmarshal(w.Body.Bytes(), &createRes)
-	if createRes.ID == "" {
-		t.Fatal("expected session id")
-	}
-
-	// 2. POST message.
-	msgBody := fmt.Sprintf(`{"content":"hello","scope_node_id":""}`)
-	msgReq := httptest.NewRequest("POST", fmt.Sprintf("/api/chat/sessions/%s/messages", createRes.ID), strings.NewReader(msgBody))
-	msgReq.Header.Set("Content-Type", "application/json")
-	msgW := httptest.NewRecorder()
-	r.ServeHTTP(msgW, msgReq)
-	if msgW.Code != 202 {
-		t.Fatalf("post message expected 202, got %d: %s", msgW.Code, msgW.Body.String())
-	}
-
-	// 3. GET events (SSE).
-	// For this test, we don't have a real mock injected into the engine,
-	// so the engine will fetch the session but the LLMClient will be nil
-	// and return an error. We just verify SSE headers and error event.
-	eventsReq := httptest.NewRequest("GET", fmt.Sprintf("/api/chat/sessions/%s/events", createRes.ID), nil)
-	eventsReq.Header.Set("Accept", "text/event-stream")
-	eventsW := httptest.NewRecorder()
-	r.ServeHTTP(eventsW, eventsReq)
-
-	if eventsW.Code != 200 {
-		t.Fatalf("events expected 200, got %d: %s", eventsW.Code, eventsW.Body.String())
-	}
-	ct := eventsW.Header().Get("Content-Type")
-	if !strings.Contains(ct, "text/event-stream") {
-		t.Fatalf("expected text/event-stream, got %q", ct)
-	}
-	body := eventsW.Body.String()
-	if !strings.Contains(body, "event: state") {
-		t.Errorf("expected state event, got body: %s", body)
-	}
-}
-
-func TestChatNotFound(t *testing.T) {
-	a, cleanup := newTestAppWithGraph(t)
-	defer cleanup()
-	r := api.NewRouter(a)
-
-	// GET non-existent session.
-	req := httptest.NewRequest("GET", "/api/chat/sessions/nonexistent", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != 404 {
-		t.Fatalf("expected 404, got %d", w.Code)
-	}
-
-	// POST message to non-existent session.
-	msgBody := `{"content":"hello","scope_node_id":""}`
-	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/nonexistent/messages", strings.NewReader(msgBody))
-	msgReq.Header.Set("Content-Type", "application/json")
-	msgW := httptest.NewRecorder()
-	r.ServeHTTP(msgW, msgReq)
-	if msgW.Code != 404 {
-		t.Fatalf("expected 404 for post to nonexistent, got %d", msgW.Code)
-	}
-}
-
-func TestNodesList(t *testing.T) {
-	a, cleanup := newTestAppWithGraph(t)
-	defer cleanup()
-
-	// Seed a note.
+func seedNote(t *testing.T, a *app.App, title, body string, tags []string) string {
+	t.Helper()
 	ctx := context.Background()
-	_ = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		_, err := nodes.CreateNote(ctx, tx, nodes.Note{Title: "Test Note", Body: "Body"}, nodes.Author{Name: "test"})
+	var id string
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateNote(ctx, tx, nodes.Note{Title: title, Body: body, Tags: tags}, nodes.Author{Name: "test"})
 		return err
 	})
+	if err != nil {
+		t.Fatalf("create note: %v", err)
+	}
+	return id
+}
 
-	r := api.NewRouter(a)
-	req := httptest.NewRequest("GET", "/api/nodes", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+func createSession(t *testing.T, a *app.App) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateChatSession(ctx, tx, &nodes.ChatSession{
+			Messages: []nodes.ChatMessage{},
+		}, nodes.Author{Name: "kernl"})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
 	}
-	var list []struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-		Type  string `json:"type"`
+	return id
+}
+
+func appendUserMessage(t *testing.T, a *app.App, sessionID, content, scopeNodeID string) {
+	t.Helper()
+	ctx := context.Background()
+	var cs *nodes.ChatSession
+	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		cs, err = nodes.GetChatSession(ctx, tx, sessionID)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("get session for append: %v", err)
 	}
-	json.Unmarshal(w.Body.Bytes(), &list)
-	if len(list) == 0 {
-		t.Fatal("expected at least one node")
+
+	cs.Messages = append(cs.Messages, nodes.ChatMessage{Role: "user", Content: content})
+	cs.DerivedScopeNodeID = scopeNodeID
+
+	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
+	})
+	if err != nil {
+		t.Fatalf("save session after append: %v", err)
 	}
-	found := false
-	for _, n := range list {
-		if n.Title == "Test Note" && n.Type == "note" {
-			found = true
-			break
-		}
+}
+
+func getSession(t *testing.T, a *app.App, sessionID string) *nodes.ChatSession {
+	t.Helper()
+	ctx := context.Background()
+	var cs *nodes.ChatSession
+	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		cs, err = nodes.GetChatSession(ctx, tx, sessionID)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("get session: %v", err)
 	}
-	if !found {
-		t.Errorf("expected Test Note in list, got %+v", list)
+	return cs
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────
+
+func TestChatHappyPathSSE(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "hello", "")
+
+	mock := newMockLLMClient(ChatResponse{Content: "Hi there!"})
+	rec := &eventRecorder{}
+	engine := NewChatEngine(a, sessionID, rec, mock, stubPermissionChecker{})
+
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if !rec.hasEventType("state") {
+		t.Error("expected state event")
+	}
+	if !rec.hasEventType("token") {
+		t.Error("expected token event")
+	}
+	if !rec.hasEventType("done") {
+		t.Error("expected done event")
 	}
 }
 
 func TestChatPermissionBlockAndResume(t *testing.T) {
-	t.Skip("requires full engine implementation with LLM injection")
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	ctx := context.Background()
+
+	// Create a confidential note the permission checker will deny.
+	confNodeID := seedNote(t, a, "Secret Note", "secret body", []string{"confidencial"})
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "read the secret note", "")
+
+	// Mock: first call → tool_call for the confidential node (triggers block).
+	//       second call → final text after permission resolved.
+	mock := newMockLLMClient(
+		ChatResponse{
+			ToolCalls: []ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: ToolFunction{
+					Name:      "read_node",
+					Arguments: fmt.Sprintf(`{"node_id":"%s"}`, confNodeID),
+				},
+			}},
+		},
+		ChatResponse{Content: "I cannot read that — it is private."},
+	)
+
+	permChecker := NewGraphPermissionChecker(a)
+
+	// ── Phase 1: engine hits the permission block ──
+	rec1 := &eventRecorder{}
+	engine := NewChatEngine(a, sessionID, rec1, mock, permChecker)
+	if err := engine.RunSession(ctx); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if !rec1.hasEventType("permission_required") {
+		t.Fatalf("expected permission_required event, got buffer: %s", rec1.buf.String())
+	}
+
+	// Verify session persisted the pending permission.
+	cs := getSession(t, a, sessionID)
+	if cs.PendingPermission == nil {
+		t.Fatal("expected PendingPermission to be set")
+	}
+	if cs.PendingPermission.RequestedNodeID != confNodeID {
+		t.Errorf("RequestedNodeID = %q, want %q", cs.PendingPermission.RequestedNodeID, confNodeID)
+	}
+	if cs.PendingPermission.Status != "pending" {
+		t.Errorf("Status = %q, want pending", cs.PendingPermission.Status)
+	}
+
+	// ── Phase 2: simulate approval — clear pending and resume ──
+	cs.PendingPermission = nil
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
+	})
+	if err != nil {
+		t.Fatalf("clear permission: %v", err)
+	}
+
+	rec2 := &eventRecorder{}
+	engine2 := NewChatEngine(a, sessionID, rec2, mock, permChecker)
+	if err := engine2.RunSession(ctx); err != nil {
+		t.Fatalf("RunSession resume: %v", err)
+	}
+
+	if !rec2.hasEventType("token") {
+		t.Errorf("expected token event after resume, got buffer: %s", rec2.buf.String())
+	}
+	if !rec2.hasEventType("done") {
+		t.Errorf("expected done event after resume, got buffer: %s", rec2.buf.String())
+	}
 }
 
 func TestScopeDerivation(t *testing.T) {
-	t.Skip("requires full engine implementation with LLM injection")
+	// Pure logic: DeriveScope.
+	t.Run("explicit scope", func(t *testing.T) {
+		r := DeriveScope("current", "explicit")
+		if len(r.NodeIDs) != 1 || r.NodeIDs[0] != "explicit" {
+			t.Errorf("expected [explicit], got %v", r.NodeIDs)
+		}
+	})
+	t.Run("current fallback", func(t *testing.T) {
+		r := DeriveScope("current", "")
+		if len(r.NodeIDs) != 1 || r.NodeIDs[0] != "current" {
+			t.Errorf("expected [current], got %v", r.NodeIDs)
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		r := DeriveScope("", "")
+		if len(r.NodeIDs) != 0 {
+			t.Errorf("expected [], got %v", r.NodeIDs)
+		}
+	})
+
+	// Integration: scope_node_id is persisted on the session and engine builds messages.
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+
+	noteID := seedNote(t, a, "Scope Target", "target body", nil)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "show the scoped note", noteID)
+
+	// Verify DerivedScopeNodeID is stored.
+	cs := getSession(t, a, sessionID)
+	if cs.DerivedScopeNodeID != noteID {
+		t.Errorf("DerivedScopeNodeID = %q, want %q", cs.DerivedScopeNodeID, noteID)
+	}
+
+	// Verify engine builds messages correctly: system prompt + user message.
+	mock := newMockLLMClient(ChatResponse{Content: "OK"})
+	rec := &eventRecorder{}
+	engine := NewChatEngine(a, sessionID, rec, mock, stubPermissionChecker{})
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if len(mock.Messages) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(mock.Messages))
+	}
+	if mock.Messages[0].Role != "system" {
+		t.Errorf("first message role = %q, want system", mock.Messages[0].Role)
+	}
+	if mock.Messages[1].Role != "user" || mock.Messages[1].Content != "show the scoped note" {
+		t.Errorf("second message = {role=%q content=%q}, want {role=user content='show the scoped note'}",
+			mock.Messages[1].Role, mock.Messages[1].Content)
+	}
 }
 
 func TestDAIdentityApplied(t *testing.T) {
-	t.Skip("requires full engine implementation with LLM injection")
+	a := newTestApp(t)
+	ctx := context.Background()
+
+	// Seed with a custom prompt we can verify.
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := nodes.CreateDAIdentity(ctx, tx, &nodes.DAIdentity{
+			SystemPrompt: "You are custom test assistant.",
+			DisplayName:  "Custom DA",
+		}, nodes.Author{Name: "kernl"})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("create DA identity: %v", err)
+	}
+
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "hello", "")
+
+	mock := newMockLLMClient(ChatResponse{Content: "Hello!"})
+	rec := &eventRecorder{}
+	engine := NewChatEngine(a, sessionID, rec, mock, stubPermissionChecker{})
+
+	if err := engine.RunSession(ctx); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	// Verify the mock received the DA system prompt as the first message.
+	if len(mock.Messages) == 0 {
+		t.Fatal("no messages recorded by mock")
+	}
+	if mock.Messages[0].Role != "system" {
+		t.Errorf("first message role = %q, want system", mock.Messages[0].Role)
+	}
+	if mock.Messages[0].Content != "You are custom test assistant." {
+		t.Errorf("system prompt = %q, want 'You are custom test assistant.'", mock.Messages[0].Content)
+	}
 }

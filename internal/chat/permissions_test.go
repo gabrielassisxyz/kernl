@@ -11,7 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
 
-func newTestApp(t *testing.T) *app.App {
+func newPermissionTestApp(t *testing.T) *app.App {
 	g := testutil.NewInMemoryTestGraph(t)
 	return &app.App{
 		Graph: g,
@@ -22,7 +22,7 @@ func newTestApp(t *testing.T) *app.App {
 }
 
 func TestGraphPermissionCheckerPublicNode(t *testing.T) {
-	a := newTestApp(t)
+	a := newPermissionTestApp(t)
 	ctx := context.Background()
 	var id string
 	_ = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
@@ -41,7 +41,7 @@ func TestGraphPermissionCheckerPublicNode(t *testing.T) {
 }
 
 func TestGraphPermissionCheckerConfidentialTag(t *testing.T) {
-	a := newTestApp(t)
+	a := newPermissionTestApp(t)
 	ctx := context.Background()
 	var id string
 	_ = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
@@ -63,7 +63,7 @@ func TestGraphPermissionCheckerConfidentialTag(t *testing.T) {
 }
 
 func TestGraphPermissionCheckerNotFound(t *testing.T) {
-	a := newTestApp(t)
+	a := newPermissionTestApp(t)
 	ctx := context.Background()
 	checker := NewGraphPermissionChecker(a)
 	ok, reason, err := checker.CanRead(ctx, "nonexistent")
