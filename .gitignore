@@ -100,3 +100,6 @@ result-*
 
 scripts/
 update_binary.sh
+
+# Beads compliance audit dir (managed by /beads-compliance-and-completion-verification skill)
+/beads_compliance_audit/
