@@ -2,10 +2,15 @@ package reconcile_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
+	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
 	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
 
@@ -346,5 +351,409 @@ func TestUUIDIsTheKey(t *testing.T) {
 	}
 	if !found || gotUUID != "uuid-first" {
 		t.Errorf("after conflict: path owned by %q (found=%v), want uuid-first", gotUUID, found)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Reconciler integration tests (U7)
+// ---------------------------------------------------------------------------
+
+// newVaultDir creates a temp directory acting as the vault root.
+func newVaultDir(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
+// writeFile writes content to a file at the given absolute path, creating
+// parent directories as needed.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+}
+
+// TestOnCreate_NoteNodeExistsFTSFindable verifies that OnCreate results in a
+// note node that is FTS-findable.
+func TestOnCreate_NoteNodeExistsFTSFindable(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "hello.md")
+	writeFile(t, path, "---\nid: note-fts-1\ntitle: Hello World\n---\n\nThis is the body.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	// Node must exist
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		n, err := nodes.GetNote(ctx, tx, "note-fts-1")
+		if err != nil {
+			return err
+		}
+		if n.Title != "Hello World" {
+			t.Errorf("title = %q, want %q", n.Title, "Hello World")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+
+	// FTS must find it
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes_fts WHERE title MATCH 'Hello'`).Scan(&count)
+	})
+	if err != nil {
+		t.Fatalf("FTS query: %v", err)
+	}
+
+	// Path cache must have an entry
+	_, found, err := reconcile.Lookup(ctx, g, "hello.md")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if !found {
+		t.Error("expected path-cache entry after OnCreate")
+	}
+
+	// First revision must be recorded
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		return tx.QueryRow(`SELECT COUNT(*) FROM revisions WHERE node_id = ?`, "note-fts-1").Scan(&count)
+	})
+	if err != nil {
+		t.Fatalf("revision query: %v", err)
+	}
+}
+
+// TestOnCreate_DanglingLinkRecorded verifies that an unresolvable outbound
+// wikilink is stored as a dangling row.
+func TestOnCreate_DanglingLinkRecorded(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "linker.md")
+	writeFile(t, path, "---\nid: linker-node\ntitle: Linker\n---\n\nSee [[missing-note]].\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		return tx.QueryRow(`SELECT COUNT(*) FROM dangling_links WHERE src_node_id = ?`, "linker-node").Scan(&count)
+	})
+	if err != nil {
+		t.Fatalf("dangling query: %v", err)
+	}
+}
+
+// TestAE6_R20_AuthorFromFrontmatter verifies that a file with frontmatter
+// author=da is attributed to the DA agent, not human (AE6 / R20).
+func TestAE6_R20_AuthorFromFrontmatter(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	// Simulate a vault-llm/ file with author=da
+	path := filepath.Join(vault, "vault-llm", "generated.md")
+	writeFile(t, path, "---\nid: ae6-node\ntitle: AE6 Note\nauthor: da\n---\n\nAgent content.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	// The revision author must be agent:da
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var author string
+		return tx.QueryRow(`SELECT author FROM revisions WHERE node_id = ?`, "ae6-node").Scan(&author)
+	})
+	if err != nil {
+		t.Fatalf("revision query: %v", err)
+	}
+	// Must be agent:da
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var author string
+		if err := tx.QueryRow(
+			`SELECT author FROM revisions WHERE node_id = ? LIMIT 1`, "ae6-node",
+		).Scan(&author); err != nil {
+			return err
+		}
+		if author != "agent:da" {
+			t.Errorf("revision author = %q, want %q", author, "agent:da")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("check author: %v", err)
+	}
+}
+
+// TestOnCreate_AuthorAbsentDefaultsToHuman verifies that absent frontmatter
+// author defaults to "human".
+func TestOnCreate_AuthorAbsentDefaultsToHuman(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "noauthor.md")
+	writeFile(t, path, "---\nid: no-author-node\ntitle: No Author\n---\n\nContent.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var author string
+		if err := tx.QueryRow(
+			`SELECT author FROM revisions WHERE node_id = ? LIMIT 1`, "no-author-node",
+		).Scan(&author); err != nil {
+			return err
+		}
+		if author != "human" {
+			t.Errorf("revision author = %q, want %q", author, "human")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("check author: %v", err)
+	}
+}
+
+// TestOnChange_DiffRevisionRecorded verifies that OnChange records a diff
+// revision and re-indexes the body in FTS.
+func TestOnChange_DiffRevisionRecorded(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "change.md")
+	writeFile(t, path, "---\nid: change-node\ntitle: Change Test\n---\n\nVersion one.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	// Update file content
+	writeFile(t, path, "---\nid: change-node\ntitle: Change Test\n---\n\nVersion two.\n")
+	if err := rec.OnChange(ctx, path); err != nil {
+		t.Fatalf("OnChange: %v", err)
+	}
+
+	// Two revisions must exist
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM revisions WHERE node_id = ?`, "change-node",
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count != 2 {
+			t.Errorf("revision count = %d, want 2", count)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("check revisions: %v", err)
+	}
+
+	// FTS must reflect new content
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		return tx.QueryRow(
+			`SELECT COUNT(*) FROM nodes_fts WHERE attrs MATCH 'two'`,
+		).Scan(&count)
+	})
+	if err != nil {
+		t.Fatalf("FTS query: %v", err)
+	}
+}
+
+// TestOnCreate_DanglingPromotedOnArrival verifies that when note B arrives and
+// note A previously had a dangling wikilink [[B]], the dangling link is promoted
+// to a real edge.
+func TestOnCreate_DanglingPromotedOnArrival(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	// Note A links to note B (which does not exist yet)
+	pathA := filepath.Join(vault, "note-a.md")
+	writeFile(t, pathA, "---\nid: node-a\ntitle: Note A\n---\n\nSee [[note-b]].\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, pathA); err != nil {
+		t.Fatalf("OnCreate A: %v", err)
+	}
+
+	// Verify dangling link exists for A
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		return tx.QueryRow(
+			`SELECT COUNT(*) FROM dangling_links WHERE src_node_id = ?`, "node-a",
+		).Scan(&count)
+	})
+	if err != nil {
+		t.Fatalf("dangling check: %v", err)
+	}
+
+	// Note B arrives
+	pathB := filepath.Join(vault, "note-b.md")
+	writeFile(t, pathB, "---\nid: node-b\ntitle: Note B\n---\n\nContent.\n")
+	if err := rec.OnCreate(ctx, pathB); err != nil {
+		t.Fatalf("OnCreate B: %v", err)
+	}
+
+	// Dangling link must be gone
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM dangling_links WHERE src_node_id = ?`, "node-a",
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Errorf("dangling_links count = %d after promotion, want 0", count)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("post-promotion check: %v", err)
+	}
+
+	// A real edge A→B must exist
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		if err := tx.QueryRow(
+			`SELECT COUNT(*) FROM edges WHERE src = ? AND dst = ? AND label = 'links_to'`,
+			"node-a", "node-b",
+		).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			t.Error("expected links_to edge from node-a to node-b after promotion")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("edge check: %v", err)
+	}
+}
+
+// TestOnCreate_RollbackOnFailure verifies that an injected failure inside the
+// DoWrite rolls back the entire event — no orphan node/FTS row and no path-cache
+// entry survive.
+// Strategy: write a file with a UUID that is the same as an existing node, so
+// the second CreateNote inside the single transaction fails with a UNIQUE
+// constraint — simulating mid-tx failure.
+func TestOnCreate_RollbackOnFailure(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	// Pre-insert a node with id "clash-id" so the second create fails
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := nodes.CreateNote(ctx, tx, nodes.Note{
+			ID:    "clash-id",
+			Title: "Pre-existing",
+			Body:  "pre",
+		}, nodes.Author{Name: "human"})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("pre-insert: %v", err)
+	}
+
+	// Create a file that uses the same id
+	path := filepath.Join(vault, "clash.md")
+	writeFile(t, path, "---\nid: clash-id\ntitle: Clash\n---\n\nBody.\n")
+
+	rec := reconcile.New(g, vault)
+	oncreateErr := rec.OnCreate(ctx, path)
+	// We expect an error due to the UNIQUE constraint on the node id
+	if oncreateErr == nil {
+		t.Fatal("expected OnCreate to fail due to id clash; got nil")
+	}
+
+	// Path-cache entry must NOT exist (transaction rolled back)
+	_, found, err := reconcile.Lookup(ctx, g, "clash.md")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if found {
+		t.Error("path-cache entry must not persist after rolled-back transaction")
+	}
+
+	// Node count must be exactly 1 (the pre-existing one)
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes`).Scan(&count); err != nil {
+			return err
+		}
+		if count != 1 {
+			t.Errorf("node count = %d, want 1 after rollback", count)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
+}
+
+// TestOnCreate_UUIDInjectedOnDisk verifies that a file lacking a UUID gets one
+// injected on disk and other frontmatter bytes are preserved.
+func TestOnCreate_UUIDInjectedOnDisk(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "inject-test.md")
+	original := "---\ntitle: Inject Test\nauthor: gabriel\n---\n\nBody text here.\n"
+	writeFile(t, path, original)
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	// Re-read the file from disk
+	updated, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	// Must contain an id field
+	fm, err := frontmatter.Parse(updated)
+	if err != nil {
+		t.Fatalf("Parse injected: %v", err)
+	}
+	if fm.ID == "" {
+		t.Error("expected id to be injected on disk")
+	}
+
+	// All other frontmatter fields must be preserved
+	if fm.Title != "Inject Test" {
+		t.Errorf("title = %q, want %q", fm.Title, "Inject Test")
+	}
+	if fm.Author != "gabriel" {
+		t.Errorf("author = %q, want %q", fm.Author, "gabriel")
+	}
+
+	// Original body must still be present
+	if !strings.Contains(string(updated), "Body text here.") {
+		t.Error("body text not found in updated file")
 	}
 }

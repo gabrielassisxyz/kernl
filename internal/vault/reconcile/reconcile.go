@@ -1,21 +1,27 @@
 // Package reconcile provides the path↔uuid cache layer over the note_paths
-// table. Identity is the UUID; path is a disposable cache entry.
-//
-// Later beads (U7 create/change handlers, U11 delete handlers) will add
-// functions to this file. Keep cache operations grouped here, and put
-// handler-specific logic in separate files within this package.
+// table, and the create/change event handlers that turn filesystem events into
+// graph mutations (U7). Identity is the UUID; path is a disposable cache entry.
 package reconcile
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
+	"github.com/gabrielassisxyz/kernl/internal/vault/wikilink"
+	"github.com/google/uuid"
 )
 
 // --- Path cache operations ---
@@ -176,4 +182,310 @@ func hashReader(r io.Reader) (string, error) {
 		return "", fmt.Errorf("reconcile: hash: %w", err)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// --- Reconciler ---
+
+// Stats captures in-memory counters exposed by the Reconciler for diagnostics.
+type Stats struct {
+	EventsProcessed int64
+	NotesCreated    int64
+	DanglingPromoted int64
+}
+
+// Reconciler processes create/change events from the watcher and mutates the graph.
+// It owns the P0.1 chokepoint for note creation, revision recording, wikilink
+// resolution, and path-cache maintenance.
+type Reconciler struct {
+	g         *graph.Graph
+	vaultRoot string // absolute path to the vault root for relative path resolution
+	resolver  *wikilink.Resolver
+
+	// counters — updated atomically
+	eventsProcessed  atomic.Int64
+	notesCreated     atomic.Int64
+	danglingPromoted atomic.Int64
+}
+
+// New creates a Reconciler for the given graph and vault root.
+func New(g *graph.Graph, vaultRoot string) *Reconciler {
+	abs, err := filepath.Abs(vaultRoot)
+	if err != nil {
+		abs = vaultRoot
+	}
+	return &Reconciler{
+		g:         g,
+		vaultRoot: abs,
+		resolver:  &wikilink.Resolver{},
+	}
+}
+
+// Stats returns a snapshot of the reconciler's in-memory counters.
+func (r *Reconciler) Stats() Stats {
+	return Stats{
+		EventsProcessed: r.eventsProcessed.Load(),
+		NotesCreated:    r.notesCreated.Load(),
+		DanglingPromoted: r.danglingPromoted.Load(),
+	}
+}
+
+// OnCreate handles a KindCreate event for absPath. It:
+//  1. Reads the file bytes.
+//  2. Parses frontmatter; injects a UUID if absent (writes back to disk).
+//  3. In ONE DoWrite: CreateNote, resolves wikilinks, promotes dangling links
+//     that now resolve to this note, and upserts the path-cache entry.
+func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
+	raw, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("reconcile OnCreate %q: read file: %w", absPath, err)
+	}
+
+	fm, raw, err := parseAndInject(absPath, raw)
+	if err != nil {
+		return fmt.Errorf("reconcile OnCreate %q: frontmatter: %w", absPath, err)
+	}
+
+	author := resolveAuthor(fm.Author)
+	title := resolveTitle(fm, absPath)
+	body := extractBody(raw)
+	relPath := r.relPath(absPath)
+	contentHash := HashBytes(raw)
+	noteID := fm.ID
+
+	var promoted int
+	err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		n := nodes.Note{
+			ID:     noteID,
+			Title:  title,
+			Body:   body,
+			Origin: fm.Origin,
+			Author: fm.Author,
+			Tags:   fm.Tags,
+		}
+
+		id, err := nodes.CreateNote(ctx, tx, n, author)
+		if err != nil {
+			return fmt.Errorf("CreateNote: %w", err)
+		}
+		noteID = id
+
+		// Resolve wikilinks in body
+		if _, err := r.resolver.ResolveInTx(ctx, tx, noteID, body); err != nil {
+			return fmt.Errorf("ResolveInTx: %w", err)
+		}
+
+		// Promote any previously-dangling links pointing at this note
+		keys := danglingKeysFor(title, absPath)
+		p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, keys...)
+		if err != nil {
+			return fmt.Errorf("PromoteDanglingInTx: %w", err)
+		}
+		promoted = p
+
+		// Upsert path cache
+		if err := upsertInTx(tx, noteID, relPath, contentHash); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile OnCreate %q: %w", absPath, err)
+	}
+
+	r.eventsProcessed.Add(1)
+	r.notesCreated.Add(1)
+	r.danglingPromoted.Add(int64(promoted))
+
+	slog.Info("reconcile: create",
+		"event", "create",
+		"path", absPath,
+		"node_id", noteID,
+		"decision", "create",
+		"dangling_promoted", promoted,
+	)
+	return nil
+}
+
+// OnChange handles a KindChange event for absPath. It:
+//  1. Reads the current file bytes.
+//  2. Parses frontmatter (UUID must already exist; if missing, treats as create).
+//  3. In ONE DoWrite: UpdateNote (diff revision), re-resolves wikilinks,
+//     and refreshes the path-cache content hash.
+func (r *Reconciler) OnChange(ctx context.Context, absPath string) error {
+	raw, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("reconcile OnChange %q: read file: %w", absPath, err)
+	}
+
+	fm, raw, err := parseAndInject(absPath, raw)
+	if err != nil {
+		return fmt.Errorf("reconcile OnChange %q: frontmatter: %w", absPath, err)
+	}
+
+	// If there's still no UUID after inject (very unusual), fall back to create.
+	if fm.ID == "" {
+		return r.OnCreate(ctx, absPath)
+	}
+
+	author := resolveAuthor(fm.Author)
+	title := resolveTitle(fm, absPath)
+	body := extractBody(raw)
+	relPath := r.relPath(absPath)
+	contentHash := HashBytes(raw)
+
+	err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		n := nodes.Note{
+			ID:     fm.ID,
+			Title:  title,
+			Body:   body,
+			Origin: fm.Origin,
+			Author: fm.Author,
+			Tags:   fm.Tags,
+		}
+		if err := nodes.UpdateNote(ctx, tx, n, author); err != nil {
+			return fmt.Errorf("UpdateNote: %w", err)
+		}
+
+		// Re-resolve wikilinks
+		if _, err := r.resolver.ResolveInTx(ctx, tx, fm.ID, body); err != nil {
+			return fmt.Errorf("ResolveInTx: %w", err)
+		}
+
+		// Refresh path cache
+		if err := upsertInTx(tx, fm.ID, relPath, contentHash); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile OnChange %q: %w", absPath, err)
+	}
+
+	r.eventsProcessed.Add(1)
+
+	slog.Info("reconcile: change",
+		"event", "change",
+		"path", absPath,
+		"node_id", fm.ID,
+		"decision", "change",
+	)
+	return nil
+}
+
+// --- helpers ---
+
+// parseAndInject reads frontmatter and injects a UUID if absent.
+// It writes the updated bytes back to disk only when injection was needed.
+// Returns the updated Frontmatter and (possibly updated) raw bytes.
+func parseAndInject(absPath string, raw []byte) (*frontmatter.Frontmatter, []byte, error) {
+	fm, err := frontmatter.Parse(raw)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse: %w", err)
+	}
+
+	if fm.ID == "" {
+		newUUID := uuid.Must(uuid.NewV7()).String()
+		updated, err := frontmatter.InjectID(raw, newUUID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("inject id: %w", err)
+		}
+		if err := os.WriteFile(absPath, updated, 0o644); err != nil {
+			return nil, nil, fmt.Errorf("write injected id: %w", err)
+		}
+		raw = updated
+		fm.ID = newUUID
+	}
+	return fm, raw, nil
+}
+
+// resolveAuthor maps frontmatter author to a nodes.Author following R15/AE6:
+//   - absent / empty → Author{Name: "human"}
+//   - already prefixed "agent:*" → preserved
+//   - "da" → agent:da
+//   - any other value → Author{Name: value} (treated as human identifier)
+func resolveAuthor(fmAuthor string) nodes.Author {
+	if fmAuthor == "" {
+		return nodes.Author{Name: "human"}
+	}
+	if strings.HasPrefix(fmAuthor, "agent:") {
+		return nodes.Author{Name: fmAuthor}
+	}
+	if fmAuthor == "da" {
+		return nodes.AuthorAgent("da")
+	}
+	return nodes.Author{Name: fmAuthor}
+}
+
+// resolveTitle returns the title from frontmatter or falls back to the filename stem.
+func resolveTitle(fm *frontmatter.Frontmatter, absPath string) string {
+	if fm.Title != "" {
+		return fm.Title
+	}
+	base := filepath.Base(absPath)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// extractBody returns the content after the frontmatter block.
+// If no frontmatter is present, returns the full content.
+func extractBody(raw []byte) string {
+	// Strip BOM
+	content := raw
+	if len(content) >= 3 && content[0] == 0xEF && content[1] == 0xBB && content[2] == 0xBF {
+		content = content[3:]
+	}
+
+	// Must start with "---\n" or "---\r\n"
+	if len(content) < 4 || content[0] != '-' || content[1] != '-' || content[2] != '-' {
+		return string(raw)
+	}
+	lineEnd := 3
+	if lineEnd < len(content) && content[lineEnd] == '\r' {
+		lineEnd++
+	}
+	if lineEnd >= len(content) || content[lineEnd] != '\n' {
+		return string(raw)
+	}
+	// Find the closing "---" fence
+	start := lineEnd + 1
+	for i := start; i < len(content)-2; i++ {
+		if content[i] == '-' && content[i+1] == '-' && content[i+2] == '-' {
+			// Must be preceded by newline
+			if i > 0 && content[i-1] == '\n' {
+				// Find end of closing fence line
+				j := i + 3
+				if j < len(content) && content[j] == '\r' {
+					j++
+				}
+				if j < len(content) && content[j] == '\n' {
+					j++
+				}
+				return string(bytes.TrimLeft(content[j:], "\n\r"))
+			}
+		}
+	}
+	return string(raw)
+}
+
+// danglingKeysFor returns the PromoteKeys for a note: stem and title.
+// Stem is derived from the filename; title is the resolved display title.
+func danglingKeysFor(title, absPath string) []wikilink.PromoteKey {
+	base := filepath.Base(absPath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+
+	var keys []wikilink.PromoteKey
+	keys = append(keys, wikilink.PromoteKey{Key: stem, Kind: "stem"})
+	if title != "" && title != stem {
+		keys = append(keys, wikilink.PromoteKey{Key: title, Kind: "title"})
+	}
+	return keys
+}
+
+// relPath returns the path relative to the vault root.
+// If absPath does not start with vaultRoot, returns absPath unchanged.
+func (r *Reconciler) relPath(absPath string) string {
+	rel, err := filepath.Rel(r.vaultRoot, absPath)
+	if err != nil {
+		return absPath
+	}
+	return rel
 }
