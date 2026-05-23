@@ -21,6 +21,7 @@ const (
 	EdgeTypeDependsOn EdgeType = "depends_on"
 	EdgeTypeBlocks    EdgeType = "blocks"
 	EdgeTypePartOf    EdgeType = "part_of"
+	EdgeTypeLinksTo   EdgeType = "links_to"
 )
 
 // Edge models a directed relationship between two nodes.

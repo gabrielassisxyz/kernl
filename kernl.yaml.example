@@ -63,3 +63,24 @@ orchestrator:
 server:
   # Port for the REST + SSE API (default: 8080).
   port: 8080
+
+# Vault block enables the notes watcher and graph integration.
+# When vault.root is empty (or the block is absent), vault watching is disabled.
+# vault:
+#   # Absolute path to the root directory of the notes vault.
+#   # Must exist and be a directory when set.
+#   root: /home/me/vault
+#
+#   # Quiet period after the last filesystem event before emitting a coalesced
+#   # change event (milliseconds). Default: 300.
+#   # coalesceWindowMs: 300
+#
+#   # Move/delete correlation window (milliseconds). A deletion is held for
+#   # this long before being tombstoned; a matching create within the window
+#   # is treated as a rename. Default: 1000.
+#   # moveWindowMs: 1000
+#
+#   # Periodic full rescan interval (seconds). When >0, the watcher re-runs
+#   # the cold-start diff at this interval as a safety net for missed events.
+#   # Default: 0 (disabled).
+#   # rescanIntervalSec: 0

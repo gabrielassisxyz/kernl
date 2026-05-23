@@ -271,3 +271,69 @@ func TestFTSMixedEnglishPortuguese(t *testing.T) {
 		t.Error("expected hit for English term 'Hello' in mixed-language title")
 	}
 }
+
+// TestSearchExcludesTombstonedNotes verifies that a note with deleted_at set is
+// excluded from search results, while a live note with the same terms still appears.
+func TestSearchExcludesTombstonedNotes(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "live-note", "note", "Unique Token xyzzy", "live body", nil)
+	setupSearchNode(t, g, "dead-note", "note", "Unique Token xyzzy", "dead body", nil)
+
+	// Tombstone dead-note by setting deleted_at
+	err := g.DoWrite(context.Background(), func(wtx *graph.WriteTx) error {
+		_, err := wtx.Exec(
+			`UPDATE nodes SET deleted_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = 'dead-note'`,
+		)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("set deleted_at: %v", err)
+	}
+
+	var hits []search.Hit
+	err = g.DoRead(context.Background(), func(rtx *graph.ReadTx) error {
+		var serr error
+		hits, serr = search.Search(context.Background(), rtx, "xyzzy")
+		return serr
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+
+	for _, h := range hits {
+		if h.NodeID == "dead-note" {
+			t.Error("tombstoned note 'dead-note' must not appear in search results")
+		}
+	}
+
+	found := false
+	for _, h := range hits {
+		if h.NodeID == "live-note" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("live note 'live-note' must appear in search results")
+	}
+}
+
+// TestSearchExcludesTombstoned_NonNoteUnaffected verifies that non-note nodes
+// (which always have NULL deleted_at) still appear in search after the global
+// filter is added.
+func TestSearchExcludesTombstoned_NonNoteUnaffected(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "task-node", "task", "Tombstone Filter Task", "task body", nil)
+
+	var hits []search.Hit
+	err := g.DoRead(context.Background(), func(rtx *graph.ReadTx) error {
+		var serr error
+		hits, serr = search.Search(context.Background(), rtx, "Tombstone")
+		return serr
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) == 0 {
+		t.Error("expected non-note node to still appear in search after tombstone filter")
+	}
+}

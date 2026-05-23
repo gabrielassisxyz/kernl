@@ -78,12 +78,32 @@ type SweepConfig struct {
 	BackoffMinutes      []int  `yaml:"backoff_minutes"`
 }
 
+// VaultConfig holds settings for the notes vault watcher.
+type VaultConfig struct {
+	// Root is the absolute path to the vault directory.
+	// When empty, vault watching is disabled.
+	Root           string `yaml:"root"`
+	// CoalesceWindowMs is the fsnotify quiet period before emitting an event (ms).
+	// Default: 300.
+	CoalesceWindowMs int `yaml:"coalesceWindowMs,omitempty"`
+	// MoveWindowMs is the move/delete correlation window (ms).
+	// Default: 1000.
+	MoveWindowMs int `yaml:"moveWindowMs,omitempty"`
+	// RescanIntervalSec, when >0, triggers a periodic cold-start diff as a
+	// safety net for missed fsnotify events. Default: 0 (disabled).
+	RescanIntervalSec int `yaml:"rescanIntervalSec,omitempty"`
+}
+
+// Enabled reports whether vault watching is configured (root is non-empty).
+func (v VaultConfig) Enabled() bool { return v.Root != "" }
+
 type Config struct {
 	Settings     Settings           `yaml:"settings"`
 	Registry     RegistryConfig     `yaml:"registry"`
 	Server       ServerConfig       `yaml:"server"`
 	Orchestrator OrchestratorConfig `yaml:"orchestrator"`
 	Sweep        SweepConfig        `yaml:"sweep"`
+	Vault        VaultConfig        `yaml:"vault,omitempty"`
 }
 
 func Load(path string) (*Config, error) {

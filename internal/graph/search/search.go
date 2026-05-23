@@ -140,8 +140,10 @@ func buildQuery(cleaned string, o options) (string, []any) {
 		b.WriteString(` JOIN tags t ON t.id = nt.tag_id`)
 	}
 
-	// WHERE clause: combine tag and type filters.
-	whereClauses := make([]string, 0, 2)
+	// WHERE clause: always exclude tombstoned nodes (deleted_at IS NULL).
+	// Non-note rows always have NULL deleted_at so this is a no-op for them.
+	whereClauses := make([]string, 0, 3)
+	whereClauses = append(whereClauses, "n.deleted_at IS NULL")
 
 	if len(o.tags) > 0 {
 		placeholders := make([]string, len(o.tags))
