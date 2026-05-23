@@ -18,6 +18,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterStreamRoutes(mux, a)
 	RegisterEpicRoutes(mux, a)
 	RegisterAppRoutes(mux)
+	RegisterDARoutes(mux, a)
 
 	mux.Handle("GET /", http.FileServerFS(web.FS))
 
