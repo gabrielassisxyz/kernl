@@ -16,8 +16,10 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/preflight"
 	"github.com/gabrielassisxyz/kernl/internal/sweep"
+	"github.com/gabrielassisxyz/kernl/internal/vault"
 )
 
 type sweepRunner interface {
@@ -103,7 +105,31 @@ func runServe(configPath string, port int) error {
 		}
 	}
 
+	// Vault watcher lifecycle — started only when vault.root is configured.
+	vault.ApplyDefaults(&cfg.Vault)
+	var vaultSvc *vault.Service
+	if cfg.Vault.Enabled() {
+		if err := vault.Validate(cfg.Vault); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: vault config: %w", err)
+		}
+		vaultDBPath := cfg.Vault.Root + "/.kernl-graph.db"
+		g, err := graph.Open(ctx, graph.Config{Path: vaultDBPath})
+		if err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: open vault graph: %w", err)
+		}
+		defer g.Close()
+
+		vaultSvc = vault.New(g, cfg.Vault)
+		if err := vaultSvc.Start(ctx); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: vault service start: %w", err)
+		}
+	}
+
 	<-ctx.Done()
+
+	if vaultSvc != nil {
+		vaultSvc.Stop()
+	}
 
 	slog.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
