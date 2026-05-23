@@ -1,13 +1,179 @@
 package schema_test
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/graph/internal/migrate"
 	"github.com/gabrielassisxyz/kernl/internal/graph/schema"
 	_ "modernc.org/sqlite"
 )
+
+func TestMigration002IndexesUp(t *testing.T) {
+	db := schemaOpenTemp(t)
+	defer db.Close()
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := r.Up(ctx); err != nil {
+		t.Fatalf("Up to v2: %v", err)
+	}
+
+	ver, dirty, err := r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if dirty {
+		t.Fatal("schema_migrations is dirty after Up")
+	}
+	if ver != 2 {
+		t.Errorf("expected version 2, got %d", ver)
+	}
+
+	indexes := map[string]bool{
+		"idx_edges_src_label":  false,
+		"idx_edges_dst_label":  false,
+		"idx_nodes_type":       false,
+		"idx_node_tags_tag_id": false,
+	}
+
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='index'`)
+	if err != nil {
+		t.Fatalf("query indexes: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan index name: %v", err)
+		}
+		if _, ok := indexes[name]; ok {
+			indexes[name] = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("rows.Err: %v", err)
+	}
+
+	for name, found := range indexes {
+		if !found {
+			t.Errorf("index %s not found after Up to v2", name)
+		}
+	}
+}
+
+func TestMigration002IndexesRoundTrip(t *testing.T) {
+	db := schemaOpenTemp(t)
+	defer db.Close()
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Up to v2
+	if err := r.Up(ctx); err != nil {
+		t.Fatalf("Up to v2: %v", err)
+	}
+	ver, _, err := r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if ver != 2 {
+		t.Fatalf("expected version 2 after Up, got %d", ver)
+	}
+
+	// Down from v2 back to v1
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down from v2: %v", err)
+	}
+	ver, _, err = r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current after Down: %v", err)
+	}
+	if ver != 1 {
+		t.Fatalf("expected version 1 after Down, got %d", ver)
+	}
+
+	// Verify the four indexes are gone
+	expectedIndexes := []string{
+		"idx_edges_src_label",
+		"idx_edges_dst_label",
+		"idx_nodes_type",
+		"idx_node_tags_tag_id",
+	}
+	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='index'`)
+	if err != nil {
+		t.Fatalf("query indexes: %v", err)
+	}
+	defer rows.Close()
+	present := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan index name: %v", err)
+		}
+		present[name] = true
+	}
+	for _, name := range expectedIndexes {
+		if present[name] {
+			t.Errorf("index %s should be gone after Down from v2", name)
+		}
+	}
+
+	// Re-Up to v2 (idempotent round-trip)
+	if err := r.Up(ctx); err != nil {
+		t.Fatalf("Re-Up to v2: %v", err)
+	}
+	ver, _, err = r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current after Re-Up: %v", err)
+	}
+	if ver != 2 {
+		t.Errorf("expected version 2 after Re-Up, got %d", ver)
+	}
+}
+
+func TestMigration002NoOp(t *testing.T) {
+	db := schemaOpenTemp(t)
+	defer db.Close()
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Up to v2
+	if err := r.Up(ctx); err != nil {
+		t.Fatalf("Up to v2: %v", err)
+	}
+
+	// Up again — must be a no-op (no duplicate-index error)
+	if err := r.Up(ctx); err != nil {
+		t.Fatalf("no-op Up: %v", err)
+	}
+
+	ver, dirty, err := r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if dirty {
+		t.Fatal("schema_migrations is dirty after no-op Up")
+	}
+	if ver != 2 {
+		t.Errorf("expected version 2, got %d", ver)
+	}
+}
 
 func TestInitialSchemaApplies(t *testing.T) {
 	db := schemaOpenTemp(t)
