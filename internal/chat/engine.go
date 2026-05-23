@@ -38,12 +38,15 @@ type ChatEngine struct {
 }
 
 // NewChatEngine creates a new chat engine for a session.
-func NewChatEngine(app *app.App, sessionID string, w ChatEventWriter, llm LLMClient) *ChatEngine {
+func NewChatEngine(app *app.App, sessionID string, w ChatEventWriter, llm LLMClient, pc PermissionChecker) *ChatEngine {
+	if pc == nil {
+		pc = stubPermissionChecker{}
+	}
 	return &ChatEngine{
 		sessionID:         sessionID,
 		eventWriter:       w,
 		llmClient:         llm,
-		permissionChecker: stubPermissionChecker{},
+		permissionChecker: pc,
 		app:               app,
 	}
 }

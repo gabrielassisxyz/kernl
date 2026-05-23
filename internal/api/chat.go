@@ -150,7 +150,7 @@ func chatEventsHandler(a *app.App) http.HandlerFunc {
 		}
 
 		writer := &sseEventWriter{w: w, flusher: flusher}
-		engine := chat.NewChatEngine(a, id, writer, &noopLLMClient{})
+		engine := chat.NewChatEngine(a, id, writer, NoopLLMClient{}, chat.NewGraphPermissionChecker(a))
 		if err := engine.RunSession(ctx); err != nil {
 			slog.Error("chat engine run", "error", err)
 		}
@@ -199,9 +199,9 @@ type sseEventWriter struct {
 func (s *sseEventWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
 func (s *sseEventWriter) Flush()                        { s.flusher.Flush() }
 
-// noopLLMClient is a placeholder until a real LLM client is wired in.
-type noopLLMClient struct{}
+// NoopLLMClient is a placeholder until a real LLM client is wired in.
+type NoopLLMClient struct{}
 
-func (noopLLMClient) Chat(ctx context.Context, messages []chat.Message, tools []chat.Tool) (*chat.ChatResponse, error) {
+func (NoopLLMClient) Chat(ctx context.Context, messages []chat.Message, tools []chat.Tool) (*chat.ChatResponse, error) {
 	return &chat.ChatResponse{Content: "Hello! This is a stub response."}, nil
 }
