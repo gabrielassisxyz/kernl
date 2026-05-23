@@ -8,4 +8,5 @@ var (
 	ErrSchemaLocked   = errors.New("graph: schema locked")
 	ErrAuthorRequired = errors.New("graph: author required")
 	ErrEmptyTag       = errors.New("graph: empty tag")
+	ErrDepthExceeded  = errors.New("graph: depth exceeded")
 )
