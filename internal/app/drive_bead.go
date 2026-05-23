@@ -34,6 +34,11 @@ type DriveBeadDeps struct {
 	// the bead is being resumed from a previous run rather than dispatched
 	// fresh.
 	SessionID string
+	// BuildPrompt, when non-nil, overrides the default per-stage prompt
+	// builder. The epic driver uses it to inject integration/shipment prompts
+	// that need epic-specific context (child branches, epic branch) the
+	// generic StageContract prompt cannot express.
+	BuildPrompt func(bead *backend.Bead, activeState string, wf backend.WorkflowDescriptor, repoPath, worktree string) string
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -112,7 +117,12 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			}
 		}
 
-		prompt := BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
+		var prompt string
+		if deps.BuildPrompt != nil {
+			prompt = deps.BuildPrompt(bead, activeState, wf, deps.RepoPath, deps.Worktree)
+		} else {
+			prompt = BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
+		}
 		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
 		if agentInput.Env == nil {
@@ -150,7 +160,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		duration := time.Since(startTime)
 		slog.Info("DRIVE_TRACE post-spawn ok", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 
-		gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID)
+		// Re-fetch the bead so description-based exit gates (e.g. shipment's
+		// pr_url marker) see what the agent just wrote, not the stale snapshot
+		// from the top of this iteration.
+		gateDesc := ""
+		if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
+			gateDesc = freshBead.Description
+		}
+		gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID, gateDesc)
 		if gatePassed {
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 			if ok {

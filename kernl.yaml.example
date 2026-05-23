@@ -33,7 +33,28 @@ settings:
   # When multiple agents are in a pool, Kernl picks one by weight,
   # respecting cross-agent exclusion rules.
   pools:
+    # Per-bead worker stages (epic children use the "worker" profile).
     implementation:
+      agents:
+        - agentId: opencode
+          weight: 1
+    implementation_review:
+      agents:
+        - agentId: opencode
+          weight: 1
+    # Epic-level stages (the "epic" profile drives the epic bead after all
+    # children reach awaiting_integration): merge children, review the merge,
+    # then push + open the PR. Point integration_review at a reviewer-grade
+    # model distinct from the integration model for independent eyes.
+    integration:
+      agents:
+        - agentId: opencode
+          weight: 1
+    integration_review:
+      agents:
+        - agentId: opencode
+          weight: 1
+    shipment:
       agents:
         - agentId: opencode
           weight: 1

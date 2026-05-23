@@ -17,6 +17,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/prompt"
 	"github.com/gabrielassisxyz/kernl/internal/runstate"
 )
 
@@ -184,6 +185,11 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			// Persist worktree path in runstate before dispatching so
 			// future runs know a worktree existed for this bead.
 			_ = rs.SetWorktree(epicID, in.BeadID, in.Worktree)
+			// Epic children run the worker profile: implement + review, then
+			// STOP at awaiting_integration handing the branch to the epic.
+			if err := ensureWorkerEntry(a.Backend, in.BeadID, repoPath); err != nil {
+				return epic.RunResult{}, err
+			}
 			res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
 				Backend:   a.Backend,
 				Driver:    a.Driver,
@@ -230,6 +236,111 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	metric := ex.Parallelism()
 	out(fmt.Sprintf("epic %s concluído — paralelismo realizado: %.1fx (pico %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
 
+	// All children reached awaiting_integration. Drive the epic bead itself
+	// through integration -> integration_review -> shipment -> awaiting_pr_review.
+	epicWorktree, werr := wm.AddEpicWorktree(epicID)
+	if werr != nil {
+		return werr
+	}
+	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
+	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, out); err != nil {
+		out(fmt.Sprintf("epic %s bloqueado na integração — corrija e rode kernl epic run %s de novo para retomar\n", epicID, epicID))
+		return err
+	}
+
+	return nil
+}
+
+// ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto
+// the worker profile and its initial workflow state so DriveBeadToTerminal can
+// claim it. Children already mid-workflow (resume) are left untouched.
+func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string) error {
+	bead, err := be.Get(beadID, repoPath)
+	if err != nil || bead == nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: child %s not found in repo %s: %w", beadID, repoPath, err)
+	}
+	if bead.State != "open" {
+		return nil
+	}
+	labels := setWFLabel(bead.Labels, "wf:profile:", "worker")
+	labels = setWFLabel(labels, "wf:state:", "ready_for_implementation")
+	return be.Update(beadID, backend.UpdateBeadInput{State: "ready_for_implementation", SetLabels: labels}, repoPath)
+}
+
+// setWFLabel replaces any existing label with the given prefix by prefix+value.
+func setWFLabel(labels []string, prefix, value string) []string {
+	out := make([]string, 0, len(labels)+1)
+	for _, l := range labels {
+		if !strings.HasPrefix(l, prefix) {
+			out = append(out, l)
+		}
+	}
+	return append(out, prefix+value)
+}
+
+// driveEpic puts the epic bead on the epic profile and drives it through
+// integration -> integration_review -> shipment, ending at awaiting_pr_review.
+// The BuildPrompt override injects epic-specific integration/shipment prompts.
+func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, epicWorktree string, out func(string)) error {
+	epicBead, err := a.Backend.Get(epicID, repoPath)
+	if err != nil || epicBead == nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
+	}
+	labels := setWFLabel(epicBead.Labels, "wf:profile:", "epic")
+	labels = setWFLabel(labels, "wf:state:", "ready_for_integration")
+	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "ready_for_integration", SetLabels: labels}, repoPath); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to ready_for_integration: %w", epicID, err)
+	}
+
+	res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
+		Backend:  a.Backend,
+		Driver:   a.Driver,
+		Config:   a.Config,
+		BeadID:   epicID,
+		RepoPath: repoPath,
+		Worktree: epicWorktree,
+		Log: func(stage int, state string) {
+			ts := time.Now().Format("15:04:05")
+			out(fmt.Sprintf("[%s] epic %s [stage %d] %s\n", ts, epicID, stage, state))
+			a.EpicEvents.Publish(epic.EpicEvent{Type: epic.BeadStateChanged, EpicID: ep.ID, BeadID: epicID, Detail: state, Time: time.Now().Unix()})
+		},
+		BuildPrompt: func(bead *backend.Bead, activeState string, wf backend.WorkflowDescriptor, rp, wt string) string {
+			switch activeState {
+			case "integration":
+				children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, rp)
+				cs := make([]prompt.Child, 0, len(children))
+				for _, c := range children {
+					cs = append(cs, prompt.Child{ID: c.ID, Branch: "kernl/" + c.ID})
+				}
+				s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
+					EpicID: epicID, EpicTitle: bead.Title,
+					EpicBranch: "feat/" + epicID, BaseBranch: "master", Children: cs,
+				})
+				if perr != nil {
+					return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
+				}
+				return s
+			case "shipment":
+				s, perr := prompt.RenderShipment(prompt.ShipmentInput{
+					EpicID: epicID, EpicTitle: bead.Title,
+					EpicBranch: "feat/" + epicID, BaseBranch: "master",
+				})
+				if perr != nil {
+					return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
+				}
+				return s
+			default:
+				return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
+			}
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if !res.Success {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s integration stopped at %q", epicID, res.FinalState)
+	}
+	out(fmt.Sprintf("epic %s → %s\n", epicID, res.FinalState))
 	return nil
 }
 

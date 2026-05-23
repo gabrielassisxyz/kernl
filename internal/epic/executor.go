@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/gabrielassisxyz/kernl/internal/merge"
 )
 
 type EpicState string
@@ -49,7 +47,6 @@ type ExecutorDeps struct {
 	SessionResumes map[string]string
 	MaxConcurrent int
 	Emit          func(EpicEvent)
-	MergeManager  merge.TriggerRouter
 }
 
 type Executor struct {
@@ -111,9 +108,6 @@ func (ex *Executor) Run(ctx context.Context) error {
 			if len(ex.done) == len(ex.deps.Epic.Children) {
 				ex.state = EpicCompleted
 				ex.mu.Unlock()
-			if ex.deps.MergeManager != nil {
-				_ = ex.deps.MergeManager.RouteOutcome(ex.deps.Epic.ID)
-			}
 				return nil
 			}
 			var msg string

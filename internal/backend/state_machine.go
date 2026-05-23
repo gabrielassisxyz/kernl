@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -85,22 +86,73 @@ type profileConfig struct {
 	Owners                   map[string]ActionOwnerKind
 	InitialState             string // override; empty means compute from PlanningMode
 	Stages                   map[string]StageContract
+	// ExplicitStates, when non-empty, replaces the derived state list from
+	// buildStates. Used by the epic profile, whose lifecycle is a bespoke
+	// tail (integration -> integration_review -> shipment -> awaiting_pr_review)
+	// that does not match the canonical planning/implementation filter.
+	ExplicitStates []string
+	// TerminalStates overrides the default {"shipped","abandoned"} stop set.
+	TerminalStates []string
+	// ExitGates declares per-state exit gates evaluated after an agent exits.
+	// Empty means every stage passes on agent_exit_zero (the legacy default).
+	ExitGates map[string]WorkflowExitGate
 }
 
 var builtinProfiles = []profileConfig{
 	{
 		ID:                       "epic",
 		DisplayName:              "Epic",
-		Description:              "Epic lifecycle: integration, integration review, shipment, shipment review",
+		Description:              "Epic lifecycle: integration, integration review, shipment, then awaiting human PR review",
 		PlanningMode:             "skipped",
 		ImplementationReviewMode: "skipped",
 		Output:                   "pr",
+		InitialState:             "ready_for_integration",
 		Owners: map[string]ActionOwnerKind{
 			"integration":        ActionOwnerAgent,
 			"integration_review": ActionOwnerAgent,
 			"shipment":           ActionOwnerAgent,
-			"shipment_review":    ActionOwnerAgent,
 		},
+		ExplicitStates: []string{
+			"ready_for_integration", "integration",
+			"ready_for_integration_review", "integration_review",
+			"ready_for_shipment", "shipment",
+			"awaiting_pr_review",
+			"deferred", "abandoned",
+		},
+		TerminalStates: []string{"awaiting_pr_review", "abandoned"},
+		ExitGates: map[string]WorkflowExitGate{
+			// integration agent must leave a marker commit on the epic branch.
+			"integration": {Type: "commit_marker", Path: "stage: integration"},
+			// integration_review agent must write a PASS verdict artifact.
+			"integration_review": {Type: "artifact_verdict", Path: ".kernl/<bead_id>/integration-review.md"},
+			// shipment agent must record the opened PR URL in the epic description.
+			"shipment": {Type: "description_contains", Path: "pr_url:"},
+		},
+	},
+	{
+		// worker is the per-child profile inside an epic: it does the bead's
+		// own work and STOPS at awaiting_integration, handing the branch to the
+		// epic-level integration stage. It deliberately does NOT own integration
+		// or shipment — those belong to the epic profile. The orchestrator
+		// applies this profile to epic children automatically (epic run).
+		ID:                       "worker",
+		DisplayName:              "Worker",
+		Description:              "Per-child epic worker: implement + review, then hand off at awaiting_integration",
+		PlanningMode:             "skipped",
+		ImplementationReviewMode: "required",
+		Output:                   "branch",
+		InitialState:             "ready_for_implementation",
+		Owners: map[string]ActionOwnerKind{
+			"implementation":        ActionOwnerAgent,
+			"implementation_review": ActionOwnerAgent,
+		},
+		ExplicitStates: []string{
+			"ready_for_implementation", "implementation",
+			"ready_for_implementation_review", "implementation_review",
+			"awaiting_integration",
+			"deferred", "abandoned",
+		},
+		TerminalStates: []string{"awaiting_integration", "abandoned"},
 	},
 	{
 		ID:                      "autopilot",
@@ -168,6 +220,7 @@ func canonicalTransitions() []WorkflowTransition {
 		{From: "ready_for_implementation", To: "implementation"},
 		{From: "implementation", To: "ready_for_implementation_review"},
 		{From: "ready_for_implementation_review", To: "implementation_review"},
+		{From: "implementation_review", To: "awaiting_integration"},
 		{From: "implementation_review", To: "ready_for_integration"},
 		{From: "implementation_review", To: "ready_for_implementation"},
 		{From: "ready_for_integration", To: "integration"},
@@ -176,6 +229,7 @@ func canonicalTransitions() []WorkflowTransition {
 		{From: "integration_review", To: "ready_for_shipment"},
 		{From: "integration_review", To: "ready_for_integration"},
 		{From: "ready_for_shipment", To: "shipment"},
+		{From: "shipment", To: "awaiting_pr_review"},
 		{From: "shipment", To: "ready_for_shipment_review"},
 		{From: "ready_for_shipment_review", To: "shipment_review"},
 		{From: "shipment_review", To: "shipped"},
@@ -187,6 +241,9 @@ func canonicalTransitions() []WorkflowTransition {
 }
 
 func buildStates(cfg profileConfig) []string {
+	if len(cfg.ExplicitStates) > 0 {
+		return cfg.ExplicitStates
+	}
 	all := []string{
 		"ready_for_planning", "planning",
 		"ready_for_plan_review", "plan_review",
@@ -289,6 +346,9 @@ func descriptorFromProfileConfig(cfg profileConfig) WorkflowDescriptor {
 	states := buildStates(cfg)
 	transitions := filterTransitions(states, cfg)
 	terminalStates := []string{"shipped", "abandoned"}
+	if len(cfg.TerminalStates) > 0 {
+		terminalStates = cfg.TerminalStates
+	}
 	queueStates, actionStates, queueActions := deriveWorkflowStructureFromConfig(states, transitions, cfg.Owners, terminalStates)
 
 	initialState := "ready_for_planning"
@@ -372,6 +432,9 @@ func descriptorFromProfileConfig(cfg profileConfig) WorkflowDescriptor {
 	} else {
 		desc.Stages = CanonicalStageContracts()
 	}
+	if cfg.ExitGates != nil {
+		desc.ExitGates = cfg.ExitGates
+	}
 	return desc
 }
 
@@ -425,12 +488,14 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 		"ready_for_implementation_review": 6,
 		"review":                         7,
 		"implementation_review":          7,
+		"awaiting_integration":          8,
 		"ready_for_integration":         8,
 		"integration":                    9,
 		"ready_for_integration_review":  10,
 		"integration_review":            11,
 		"ready_for_shipment":            12,
 		"shipment":                       13,
+		"awaiting_pr_review":            14,
 		"ready_for_shipment_review":      14,
 		"shipment_review":                15,
 		"shipped":                        16,
@@ -450,7 +515,11 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 	return "", false
 }
 
-func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID string) (passed bool, reason string) {
+// EvaluateExitGate decides whether a bead may advance past fromState after its
+// agent exited zero. beadDescription is the bead's current description (read
+// fresh after the agent ran) so description-based gates can inspect markers the
+// agent wrote there. An empty/unknown gate type passes (legacy agent_exit_zero).
+func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID, beadDescription string) (passed bool, reason string) {
 	gate, ok := wf.ExitGates[fromState]
 	if !ok || gate.Type == "" || gate.Type == "agent_exit_zero" {
 		return true, ""
@@ -461,6 +530,31 @@ func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID str
 		abs := filepath.Join(worktreePath, resolved)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
 			return false, "artifact_missing: " + resolved
+		}
+		return true, ""
+	case "artifact_verdict":
+		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
+		abs := filepath.Join(worktreePath, resolved)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return false, "artifact_missing: " + resolved
+		}
+		if !strings.HasSuffix(strings.TrimSpace(string(data)), "VERDICT: PASS") {
+			return false, "verdict_not_pass: " + resolved
+		}
+		return true, ""
+	case "commit_marker":
+		out, err := exec.Command("git", "-C", worktreePath, "log", "-n", "200", "--format=%B").CombinedOutput()
+		if err != nil {
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(out))
+		}
+		if !strings.Contains(string(out), gate.Path) {
+			return false, "commit_marker_missing: " + gate.Path
+		}
+		return true, ""
+	case "description_contains":
+		if !strings.Contains(beadDescription, gate.Path) {
+			return false, "description_missing: " + gate.Path
 		}
 		return true, ""
 	default:

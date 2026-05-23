@@ -51,6 +51,45 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 	return branchName, nil
 }
 
+// AddEpicWorktree creates (or recovers) a worktree checked out to the epic's
+// own branch feat/<epicID>, where the integration and shipment agents run.
+// Unlike Add, it does NOT create a new branch — it checks out the EXISTING
+// epic branch so the child merges and the PR push land on feat/<epicID>.
+// Call EnsureEpicBranch first so the branch exists.
+func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
+	if err := os.MkdirAll(m.root, 0755); err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree root %s: %w", m.root, err)
+	}
+
+	path := filepath.Join(m.root, epicID, "_epic")
+	epicBranch := "feat/" + epicID
+
+	if _, err := os.Stat(path); err == nil {
+		slog.Warn("epic worktree leftover detected, auto-cleaning", "path", path, "epic", epicID)
+		if m.gitRun != nil {
+			_, _ = m.gitRun(m.repoPath, "worktree", "remove", "--force", path)
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: epic worktree path %s exists and auto-clean failed — %w — Fix: remove the directory manually", path, err)
+		}
+	}
+
+	if m.gitRun == nil {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot create epic worktree for %s: %w", epicID, err)
+		}
+		return path, nil
+	}
+
+	_, _ = m.gitRun(m.repoPath, "worktree", "prune")
+
+	if _, err := m.gitRun(m.repoPath, "worktree", "add", path, epicBranch); err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for epic branch %s — %w — Fix: ensure %s exists (EnsureEpicBranch) and is not already checked out elsewhere", epicBranch, err, epicBranch)
+	}
+
+	return path, nil
+}
+
 func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
 	if err := os.MkdirAll(m.root, 0755); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree root %s: %w", m.root, err)

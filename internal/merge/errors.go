@@ -1,6 +1,6 @@
-// Package merge provides the typed outcome enum and the MergeManager that
-// routes epic-level transitions based on the merger agent's reported outcome.
-// Spec: docs/2026-05-15-kernl-workflow-brainstorm-spec.md §5.3-§5.4.
+// Package merge provides the typed outcome enum the epic integration and
+// shipment stage prompts use to report results (success, merge_conflict,
+// push_failed, pr_create_failed, pr_already_exists).
 package merge
 
 import "fmt"
