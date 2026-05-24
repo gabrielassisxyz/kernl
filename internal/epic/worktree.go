@@ -90,6 +90,31 @@ func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
 	return path, nil
 }
 
+// CleanupEpic removes all artifacts for an epic from the local filesystem.
+// It deletes:
+//   - the epic worktree directory root/<epicID> (including all child worktrees)
+//   - the feat/<epicID> branch
+//   - the kernl/<childID> branches for every child bead.
+//
+// Branch deletion errors are silently ignored because the branches may never
+// have been created (hermetic tests or a bead that never reached implementation).
+func (m *WorktreeManager) CleanupEpic(epicID string, childIDs []string) error {
+	epicDir := filepath.Join(m.root, epicID)
+	if err := os.RemoveAll(epicDir); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot remove worktree directory %s for epic %s: %w — Fix: verify permissions", epicDir, epicID, err)
+	}
+
+	if m.gitRun == nil {
+		return nil
+	}
+
+	_, _ = m.gitRun(m.repoPath, "branch", "-D", "feat/"+epicID)
+	for _, childID := range childIDs {
+		_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+childID)
+	}
+	return nil
+}
+
 func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
 	if err := os.MkdirAll(m.root, 0755); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree root %s: %w", m.root, err)

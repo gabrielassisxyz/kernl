@@ -255,3 +255,51 @@ func TestAddCreatesBranchWithKernlPrefix(t *testing.T) {
 		t.Errorf("branch name should be kernl/child-c, got: %v", addArgs)
 	}
 }
+
+func TestCleanupEpic_RemovesWorktreesAndBranches(t *testing.T) {
+	root := t.TempDir()
+	repoPath := t.TempDir()
+	fr := newFakeGitRunner()
+	fr.branch["feat/e1"] = true
+	fr.branch["kernl/c1"] = true
+	fr.branch["kernl/c2"] = true
+	wm := NewWorktreeManager(root, repoPath, fr.run, nil)
+
+	_ = os.MkdirAll(filepath.Join(root, "e1", "c1"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "e1", "c1", "file.txt"), []byte("stale"), 0o644)
+
+	err := wm.CleanupEpic("e1", []string{"c1", "c2"})
+	if err != nil {
+		t.Fatalf("CleanupEpic: %v", err)
+	}
+
+	if _, serr := os.Stat(filepath.Join(root, "e1")); !os.IsNotExist(serr) {
+		t.Fatalf("expected epic dir to be removed, still exists")
+	}
+
+	foundEpicBranch := false
+	foundC1Branch := false
+	foundC2Branch := false
+	for _, call := range fr.calls {
+		if call[0] == "branch" && len(call) >= 3 {
+			if call[2] == "feat/e1" {
+				foundEpicBranch = true
+			}
+			if call[2] == "kernl/c1" {
+				foundC1Branch = true
+			}
+			if call[2] == "kernl/c2" {
+				foundC2Branch = true
+			}
+		}
+	}
+	if !foundEpicBranch {
+		t.Error("expected branch -D feat/e1")
+	}
+	if !foundC1Branch {
+		t.Error("expected branch -D kernl/c1")
+	}
+	if !foundC2Branch {
+		t.Error("expected branch -D kernl/c2")
+	}
+}
