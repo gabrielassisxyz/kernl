@@ -761,3 +761,324 @@ func TestDriveBead_NilGuardRegression(t *testing.T) {
 	}
 }
 
+func TestDriveBead_Subprocess_FailureModes(t *testing.T) {
+	backend.ClearWorkflowRegistry()
+
+	customWf := backend.WorkflowDescriptor{
+		ID:           "subprocess-failure",
+		InitialState: "ready_for_sub",
+		States: []string{
+			"ready_for_sub", "sub",
+			"shipped",
+		},
+		TerminalStates: []string{"shipped"},
+		Transitions: []backend.WorkflowTransition{
+			{From: "ready_for_sub", To: "sub"},
+			{From: "sub", To: "shipped"},
+		},
+		QueueStates: []string{
+			"ready_for_sub",
+		},
+		ActionStates: []string{
+			"sub",
+		},
+		QueueActions: map[string]string{
+			"ready_for_sub": "sub",
+		},
+		Stages: map[string]backend.StageContract{
+			"sub": {
+				Role: "subprocess",
+				Kind: "subprocess",
+				Subprocess: &backend.SubprocessSpec{
+					Command: []string{"temp-script-placeholder"},
+				},
+			},
+		},
+	}
+
+	t.Run("Crash traceback on stderr with exit code 1", func(t *testing.T) {
+		crashScript := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+sys.stderr.write("Traceback (most recent call last):\n  File \"script.py\", line 5, in <module>\n    raise ValueError(\"boom\")\nValueError: boom\n")
+sys.exit(1)
+`)
+		wf := customWf
+		spec := wf.Stages["sub"]
+		spec.Subprocess = &backend.SubprocessSpec{
+			Command: []string{crashScript},
+		}
+		wf.Stages["sub"] = spec
+
+		backend.ClearWorkflowRegistry()
+		backend.RegisterWorkflow(wf)
+
+		be := newPersistingBackend()
+		be.beads["kb-crash"] = &backend.Bead{
+			ID:        "kb-crash",
+			ParentID:  "parent-epic-id",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-failure",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+
+		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-crash",
+			RepoPath:        "/tmp/repo",
+			Worktree:        t.TempDir(),
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Success {
+			t.Fatal("expected Success=false for failed subprocess")
+		}
+
+		bd, _ := be.Get("kb-crash", "")
+		if bd.State != "blocked" {
+			t.Errorf("expected state to be blocked, got %q", bd.State)
+		}
+
+		be.mu.Lock()
+		comments := be.comments
+		be.mu.Unlock()
+
+		if len(comments) == 0 {
+			t.Fatal("expected a comment to be recorded")
+		}
+
+		commentBody := comments[len(comments)-1].Body
+		if !strings.Contains(commentBody, "stage sub failed: non-zero exit") {
+			t.Errorf("expected comment to contain failure cause, got %q", commentBody)
+		}
+		if !strings.Contains(commentBody, "ValueError: boom") {
+			t.Errorf("expected comment to contain traceback, got %q", commentBody)
+		}
+
+		// Ensure it didn't write a success stage comment (which begins with "stage:")
+		for _, c := range comments {
+			if strings.HasPrefix(c.Body, "stage:") {
+				t.Errorf("unexpected success stage comment found: %s", c.Body)
+			}
+		}
+	})
+
+	t.Run("Timeout failure", func(t *testing.T) {
+		sleepScript := createTestPythonScript(t, `#!/usr/bin/env python3
+import time
+time.sleep(5)
+`)
+		wf := customWf
+		spec := wf.Stages["sub"]
+		spec.Subprocess = &backend.SubprocessSpec{
+			Command: []string{sleepScript},
+			Timeout: "100ms",
+		}
+		wf.Stages["sub"] = spec
+
+		backend.ClearWorkflowRegistry()
+		backend.RegisterWorkflow(wf)
+
+		be := newPersistingBackend()
+		be.beads["kb-timeout"] = &backend.Bead{
+			ID:        "kb-timeout",
+			ParentID:  "parent-epic-id",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-failure",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+
+		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-timeout",
+			RepoPath:        "/tmp/repo",
+			Worktree:        t.TempDir(),
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Success {
+			t.Fatal("expected Success=false for timeout subprocess")
+		}
+
+		bd, _ := be.Get("kb-timeout", "")
+		if bd.State != "blocked" {
+			t.Errorf("expected state to be blocked, got %q", bd.State)
+		}
+
+		be.mu.Lock()
+		comments := be.comments
+		be.mu.Unlock()
+
+		if len(comments) == 0 {
+			t.Fatal("expected a comment to be recorded")
+		}
+
+		commentBody := comments[len(comments)-1].Body
+		if !strings.Contains(commentBody, "stage sub failed: timeout") {
+			t.Errorf("expected comment to indicate timeout, got %q", commentBody)
+		}
+	})
+
+	t.Run("Stdout output too large", func(t *testing.T) {
+		largeScript := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+sys.stdout.write("A" * 70000)
+`)
+		wf := customWf
+		spec := wf.Stages["sub"]
+		spec.Subprocess = &backend.SubprocessSpec{
+			Command: []string{largeScript},
+		}
+		wf.Stages["sub"] = spec
+
+		backend.ClearWorkflowRegistry()
+		backend.RegisterWorkflow(wf)
+
+		be := newPersistingBackend()
+		be.beads["kb-large"] = &backend.Bead{
+			ID:        "kb-large",
+			ParentID:  "parent-epic-id",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-failure",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+
+		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-large",
+			RepoPath:        "/tmp/repo",
+			Worktree:        t.TempDir(),
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Success {
+			t.Fatal("expected Success=false for large output")
+		}
+
+		bd, _ := be.Get("kb-large", "")
+		if bd.State != "blocked" {
+			t.Errorf("expected state to be blocked, got %q", bd.State)
+		}
+
+		be.mu.Lock()
+		comments := be.comments
+		be.mu.Unlock()
+
+		if len(comments) == 0 {
+			t.Fatal("expected a comment to be recorded")
+		}
+
+		commentBody := comments[len(comments)-1].Body
+		if !strings.Contains(commentBody, "stage sub failed: output too large") {
+			t.Errorf("expected comment to explicitly say 'output too large', got %q", commentBody)
+		}
+	})
+
+	t.Run("Stderr truncation marker in comment", func(t *testing.T) {
+		largeStderrScript := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+sys.stderr.write("B" * 70000)
+sys.exit(1)
+`)
+		wf := customWf
+		spec := wf.Stages["sub"]
+		spec.Subprocess = &backend.SubprocessSpec{
+			Command: []string{largeStderrScript},
+		}
+		wf.Stages["sub"] = spec
+
+		backend.ClearWorkflowRegistry()
+		backend.RegisterWorkflow(wf)
+
+		be := newPersistingBackend()
+		be.beads["kb-large-stderr"] = &backend.Bead{
+			ID:        "kb-large-stderr",
+			ParentID:  "parent-epic-id",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-failure",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+
+		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-large-stderr",
+			RepoPath:        "/tmp/repo",
+			Worktree:        t.TempDir(),
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		be.mu.Lock()
+		comments := be.comments
+		be.mu.Unlock()
+
+		commentBody := comments[len(comments)-1].Body
+		if !strings.Contains(commentBody, "... (truncated)") && !strings.Contains(commentBody, "truncated at 65536 bytes") {
+			t.Errorf("expected comment to contain a truncation marker, got %q", commentBody)
+		}
+	})
+
+	t.Run("Subsequent drive does not silently resume past blocked", func(t *testing.T) {
+		be := newPersistingBackend()
+		be.beads["kb-blocked-check"] = &backend.Bead{
+			ID:        "kb-blocked-check",
+			State:     "blocked",
+			ProfileID: "subprocess-failure",
+		}
+
+		driver := &scriptedDriver{be: be}
+		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:   be,
+			Driver:    driver,
+			Config:    newDriveTestConfig(),
+			BeadID:    "kb-blocked-check",
+			RepoPath:  "/tmp/repo",
+			Worktree:  t.TempDir(),
+			MaxStages: 16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if res.Success {
+			t.Fatal("expected Success=false for blocked bead")
+		}
+		if res.FinalState != "blocked" {
+			t.Errorf("expected FinalState=blocked, got %q", res.FinalState)
+		}
+		if driver.calls != 0 {
+			t.Errorf("expected zero agent calls for blocked bead, got %d", driver.calls)
+		}
+	})
+}
+

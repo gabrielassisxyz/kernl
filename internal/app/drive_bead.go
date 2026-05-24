@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -137,8 +138,38 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			startTime := time.Now()
 			resp, err := subprocess.RunSubprocessStage(ctx, activeStage, req)
 			if err != nil {
-				return RunBeadResult{FinalState: activeState, Success: false},
-					fmt.Errorf("subprocess execution failed: %w", err)
+				var causeStr string
+				var stderr string
+				var subErr *subprocess.SubprocessError
+				if errors.As(err, &subErr) {
+					stderr = subErr.Stderr
+					switch subErr.Cause {
+					case subprocess.CauseNonZeroExit:
+						causeStr = "non-zero exit"
+					case subprocess.CauseTimeout:
+						causeStr = "timeout"
+					case subprocess.CauseParseError:
+						causeStr = "unparseable output"
+					case subprocess.CauseOutputTooLarge:
+						causeStr = "output too large"
+					default:
+						causeStr = string(subErr.Cause)
+					}
+				} else {
+					causeStr = "execution failed: " + err.Error()
+				}
+
+				// Truncate stderr dumped into the bead comment at a sane limit (64KB) with a truncation marker.
+				const maxStderrLen = 65536
+				if len(stderr) > maxStderrLen {
+					stderr = stderr[:maxStderrLen] + "\n... (truncated)"
+				}
+
+				commentBody := fmt.Sprintf("subprocess stage %s failed: %s\n\nStderr:\n%s", activeState, causeStr, stderr)
+
+				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
+				_ = deps.Backend.Comment(deps.BeadID, commentBody, deps.RepoPath)
+				return RunBeadResult{FinalState: "blocked", Success: false}, nil
 			}
 
 			runtimeState.ContextPayload = resp.ContextPayload
