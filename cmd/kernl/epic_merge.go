@@ -3,9 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 // runEpicMerge (re-)runs ONLY the epic-level integration stages: it drives the
@@ -38,5 +41,11 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 		return err
 	}
 
-	return driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, out)
+	agentStateDir := filepath.Join(os.Getenv("HOME"), ".kernl", "agentstate")
+	stateStore, err := workflow.NewAgentStateStore(agentStateDir)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore: %w", err)
+	}
+
+	return driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, out)
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"path/filepath"
 	"text/tabwriter"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/prompt"
 	"github.com/gabrielassisxyz/kernl/internal/runstate"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 // execGitRun shells out to `git -C <dir> <args...>` and returns stdout.
@@ -95,13 +97,55 @@ func runEpicList(a *app.App, w io.Writer) error {
 }
 
 func runEpicRun(a *app.App, args []string, out func(string)) error {
-	if len(args) == 0 {
+	var workflowPath string
+	var workflowFlagSeen bool
+	var remainingArgs []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "--workflow=") {
+			workflowFlagSeen = true
+			workflowPath = strings.TrimPrefix(arg, "--workflow=")
+			if workflowPath == "" {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+			}
+		} else if arg == "--workflow" {
+			workflowFlagSeen = true
+			if i+1 < len(args) {
+				workflowPath = args[i+1]
+				if workflowPath == "" {
+					return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+				}
+				i++
+			} else {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+			}
+		} else {
+			remainingArgs = append(remainingArgs, arg)
+		}
+	}
+
+	if workflowFlagSeen && workflowPath == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+	}
+
+	if len(remainingArgs) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic run requires an epic ID — run: kernl epic run <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
 	}
-	epicID := args[0]
+	epicID := remainingArgs[0]
+
+	var customProfileID string
+	if workflowPath != "" {
+		desc, err := backend.LoadWorkflowYAML(workflowPath)
+		if err != nil {
+			return err
+		}
+		backend.RegisterWorkflow(desc)
+		customProfileID = desc.ID
+	}
 	repoPath := a.Config.Registry.Repos[0].Path
 
 	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
@@ -135,6 +179,13 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: open runstate %s: %w", a.Config.Orchestrator.RunStatePath, err)
 	}
 	defer rs.Close()
+
+	// Construct ONE AgentStateStore
+	agentStateDir := filepath.Join(os.Getenv("HOME"), ".kernl", "agentstate")
+	stateStore, err := workflow.NewAgentStateStore(agentStateDir)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore: %w", err)
+	}
 
 	resumePlan := epic.PlanResume(a.Backend, rs, ep, repoPath)
 	for _, child := range ep.Children {
@@ -187,17 +238,18 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			_ = rs.SetWorktree(epicID, in.BeadID, in.Worktree)
 			// Epic children run the worker profile: implement + review, then
 			// STOP at awaiting_integration handing the branch to the epic.
-			if err := ensureWorkerEntry(a.Backend, in.BeadID, repoPath); err != nil {
+			if err := ensureWorkerEntry(a.Backend, in.BeadID, repoPath, customProfileID); err != nil {
 				return epic.RunResult{}, err
 			}
 			res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
-				Backend:   a.Backend,
-				Driver:    a.Driver,
-				Config:    a.Config,
-				BeadID:    in.BeadID,
-				RepoPath:  repoPath,
-				Worktree:  in.Worktree,
-				SessionID: in.SessionID,
+				Backend:         a.Backend,
+				Driver:          a.Driver,
+				Config:          a.Config,
+				BeadID:          in.BeadID,
+				RepoPath:        repoPath,
+				Worktree:        in.Worktree,
+				SessionID:       in.SessionID,
+				AgentStateStore: stateStore,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
@@ -243,7 +295,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		return werr
 	}
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
-	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, out); err != nil {
+	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, out); err != nil {
 		out(fmt.Sprintf("epic %s bloqueado na integração — corrija e rode kernl epic run %s de novo para retomar\n", epicID, epicID))
 		return err
 	}
@@ -254,7 +306,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto
 // the worker profile and its initial workflow state so DriveBeadToTerminal can
 // claim it. Children already mid-workflow (resume) are left untouched.
-func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string) error {
+func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string, profileID string) error {
 	bead, err := be.Get(beadID, repoPath)
 	if err != nil || bead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: child %s not found in repo %s: %w", beadID, repoPath, err)
@@ -262,7 +314,10 @@ func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string) error {
 	if bead.State != "open" {
 		return nil
 	}
-	labels := setWFLabel(bead.Labels, "wf:profile:", "worker")
+	if profileID == "" {
+		profileID = "worker"
+	}
+	labels := setWFLabel(bead.Labels, "wf:profile:", profileID)
 	labels = setWFLabel(labels, "wf:state:", "ready_for_implementation")
 	return be.Update(beadID, backend.UpdateBeadInput{State: "ready_for_implementation", SetLabels: labels}, repoPath)
 }
@@ -281,7 +336,7 @@ func setWFLabel(labels []string, prefix, value string) []string {
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
-func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, epicWorktree string, out func(string)) error {
+func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, epicWorktree string, stateStore *workflow.AgentStateStore, out func(string)) error {
 	epicBead, err := a.Backend.Get(epicID, repoPath)
 	if err != nil || epicBead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
@@ -293,12 +348,13 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 	}
 
 	res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
-		Backend:  a.Backend,
-		Driver:   a.Driver,
-		Config:   a.Config,
-		BeadID:   epicID,
-		RepoPath: repoPath,
-		Worktree: epicWorktree,
+		Backend:         a.Backend,
+		Driver:          a.Driver,
+		Config:          a.Config,
+		BeadID:          epicID,
+		RepoPath:        repoPath,
+		Worktree:        epicWorktree,
+		AgentStateStore: stateStore,
 		Log: func(stage int, state string) {
 			ts := time.Now().Format("15:04:05")
 			out(fmt.Sprintf("[%s] epic %s [stage %d] %s\n", ts, epicID, stage, state))

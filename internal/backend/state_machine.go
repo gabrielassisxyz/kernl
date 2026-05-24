@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type StepPhase string
@@ -461,6 +462,26 @@ func BuiltinProfileDescriptor(profileID string) WorkflowDescriptor {
 	return m["autopilot"]
 }
 
+var (
+	workflowRegistryMu sync.RWMutex
+	workflowRegistry   = make(map[string]WorkflowDescriptor)
+)
+
+// RegisterWorkflow adds a custom workflow descriptor to the package-level registry.
+func RegisterWorkflow(wd WorkflowDescriptor) {
+	workflowRegistryMu.Lock()
+	defer workflowRegistryMu.Unlock()
+	normalized := normalizeProfileID(wd.ID)
+	workflowRegistry[normalized] = wd
+}
+
+// ClearWorkflowRegistry clears all registered custom workflows (used for test isolation).
+func ClearWorkflowRegistry() {
+	workflowRegistryMu.Lock()
+	defer workflowRegistryMu.Unlock()
+	workflowRegistry = make(map[string]WorkflowDescriptor)
+}
+
 // ResolveWorkflow returns the WorkflowDescriptor for a bead, defaulting to
 // the "autopilot" built-in profile when the bead has no explicit profile or
 // workflow ID.
@@ -468,6 +489,13 @@ func ResolveWorkflow(bead *Bead) WorkflowDescriptor {
 	profileID := bead.ProfileID
 	if profileID == "" {
 		profileID = bead.WorkflowID
+	}
+	normalized := normalizeProfileID(profileID)
+	workflowRegistryMu.RLock()
+	wd, ok := workflowRegistry[normalized]
+	workflowRegistryMu.RUnlock()
+	if ok {
+		return wd
 	}
 	return BuiltinProfileDescriptor(profileID)
 }
@@ -700,4 +728,24 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 	}
 
 	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
+}
+
+func ValidateStages(stages map[string]StageContract) error {
+	for name, stage := range stages {
+		if stage.Kind == "subprocess" {
+			if stage.Subprocess == nil || len(stage.Subprocess.Command) == 0 {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s subprocess stage missing script/command", name)
+			}
+			if stage.Role != "" {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
+			}
+		} else if stage.Kind == "native" || stage.Kind == "" {
+			if stage.Subprocess != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
+			}
+		} else {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: %s unknown stage kind %q", name, stage.Kind)
+		}
+	}
+	return nil
 }

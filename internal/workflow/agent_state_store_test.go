@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -123,3 +124,63 @@ func TestAgentStateStore_Purge_RemovesFile(t *testing.T) {
 		t.Fatalf("purge should be idempotent, got %v", err)
 	}
 }
+
+func TestAgentStateStore_ContextPayload_Roundtrip(t *testing.T) {
+	s := newStore(t)
+	
+	// Missing bead should return empty
+	got, err := s.Load("missing-bead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ContextPayload != "" {
+		t.Fatalf("expected empty context payload for missing bead, got %q", got.ContextPayload)
+	}
+
+	// Save context payload
+	in := workflow.AgentRuntime{
+		AgentState:     workflow.AgentWorking,
+		ContextPayload: "# Custom Context\naccumulated context",
+	}
+	if err := s.Save("bead-123", in); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err = s.Load("bead-123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ContextPayload != in.ContextPayload {
+		t.Fatalf("context payload mismatch: got %q, want %q", got.ContextPayload, in.ContextPayload)
+	}
+}
+
+func TestAgentStateStore_ContextPayload_LargePayload(t *testing.T) {
+	s := newStore(t)
+	
+	// Generate a ~1MB context payload (1,000,000 characters)
+	sb := strings.Builder{}
+	for i := 0; i < 100000; i++ {
+		sb.WriteString("1234567890")
+	}
+	largePayload := sb.String()
+
+	in := workflow.AgentRuntime{
+		AgentState:     workflow.AgentWorking,
+		ContextPayload: largePayload,
+	}
+
+	if err := s.Save("bead-large", in); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Load("bead-large")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.ContextPayload != largePayload {
+		t.Fatalf("large context payload corrupted during roundtrip, size got %d, want %d", len(got.ContextPayload), len(largePayload))
+	}
+}
+

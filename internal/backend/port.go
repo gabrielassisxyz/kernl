@@ -75,11 +75,19 @@ type WorkflowExitGate struct {
 }
 
 type StageContract struct {
-	Role           string        `json:"role"             yaml:"role"`
-	Inputs         []string      `json:"inputs,omitempty"  yaml:"inputs,omitempty"`
-	OutputArtifact StageArtifact `json:"outputArtifact"    yaml:"output_artifact"`
-	ForbiddenPaths []string      `json:"forbiddenPaths,omitempty" yaml:"forbidden_paths,omitempty"`
+	Role           string         `json:"role"                     yaml:"role"`
+	Inputs         []string       `json:"inputs,omitempty"         yaml:"inputs,omitempty"`
+	OutputArtifact StageArtifact  `json:"outputArtifact"           yaml:"output_artifact"`
+	ForbiddenPaths []string       `json:"forbiddenPaths,omitempty" yaml:"forbidden_paths,omitempty"`
+	Kind           string         `json:"kind,omitempty"           yaml:"kind,omitempty"`
+	Subprocess     *SubprocessSpec `json:"subprocess,omitempty"     yaml:"subprocess,omitempty"`
 }
+
+type SubprocessSpec struct {
+	Command []string `json:"command,omitempty" yaml:"command,omitempty"`
+	Timeout string   `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+}
+
 
 type StageArtifact struct {
 	Path         string `json:"path,omitempty"          yaml:"path,omitempty"`

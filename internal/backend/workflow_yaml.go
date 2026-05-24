@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -47,7 +48,12 @@ func LoadWorkflowYAML(path string) (WorkflowDescriptor, error) {
 		return WorkflowDescriptor{}, fmt.Errorf("KERNL DISPATCH FAILURE: workflow YAML %s missing required field 'id'", path)
 	}
 
-	return doc.toDescriptor(), nil
+	wd := doc.toDescriptor()
+	if err := ValidateStages(wd.Stages); err != nil {
+		return WorkflowDescriptor{}, err
+	}
+
+	return wd, nil
 }
 
 func (d *workflowYAMLDoc) toDescriptor() WorkflowDescriptor {
@@ -79,5 +85,48 @@ func (d *workflowYAMLDoc) toDescriptor() WorkflowDescriptor {
 	if len(d.QueueActions) > 0 {
 		wd.QueueActions = d.QueueActions
 	}
+
+	// Derive QueueStates, ActionStates, QueueActions, StateOwners, and Human/Review queues
+	terminalStates := []string{"shipped", "abandoned"}
+	if len(wd.TerminalStates) > 0 {
+		terminalStates = wd.TerminalStates
+	}
+
+	qStates, actStates, qActions := deriveWorkflowStructureFromConfig(wd.States, wd.Transitions, wd.Owners, terminalStates)
+	wd.QueueStates = qStates
+	wd.ActionStates = actStates
+	if len(wd.QueueActions) == 0 {
+		wd.QueueActions = qActions
+	}
+
+	var reviewQueueStates []string
+	for _, q := range wd.QueueStates {
+		if action, ok := wd.QueueActions[q]; ok && strings.HasSuffix(action, "_review") {
+			reviewQueueStates = append(reviewQueueStates, q)
+		}
+	}
+	wd.ReviewQueueStates = reviewQueueStates
+
+	var humanQueueStates []string
+	for _, q := range wd.QueueStates {
+		if action, ok := wd.QueueActions[q]; ok && stepOwnerKind(wd.Owners, action) == ActionOwnerHuman {
+			humanQueueStates = append(humanQueueStates, q)
+		}
+	}
+	wd.HumanQueueStates = humanQueueStates
+
+	if len(wd.HumanQueueStates) > 0 {
+		wd.FinalCutState = wd.HumanQueueStates[0]
+	}
+
+	var stateOwners map[string]ActionOwnerKind
+	for _, s := range wd.ActionStates {
+		if stateOwners == nil {
+			stateOwners = make(map[string]ActionOwnerKind)
+		}
+		stateOwners[s] = stepOwnerKind(wd.Owners, s)
+	}
+	wd.StateOwners = stateOwners
+
 	return wd
 }

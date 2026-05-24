@@ -3,7 +3,10 @@ package backend
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/gabrielassisxyz/kernl/internal/backend/workflows"
 )
 
 func TestEpicProfile_LifecycleShape(t *testing.T) {
@@ -155,5 +158,96 @@ func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 	}
 	if ok, _ := EvaluateExitGate(wf, "integration_review", dir, "kernl-e1", ""); ok {
 		t.Error("integration_review gate should fail on VERDICT: FAIL")
+	}
+}
+
+func TestCanonicalYAML_Parity(t *testing.T) {
+	// Write workflows.CanonicalYAML to a temporary file.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "canonical.yaml")
+	if err := os.WriteFile(path, workflows.CanonicalYAML, 0644); err != nil {
+		t.Fatalf("failed to write canonical.yaml: %v", err)
+	}
+
+	// Load via LoadWorkflowYAML.
+	loadedWf, err := LoadWorkflowYAML(path)
+	if err != nil {
+		t.Fatalf("failed to LoadWorkflowYAML: %v", err)
+	}
+
+	// Retrieve native autopilot_with_pr profile descriptor.
+	builtinWf := BuiltinProfileDescriptor("autopilot_with_pr")
+
+	// 1. Assert equality on States.
+	if !reflect.DeepEqual(loadedWf.States, builtinWf.States) {
+		t.Errorf("States mismatch:\nloaded:  %v\nbuiltin: %v", loadedWf.States, builtinWf.States)
+	}
+
+	// 2. Assert equality on Transitions as a set.
+	loadedTrans := make(map[string]bool)
+	for _, tr := range loadedWf.Transitions {
+		loadedTrans[tr.From+"->"+tr.To] = true
+	}
+	builtinTrans := make(map[string]bool)
+	for _, tr := range builtinWf.Transitions {
+		builtinTrans[tr.From+"->"+tr.To] = true
+	}
+	if len(loadedTrans) != len(builtinTrans) {
+		t.Errorf("Transitions length mismatch: loaded %d, builtin %d", len(loadedTrans), len(builtinTrans))
+	}
+	for k := range loadedTrans {
+		if !builtinTrans[k] {
+			t.Errorf("transition %q in loaded YAML but not in builtin autopilot_with_pr", k)
+		}
+	}
+	for k := range builtinTrans {
+		if !loadedTrans[k] {
+			t.Errorf("transition %q in builtin autopilot_with_pr but not in loaded YAML", k)
+		}
+	}
+
+	// 3. Assert equality on ExitGates.
+	if len(loadedWf.ExitGates) != len(builtinWf.ExitGates) {
+		t.Errorf("ExitGates length mismatch: loaded %d, builtin %d", len(loadedWf.ExitGates), len(builtinWf.ExitGates))
+	}
+	for k, loadedGate := range loadedWf.ExitGates {
+		builtinGate, ok := builtinWf.ExitGates[k]
+		if !ok {
+			t.Errorf("ExitGate for %q in loaded YAML but not in builtin autopilot_with_pr", k)
+			continue
+		}
+		if !reflect.DeepEqual(loadedGate, builtinGate) {
+			t.Errorf("ExitGate for %q mismatch:\nloaded:  %+v\nbuiltin: %+v", k, loadedGate, builtinGate)
+		}
+	}
+
+	// 4. Assert equality on Owners.
+	if len(loadedWf.Owners) != len(builtinWf.Owners) {
+		t.Errorf("Owners length mismatch: loaded %d, builtin %d", len(loadedWf.Owners), len(builtinWf.Owners))
+	}
+	for k, loadedOwner := range loadedWf.Owners {
+		builtinOwner, ok := builtinWf.Owners[k]
+		if !ok {
+			t.Errorf("Owner for %q in loaded YAML but not in builtin autopilot_with_pr", k)
+			continue
+		}
+		if loadedOwner != builtinOwner {
+			t.Errorf("Owner for %q mismatch: loaded %v, builtin %v", k, loadedOwner, builtinOwner)
+		}
+	}
+
+	// 5. Assert equality on Stages.
+	if len(loadedWf.Stages) != len(builtinWf.Stages) {
+		t.Errorf("Stages length mismatch: loaded %d, builtin %d", len(loadedWf.Stages), len(builtinWf.Stages))
+	}
+	for k, loadedStage := range loadedWf.Stages {
+		builtinStage, ok := builtinWf.Stages[k]
+		if !ok {
+			t.Errorf("Stage %q in loaded YAML but not in builtin autopilot_with_pr", k)
+			continue
+		}
+		if !reflect.DeepEqual(loadedStage, builtinStage) {
+			t.Errorf("Stage %q mismatch:\nloaded:  %+v\nbuiltin: %+v", k, loadedStage, builtinStage)
+		}
 	}
 }
