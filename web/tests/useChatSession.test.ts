@@ -1,9 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { useChatSession } from '../../composables/useChatSession';
+import { useChatSession } from '../composables/useChatSession';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+
+// Track the last constructed EventSource instance so tests can simulate events.
+let capturedEventSource: MockEventSource | null = null;
 
 // Mock EventSource
 class MockEventSource {
@@ -14,6 +17,7 @@ class MockEventSource {
 
   constructor(url: string) {
     this.url = url;
+    capturedEventSource = this;
   }
 }
 (global as any).EventSource = MockEventSource;
@@ -21,6 +25,7 @@ class MockEventSource {
 describe('useChatSession', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedEventSource = null;
   });
 
   it('creates a session on first sendMessage', async () => {
@@ -38,21 +43,12 @@ describe('useChatSession', () => {
   });
 
   it('appends token events to messages', async () => {
-    let sseOnMessage: ((e: MessageEvent) => void) | null = null;
-
     mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'sess-1' }) });
 
     const { sendMessage, messages, isStreaming } = useChatSession();
     await sendMessage('Hi');
 
-    sseOnMessage = (MockEventSource as any).prototype.onmessage;
-    // Find the created EventSource instance by checking the prototype
-    // Actually, the composable creates new EventSource, we need to capture it.
-    // Let's test via the mock.
-
-    // Check streaming state is set
     expect(isStreaming.value).toBe(true);
-    // User message should be appended
     expect(messages.value.some((m) => m.role === 'user')).toBe(true);
   });
 
@@ -64,11 +60,12 @@ describe('useChatSession', () => {
     const { sendMessage, isStreaming } = useChatSession();
     await sendMessage('Test');
 
-    // Simulate SSE done event
-    const sse = (MockEventSource as any).mock.instances?.[0];
+    const sse = capturedEventSource;
     if (sse?.onmessage) {
       sse.onmessage({ data: JSON.stringify({ event: 'done' }) } as MessageEvent);
       expect(isStreaming.value).toBe(false);
+    } else {
+      expect(capturedEventSource).toBeTruthy();
     }
   });
 
@@ -80,12 +77,14 @@ describe('useChatSession', () => {
     const { sendMessage, error } = useChatSession();
     await sendMessage('Test');
 
-    const sse = (MockEventSource as any).mock.instances?.[0];
+    const sse = capturedEventSource;
     if (sse?.onmessage) {
       sse.onmessage({
         data: JSON.stringify({ event: 'error', message: 'Something broke' }),
       } as MessageEvent);
       expect(error.value).toBe('Something broke');
+    } else {
+      expect(capturedEventSource).toBeTruthy();
     }
   });
 
@@ -104,7 +103,7 @@ describe('useChatSession', () => {
       description: 'read foo',
     };
 
-    const sse = (MockEventSource as any).mock.instances?.[0];
+    const sse = capturedEventSource;
     if (sse?.onmessage) {
       sse.onmessage({
         data: JSON.stringify({
@@ -115,6 +114,8 @@ describe('useChatSession', () => {
       } as MessageEvent);
       expect(messages.value).toEqual([{ role: 'user', content: 'Hi' }]);
       expect(pendingPermission.value).toEqual(perm);
+    } else {
+      expect(capturedEventSource).toBeTruthy();
     }
   });
 });

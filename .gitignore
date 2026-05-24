@@ -57,6 +57,7 @@ AGENTS.md
 docs/solutions/
 
 .bv/
+.beads/
 
 kernl.yaml
 !kernl.yaml.example

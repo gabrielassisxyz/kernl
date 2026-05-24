@@ -145,6 +145,72 @@ func TestChatEventsSSE(t *testing.T) {
 	}
 }
 
+func TestChatEventsSSE_SendsCorrectEventSequence(t *testing.T) {
+	a := newTestAppWithGraphWithLLM(t)
+
+	ctx := context.Background()
+	_ = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := nodes.CreateDAIdentity(ctx, tx, &nodes.DAIdentity{
+			SystemPrompt: "You are a test assistant.",
+			DisplayName:  "Test Assistant",
+		}, nodes.Author{Name: "kernl"})
+		return err
+	})
+
+	r := NewRouter(a)
+
+	createReq := httptest.NewRequest("POST", "/api/chat/sessions", nil)
+	createW := httptest.NewRecorder()
+	r.ServeHTTP(createW, createReq)
+	var createRes struct{ ID string `json:"id"` }
+	json.Unmarshal(createW.Body.Bytes(), &createRes)
+
+	msgBody := `{"content":"hello","scope_node_id":""}`
+	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
+	msgReq.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(httptest.NewRecorder(), msgReq)
+
+	eventsReq := httptest.NewRequest("GET", "/api/chat/sessions/"+createRes.ID+"/events", nil)
+	eventsReq.Header.Set("Accept", "text/event-stream")
+	eventsW := &flushableRecorder{ResponseRecorder: httptest.NewRecorder()}
+	r.ServeHTTP(eventsW, eventsReq)
+
+	if eventsW.Code != 200 {
+		t.Fatalf("expected 200, got %d", eventsW.Code)
+	}
+	body := eventsW.Body.String()
+	// Order: state first, then tokens, then done.
+	stateIdx := strings.Index(body, `"event":"state"`)
+	tokenIdx := strings.Index(body, `"event":"token"`)
+	doneIdx := strings.Index(body, `"event":"done"`)
+	if stateIdx == -1 {
+		t.Error("expected state event")
+	}
+	if tokenIdx == -1 {
+		t.Error("expected token event")
+	}
+	if doneIdx == -1 {
+		t.Error("expected done event")
+	}
+	if stateIdx > tokenIdx || tokenIdx > doneIdx {
+		t.Errorf("events out of order: state=%d token=%d done=%d", stateIdx, tokenIdx, doneIdx)
+	}
+}
+
+func TestChatEventsSSE_NonexistentSession(t *testing.T) {
+	a := newTestAppWithGraphWithLLM(t)
+	r := NewRouter(a)
+
+	eventsReq := httptest.NewRequest("GET", "/api/chat/sessions/nonexistent/events", nil)
+	eventsReq.Header.Set("Accept", "text/event-stream")
+	eventsW := httptest.NewRecorder()
+	r.ServeHTTP(eventsW, eventsReq)
+
+	if eventsW.Code != 404 {
+		t.Fatalf("expected 404, got %d: %s", eventsW.Code, eventsW.Body.String())
+	}
+}
+
 func TestListNodes(t *testing.T) {
 	a := newTestAppWithGraphWithLLM(t)
 	// Seed a note

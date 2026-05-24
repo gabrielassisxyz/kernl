@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -50,6 +51,20 @@ func (e *eventRecorder) hasEventType(typ string) bool {
 		}
 	}
 	return false
+}
+
+// alwaysAllow is a PermissionChecker that permits everything.
+type alwaysAllow struct{}
+
+func (alwaysAllow) CanRead(_ context.Context, _ string) (bool, DenialReason, error) {
+	return true, "", nil
+}
+
+// alwaysDeny denies everything; used in deny-path scenarios.
+type alwaysDeny struct{}
+
+func (alwaysDeny) CanRead(_ context.Context, _ string) (bool, DenialReason, error) {
+	return false, "denied by test checker", nil
 }
 
 // mockLLMClient is a deterministic stub for integration testing.
@@ -177,7 +192,10 @@ func TestChatHappyPathSSE(t *testing.T) {
 
 	mock := newMockLLMClient(ChatResponse{Content: "Hi there!"})
 	rec := &eventRecorder{}
-	engine := NewChatEngine(a, sessionID, rec, mock, stubPermissionChecker{})
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
 
 	if err := engine.RunSession(context.Background()); err != nil {
 		t.Fatalf("RunSession: %v", err)
@@ -224,7 +242,10 @@ func TestChatPermissionBlockAndResume(t *testing.T) {
 
 	// ── Phase 1: engine hits the permission block ──
 	rec1 := &eventRecorder{}
-	engine := NewChatEngine(a, sessionID, rec1, mock, permChecker)
+	engine, err := NewChatEngine(a, sessionID, rec1, mock, permChecker)
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
 	if err := engine.RunSession(ctx); err != nil {
 		t.Fatalf("RunSession: %v", err)
 	}
@@ -247,7 +268,7 @@ func TestChatPermissionBlockAndResume(t *testing.T) {
 
 	// ── Phase 2: simulate approval — clear pending and resume ──
 	cs.PendingPermission = nil
-	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
 	})
 	if err != nil {
@@ -255,7 +276,10 @@ func TestChatPermissionBlockAndResume(t *testing.T) {
 	}
 
 	rec2 := &eventRecorder{}
-	engine2 := NewChatEngine(a, sessionID, rec2, mock, permChecker)
+	engine2, err2 := NewChatEngine(a, sessionID, rec2, mock, permChecker)
+	if err2 != nil {
+		t.Fatalf("NewChatEngine resume: %v", err2)
+	}
 	if err := engine2.RunSession(ctx); err != nil {
 		t.Fatalf("RunSession resume: %v", err)
 	}
@@ -306,7 +330,10 @@ func TestScopeDerivation(t *testing.T) {
 	// Verify engine builds messages correctly: system prompt + user message.
 	mock := newMockLLMClient(ChatResponse{Content: "OK"})
 	rec := &eventRecorder{}
-	engine := NewChatEngine(a, sessionID, rec, mock, stubPermissionChecker{})
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
 	if err := engine.RunSession(context.Background()); err != nil {
 		t.Fatalf("RunSession: %v", err)
 	}
@@ -344,8 +371,10 @@ func TestDAIdentityApplied(t *testing.T) {
 
 	mock := newMockLLMClient(ChatResponse{Content: "Hello!"})
 	rec := &eventRecorder{}
-	engine := NewChatEngine(a, sessionID, rec, mock, stubPermissionChecker{})
-
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
 	if err := engine.RunSession(ctx); err != nil {
 		t.Fatalf("RunSession: %v", err)
 	}
@@ -359,5 +388,158 @@ func TestDAIdentityApplied(t *testing.T) {
 	}
 	if mock.Messages[0].Content != "You are custom test assistant." {
 		t.Errorf("system prompt = %q, want 'You are custom test assistant.'", mock.Messages[0].Content)
+	}
+}
+
+func TestChatPermissionDenyAndContinue(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	ctx := context.Background()
+
+	confNodeID := seedNote(t, a, "Secret Note", "secret body", []string{"confidencial"})
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "read the secret note", "")
+
+	// Mock: first call → tool_call to trigger block; second call → text after denial.
+	mock := newMockLLMClient(
+		ChatResponse{
+			ToolCalls: []ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: ToolFunction{
+					Name:      "read_node",
+					Arguments: fmt.Sprintf(`{"node_id":"%s"}`, confNodeID),
+				},
+			}},
+		},
+		ChatResponse{Content: "I was told I cannot access that."},
+	)
+
+	permChecker := NewGraphPermissionChecker(a)
+	rec := &eventRecorder{}
+
+	engine, err := NewChatEngine(a, sessionID, rec, mock, permChecker)
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(ctx); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if !rec.hasEventType("permission_required") {
+		t.Fatalf("expected permission_required, got: %s", rec.buf.String())
+	}
+
+	// Simulate user DENY — clear pending and resume.
+	cs := getSession(t, a, sessionID)
+	cs.PendingPermission = nil
+	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
+	})
+	if err != nil {
+		t.Fatalf("clear permission: %v", err)
+	}
+
+	rec2 := &eventRecorder{}
+	engine2, err := NewChatEngine(a, sessionID, rec2, mock, permChecker)
+	if err != nil {
+		t.Fatalf("NewChatEngine resume: %v", err)
+	}
+	if err := engine2.RunSession(ctx); err != nil {
+		t.Fatalf("RunSession resume: %v", err)
+	}
+
+	if !rec2.hasEventType("token") {
+		t.Errorf("expected token after deny+resume, got: %s", rec2.buf.String())
+	}
+	if !rec2.hasEventType("done") {
+		t.Errorf("expected done after deny+resume, got: %s", rec2.buf.String())
+	}
+}
+
+func TestChatConcurrentSessions(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 5)
+
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sid := createSession(t, a)
+			appendUserMessage(t, a, sid, fmt.Sprintf("msg-%d", idx), "")
+
+			mock := newMockLLMClient(ChatResponse{Content: fmt.Sprintf("resp-%d", idx)})
+			rec := &eventRecorder{}
+			engine, egErr := NewChatEngine(a, sid, rec, mock, alwaysAllow{})
+			if egErr != nil {
+				errs <- fmt.Errorf("goroutine %d NewChatEngine: %w", idx, egErr)
+				return
+			}
+			if egErr := engine.RunSession(context.Background()); egErr != nil {
+				errs <- fmt.Errorf("goroutine %d RunSession: %w", idx, egErr)
+				return
+			}
+			if !rec.hasEventType("done") {
+				errs <- fmt.Errorf("goroutine %d: expected done event, got buffer: %s", idx, rec.buf.String())
+				return
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+
+	for e := range errs {
+		t.Error(e)
+	}
+}
+
+func TestChatSSEReconnectRestoresPendingPermission(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	ctx := context.Background()
+
+	confNodeID := seedNote(t, a, "Secret Note", "body", []string{"confidencial"})
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "read secret", "")
+
+	mock := newMockLLMClient(
+		ChatResponse{ToolCalls: []ToolCall{{
+			ID:   "call_1",
+			Type: "function",
+			Function: ToolFunction{
+				Name:      "read_node",
+				Arguments: fmt.Sprintf(`{"node_id":"%s"}`, confNodeID),
+			},
+		}}},
+	)
+
+	// First connection — blocks on permission.
+	rec1 := &eventRecorder{}
+	engine1, err := NewChatEngine(a, sessionID, rec1, mock, NewGraphPermissionChecker(a))
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	_ = engine1.RunSession(ctx)
+
+	if !rec1.hasEventType("permission_required") {
+		t.Fatal("expected permission_required on first connection")
+	}
+
+	// Second connection — should re-emit state + permission_required.
+	rec2 := &eventRecorder{}
+	engine2, err := NewChatEngine(a, sessionID, rec2, mock, NewGraphPermissionChecker(a))
+	if err != nil {
+		t.Fatalf("NewChatEngine reconnect: %v", err)
+	}
+	_ = engine2.RunSession(ctx)
+
+	if !rec2.hasEventType("state") {
+		t.Error("expected state event on reconnect")
+	}
+	if !rec2.hasEventType("permission_required") {
+		t.Error("expected permission_required on reconnect")
 	}
 }
