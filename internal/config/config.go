@@ -97,6 +97,17 @@ type VaultConfig struct {
 // Enabled reports whether vault watching is configured (root is non-empty).
 func (v VaultConfig) Enabled() bool { return v.Root != "" }
 
+// LLMConfig holds settings for the LLM chat providers.
+type LLMConfig struct {
+	Provider string `yaml:"provider"` // "openai" | "anthropic" | "ollama"
+	APIKey   string `yaml:"api_key"`
+	Model    string `yaml:"model"`
+	Endpoint string `yaml:"endpoint"` // custom base URL, optional
+}
+
+// IsSet reports whether the LLM is configured (provider is non-empty).
+func (l LLMConfig) IsSet() bool { return l.Provider != "" }
+
 type Config struct {
 	Settings     Settings           `yaml:"settings"`
 	Registry     RegistryConfig     `yaml:"registry"`
@@ -104,6 +115,7 @@ type Config struct {
 	Orchestrator OrchestratorConfig `yaml:"orchestrator"`
 	Sweep        SweepConfig        `yaml:"sweep"`
 	Vault        VaultConfig        `yaml:"vault,omitempty"`
+	LLM          LLMConfig          `yaml:"llm,omitempty"`
 }
 
 func Load(path string) (*Config, error) {

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kernl Persona</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Kernl Persona Editor</h1>
+    <a href="/">Monitor</a>
+    <a href="/chat.html">Chat</a>
+  </header>
+  <main>
+    <form id="persona-form">
+      <label>Display Name
+        <input id="display-name" type="text">
+      </label>
+      <label>System Prompt
+        <textarea id="system-prompt" rows="10"></textarea>
+      </label>
+      <button type="submit">Save</button>
+      <span id="save-status"></span>
+    </form>
+  </main>
+  <script src="/da-config.js"></script>
+</body>
+</html>

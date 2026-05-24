@@ -41,6 +41,8 @@ orchestrator:
 	if err != nil {
 		t.Fatalf("load test config: %v", err)
 	}
+	// Use the temp dir as the vault root so graph.db is created in isolation.
+	cfg.Vault.Root = dir
 	return cfg
 }
 
@@ -50,6 +52,7 @@ func TestNewAppWiresEngineFromConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewApp: %v", err)
 	}
+	defer a.Close()
 	if a.Backend == nil {
 		t.Error("NewApp must wire backend")
 	}
@@ -61,6 +64,9 @@ func TestNewAppWiresEngineFromConfig(t *testing.T) {
 	}
 	if a.Driver == nil {
 		t.Error("NewApp must wire driver")
+	}
+	if a.Graph == nil {
+		t.Error("NewApp must wire graph")
 	}
 	if !a.Backend.Capabilities().CanCreate {
 		t.Error("expected bd backend capabilities")
