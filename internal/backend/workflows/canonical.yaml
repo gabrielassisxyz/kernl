@@ -1,0 +1,194 @@
+id: autopilot_with_pr
+label: "Autopilot (PR)"
+initial_state: ready_for_planning
+retake_state: ready_for_implementation
+states:
+  - ready_for_planning
+  - planning
+  - ready_for_plan_review
+  - plan_review
+  - ready_for_implementation
+  - implementation
+  - ready_for_implementation_review
+  - implementation_review
+  - ready_for_integration
+  - integration
+  - ready_for_integration_review
+  - integration_review
+  - ready_for_shipment
+  - shipment
+  - ready_for_shipment_review
+  - shipment_review
+  - shipped
+  - deferred
+  - abandoned
+terminal_states:
+  - shipped
+  - abandoned
+transitions:
+  - from: ready_for_planning
+    to: planning
+  - from: planning
+    to: ready_for_plan_review
+  - from: ready_for_plan_review
+    to: plan_review
+  - from: plan_review
+    to: ready_for_implementation
+  - from: plan_review
+    to: ready_for_planning
+  - from: ready_for_implementation
+    to: implementation
+  - from: implementation
+    to: ready_for_implementation_review
+  - from: ready_for_implementation_review
+    to: implementation_review
+  - from: implementation_review
+    to: ready_for_integration
+  - from: implementation_review
+    to: ready_for_implementation
+  - from: ready_for_integration
+    to: integration
+  - from: integration
+    to: ready_for_integration_review
+  - from: ready_for_integration_review
+    to: integration_review
+  - from: integration_review
+    to: ready_for_shipment
+  - from: integration_review
+    to: ready_for_integration
+  - from: ready_for_shipment
+    to: shipment
+  - from: shipment
+    to: ready_for_shipment_review
+  - from: ready_for_shipment_review
+    to: shipment_review
+  - from: shipment_review
+    to: shipped
+  - from: shipment_review
+    to: ready_for_implementation
+  - from: shipment_review
+    to: ready_for_shipment
+  - from: "*"
+    to: deferred
+  - from: "*"
+    to: abandoned
+owners:
+  planning: agent
+  plan_review: agent
+  implementation: agent
+  implementation_review: agent
+  integration: agent
+  integration_review: agent
+  shipment: agent
+  shipment_review: agent
+stages:
+  planning:
+    role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code."
+    inputs:
+      - "bead.title"
+      - "bead.description"
+      - "bead.acceptance"
+      - "repo state (read-only)"
+    output_artifact:
+      path: ".kernl/<bead_id>/plan.md"
+    forbidden_paths:
+      - "**/*.go"
+      - "**/*.ts"
+      - "**/*.py"
+      - "**/*.rs"
+  plan_review:
+    role: "Review the plan for correctness, completeness, and alignment with the bead's acceptance criteria. Produce a verdict."
+    inputs:
+      - "bead.description"
+      - "bead.acceptance"
+      - ".kernl/<bead_id>/plan.md"
+    output_artifact:
+      path: ".kernl/<bead_id>/plan-review.md"
+      must_end_with: "VERDICT: PASS"
+    forbidden_paths:
+      - "**/*.go"
+      - "**/*.ts"
+      - "**/*.py"
+      - "**/*.rs"
+      - ".kernl/**/plan.md"
+  implementation:
+    role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan."
+    inputs:
+      - "bead.acceptance"
+      - ".kernl/<bead_id>/plan.md"
+      - ".kernl/<bead_id>/plan-review.md"
+    output_artifact:
+      kind: "commits"
+      commit_marker: "stage: implementation"
+    forbidden_paths:
+      - ".kernl/**/plan.md"
+      - ".kernl/**/plan-review.md"
+  implementation_review:
+    role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict."
+    inputs:
+      - "bead.acceptance"
+      - ".kernl/<bead_id>/plan.md"
+      - "implementation commits"
+    output_artifact:
+      path: ".kernl/<bead_id>/implementation-review.md"
+      must_end_with: "VERDICT: PASS"
+    forbidden_paths:
+      - "**/*.go"
+      - "**/*.ts"
+      - "**/*.py"
+      - "**/*.rs"
+  integration:
+    role: "Integrate this bead's changes into the parent branch. Resolve merge conflicts, ensure cross-bead consistency, and verify the combined codebase passes all tests."
+    inputs:
+      - "bead.acceptance"
+      - "parent branch state"
+      - "sibling bead artifacts"
+    output_artifact:
+      kind: "commits"
+      commit_marker: "stage: integration"
+    forbidden_paths:
+      - ".kernl/**/plan.md"
+      - ".kernl/**/plan-review.md"
+  integration_review:
+    role: "Review the integration. Verify merge conflicts are resolved, no regressions are introduced, and the combined codebase meets quality gates."
+    inputs:
+      - "bead.acceptance"
+      - "integration commits"
+      - "test results"
+    output_artifact:
+      path: ".kernl/<bead_id>/integration-review.md"
+      must_end_with: "VERDICT: PASS"
+    forbidden_paths:
+      - "**/*.go"
+      - "**/*.ts"
+      - "**/*.py"
+      - "**/*.rs"
+  shipment:
+    role: "Prepare the bead for final merge. Create the pull request, write the PR description with stage summary, and ensure all CI checks are green."
+    inputs:
+      - "bead.acceptance"
+      - "all stage artifacts in .kernl/<bead_id>/"
+    output_artifact:
+      kind: "commits"
+      commit_marker: "stage: shipment"
+    forbidden_paths:
+      - "**/*.go"
+      - "**/*.ts"
+      - "**/*.py"
+      - "**/*.rs"
+      - ".kernl/**/plan.md"
+      - ".kernl/**/plan-review.md"
+  shipment_review:
+    role: "Review the PR for completeness and correctness. Verify the PR description accurately summarizes the work, all stage artifacts are present, and the bead is ready to merge."
+    inputs:
+      - "bead.acceptance"
+      - "PR description"
+      - "all stage artifacts in .kernl/<bead_id>/"
+    output_artifact:
+      path: ".kernl/<bead_id>/shipment-review.md"
+      must_end_with: "VERDICT: PASS"
+    forbidden_paths:
+      - "**/*.go"
+      - "**/*.ts"
+      - "**/*.py"
+      - "**/*.rs"

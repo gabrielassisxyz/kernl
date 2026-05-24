@@ -10,6 +10,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/subprocess"
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
@@ -39,6 +40,8 @@ type DriveBeadDeps struct {
 	// that need epic-specific context (child branches, epic branch) the
 	// generic StageContract prompt cannot express.
 	BuildPrompt func(bead *backend.Bead, activeState string, wf backend.WorkflowDescriptor, repoPath, worktree string) string
+	// AgentStateStore holds the context-store handle.
+	AgentStateStore *workflow.AgentStateStore
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -90,15 +93,8 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			deps.Log(i, bead.State)
 		}
 
-		agentInput, err := ResolveAgentForBead(deps.Config, deps.Backend, deps.BeadID, deps.RepoPath)
-		if err != nil {
-			return RunBeadResult{FinalState: bead.State, Success: false},
-				fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at state %s: %w", deps.BeadID, bead.State, err)
-		}
-
 		runtime := backend.DeriveWorkflowRuntimeState(wf, bead.State)
 		activeState := bead.State
-		slog.Info("DRIVE_TRACE pre-claim", "bead", deps.BeadID, "iter", i, "state", bead.State, "claimable", runtime.IsAgentClaimable, "owner", runtime.NextActionOwnerKind, "agent", agentInput.AgentName)
 		if runtime.IsAgentClaimable {
 			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
 			if ok {
@@ -116,6 +112,90 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				slog.Info("DRIVE_TRACE claimed", "bead", deps.BeadID, "iter", i, "from", bead.State, "to", nextState)
 			}
 		}
+
+		activeStage := wf.Stages[activeState]
+		if deps.AgentStateStore != nil && activeStage.Kind == "subprocess" {
+			// Subprocess flow
+			runtimeState, err := deps.AgentStateStore.Load(deps.BeadID)
+			if err != nil {
+				return RunBeadResult{FinalState: activeState, Success: false},
+					fmt.Errorf("failed to load agent state: %w", err)
+			}
+
+			epicID := bead.ParentID
+			if epicID == "" {
+				epicID = bead.ID
+			}
+
+			req := subprocess.HandoffRequest{
+				EpicID:         epicID,
+				BeadID:         deps.BeadID,
+				WorktreePath:   deps.Worktree,
+				ContextPayload: runtimeState.ContextPayload,
+			}
+
+			startTime := time.Now()
+			resp, err := subprocess.RunSubprocessStage(ctx, activeStage, req)
+			if err != nil {
+				return RunBeadResult{FinalState: activeState, Success: false},
+					fmt.Errorf("subprocess execution failed: %w", err)
+			}
+
+			runtimeState.ContextPayload = resp.ContextPayload
+			if err := deps.AgentStateStore.Save(deps.BeadID, runtimeState); err != nil {
+				return RunBeadResult{FinalState: activeState, Success: false},
+					fmt.Errorf("failed to save agent state: %w", err)
+			}
+
+			duration := time.Since(startTime)
+			gateDesc := ""
+			if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
+				gateDesc = freshBead.Description
+			}
+			gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID, gateDesc)
+			if gatePassed {
+				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
+				if ok {
+					err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: nextState}, deps.RepoPath)
+					if err != nil {
+						beadAfter, getErr := deps.Backend.Get(deps.BeadID, deps.RepoPath)
+						if getErr == nil && beadAfter != nil && beadAfter.State == nextState {
+							slog.Info("DRIVE_TRACE post-spawn update idempotent", "bead", deps.BeadID, "state", nextState)
+						} else {
+							slog.Info("DRIVE_TRACE return advance-failed", "bead", deps.BeadID, "err", err)
+							return RunBeadResult{FinalState: activeState, Success: false},
+								fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s after subprocess exit: %w", deps.BeadID, activeState, nextState, err)
+						}
+					}
+					artifactPath := resolveArtifactRef(activeState, wf.Stages, deps.BeadID)
+					commitSHA := worktreeHeadSHA(deps.Worktree)
+					agentID := "subprocess"
+					if len(activeStage.Subprocess.Command) > 0 {
+						agentID = activeStage.Subprocess.Command[0]
+					}
+					if err := deps.Backend.Comment(deps.BeadID, buildStageComment(activeState, agentID, "", artifactPath, commitSHA, duration), deps.RepoPath); err != nil {
+						slog.Warn("DRIVE_TRACE comment failed", "bead", deps.BeadID, "err", err)
+					}
+				}
+			} else {
+				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
+				_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
+				return RunBeadResult{FinalState: "blocked", Success: false}, nil
+			}
+
+			lastResult = RunBeadResult{FinalState: activeState, Success: true}
+			prevState = bead.State
+			continue
+		}
+
+		// Native flow
+		agentInput, err := ResolveAgentForBead(deps.Config, deps.Backend, deps.BeadID, deps.RepoPath)
+		if err != nil {
+			return RunBeadResult{FinalState: bead.State, Success: false},
+				fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at state %s: %w", deps.BeadID, bead.State, err)
+		}
+
+		slog.Info("DRIVE_TRACE pre-claim", "bead", deps.BeadID, "iter", i, "state", bead.State, "claimable", runtime.IsAgentClaimable, "owner", runtime.NextActionOwnerKind, "agent", agentInput.AgentName)
 
 		var prompt string
 		if deps.BuildPrompt != nil {
