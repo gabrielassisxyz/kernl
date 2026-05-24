@@ -233,50 +233,6 @@ func (g *fakeGHView) callCount(prURL string) int {
 	return g.cnt[prURL]
 }
 
-// --- epicRunMerge implements merge.TriggerRouter ---
-type epicRunMerge struct {
-	b      *fakeBeadBackend
-	id     string
-	prURL  string
-	path   string
-	mu     sync.Mutex
-	done   int
-	total  int
-	merged bool
-}
-
-func newEpicRunMerge(b *fakeBeadBackend, epicID, prURL, repoPath string, childCount int) *epicRunMerge {
-	return &epicRunMerge{
-		b:     b,
-		id:    epicID,
-		prURL: prURL,
-		path:  repoPath,
-		total: childCount,
-	}
-}
-
-func (e *epicRunMerge) TryTrigger(string) error {
-	e.mu.Lock()
-	e.done++
-	e.mu.Unlock()
-	return nil
-}
-
-func (e *epicRunMerge) DispatchMerger(string) error { return nil }
-
-func (e *epicRunMerge) RouteOutcome(string) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.merged {
-		return nil
-	}
-	e.merged = true
-	return e.b.Update(e.id, backend.UpdateBeadInput{
-		State:       "awaiting_pr_review",
-		Description: fmt.Sprintf("merge_outcome: success\npr_url: %s", e.prURL),
-	}, e.path)
-}
-
 // ------ The Test ------
 
 func TestEpicRunHappyPath(t *testing.T) {
@@ -296,11 +252,9 @@ func TestEpicRunHappyPath(t *testing.T) {
 	gh.addResponse(sweep.PRState{State: "OPEN", CreatedAt: time.Now()})
 	gh.addResponse(sweep.PRState{State: "MERGED", MergedAt: time.Now()})
 
-	// ---- Step 3: Mock the agent dispatcher + merger ----
-	mm := newEpicRunMerge(be, "kernl-abc", prURL, repoPath, 3)
-
+	// ---- Step 3: Children are workers that hand off at awaiting_integration ----
 	runBead := func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
-		return epic.RunResult{FinalState: "done", Success: true}, nil
+		return epic.RunResult{FinalState: "awaiting_integration", Success: true}, nil
 	}
 
 	// Load and execute
@@ -315,7 +269,6 @@ func TestEpicRunHappyPath(t *testing.T) {
 		RunBead:       runBead,
 		Worktree:      wm,
 		MaxConcurrent: 5,
-		MergeManager:  mm,
 	})
 
 	if err := ex.Run(context.Background()); err != nil {
@@ -325,7 +278,16 @@ func TestEpicRunHappyPath(t *testing.T) {
 		t.Fatalf("epic state = %v, want completed", ex.State())
 	}
 
-	// ---- Step 4: Assert end state after merge ----
+	// ---- Step 4: The epic drive (covered hermetically in internal/app
+	// TestDriveEpic_*) ends with the epic at awaiting_pr_review and a pr_url
+	// recorded. Seed that outcome so this test can exercise the sweep handoff. ----
+	if err := be.Update("kernl-abc", backend.UpdateBeadInput{
+		State:       "awaiting_pr_review",
+		Description: fmt.Sprintf("merge_outcome: success\npr_url: %s", prURL),
+	}, repoPath); err != nil {
+		t.Fatalf("seed epic awaiting_pr_review: %v", err)
+	}
+
 	epicBead, ok := be.get("kernl-abc")
 	if !ok {
 		t.Fatal("epic bead not found after run")
@@ -335,9 +297,6 @@ func TestEpicRunHappyPath(t *testing.T) {
 	}
 	if pr := extractPRURL(epicBead.Description); pr != prURL {
 		t.Fatalf("epic description missing pr_url: %s\nwant pr_url: %s", epicBead.Description, prURL)
-	}
-	if epicBead.State != "awaiting_pr_review" {
-		t.Fatalf("epic state = %q, want awaiting_pr_review", epicBead.State)
 	}
 
 	// Children have "open" state (executor doesn't mutate backend state)

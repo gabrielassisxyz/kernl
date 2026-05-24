@@ -76,7 +76,6 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 
 		ex.mu.Lock()
 		ex.done[r.beadID] = true
-		epicBlocked := ex.state == EpicBlocked
 		ex.mu.Unlock()
 
 	ex.emit(EpicEvent{
@@ -87,10 +86,6 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		Detail:    r.result.FinalState,
 		Time:      time.Now().Unix(),
 	})
-
-		if !epicBlocked && r.result.FinalState == "awaiting_integration" && ex.deps.MergeManager != nil {
-			_ = ex.deps.MergeManager.TryTrigger(ex.deps.Epic.ID)
-		}
 	}
 
 	return nil
