@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kernl Chat</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>Kernl Chat</h1>
+    <a href="/">Monitor</a>
+    <a href="/da-config.html">Persona</a>
+  </header>
+  <main>
+    <div id="scope-selector"></div>
+    <div id="chat-container">
+      <div id="messages"></div>
+      <div id="permission-banner" class="hidden">
+        <span id="permission-desc"></span>
+        <button id="btn-approve">Permitir</button>
+        <button id="btn-deny">Negar</button>
+        <button id="btn-deny-feedback">Nao e relevante</button>
+      </div>
+      <div id="composer">
+        <input id="message-input" type="text" placeholder="Type a message...">
+        <button id="send-btn">Send</button>
+      </div>
+    </div>
+  </main>
+  <script src="/chat.js"></script>
+</body>
+</html>

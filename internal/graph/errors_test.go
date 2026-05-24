@@ -46,9 +46,11 @@ func TestSchemaLockedSurfacesFromOpen(t *testing.T) {
 		t.Fatalf("first open: %v", err)
 	}
 
-	// Manually flip dirty via raw SQL.
+	// Manually flip the latest migration dirty via raw SQL.
+	// Must target the row with the highest version so that
+	// migrate.Current() detects dirty=true.
 	if err := g1.DoWrite(context.Background(), func(wtx *graph.WriteTx) error {
-		_, err := wtx.Exec(`INSERT OR REPLACE INTO schema_migrations(version, dirty) VALUES (1, 1)`)
+		_, err := wtx.Exec(`UPDATE schema_migrations SET dirty=1 WHERE version=(SELECT MAX(version) FROM schema_migrations)`)
 		return err
 	}); err != nil {
 		t.Fatalf("mark dirty: %v", err)
