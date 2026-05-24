@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 type StepPhase string
@@ -461,6 +462,26 @@ func BuiltinProfileDescriptor(profileID string) WorkflowDescriptor {
 	return m["autopilot"]
 }
 
+var (
+	workflowRegistryMu sync.RWMutex
+	workflowRegistry   = make(map[string]WorkflowDescriptor)
+)
+
+// RegisterWorkflow adds a custom workflow descriptor to the package-level registry.
+func RegisterWorkflow(wd WorkflowDescriptor) {
+	workflowRegistryMu.Lock()
+	defer workflowRegistryMu.Unlock()
+	normalized := normalizeProfileID(wd.ID)
+	workflowRegistry[normalized] = wd
+}
+
+// ClearWorkflowRegistry clears all registered custom workflows (used for test isolation).
+func ClearWorkflowRegistry() {
+	workflowRegistryMu.Lock()
+	defer workflowRegistryMu.Unlock()
+	workflowRegistry = make(map[string]WorkflowDescriptor)
+}
+
 // ResolveWorkflow returns the WorkflowDescriptor for a bead, defaulting to
 // the "autopilot" built-in profile when the bead has no explicit profile or
 // workflow ID.
@@ -468,6 +489,13 @@ func ResolveWorkflow(bead *Bead) WorkflowDescriptor {
 	profileID := bead.ProfileID
 	if profileID == "" {
 		profileID = bead.WorkflowID
+	}
+	normalized := normalizeProfileID(profileID)
+	workflowRegistryMu.RLock()
+	wd, ok := workflowRegistry[normalized]
+	workflowRegistryMu.RUnlock()
+	if ok {
+		return wd
 	}
 	return BuiltinProfileDescriptor(profileID)
 }

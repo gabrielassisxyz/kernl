@@ -500,3 +500,47 @@ func TestIsTerminalState(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomWorkflowRegistry(t *testing.T) {
+	// Clean up after test
+	defer ClearWorkflowRegistry()
+
+	t.Run("Consult registry first and fallback", func(t *testing.T) {
+		ClearWorkflowRegistry()
+		// Case 1: no custom workflow -> returns built-in autopilot
+		bead := &Bead{ProfileID: "my-custom-wf"}
+		desc := ResolveWorkflow(bead)
+		if desc.ID != "autopilot" {
+			t.Errorf("expected fallback to autopilot, got ID: %s", desc.ID)
+		}
+
+		// Case 2: register custom workflow with matching ID
+		customDesc := WorkflowDescriptor{
+			ID: "My-Custom-WF",
+			Label: "My Custom Workflow Label",
+		}
+		RegisterWorkflow(customDesc)
+
+		desc2 := ResolveWorkflow(bead)
+		if desc2.ID != "My-Custom-WF" || desc2.Label != "My Custom Workflow Label" {
+			t.Errorf("expected resolved custom workflow, got ID: %s, Label: %s", desc2.ID, desc2.Label)
+		}
+	})
+
+	t.Run("Mixed case and legacy alias normalization", func(t *testing.T) {
+		ClearWorkflowRegistry()
+		// Beads-coarse is normalized to autopilot.
+		// Let's register a custom descriptor with ID "autopilot" (which "beads-coarse" resolves to)
+		customDesc := WorkflowDescriptor{
+			ID: "Autopilot",
+			Label: "Custom Autopilot Override",
+		}
+		RegisterWorkflow(customDesc)
+
+		bead := &Bead{ProfileID: "beads-coarse"}
+		desc := ResolveWorkflow(bead)
+		if desc.Label != "Custom Autopilot Override" {
+			t.Errorf("expected custom autopilot override to win, got Label: %s", desc.Label)
+		}
+	})
+}

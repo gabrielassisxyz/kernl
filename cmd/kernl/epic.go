@@ -95,13 +95,55 @@ func runEpicList(a *app.App, w io.Writer) error {
 }
 
 func runEpicRun(a *app.App, args []string, out func(string)) error {
-	if len(args) == 0 {
+	var workflowPath string
+	var workflowFlagSeen bool
+	var remainingArgs []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "--workflow=") {
+			workflowFlagSeen = true
+			workflowPath = strings.TrimPrefix(arg, "--workflow=")
+			if workflowPath == "" {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+			}
+		} else if arg == "--workflow" {
+			workflowFlagSeen = true
+			if i+1 < len(args) {
+				workflowPath = args[i+1]
+				if workflowPath == "" {
+					return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+				}
+				i++
+			} else {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+			}
+		} else {
+			remainingArgs = append(remainingArgs, arg)
+		}
+	}
+
+	if workflowFlagSeen && workflowPath == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+	}
+
+	if len(remainingArgs) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic run requires an epic ID — run: kernl epic run <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
 	}
-	epicID := args[0]
+	epicID := remainingArgs[0]
+
+	var customProfileID string
+	if workflowPath != "" {
+		desc, err := backend.LoadWorkflowYAML(workflowPath)
+		if err != nil {
+			return err
+		}
+		backend.RegisterWorkflow(desc)
+		customProfileID = desc.ID
+	}
 	repoPath := a.Config.Registry.Repos[0].Path
 
 	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
@@ -187,7 +229,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			_ = rs.SetWorktree(epicID, in.BeadID, in.Worktree)
 			// Epic children run the worker profile: implement + review, then
 			// STOP at awaiting_integration handing the branch to the epic.
-			if err := ensureWorkerEntry(a.Backend, in.BeadID, repoPath); err != nil {
+			if err := ensureWorkerEntry(a.Backend, in.BeadID, repoPath, customProfileID); err != nil {
 				return epic.RunResult{}, err
 			}
 			res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
@@ -254,7 +296,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto
 // the worker profile and its initial workflow state so DriveBeadToTerminal can
 // claim it. Children already mid-workflow (resume) are left untouched.
-func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string) error {
+func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string, profileID string) error {
 	bead, err := be.Get(beadID, repoPath)
 	if err != nil || bead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: child %s not found in repo %s: %w", beadID, repoPath, err)
@@ -262,7 +304,10 @@ func ensureWorkerEntry(be backend.BackendPort, beadID, repoPath string) error {
 	if bead.State != "open" {
 		return nil
 	}
-	labels := setWFLabel(bead.Labels, "wf:profile:", "worker")
+	if profileID == "" {
+		profileID = "worker"
+	}
+	labels := setWFLabel(bead.Labels, "wf:profile:", profileID)
 	labels = setWFLabel(labels, "wf:state:", "ready_for_implementation")
 	return be.Update(beadID, backend.UpdateBeadInput{State: "ready_for_implementation", SetLabels: labels}, repoPath)
 }

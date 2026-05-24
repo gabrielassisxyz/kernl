@@ -274,3 +274,70 @@ func TestEpicRunBlockedPrintsNextStep(t *testing.T) {
 		t.Errorf("blocked output must name the failed bead and the re-run command: %q", s)
 	}
 }
+
+func TestEpicRun_FlagParsingOrder(t *testing.T) {
+	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
+
+	// Since the workflow path won't exist, we expect it to fail loud on the file reading/loading.
+	// But we can check that it actually tried to load the specified path!
+
+	tests := []struct {
+		name         string
+		args         []string
+		expectedPath string
+	}{
+		{
+			name:         "equals syntax prefix",
+			args:         []string{"run", "--workflow=nonexistent-file-1.yaml", "e"},
+			expectedPath: "nonexistent-file-1.yaml",
+		},
+		{
+			name:         "equals syntax suffix",
+			args:         []string{"run", "e", "--workflow=nonexistent-file-2.yaml"},
+			expectedPath: "nonexistent-file-2.yaml",
+		},
+		{
+			name:         "space syntax prefix",
+			args:         []string{"run", "--workflow", "nonexistent-file-3.yaml", "e"},
+			expectedPath: "nonexistent-file-3.yaml",
+		},
+		{
+			name:         "space syntax suffix",
+			args:         []string{"run", "e", "--workflow", "nonexistent-file-4.yaml"},
+			expectedPath: "nonexistent-file-4.yaml",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runEpicWithApp(fakeApp, tc.args, func(string) {})
+			if err == nil {
+				t.Fatalf("expected error due to nonexistent workflow file, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.expectedPath) {
+				t.Errorf("expected error to mention path %q, got: %v", tc.expectedPath, err)
+			}
+		})
+	}
+
+	// Test missing path error cases
+	t.Run("missing path equals", func(t *testing.T) {
+		err := runEpicWithApp(fakeApp, []string{"run", "--workflow=", "e"}, func(string) {})
+		if err == nil {
+			t.Fatalf("expected error due to missing workflow path, got nil")
+		}
+		if !strings.Contains(err.Error(), "--workflow flag requires a path") {
+			t.Errorf("expected error to complain about missing path, got: %v", err)
+		}
+	})
+
+	t.Run("missing path space", func(t *testing.T) {
+		err := runEpicWithApp(fakeApp, []string{"run", "e", "--workflow"}, func(string) {})
+		if err == nil {
+			t.Fatalf("expected error due to missing workflow path, got nil")
+		}
+		if !strings.Contains(err.Error(), "--workflow flag requires a path") {
+			t.Errorf("expected error to complain about missing path, got: %v", err)
+		}
+	})
+}
