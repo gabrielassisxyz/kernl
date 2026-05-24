@@ -18,6 +18,7 @@ type AgentRuntime struct {
 	AgentStartedAt  time.Time  `json:"agent_started_at,omitempty"`
 	LastHeartbeatAt time.Time  `json:"last_heartbeat_at,omitempty"`
 	FollowUpCount   int        `json:"follow_up_count,omitempty"`
+	ContextPayload  string     `json:"context_payload,omitempty"`
 }
 
 // AgentStateStore is a per-bead JSON store with atomic write + in-process mutex.
