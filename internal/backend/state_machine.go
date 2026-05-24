@@ -701,3 +701,23 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 
 	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
 }
+
+func ValidateStages(stages map[string]StageContract) error {
+	for name, stage := range stages {
+		if stage.Kind == "subprocess" {
+			if stage.Subprocess == nil || len(stage.Subprocess.Command) == 0 {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s subprocess stage missing script/command", name)
+			}
+			if stage.Role != "" {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
+			}
+		} else if stage.Kind == "native" || stage.Kind == "" {
+			if stage.Subprocess != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
+			}
+		} else {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: %s unknown stage kind %q", name, stage.Kind)
+		}
+	}
+	return nil
+}

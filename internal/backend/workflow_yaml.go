@@ -47,7 +47,12 @@ func LoadWorkflowYAML(path string) (WorkflowDescriptor, error) {
 		return WorkflowDescriptor{}, fmt.Errorf("KERNL DISPATCH FAILURE: workflow YAML %s missing required field 'id'", path)
 	}
 
-	return doc.toDescriptor(), nil
+	wd := doc.toDescriptor()
+	if err := ValidateStages(wd.Stages); err != nil {
+		return WorkflowDescriptor{}, err
+	}
+
+	return wd, nil
 }
 
 func (d *workflowYAMLDoc) toDescriptor() WorkflowDescriptor {
