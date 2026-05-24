@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 type persistingBackend struct {
@@ -397,3 +400,364 @@ func TestDriveBeadToTerminal_UnknownStateTriggersDispatchFailure(t *testing.T) {
 		t.Errorf("expected zero agent calls for unroutable state, got %d", driver.calls)
 	}
 }
+
+func createTestPythonScript(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "script.py")
+	err := os.WriteFile(path, []byte(content), 0755)
+	if err != nil {
+		t.Fatalf("failed to create script: %v", err)
+	}
+	return path
+}
+
+func TestDriveBead_SubprocessWorkflow_MixedAndAccumulation(t *testing.T) {
+	scriptPath := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+import json
+import os
+
+req = json.load(sys.stdin)
+epic_id = req.get("epic_id", "")
+bead_id = req.get("bead_id", "")
+worktree_path = req.get("worktree_path", "")
+context_payload = req.get("context_payload", "")
+
+new_payload = f"epic:{epic_id}|bead:{bead_id}|prev:{context_payload}"
+
+# Write gate artifact
+with open(os.path.join(worktree_path, "gate_artifact.txt"), "w") as f:
+    f.write("VERDICT: PASS")
+
+print(json.dumps({"context_payload": new_payload}))
+`)
+
+	backend.ClearWorkflowRegistry()
+	customWf := backend.WorkflowDescriptor{
+		ID:           "mixed-subprocess",
+		InitialState: "ready_for_planning",
+		States: []string{
+			"ready_for_planning", "planning",
+			"ready_for_sub1", "sub1",
+			"ready_for_sub2", "sub2",
+			"ready_for_implementation", "implementation",
+			"shipped",
+		},
+		TerminalStates: []string{"shipped"},
+		Transitions: []backend.WorkflowTransition{
+			{From: "ready_for_planning", To: "planning"},
+			{From: "planning", To: "ready_for_sub1"},
+			{From: "ready_for_sub1", To: "sub1"},
+			{From: "sub1", To: "ready_for_sub2"},
+			{From: "ready_for_sub2", To: "sub2"},
+			{From: "sub2", To: "ready_for_implementation"},
+			{From: "ready_for_implementation", To: "implementation"},
+			{From: "implementation", To: "shipped"},
+		},
+		QueueStates: []string{
+			"ready_for_planning",
+			"ready_for_sub1",
+			"ready_for_sub2",
+			"ready_for_implementation",
+		},
+		ActionStates: []string{
+			"planning",
+			"sub1",
+			"sub2",
+			"implementation",
+		},
+		QueueActions: map[string]string{
+			"ready_for_planning": "planning",
+			"ready_for_sub1":     "sub1",
+			"ready_for_sub2":     "sub2",
+			"ready_for_implementation": "implementation",
+		},
+		ExitGates: map[string]backend.WorkflowExitGate{
+			"sub1": {Type: "artifact_verdict", Path: "gate_artifact.txt"},
+			"sub2": {Type: "artifact_verdict", Path: "gate_artifact.txt"},
+		},
+		Stages: map[string]backend.StageContract{
+			"planning": {Role: "worker", Kind: "native"},
+			"sub1": {
+				Role: "subprocess",
+				Kind: "subprocess",
+				Subprocess: &backend.SubprocessSpec{
+					Command: []string{scriptPath},
+				},
+			},
+			"sub2": {
+				Role: "subprocess",
+				Kind: "subprocess",
+				Subprocess: &backend.SubprocessSpec{
+					Command: []string{scriptPath},
+				},
+			},
+			"implementation": {Role: "worker", Kind: "native"},
+		},
+	}
+	backend.RegisterWorkflow(customWf)
+
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{
+		ID:        "kb-1",
+		ParentID:  "parent-epic-id",
+		State:     "ready_for_planning",
+		ProfileID: "mixed-subprocess",
+	}
+
+	driver := &scriptedDriver{be: be}
+
+	// Create AgentStateStore
+	storeDir := t.TempDir()
+	store, err := workflow.NewAgentStateStore(storeDir)
+	if err != nil {
+		t.Fatalf("failed to create agent state store: %v", err)
+	}
+
+	// Save initial state with empty payload
+	err = store.Save("kb-1", workflow.AgentRuntime{ContextPayload: "initial"})
+	if err != nil {
+		t.Fatalf("failed to save initial runtime: %v", err)
+	}
+
+	worktreeDir := t.TempDir()
+	_, err = DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		Backend:         be,
+		Driver:          driver,
+		Config:          newDriveTestConfig(),
+		BeadID:          "kb-1",
+		RepoPath:        "/tmp/repo",
+		Worktree:        worktreeDir,
+		AgentStateStore: store,
+		MaxStages:       16,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error during DriveBeadToTerminal: %v", err)
+	}
+
+	bd, _ := be.Get("kb-1", "")
+	if bd.State != "shipped" {
+		t.Fatalf("expected final state shipped, got %q", bd.State)
+	}
+
+	// Verify context_payload accumulation
+	finalRuntime, err := store.Load("kb-1")
+	if err != nil {
+		t.Fatalf("failed to load final runtime state: %v", err)
+	}
+
+	expectedPayload := "epic:parent-epic-id|bead:kb-1|prev:epic:parent-epic-id|bead:kb-1|prev:initial"
+	if finalRuntime.ContextPayload != expectedPayload {
+		t.Errorf("expected context payload accumulation:\n%q\ngot:\n%q", expectedPayload, finalRuntime.ContextPayload)
+	}
+}
+
+func TestDriveBead_Subprocess_EdgeCases(t *testing.T) {
+	scriptPath := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+import json
+import os
+
+req = json.load(sys.stdin)
+epic_id = req.get("epic_id", "")
+bead_id = req.get("bead_id", "")
+worktree_path = req.get("worktree_path", "")
+context_payload = req.get("context_payload", "")
+
+new_payload = f"epic:{epic_id}|bead:{bead_id}"
+
+if "write_artifact" in context_payload:
+    with open(os.path.join(worktree_path, "gate_artifact.txt"), "w") as f:
+        f.write("VERDICT: PASS")
+
+print(json.dumps({"context_payload": new_payload}))
+`)
+
+	backend.ClearWorkflowRegistry()
+	customWf := backend.WorkflowDescriptor{
+		ID:           "subprocess-edge",
+		InitialState: "ready_for_sub",
+		States: []string{
+			"ready_for_sub", "sub",
+			"shipped",
+		},
+		TerminalStates: []string{"shipped"},
+		Transitions: []backend.WorkflowTransition{
+			{From: "ready_for_sub", To: "sub"},
+			{From: "sub", To: "shipped"},
+		},
+		QueueStates: []string{
+			"ready_for_sub",
+		},
+		ActionStates: []string{
+			"sub",
+		},
+		QueueActions: map[string]string{
+			"ready_for_sub": "sub",
+		},
+		ExitGates: map[string]backend.WorkflowExitGate{
+			"sub": {Type: "artifact_verdict", Path: "gate_artifact.txt"},
+		},
+		Stages: map[string]backend.StageContract{
+			"sub": {
+				Role: "subprocess",
+				Kind: "subprocess",
+				Subprocess: &backend.SubprocessSpec{
+					Command: []string{scriptPath},
+				},
+			},
+		},
+	}
+	backend.RegisterWorkflow(customWf)
+
+	t.Run("Missing artifact blocks", func(t *testing.T) {
+		be := newPersistingBackend()
+		be.beads["kb-2"] = &backend.Bead{
+			ID:        "kb-2",
+			ParentID:  "parent-epic-id",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-edge",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+		_ = store.Save("kb-2", workflow.AgentRuntime{ContextPayload: "no_artifact"})
+
+		worktreeDir := t.TempDir()
+		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-2",
+			RepoPath:        "/tmp/repo",
+			Worktree:        worktreeDir,
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		bd, _ := be.Get("kb-2", "")
+		if bd.State != "blocked" {
+			t.Errorf("expected state to be blocked, got %q", bd.State)
+		}
+	})
+
+	t.Run("No declared exit gate advances on exit 0", func(t *testing.T) {
+		backend.ClearWorkflowRegistry()
+		noGateWf := customWf
+		noGateWf.ExitGates = nil
+		backend.RegisterWorkflow(noGateWf)
+
+		be := newPersistingBackend()
+		be.beads["kb-3"] = &backend.Bead{
+			ID:        "kb-3",
+			ParentID:  "parent-epic-id",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-edge",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+
+		worktreeDir := t.TempDir()
+		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-3",
+			RepoPath:        "/tmp/repo",
+			Worktree:        worktreeDir,
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		bd, _ := be.Get("kb-3", "")
+		if bd.State != "shipped" {
+			t.Errorf("expected final state shipped, got %q", bd.State)
+		}
+	})
+
+	t.Run("Empty ParentID uses bead.ID", func(t *testing.T) {
+		backend.ClearWorkflowRegistry()
+		backend.RegisterWorkflow(customWf)
+
+		be := newPersistingBackend()
+		be.beads["kb-4"] = &backend.Bead{
+			ID:        "kb-4",
+			ParentID:  "",
+			State:     "ready_for_sub",
+			ProfileID: "subprocess-edge",
+		}
+
+		driver := &scriptedDriver{be: be}
+		storeDir := t.TempDir()
+		store, _ := workflow.NewAgentStateStore(storeDir)
+		_ = store.Save("kb-4", workflow.AgentRuntime{ContextPayload: "write_artifact"})
+
+		worktreeDir := t.TempDir()
+		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			Backend:         be,
+			Driver:          driver,
+			Config:          newDriveTestConfig(),
+			BeadID:          "kb-4",
+			RepoPath:        "/tmp/repo",
+			Worktree:        worktreeDir,
+			AgentStateStore: store,
+			MaxStages:       16,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		bd, _ := be.Get("kb-4", "")
+		if bd.State != "shipped" {
+			t.Errorf("expected final state shipped, got %q", bd.State)
+		}
+
+		finalRuntime, _ := store.Load("kb-4")
+		if !strings.Contains(finalRuntime.ContextPayload, "epic:kb-4") {
+			t.Errorf("expected epic_id to be derived from bead.ID 'kb-4', got %q", finalRuntime.ContextPayload)
+		}
+	})
+}
+
+func TestDriveBead_NilGuardRegression(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-nil"] = &backend.Bead{
+		ID:        "kb-nil",
+		State:     "planning",
+		ProfileID: "autopilot",
+	}
+
+	driver := &scriptedDriver{be: be}
+	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		Backend:         be,
+		Driver:          driver,
+		Config:          newDriveTestConfig(),
+		BeadID:          "kb-nil",
+		RepoPath:        "/tmp/repo",
+		Worktree:        "/tmp/worktree",
+		AgentStateStore: nil,
+		MaxStages:       16,
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Errorf("expected success to be true, got %+v", res)
+	}
+	bd, _ := be.Get("kb-nil", "")
+	if bd.State != "shipped" {
+		t.Errorf("expected state to drive to shipped, got %q", bd.State)
+	}
+}
+
