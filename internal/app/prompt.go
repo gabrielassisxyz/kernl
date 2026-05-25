@@ -36,8 +36,8 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState string, stages map[st
 	if bead.Type != "" {
 		fmt.Fprintf(&b, "- Type: `%s`\n", bead.Type)
 	}
-	fmt.Fprintf(&b, "- Worktree: `%s`\n", worktree)
-	fmt.Fprintf(&b, "- Canonical bd repo: `%s`\n", repoPath)
+	fmt.Fprintf(&b, "- Worktree (this IS your current working directory — reference files by paths relative to it, e.g. `cmd/kernl/epic.go`; do not retype the absolute path): `%s`\n", worktree)
+	fmt.Fprintf(&b, "- Canonical bd repo (read-only, lives outside your worktree — never cd or write here): `%s`\n", repoPath)
 
 	return b.String()
 }
@@ -63,7 +63,7 @@ func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageCo
 		resolved := strings.ReplaceAll(inp, "<bead_id>", beadID)
 		fmt.Fprintf(b, "- %s\n", resolved)
 	}
-	b.WriteString("\n")
+	b.WriteString("\nSome inputs may not exist this run — e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. NEVER search for a missing input outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
 }
 
 func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID string) {
@@ -101,7 +101,7 @@ func renderForbidden(b *strings.Builder, hasContract bool, contract backend.Stag
 
 func renderOperatingRules(b *strings.Builder) {
 	b.WriteString("## Operating rules\n\n")
-	b.WriteString("1. Edit ONLY files inside this worktree. Do not touch unrelated packages.\n")
+	b.WriteString("1. Your cwd IS this bead's worktree. Reference files by paths relative to cwd (e.g. `cmd/kernl/epic.go`), not absolute paths — hand-retyping the absolute worktree path (and dropping a hidden segment like `.kernl`) is the #1 cause of auto-rejected `external_directory` errors. Edit ONLY files inside this worktree; do not touch unrelated packages.\n")
 	b.WriteString("2. Scratch files (rg output, inventory lists, anything intermediate): write them INSIDE the worktree (e.g. `./_scratch/<name>`) — NEVER `/tmp/*`. The orchestrator allow-lists `/tmp/**` for reads but several observed bails came from agents trying to write outside the worktree.\n")
 	b.WriteString("3. Follow `AGENTS.md`: files < 500 lines, funcs 4–40 lines, fail-loud marker `KERNL DISPATCH FAILURE: <problem> — <cause> — Fix: <action>`.\n")
 	b.WriteString("4. Tests must be hermetic (`*_test.go`) using fakes/stubs. No real network, no real disk outside `t.TempDir()`.\n")

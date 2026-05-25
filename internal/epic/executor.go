@@ -29,7 +29,7 @@ type RunResult struct {
 }
 
 type worktreeAdder interface {
-	Add(epicID, beadID string) (string, error)
+	Add(epicID, beadID string, depBeadIDs []string) (string, error)
 }
 
 type ExecutorDeps struct {

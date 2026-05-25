@@ -128,7 +128,7 @@ func TestAddBasesWorktreeOnEpicBranchWhenPresent(t *testing.T) {
 	fr.branch["feat/e1"] = true
 	wm := NewWorktreeManager(root, root, fr.run, nil)
 
-	_, err := wm.Add("e1", "child-a")
+	_, err := wm.Add("e1", "child-a", nil)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestAddBasesWorktreeOnMasterWhenEpicBranchAbsent(t *testing.T) {
 	fr := newFakeGitRunner()
 	wm := NewWorktreeManager(root, root, fr.run, nil)
 
-	_, err := wm.Add("e1", "child-b")
+	_, err := wm.Add("e1", "child-b", nil)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -185,9 +185,47 @@ func TestAddBasesWorktreeOnMasterWhenEpicBranchAbsent(t *testing.T) {
 	}
 }
 
+func TestAddMergesDependencyBranches(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fr.branch["kernl/dep-1"] = true // the dependency already produced its branch
+	wm := NewWorktreeManager(root, root, fr.run, nil)
+
+	if _, err := wm.Add("e1", "child-d", []string{"dep-1"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	merged := false
+	for _, call := range fr.calls {
+		if call[0] == "merge" && call[len(call)-1] == "kernl/dep-1" {
+			merged = true
+		}
+	}
+	if !merged {
+		t.Errorf("expected merge of kernl/dep-1 into the dependent worktree; calls: %v", fr.calls)
+	}
+}
+
+func TestAddSkipsMissingDependencyBranch(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	// dep-2 never produced a branch (branch map empty) — nothing to merge.
+	wm := NewWorktreeManager(root, root, fr.run, nil)
+
+	if _, err := wm.Add("e1", "child-e", []string{"dep-2"}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	for _, call := range fr.calls {
+		if call[0] == "merge" {
+			t.Errorf("merge must be skipped when dependency branch is absent; calls: %v", fr.calls)
+		}
+	}
+}
+
 func TestAddFallsBackToMkdirWhenNoGitRun(t *testing.T) {
 	wm := NewWorktreeManager(t.TempDir(), "", nil, nil)
-	path, err := wm.Add("epic-1", "kb-3")
+	path, err := wm.Add("epic-1", "kb-3", nil)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -213,7 +251,7 @@ func TestAddRecoversFromExistingPath(t *testing.T) {
 	fr := newFakeGitRunner()
 	wm := NewWorktreeManager(root, root, fr.run, nil)
 
-	path, err := wm.Add("e1", "dup")
+	path, err := wm.Add("e1", "dup", nil)
 	if err != nil {
 		t.Fatalf("expected auto-recover, got error: %v", err)
 	}
@@ -230,7 +268,7 @@ func TestAddCreatesBranchWithKernlPrefix(t *testing.T) {
 	fr := newFakeGitRunner()
 	wm := NewWorktreeManager(root, root, fr.run, nil)
 
-	_, err := wm.Add("e1", "child-c")
+	_, err := wm.Add("e1", "child-c", nil)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}

@@ -94,15 +94,12 @@ func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 	if err != nil {
 		t.Fatalf("read bead fixture %s: %v", fixtureName, err)
 	}
-	if err := os.WriteFile(issuesJSONL, data, 0o644); err != nil {
-		t.Fatalf("write issues.jsonl: %v", err)
-	}
 
 	// bd 1.0+ uses Dolt as source of truth; the JSONL is only an export format.
-	// Run `bd init --from-jsonl` to populate the Dolt database from the fixture,
+	// Run `bd init` to initialize empty Dolt database, set custom statuses,
+	// and import issues.jsonl to populate the Dolt database,
 	// suppressing agent file / hook scaffolding so the tmpdir stays clean.
 	bdInit := exec.Command("bd", "init",
-		"--from-jsonl",
 		"--skip-agents",
 		"--skip-hooks",
 		"--non-interactive",
@@ -110,7 +107,25 @@ func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 	)
 	bdInit.Dir = repoDir
 	if out, err := bdInit.CombinedOutput(); err != nil {
-		t.Fatalf("bd init --from-jsonl failed: %v\n%s", err, out)
+		t.Fatalf("bd init failed: %v\n%s", err, out)
+	}
+
+	bdConfig := exec.Command("bd", "config", "set", "status.custom", "awaiting_integration,awaiting_pr_review")
+	bdConfig.Dir = repoDir
+	if out, err := bdConfig.CombinedOutput(); err != nil {
+		t.Fatalf("bd config set status.custom failed: %v\n%s", err, out)
+	}
+
+	// Write issues.jsonl after bd init and bd config set, so auto-export on empty database
+	// init does not delete or overwrite the fixture JSONL.
+	if err := os.WriteFile(issuesJSONL, data, 0o644); err != nil {
+		t.Fatalf("write issues.jsonl: %v", err)
+	}
+
+	bdImport := exec.Command("bd", "import")
+	bdImport.Dir = repoDir
+	if out, err := bdImport.CombinedOutput(); err != nil {
+		t.Fatalf("bd import failed: %v\n%s", err, out)
 	}
 
 	gitAdd := exec.Command("git", "-C", repoDir, "add", "-A")

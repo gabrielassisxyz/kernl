@@ -89,6 +89,9 @@ var workflowKnownStates = map[string]bool{
 	"plan_review":                      true,
 	"deferred":                         true,
 	"blocked":                          true,
+	"awaiting_integration":            true,
+	"awaiting_pr_review":              true,
+	"abandoned":                        true,
 }
 
 // defaultState returns the workflow state for this bead. It is a total

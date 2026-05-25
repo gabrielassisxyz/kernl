@@ -119,7 +119,10 @@ func (h *prettyTerminalHandler) formatBeadLine(r slog.Record) string {
 		toS := firstNonEmpty(to, toState)
 		return color("green", "[%s] %s → claimed: %s → %s", timestamp, bead, fromS, toS)
 
-	case strings.Contains(r.Message, "spawn"):
+	// HasSuffix, not Contains: "DRIVE_TRACE post-spawn ok" also contains
+	// "spawn" and would otherwise be swallowed here and mis-rendered as an
+	// empty "spawn agent=" line. Only "DRIVE_TRACE spawn" ends with "spawn".
+	case strings.HasSuffix(r.Message, "spawn"):
 		return color("cyan", "[%s] %s → spawn agent=%s", timestamp, bead, agent)
 
 	case strings.Contains(r.Message, "post-spawn ok"):

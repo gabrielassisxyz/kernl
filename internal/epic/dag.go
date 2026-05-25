@@ -54,6 +54,13 @@ func NewDAG(nodes []Node) (*DAG, error) {
 	return d, nil
 }
 
+// DependenciesOf returns the direct dependencies (blockers) of a bead, or nil
+// when the bead is unknown or has none. The worktree manager uses this to seed
+// a dependent child's branch with its dependencies' committed work.
+func (d *DAG) DependenciesOf(beadID string) []string {
+	return d.nodes[beadID].DependsOn
+}
+
 func (d *DAG) ReadySet(done map[string]bool) []string {
 	ready := make([]string, 0)
 	for id, node := range d.nodes {

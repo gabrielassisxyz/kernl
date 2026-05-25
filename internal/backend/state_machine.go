@@ -154,6 +154,14 @@ var builtinProfiles = []profileConfig{
 			"deferred", "abandoned",
 		},
 		TerminalStates: []string{"awaiting_integration", "abandoned"},
+		ExitGates: map[string]WorkflowExitGate{
+			// implementation agent must leave a marker commit in the worktree.
+			// Without this gate a bead that produced no commits silently sails
+			// to awaiting_integration (see kernl-gc7j post-mortem).
+			"implementation": {Type: "commit_marker", Path: "stage: implementation"},
+			// implementation_review agent must write a PASS verdict artifact.
+			"implementation_review": {Type: "artifact_verdict", Path: ".kernl/<bead_id>/implementation-review.md"},
+		},
 	},
 	{
 		ID:                      "autopilot",

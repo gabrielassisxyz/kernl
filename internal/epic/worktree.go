@@ -115,7 +115,15 @@ func (m *WorktreeManager) CleanupEpic(epicID string, childIDs []string) error {
 	return nil
 }
 
-func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
+// Add creates the isolated worktree for a child bead on its own branch
+// kernl/<beadID>. depBeadIDs are the bead's direct dependencies; their branches
+// (kernl/<dep>) are merged into the new worktree so a dependent child starts
+// from a tree that already contains its dependencies' committed work rather
+// than branching blind off the epic base. The executor only dispatches a bead
+// after every dependency reached awaiting_integration, so each dep branch
+// exists by the time we merge it. Transitive deps need no special handling:
+// each dep branch already merged ITS deps when it was created.
+func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (string, error) {
 	if err := os.MkdirAll(m.root, 0755); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree root %s: %w", m.root, err)
 	}
@@ -160,7 +168,31 @@ func (m *WorktreeManager) Add(epicID, beadID string) (string, error) {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for bead %s based on %s — %w — Fix: verify the repo at %s is clean and the branch %s exists", beadID, baseBranch, err, m.repoPath, baseBranch)
 	}
 
+	if err := m.mergeDependencyBranches(path, beadID, baseBranch, depBeadIDs); err != nil {
+		return "", err
+	}
+
 	return path, nil
+}
+
+// mergeDependencyBranches merges each dependency's branch (kernl/<dep>) into the
+// freshly-created worktree at path so the dependent child sees its deps' work.
+// A dep branch that does not exist (hermetic test, or a dep that produced no
+// commits) is skipped. A merge conflict aborts the merge and fails loud — the
+// dependent cannot start from an inconsistent tree.
+func (m *WorktreeManager) mergeDependencyBranches(path, beadID, baseBranch string, depBeadIDs []string) error {
+	for _, dep := range depBeadIDs {
+		depBranch := "kernl/" + dep
+		out, err := m.gitRun(m.repoPath, "branch", "--list", depBranch)
+		if err != nil || strings.TrimSpace(out) == "" {
+			continue
+		}
+		if _, err := m.gitRun(path, "merge", "--no-edit", depBranch); err != nil {
+			_, _ = m.gitRun(path, "merge", "--abort")
+			return fmt.Errorf("KERNL DISPATCH FAILURE: merging dependency branch %s into bead %s — %w — Fix: %s conflicts with %s; reconcile them or split the beads so they do not edit the same lines", depBranch, beadID, err, depBranch, baseBranch)
+		}
+	}
+	return nil
 }
 
 // removeLeftover deletes a stranded worktree from a previous failed run.

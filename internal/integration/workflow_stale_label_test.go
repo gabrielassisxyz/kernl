@@ -63,7 +63,7 @@ func TestWorkflowStaleLabelLoop(t *testing.T) {
 		t.Fatalf("bd init: %v\n%s", err, out)
 	}
 	bdConfig := exec.Command("bd", "config", "set", "status.custom",
-		"ready_for_implementation,implementation,ready_for_implementation_review,implementation_review,ready_for_shipment,shipment,ready_for_shipment_review,shipment_review,shipped",
+		"ready_for_implementation,implementation,ready_for_implementation_review,implementation_review,ready_for_integration,integration,ready_for_integration_review,integration_review,ready_for_shipment,shipment,ready_for_shipment_review,shipment_review,shipped",
 	)
 	bdConfig.Dir = repoPath
 	if out, err := bdConfig.CombinedOutput(); err != nil {
@@ -109,7 +109,9 @@ current=$(bd -C "$repo" show "$bid" --json | python3 -c "import json,sys; d=json
 next=""
 case "$current" in
   implementation)          next="ready_for_implementation_review" ;;
-  implementation_review)   next="ready_for_shipment"               ;;
+  implementation_review)   next="ready_for_integration"           ;;
+  integration)             next="ready_for_integration_review"    ;;
+  integration_review)      next="ready_for_shipment"              ;;
   shipment)                next="ready_for_shipment_review"       ;;
   shipment_review)         next="shipped"                          ;;
   *) exit 0 ;;
@@ -129,6 +131,8 @@ bd -C "$repo" update "$bid" --status "$next" >/dev/null
 			Pools: map[string]config.PoolConfig{
 				"implementation":        {Agents: []config.WeightedAgent{{AgentID: "fake-agent", Weight: 1}}},
 				"implementation_review": {Agents: []config.WeightedAgent{{AgentID: "fake-agent", Weight: 1}}},
+				"integration":           {Agents: []config.WeightedAgent{{AgentID: "fake-agent", Weight: 1}}},
+				"integration_review":    {Agents: []config.WeightedAgent{{AgentID: "fake-agent", Weight: 1}}},
 				"shipment":              {Agents: []config.WeightedAgent{{AgentID: "fake-agent", Weight: 1}}},
 				"shipment_review":       {Agents: []config.WeightedAgent{{AgentID: "fake-agent", Weight: 1}}},
 			},

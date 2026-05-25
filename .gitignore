@@ -109,3 +109,4 @@ update_binary.sh
 /beads_compliance_audit/
 
 .ai-jail
+.gstack/

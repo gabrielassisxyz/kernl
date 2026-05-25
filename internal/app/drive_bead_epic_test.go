@@ -97,10 +97,48 @@ func (b *epicFakeBackend) Capabilities() backend.BackendCapabilities {
 	return backend.BackendCapabilities{}
 }
 
+// workerArtifactDriver simulates a worker child agent that produces each
+// stage's exit-gate output: a "stage: implementation" marker commit, then a
+// PASS verdict artifact for implementation_review.
+type workerArtifactDriver struct {
+	be       *epicFakeBackend
+	beadID   string
+	worktree string
+}
+
+func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
+	bd, _ := d.be.Get(d.beadID, "")
+	switch bd.State {
+	case "implementation":
+		cmd := exec.Command("git", "-C", d.worktree, "commit", "--allow-empty", "-m", "stage: implementation: did the work")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
+		}
+	case "implementation_review":
+		dir := filepath.Join(d.worktree, ".kernl", d.beadID)
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "implementation-review.md"), []byte("code matches the plan\n\nVERDICT: PASS"), 0o644)
+	}
+	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses"}, nil
+}
+
 // TestDriveWorker_StopsAtAwaitingIntegration drives a worker-profile child from
-// its initial state and asserts it hands off at awaiting_integration without
-// doing its own integration/shipment.
+// its initial state through the real exit gates and asserts it hands off at
+// awaiting_integration only after producing the marker commit and PASS verdict.
 func TestDriveWorker_StopsAtAwaitingIntegration(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	worktree := t.TempDir()
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		{"commit", "--allow-empty", "-m", "base"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", worktree}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
 	be := newEpicFakeBackend()
 	be.put(&backend.Bead{
 		ID: "kernl-c1", Type: "task", Title: "Child", State: "ready_for_implementation",
@@ -109,17 +147,54 @@ func TestDriveWorker_StopsAtAwaitingIntegration(t *testing.T) {
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		Backend:  be,
-		Driver:   &scriptedDriver{},
+		Driver:   &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree},
 		Config:   newDriveTestConfig(),
 		BeadID:   "kernl-c1",
 		RepoPath: t.TempDir(),
-		Worktree: t.TempDir(),
+		Worktree: worktree,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
 	}
 	if !res.Success || res.FinalState != "awaiting_integration" {
 		t.Fatalf("worker final = %+v; want awaiting_integration/success", res)
+	}
+}
+
+// TestDriveWorker_BlocksWhenImplementationSkipsCommit reproduces the kernl-gc7j
+// failure: a worker child whose agent exits zero but leaves no marker commit
+// must block at the implementation gate instead of silently sailing to the
+// terminal awaiting_integration with zero work done.
+func TestDriveWorker_BlocksWhenImplementationSkipsCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	worktree := t.TempDir()
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		{"commit", "--allow-empty", "-m", "base"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", worktree}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	be := newEpicFakeBackend()
+	be.put(&backend.Bead{
+		ID: "kernl-c2", Type: "task", Title: "Empty Child", State: "ready_for_implementation",
+		ProfileID: "worker",
+	})
+
+	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		Backend:  be,
+		Driver:   &silentDriver{},
+		Config:   newDriveTestConfig(),
+		BeadID:   "kernl-c2",
+		RepoPath: t.TempDir(),
+		Worktree: worktree,
+	})
+	if res.Success || res.FinalState != "blocked" {
+		t.Fatalf("worker should block when implementation leaves no marker commit; got %+v", res)
 	}
 }
 

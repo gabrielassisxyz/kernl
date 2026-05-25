@@ -22,15 +22,25 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		ex.tracker.Started(beadID)
 		ex.mu.Unlock()
 
+		var sid string
+		if ex.deps.SessionResumes != nil {
+			sid = ex.deps.SessionResumes[beadID]
+		}
+
 		var wtPath string
 		var err error
-		if ex.deps.GetWorktree != nil {
+		// Reuse a cached worktree ONLY for a genuine session resume. A fresh
+		// dispatch must always go through Add, which cleans any leftover
+		// worktree and merges in dependency branches — reusing a stale worktree
+		// here would silently skip that merge and leave a dependent child
+		// without its dependency's committed code.
+		if sid != "" && ex.deps.GetWorktree != nil {
 			if p, ok := ex.deps.GetWorktree(ex.deps.Epic.ID, beadID); ok {
 				wtPath = p
 			}
 		}
 		if wtPath == "" {
-			wtPath, err = ex.deps.Worktree.Add(ex.deps.Epic.ID, beadID)
+			wtPath, err = ex.deps.Worktree.Add(ex.deps.Epic.ID, beadID, ex.deps.Epic.DAG.DependenciesOf(beadID))
 			if err != nil {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: cannot create worktree for bead %s in epic %s -- %w -- Fix: verify the worktree root is writable", beadID, ex.deps.Epic.ID, err)
 			}
@@ -42,10 +52,6 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 			return ctx.Err()
 		}
 
-		var sid string
-		if ex.deps.SessionResumes != nil {
-			sid = ex.deps.SessionResumes[beadID]
-		}
 		launched++
 		go func(id string, path string, sessionID string) {
 			defer func() { <-ex.sem }()

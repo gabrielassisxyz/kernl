@@ -112,6 +112,15 @@ func TestWorkerProfile_StopsAtAwaitingIntegration(t *testing.T) {
 		t.Errorf("worker ForwardTransitionTarget(implementation_review) = %q,%v; want awaiting_integration", got, ok)
 	}
 
+	// Exit gates stop a bead from advancing when it produced no real output:
+	// implementation needs a marker commit, the review needs a PASS verdict.
+	if g := wf.ExitGates["implementation"]; g.Type != "commit_marker" || g.Path != "stage: implementation" {
+		t.Errorf("implementation gate = %+v; want commit_marker/stage: implementation", g)
+	}
+	if g := wf.ExitGates["implementation_review"]; g.Type != "artifact_verdict" || g.Path != ".kernl/<bead_id>/implementation-review.md" {
+		t.Errorf("implementation_review gate = %+v; want artifact_verdict/.kernl/<bead_id>/implementation-review.md", g)
+	}
+
 	// Autopilot (standalone) must still flow past implementation_review toward shipment, not stop.
 	ap := BuiltinProfileDescriptor("autopilot")
 	apNext, _ := ForwardTransitionTarget("implementation_review", ap)
