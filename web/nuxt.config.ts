@@ -1,9 +1,12 @@
-import { defineNuxtConfig } from 'nuxt/config';
+import tailwindcss from '@tailwindcss/vite'
 
 export default defineNuxtConfig({
-  ssr: false,
-  modules: ['@nuxtjs/tailwindcss'],
   css: ['~/assets/css/tailwind.css'],
+  vite: {
+    plugins: [
+      tailwindcss(),
+    ],
+  },
   app: {
     head: {
       title: 'Kernl',
