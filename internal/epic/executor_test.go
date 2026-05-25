@@ -37,7 +37,7 @@ func newFakeWorktree() *fakeWorktree {
 	return &fakeWorktree{added: make(map[string]string)}
 }
 
-func (f *fakeWorktree) Add(epicID, beadID string) (string, error) {
+func (f *fakeWorktree) Add(epicID, beadID string, _ []string) (string, error) {
 	path := "/tmp/" + epicID + "/" + beadID
 	f.added[epicID+"/"+beadID] = path
 	return path, nil
@@ -158,8 +158,10 @@ func TestExecutorResumesSession(t *testing.T) {
 	}
 }
 
-// TestExecutorReusesWorktreePath verifies that GetWorktree is consulted before
-// creating a fresh worktree.
+// TestExecutorReusesWorktreePath verifies that GetWorktree is consulted (and
+// Add skipped) ONLY for a genuine session resume. A fresh dispatch must always
+// go through Add so leftover worktrees are rebuilt and dependency branches
+// merged in.
 func TestExecutorReusesWorktreePath(t *testing.T) {
 	ep := wideEpic(t, 1)
 	wt := fakeWT()
@@ -183,6 +185,8 @@ func TestExecutorReusesWorktreePath(t *testing.T) {
 		Worktree:      wt,
 		GetWorktree:   getWT,
 		MaxConcurrent: 1,
+		// w0 is a genuine session resume — only then is the cached worktree reused.
+		SessionResumes: map[string]string{"w0": "ses-resume"},
 	})
 	if err := ex.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
@@ -192,5 +196,36 @@ func TestExecutorReusesWorktreePath(t *testing.T) {
 	}
 	if _, called := wt.added["wide-epic/w0"]; called {
 		t.Error("worktree Add should NOT have been called when GetWorktree returned a path")
+	}
+}
+
+// TestExecutorFreshDispatchRebuildsWorktree verifies that a bead WITHOUT a
+// session resume always goes through Add even if GetWorktree could return a
+// cached path — so leftover worktrees are rebuilt and dependency branches merged.
+func TestExecutorFreshDispatchRebuildsWorktree(t *testing.T) {
+	ep := wideEpic(t, 1)
+	wt := fakeWT()
+	getWT := func(epicID, beadID string) (string, bool) {
+		return "/stale/cached/" + beadID, true // cached path exists but must be ignored
+	}
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		if in.Worktree == "/stale/cached/w0" {
+			t.Errorf("fresh dispatch must not reuse the cached worktree, got %s", in.Worktree)
+		}
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{
+		Epic:          ep,
+		RunBead:       runBead,
+		Worktree:      wt,
+		GetWorktree:   getWT,
+		MaxConcurrent: 1,
+		// No SessionResumes — w0 is a fresh dispatch.
+	})
+	if err := ex.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, called := wt.added["wide-epic/w0"]; !called {
+		t.Error("worktree Add must be called for a fresh dispatch")
 	}
 }

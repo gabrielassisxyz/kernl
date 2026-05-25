@@ -34,6 +34,13 @@ Procedure:
 4. Any other gh error: write "merge_outcome: pr_create_failed" to the epic bead description and STOP.
 5. On success: write a line "pr_url: <url>" AND "merge_outcome: success" to the epic bead description, then STOP. The "pr_url:" line is REQUIRED — an exit gate checks the epic description contains "pr_url:".
 
+Recording the result — write to the epic description in a SINGLE command, with NO temporary files under /tmp (opencode auto-rejects /tmp writes; keep any scratch inside the worktree). Append to the existing description by reading it inline:
+  bd update {{.EpicID}} -d "$(bd show {{.EpicID}} --json | jq -r '.[0].description')
+
+  pr_url: <url>
+  merge_outcome: success"
+This is the one place you SHOULD run "bd update" — it is how the orchestrator's shipment gate observes the PR URL.
+
 The merge_outcome you write MUST be exactly one of the valid shipment outcomes: success, push_failed, pr_create_failed, pr_already_exists. For reference, the full merge_outcome enum is:{{range .Outcomes}}
   - {{.}}
 {{end}}`

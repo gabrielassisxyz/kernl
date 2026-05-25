@@ -17,11 +17,11 @@ func TestPlanResumeSkipsDoneResumesInterruptedRedispatchesFresh(t *testing.T) {
 
 	be := backend.NewBdCliBackend(h.RepoPath)
 
-	if err := be.MarkTerminal("a", "done", "completed in prior run", h.RepoPath); err != nil {
-		t.Fatalf("mark a done: %v", err)
+	if err := be.MarkTerminal("a", "closed", "completed in prior run", h.RepoPath); err != nil {
+		t.Fatalf("mark a closed: %v", err)
 	}
-	if err := be.Update("b", backend.UpdateBeadInput{State: "implementing"}, h.RepoPath); err != nil {
-		t.Fatalf("set b implementing: %v", err)
+	if err := be.Update("b", backend.UpdateBeadInput{State: "in_progress"}, h.RepoPath); err != nil {
+		t.Fatalf("set b in_progress: %v", err)
 	}
 
 	rsPath := t.TempDir() + "/runstate.db"
@@ -32,7 +32,7 @@ func TestPlanResumeSkipsDoneResumesInterruptedRedispatchesFresh(t *testing.T) {
 	defer rs.Close()
 
 	rs.SetWorktree(epicID, "b", t.TempDir()+"/worktree/epic-1/b")
-	rs.RecordAgent("b", "implementing", runstate.AgentRecord{
+	rs.RecordAgent("b", "in_progress", runstate.AgentRecord{
 		AgentID:   "opencode",
 		SessionID: "term-interrupted",
 		Status:    "running",
@@ -71,8 +71,8 @@ func TestPlanResumeMissingWorktreeFailsLoud(t *testing.T) {
 	defer h.Cleanup()
 
 	be := backend.NewBdCliBackend(h.RepoPath)
-	if err := be.Update("a", backend.UpdateBeadInput{State: "implementing"}, h.RepoPath); err != nil {
-		t.Fatalf("set a implementing: %v", err)
+	if err := be.Update("a", backend.UpdateBeadInput{State: "in_progress"}, h.RepoPath); err != nil {
+		t.Fatalf("set a in_progress: %v", err)
 	}
 
 	rsPath := t.TempDir() + "/runstate.db"
@@ -105,11 +105,11 @@ func TestPlanResumeCrossAgentRedispatchesReview(t *testing.T) {
 
 	be := backend.NewBdCliBackend(h.RepoPath)
 
-	if err := be.MarkTerminal("a", "done", "implemented by agent-1", h.RepoPath); err != nil {
-		t.Fatalf("mark a done: %v", err)
+	if err := be.MarkTerminal("a", "closed", "implemented by agent-1", h.RepoPath); err != nil {
+		t.Fatalf("mark a closed: %v", err)
 	}
-	if err := be.Update("b", backend.UpdateBeadInput{State: "ready_for_review"}, h.RepoPath); err != nil {
-		t.Fatalf("set b ready_for_review: %v", err)
+	if err := be.Update("b", backend.UpdateBeadInput{State: "awaiting_pr_review"}, h.RepoPath); err != nil {
+		t.Fatalf("set b awaiting_pr_review: %v", err)
 	}
 
 	rsPath := t.TempDir() + "/runstate.db"
@@ -119,7 +119,7 @@ func TestPlanResumeCrossAgentRedispatchesReview(t *testing.T) {
 	}
 	defer rs.Close()
 
-	rs.RecordAgent("b", "implementing", runstate.AgentRecord{
+	rs.RecordAgent("b", "in_progress", runstate.AgentRecord{
 		AgentID:   "opencode",
 		SessionID: "term-review",
 		Status:    "running",
@@ -133,6 +133,6 @@ func TestPlanResumeCrossAgentRedispatchesReview(t *testing.T) {
 	plan := epic.PlanResume(be, rs, ep, h.RepoPath)
 
 	if plan.Action("b") != epic.ResumeFreshDispatch {
-		t.Errorf("b in ready_for_review without active agent record should re-dispatch fresh (cross-agent review), got %s", plan.Action("b"))
+		t.Errorf("b in awaiting_pr_review without active agent record should re-dispatch fresh (cross-agent review), got %s", plan.Action("b"))
 	}
 }

@@ -227,11 +227,19 @@ func (b *BdCliBackend) Get(id string, repoPath string) (*Bead, error) {
 	if err != nil {
 		return nil, fmt.Errorf("bd show %s: %w", id, err)
 	}
-	var raw RawBead
+	var raw []RawBead
 	if err := unmarshalBdResponse(out, &raw); err != nil {
-		return nil, fmt.Errorf("bd show parse: %w", err)
+		// Try unmarshaling as a single RawBead for backward compatibility
+		var single RawBead
+		if err2 := unmarshalBdResponse(out, &single); err2 != nil {
+			return nil, fmt.Errorf("bd show parse: %w", err)
+		}
+		raw = []RawBead{single}
 	}
-	bead := NormalizeBead(raw)
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("bd show %s returned empty array", id)
+	}
+	bead := NormalizeBead(raw[0])
 	return &bead, nil
 }
 
@@ -326,7 +334,7 @@ func (b *BdCliBackend) Delete(id string, repoPath string) error {
 }
 
 func (b *BdCliBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {
-	args := withRepo(repoPath, "update", id, "--status", targetState, "--force")
+	args := withRepo(repoPath, "update", id, "--status", targetState)
 	if reason != "" {
 		args = append(args, "--reason", reason)
 	}
