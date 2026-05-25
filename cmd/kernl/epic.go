@@ -66,6 +66,8 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 		return runEpicRun(a, args[1:], out)
 	case "merge":
 		return runEpicMerge(a, args[1:], out)
+	case "abort":
+		return runEpicAbort(a, args[1:], out)
 	default:
 		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown epic subcommand %q — try: kernl epic list", args[0])
 	}
