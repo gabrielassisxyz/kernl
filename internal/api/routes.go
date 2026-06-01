@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/logging"
 	"github.com/gabrielassisxyz/kernl/web"
 )
@@ -25,6 +26,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterMemoryRoutes(mux, a)
 	RegisterBookmarkRoutes(mux, a)
 	RegisterIngestRoutes(mux, a)
+	mux.HandleFunc("POST /api/epics/{id}/run", dispatch.HandleEpicRunAPI(a.Backend, a.Config))
 	mux.Handle("GET /", http.FileServerFS(web.FS))
 
 	var h http.Handler = mux
