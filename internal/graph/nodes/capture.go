@@ -20,6 +20,7 @@ type Capture struct {
 	Body         string
 	CapturedFrom string
 	Tags         []string
+	SuggestedAction string
 }
 
 // Meta returns the common metadata for this node.
@@ -30,8 +31,9 @@ func (c Capture) Meta() *Meta {
 // NodeAttrs marshals type-specific fields for the nodes.attrs column.
 func (c Capture) NodeAttrs() []byte {
 	attrs := map[string]any{
-		"body":          c.Body,
-		"captured_from": c.CapturedFrom,
+		"body":             c.Body,
+		"captured_from":    c.CapturedFrom,
+		"suggested_action": c.SuggestedAction,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -74,8 +76,9 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	}
 
 	var attrs struct {
-		Body         string `json:"body"`
-		CapturedFrom string `json:"captured_from"`
+		Body            string `json:"body"`
+		CapturedFrom    string `json:"captured_from"`
+		SuggestedAction string `json:"suggested_action"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -92,10 +95,11 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 		ID:           id,
 		CreatedAt:    tryParseTime(createdAt.String),
 		UpdatedAt:    tryParseTime(updatedAt.String),
-		Title:        title.String,
-		Body:         attrs.Body,
-		CapturedFrom: attrs.CapturedFrom,
-		Tags:         tags,
+		Title:           title.String,
+		Body:            attrs.Body,
+		CapturedFrom:    attrs.CapturedFrom,
+		Tags:            tags,
+		SuggestedAction: attrs.SuggestedAction,
 	}, nil
 }
 
@@ -151,8 +155,9 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 		}
 
 		var attrs struct {
-			Body         string `json:"body"`
-			CapturedFrom string `json:"captured_from"`
+			Body            string `json:"body"`
+			CapturedFrom    string `json:"captured_from"`
+			SuggestedAction string `json:"suggested_action"`
 		}
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -169,10 +174,11 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 			ID:           id,
 			CreatedAt:    tryParseTime(createdAt.String),
 			UpdatedAt:    tryParseTime(updatedAt.String),
-			Title:        title.String,
-			Body:         attrs.Body,
-			CapturedFrom: attrs.CapturedFrom,
-			Tags:         tags,
+			Title:           title.String,
+			Body:            attrs.Body,
+			CapturedFrom:    attrs.CapturedFrom,
+			Tags:            tags,
+			SuggestedAction: attrs.SuggestedAction,
 		})
 	}
 	return out, rows.Err()
