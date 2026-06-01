@@ -16,6 +16,7 @@ func NewRouter(a *app.App) http.Handler {
 
 	RegisterBeadRoutes(mux, a)
 	RegisterApprovalRoutes(mux)
+	RegisterAuditRoutes(mux, a)
 	RegisterStreamRoutes(mux, a)
 	RegisterEpicRoutes(mux, a)
 	RegisterAppRoutes(mux)
