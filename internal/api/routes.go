@@ -24,6 +24,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterVaultRoutes(mux, a)
 	RegisterMemoryRoutes(mux, a)
 	RegisterBookmarkRoutes(mux, a)
+	RegisterIngestRoutes(mux, a)
 	mux.Handle("GET /", http.FileServerFS(web.FS))
 
 	var h http.Handler = mux
