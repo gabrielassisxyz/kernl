@@ -1,64 +1,98 @@
 <template>
-  <div class="flex flex-col h-screen w-full bg-[#0F1217] text-[#D6DBE3] font-sans overflow-hidden">
-    <div class="flex flex-1 overflow-hidden relative">
-      <!-- Left Sidebar: Navigation -->
-      <aside class="w-[60px] bg-[#0F1217] border-r border-[#1B2029] flex flex-col items-center py-4 shrink-0 z-10">
-        <nav class="flex-1 flex flex-col items-center space-y-4 w-full">
-          <!-- Home -->
-          <NuxtLink to="/" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Home</span>
+  <div class="bg-bg-base text-text-primary h-screen flex flex-col overflow-hidden font-body selection:bg-da-accent selection:text-white">
+    <!-- Top Layout Wrapper -->
+    <div class="flex flex-1 overflow-hidden">
+      <!-- Left SideNav (Icon Rail) -->
+      <nav class="w-rail-width h-full bg-surface border-r border-border-hairline flex flex-col items-center py-base z-50 flex-shrink-0">
+        <!-- Logo -->
+        <div class="mb-break flex flex-col items-center gap-1 cursor-pointer">
+          <div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center">
+            <span class="material-symbols-outlined text-primary font-bold">terminal</span>
+          </div>
+          <span class="font-display text-[10px] tracking-widest text-primary uppercase">Kernl</span>
+        </div>
+        
+        <!-- Nav Items -->
+        <div class="flex flex-col gap-component flex-grow w-full items-center">
+          <NuxtLink to="/" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined font-bold">dashboard</span>
           </NuxtLink>
-          <NuxtLink to="/projects" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Proj</span>
+          <NuxtLink to="/projects" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">folder_open</span>
           </NuxtLink>
-          <NuxtLink to="/notes" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Note</span>
+          <NuxtLink to="/notes" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">description</span>
           </NuxtLink>
-          <NuxtLink to="/tasks" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Task</span>
+          <NuxtLink to="/tasks" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">assignment</span>
           </NuxtLink>
-          <NuxtLink to="/orchestrator" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Orch</span>
+          <NuxtLink to="/orchestrator" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">hub</span>
           </NuxtLink>
-          <NuxtLink to="/inbox" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Inbx</span>
+          <NuxtLink to="/inbox" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">inbox</span>
           </NuxtLink>
-          <NuxtLink to="/bookmarks" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Mark</span>
+          <NuxtLink to="/bookmarks" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">bookmark</span>
           </NuxtLink>
-          <NuxtLink to="/chat" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Chat</span>
+          <NuxtLink to="/chat" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">chat</span>
           </NuxtLink>
-          <NuxtLink to="/graph" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Grph</span>
+          <NuxtLink to="/graph" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">query_stats</span>
           </NuxtLink>
-          <NuxtLink to="/dashboard" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
-            <span class="text-[10px]">Dash</span>
+          <NuxtLink to="/dashboard" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">analytics</span>
           </NuxtLink>
-        </nav>
-        <button @click="toggleDa" class="mt-auto flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7]">
-          <span class="text-[10px]">DA</span>
-        </button>
-      </aside>
+        </div>
+        
+        <!-- Footer Nav -->
+        <div class="flex flex-col gap-component pb-base w-full items-center">
+          <button @click="toggleDa" :class="daOpen ? 'border-l-2 border-primary text-primary bg-surface-hover' : 'text-text-muted hover:text-primary'" class="w-full h-10 flex items-center justify-center transition-colors duration-150 cursor-pointer">
+            <span class="material-symbols-outlined">smart_toy</span>
+          </button>
+          <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer">
+            <span class="material-symbols-outlined">settings</span>
+          </button>
+          <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer">
+            <span class="material-symbols-outlined">account_circle</span>
+          </button>
+        </div>
+      </nav>
 
-      <!-- Center: Main Content -->
-      <main class="flex-1 flex flex-col relative overflow-hidden bg-[#0F1217]">
+      <!-- Main Content Area -->
+      <main class="flex-1 flex flex-col min-w-0 relative bg-bg-base overflow-y-auto">
         <slot />
       </main>
 
-      <!-- Right Sidebar: DA Chat (Overlay) -->
+      <!-- Right DA Panel overlay inside flex wrapper -->
       <DaChatSurface :isOpen="daOpen" @close="daOpen = false" />
     </div>
 
-    <!-- Bottom Status Bar -->
-    <footer class="h-[26px] border-t border-[#1B2029] bg-[#0F1217] flex items-center px-4 text-[#666D7C] text-xs font-mono shrink-0 gap-6">
-      <div class="flex items-center gap-2">
-        <span class="w-1.5 h-1.5 rounded-full bg-[#8089A0]"></span>
-        <span class="text-[11px] font-sans">Ready</span>
+    <!-- Shell: Footer Status Bar -->
+    <footer class="h-[26px] bg-surface-container-low text-text-dim border-t border-border-hairline flex items-center justify-between px-base z-50 divide-x divide-border-hairline shrink-0">
+      <div class="flex items-center gap-component pr-component">
+        <div class="flex items-center gap-tight">
+          <span class="w-2 h-2 rounded-full bg-status-passed shadow-[0_0_8px_rgba(109,154,120,0.4)]"></span>
+          <span class="font-mono-data text-mono-data text-status-passed uppercase">connected</span>
+        </div>
+        <div class="h-3 w-px bg-border-hairline mx-tight"></div>
+        <span class="font-mono-data text-mono-data">~/vault</span>
       </div>
-      <div>kernl-ws/main</div>
-      <div>0 active</div>
-      <div class="ml-auto">12ms</div>
+      
+      <div class="flex-grow flex items-center justify-center font-mono-data text-mono-data gap-section">
+        <span class="hover:bg-surface-hover px-2 transition-colors cursor-default">UTF-8</span>
+        <span class="hover:bg-surface-hover px-2 transition-colors cursor-default">system_ready</span>
+      </div>
+      
+      <div class="flex items-center gap-component pl-component">
+        <div class="flex items-center gap-tight">
+          <span class="material-symbols-outlined text-[14px]">sync</span>
+          <span class="font-mono-data text-mono-data">synced</span>
+        </div>
+        <div class="h-3 w-px bg-border-hairline mx-tight"></div>
+        <span class="font-mono-data text-mono-data">{{ currentTime }}</span>
+      </div>
     </footer>
   </div>
 </template>
@@ -67,9 +101,23 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 
 const daOpen = ref(false)
+const currentTime = ref(new Date().toISOString().slice(0, 19).replace('T', ' '))
 
 const toggleDa = () => {
   daOpen.value = !daOpen.value
+}
+
+let timer;
+
+const updateTime = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  const seconds = String(now.getSeconds()).padStart(2, '0')
+  currentTime.value = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
 const handleKeydown = (e) => {
@@ -77,15 +125,39 @@ const handleKeydown = (e) => {
     daOpen.value = false
   }
   if (e.key === '.' && e.metaKey) {
+    e.preventDefault()
     toggleDa()
   }
 }
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
+  updateTime()
+  timer = setInterval(updateTime, 1000)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  clearInterval(timer)
 })
 </script>
+
+<style>
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-hairline);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-default);
+}
+.custom-caret {
+  caret-color: var(--color-primary);
+}
+</style>
