@@ -16,6 +16,7 @@ func NewRouter(a *app.App) http.Handler {
 
 	RegisterBeadRoutes(mux, a)
 	RegisterApprovalRoutes(mux)
+	RegisterAuditRoutes(mux, a)
 	RegisterStreamRoutes(mux, a)
 	RegisterEpicRoutes(mux, a)
 	RegisterAppRoutes(mux)
@@ -23,7 +24,11 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterChatRoutes(mux, a)
 	RegisterChatResolveRoutes(mux, a)
 	RegisterVaultRoutes(mux, a)
+	RegisterMemoryRoutes(mux, a)
+	RegisterBookmarkRoutes(mux, a)
 	RegisterIngestRoutes(mux, a)
+	RegisterInboxRoutes(mux, a)
+	RegisterNotesRoutes(mux, a)
 	RegisterBookmarkRoutes(mux, a)
 	RegisterMemoryRoutes(mux, a)
 
