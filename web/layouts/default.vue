@@ -1,116 +1,91 @@
 <template>
-  <div class="flex h-screen w-full bg-base-100 text-base-content font-sans overflow-hidden">
-    <!-- Left Sidebar: Navigation -->
-    <aside class="w-64 bg-base-200 border-r border-base-300 flex flex-col shrink-0">
-      <div class="p-4 text-xl font-bold border-b border-base-300">Kernl</div>
-      <nav class="flex-1 p-4 space-y-2">
-        <NuxtLink to="/" class="btn btn-ghost w-full justify-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-          Vault
-        </NuxtLink>
-        <NuxtLink to="/inbox" class="btn btn-ghost w-full justify-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-          Inbox
-        </NuxtLink>
-        <NuxtLink to="/projects" class="btn btn-ghost w-full justify-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-          Projects
-        </NuxtLink>
-      </nav>
-    </aside>
+  <div class="flex flex-col h-screen w-full bg-[#0F1217] text-[#D6DBE3] font-sans overflow-hidden">
+    <div class="flex flex-1 overflow-hidden relative">
+      <!-- Left Sidebar: Navigation -->
+      <aside class="w-[60px] bg-[#0F1217] border-r border-[#1B2029] flex flex-col items-center py-4 shrink-0 z-10">
+        <nav class="flex-1 flex flex-col items-center space-y-4 w-full">
+          <!-- Home -->
+          <NuxtLink to="/" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Home</span>
+          </NuxtLink>
+          <NuxtLink to="/projects" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Proj</span>
+          </NuxtLink>
+          <NuxtLink to="/notes" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Note</span>
+          </NuxtLink>
+          <NuxtLink to="/tasks" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Task</span>
+          </NuxtLink>
+          <NuxtLink to="/orchestrator" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Orch</span>
+          </NuxtLink>
+          <NuxtLink to="/inbox" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Inbx</span>
+          </NuxtLink>
+          <NuxtLink to="/bookmarks" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Mark</span>
+          </NuxtLink>
+          <NuxtLink to="/chat" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Chat</span>
+          </NuxtLink>
+          <NuxtLink to="/graph" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Grph</span>
+          </NuxtLink>
+          <NuxtLink to="/dashboard" class="flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7] hover:text-[#6B7BB0]" active-class="text-[#6B7BB0] border-l-2 border-[#6B7BB0] bg-[#181C26]">
+            <span class="text-[10px]">Dash</span>
+          </NuxtLink>
+        </nav>
+        <button @click="toggleDa" class="mt-auto flex flex-col items-center justify-center w-10 h-10 rounded hover:bg-[#1D222D] text-[#9098A7]">
+          <span class="text-[10px]">DA</span>
+        </button>
+      </aside>
 
-    <!-- Center: Main Content -->
-    <main class="flex-1 flex flex-col relative overflow-hidden bg-base-100">
-      <slot />
-    </main>
+      <!-- Center: Main Content -->
+      <main class="flex-1 flex flex-col relative overflow-hidden bg-[#0F1217]">
+        <slot />
+      </main>
 
-    <!-- Right Sidebar: DA Chat -->
-    <aside class="w-80 bg-[#0f172a] border-l border-[#334155] flex flex-col shrink-0 text-[#e2e8f0]">
-      <div class="p-4 border-b border-[#334155] font-bold flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#3b82f6]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-        DA Chat
+      <!-- Right Sidebar: DA Chat (Overlay) -->
+      <DaChatSurface :isOpen="daOpen" @close="daOpen = false" />
+    </div>
+
+    <!-- Bottom Status Bar -->
+    <footer class="h-[26px] border-t border-[#1B2029] bg-[#0F1217] flex items-center px-4 text-[#666D7C] text-xs font-mono shrink-0 gap-6">
+      <div class="flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#8089A0]"></span>
+        <span class="text-[11px] font-sans">Ready</span>
       </div>
-      <div class="flex-1 overflow-y-auto flex flex-col relative">
-        <ChatMessageList :messages="messages" :error="error" :isStreaming="isStreaming" class="absolute inset-0" />
-      </div>
-      <ChatInput :disabled="isStreaming" @send="sendMessage" />
-    </aside>
+      <div>kernl-ws/main</div>
+      <div>0 active</div>
+      <div class="ml-auto">12ms</div>
+    </footer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
-const { currentFile, currentContent } = useVaultContext()
-const sessionId = ref('')
-const messages = ref([])
-const error = ref(null)
-const isStreaming = ref(false)
+const daOpen = ref(false)
 
-const createSession = async () => {
-  const res = await fetch('/api/chat/sessions', { method: 'POST' })
-  if (res.ok) {
-    const data = await res.json()
-    sessionId.value = data.id
-    connectSSE(data.id)
-  }
+const toggleDa = () => {
+  daOpen.value = !daOpen.value
 }
 
-const connectSSE = (id) => {
-  const source = new EventSource(`/api/chat/sessions/${id}/events`)
-  source.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      if (data.event === 'delta' || data.event === 'message') {
-        const lastMsg = messages.value[messages.value.length - 1]
-        if (lastMsg && lastMsg.role === 'assistant') {
-          lastMsg.content += data.content || ''
-        } else {
-          messages.value.push({ role: 'assistant', content: data.content || '' })
-        }
-      } else if (data.event === 'error') {
-        error.value = data.message || 'Stream error'
-        isStreaming.value = false
-      }
-    } catch(err) {
-      //
-    }
+const handleKeydown = (e) => {
+  if (e.key === 'Escape' && daOpen.value) {
+    daOpen.value = false
   }
-  source.onerror = () => {
-    isStreaming.value = false
-  }
-}
-
-const sendMessage = async (text) => {
-  if (!sessionId.value) {
-    await createSession()
-  }
-  
-  // Inject context into the prompt
-  let fullPrompt = text
-  if (currentFile.value) {
-    fullPrompt = `[Context: Viewing ${currentFile.value}]\n\nFile Content:\n\`\`\`\n${currentContent.value}\n\`\`\`\n\nUser: ${text}`
-  }
-
-  messages.value.push({ role: 'user', content: text })
-  isStreaming.value = true
-  error.value = null
-
-  const res = await fetch(`/api/chat/sessions/${sessionId.value}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: fullPrompt })
-  })
-  
-  if (!res.ok) {
-    error.value = 'Failed to send message'
-    isStreaming.value = false
+  if (e.key === '.' && e.metaKey) {
+    toggleDa()
   }
 }
 
 onMounted(() => {
-  if (!sessionId.value) {
-    createSession()
-  }
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
 })
 </script>
