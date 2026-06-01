@@ -1,116 +1,163 @@
 <template>
-  <div class="flex h-screen w-full bg-base-100 text-base-content font-sans overflow-hidden">
-    <!-- Left Sidebar: Navigation -->
-    <aside class="w-64 bg-base-200 border-r border-base-300 flex flex-col shrink-0">
-      <div class="p-4 text-xl font-bold border-b border-base-300">Kernl</div>
-      <nav class="flex-1 p-4 space-y-2">
-        <NuxtLink to="/" class="btn btn-ghost w-full justify-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
-          Vault
-        </NuxtLink>
-        <NuxtLink to="/inbox" class="btn btn-ghost w-full justify-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-          Inbox
-        </NuxtLink>
-        <NuxtLink to="/projects" class="btn btn-ghost w-full justify-start gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
-          Projects
-        </NuxtLink>
+  <div class="bg-bg-base text-text-primary h-screen flex flex-col overflow-hidden font-body selection:bg-da-accent selection:text-white">
+    <!-- Top Layout Wrapper -->
+    <div class="flex flex-1 overflow-hidden">
+      <!-- Left SideNav (Icon Rail) -->
+      <nav class="w-rail-width h-full bg-surface border-r border-border-hairline flex flex-col items-center py-base z-50 flex-shrink-0">
+        <!-- Logo -->
+        <div class="mb-break flex flex-col items-center gap-1 cursor-pointer">
+          <div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center">
+            <span class="material-symbols-outlined text-primary font-bold">terminal</span>
+          </div>
+          <span class="font-display text-[10px] tracking-widest text-primary uppercase">Kernl</span>
+        </div>
+        
+        <!-- Nav Items -->
+        <div class="flex flex-col gap-component flex-grow w-full items-center">
+          <NuxtLink to="/" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined font-bold">dashboard</span>
+          </NuxtLink>
+          <NuxtLink to="/projects" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">folder_open</span>
+          </NuxtLink>
+          <NuxtLink to="/notes" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">description</span>
+          </NuxtLink>
+          <NuxtLink to="/tasks" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">assignment</span>
+          </NuxtLink>
+          <NuxtLink to="/orchestrator" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">hub</span>
+          </NuxtLink>
+          <NuxtLink to="/inbox" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">inbox</span>
+          </NuxtLink>
+          <NuxtLink to="/bookmarks" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">bookmark</span>
+          </NuxtLink>
+          <NuxtLink to="/chat" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">chat</span>
+          </NuxtLink>
+          <NuxtLink to="/graph" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">query_stats</span>
+          </NuxtLink>
+          <NuxtLink to="/dashboard" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+            <span class="material-symbols-outlined">analytics</span>
+          </NuxtLink>
+        </div>
+        
+        <!-- Footer Nav -->
+        <div class="flex flex-col gap-component pb-base w-full items-center">
+          <button @click="toggleDa" :class="daOpen ? 'border-l-2 border-primary text-primary bg-surface-hover' : 'text-text-muted hover:text-primary'" class="w-full h-10 flex items-center justify-center transition-colors duration-150 cursor-pointer">
+            <span class="material-symbols-outlined">smart_toy</span>
+          </button>
+          <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer">
+            <span class="material-symbols-outlined">settings</span>
+          </button>
+          <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer">
+            <span class="material-symbols-outlined">account_circle</span>
+          </button>
+        </div>
       </nav>
-    </aside>
 
-    <!-- Center: Main Content -->
-    <main class="flex-1 flex flex-col relative overflow-hidden bg-base-100">
-      <slot />
-    </main>
+      <!-- Main Content Area -->
+      <main class="flex-1 flex flex-col min-w-0 relative bg-bg-base overflow-y-auto">
+        <slot />
+      </main>
 
-    <!-- Right Sidebar: DA Chat -->
-    <aside class="w-80 bg-[#0f172a] border-l border-[#334155] flex flex-col shrink-0 text-[#e2e8f0]">
-      <div class="p-4 border-b border-[#334155] font-bold flex items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#3b82f6]" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-        DA Chat
+      <!-- Right DA Panel overlay inside flex wrapper -->
+      <DaChatSurface :isOpen="daOpen" @close="daOpen = false" />
+    </div>
+
+    <!-- Shell: Footer Status Bar -->
+    <footer class="h-[26px] bg-surface-container-low text-text-dim border-t border-border-hairline flex items-center justify-between px-base z-50 divide-x divide-border-hairline shrink-0">
+      <div class="flex items-center gap-component pr-component">
+        <div class="flex items-center gap-tight">
+          <span class="w-2 h-2 rounded-full bg-status-passed shadow-[0_0_8px_rgba(109,154,120,0.4)]"></span>
+          <span class="font-mono-data text-mono-data text-status-passed uppercase">connected</span>
+        </div>
+        <div class="h-3 w-px bg-border-hairline mx-tight"></div>
+        <span class="font-mono-data text-mono-data">~/vault</span>
       </div>
-      <div class="flex-1 overflow-y-auto flex flex-col relative">
-        <ChatMessageList :messages="messages" :error="error" :isStreaming="isStreaming" class="absolute inset-0" />
+      
+      <div class="flex-grow flex items-center justify-center font-mono-data text-mono-data gap-section">
+        <span class="hover:bg-surface-hover px-2 transition-colors cursor-default">UTF-8</span>
+        <span class="hover:bg-surface-hover px-2 transition-colors cursor-default">system_ready</span>
       </div>
-      <ChatInput :disabled="isStreaming" @send="sendMessage" />
-    </aside>
+      
+      <div class="flex items-center gap-component pl-component">
+        <div class="flex items-center gap-tight">
+          <span class="material-symbols-outlined text-[14px]">sync</span>
+          <span class="font-mono-data text-mono-data">synced</span>
+        </div>
+        <div class="h-3 w-px bg-border-hairline mx-tight"></div>
+        <span class="font-mono-data text-mono-data">{{ currentTime }}</span>
+      </div>
+    </footer>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
-const { currentFile, currentContent } = useVaultContext()
-const sessionId = ref('')
-const messages = ref([])
-const error = ref(null)
-const isStreaming = ref(false)
+const daOpen = ref(false)
+const currentTime = ref(new Date().toISOString().slice(0, 19).replace('T', ' '))
 
-const createSession = async () => {
-  const res = await fetch('/api/chat/sessions', { method: 'POST' })
-  if (res.ok) {
-    const data = await res.json()
-    sessionId.value = data.id
-    connectSSE(data.id)
-  }
+const toggleDa = () => {
+  daOpen.value = !daOpen.value
 }
 
-const connectSSE = (id) => {
-  const source = new EventSource(`/api/chat/sessions/${id}/events`)
-  source.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      if (data.event === 'delta' || data.event === 'message') {
-        const lastMsg = messages.value[messages.value.length - 1]
-        if (lastMsg && lastMsg.role === 'assistant') {
-          lastMsg.content += data.content || ''
-        } else {
-          messages.value.push({ role: 'assistant', content: data.content || '' })
-        }
-      } else if (data.event === 'error') {
-        error.value = data.message || 'Stream error'
-        isStreaming.value = false
-      }
-    } catch(err) {
-      //
-    }
-  }
-  source.onerror = () => {
-    isStreaming.value = false
-  }
+let timer;
+
+const updateTime = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  const seconds = String(now.getSeconds()).padStart(2, '0')
+  currentTime.value = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
-const sendMessage = async (text) => {
-  if (!sessionId.value) {
-    await createSession()
+const handleKeydown = (e) => {
+  if (e.key === 'Escape' && daOpen.value) {
+    daOpen.value = false
   }
-  
-  // Inject context into the prompt
-  let fullPrompt = text
-  if (currentFile.value) {
-    fullPrompt = `[Context: Viewing ${currentFile.value}]\n\nFile Content:\n\`\`\`\n${currentContent.value}\n\`\`\`\n\nUser: ${text}`
-  }
-
-  messages.value.push({ role: 'user', content: text })
-  isStreaming.value = true
-  error.value = null
-
-  const res = await fetch(`/api/chat/sessions/${sessionId.value}/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: fullPrompt })
-  })
-  
-  if (!res.ok) {
-    error.value = 'Failed to send message'
-    isStreaming.value = false
+  if (e.key === '.' && e.metaKey) {
+    e.preventDefault()
+    toggleDa()
   }
 }
 
 onMounted(() => {
-  if (!sessionId.value) {
-    createSession()
-  }
+  window.addEventListener('keydown', handleKeydown)
+  updateTime()
+  timer = setInterval(updateTime, 1000)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  clearInterval(timer)
 })
 </script>
+
+<style>
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-hairline);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-default);
+}
+.custom-caret {
+  caret-color: var(--color-primary);
+}
+</style>

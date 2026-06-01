@@ -1,2 +1,107 @@
 @import "tailwindcss";
 @plugin "daisyui";
+
+@theme {
+  --color-on-surface-variant: #c5c6d0;
+  --color-error-container: #93000a;
+  --color-surface-hover: #1D222D;
+  --color-primary-fixed-dim: #b4c5fe;
+  --color-error: #ffb4ab;
+  --color-on-primary: #1d2e5e;
+  --color-on-error-container: #ffdad6;
+  --color-border-hairline: #1B2029;
+  --color-text-dim: #444A57;
+  --color-background: #0F1217;
+  --color-surface-bright: #39393d;
+  --color-primary-fixed: #dbe1ff;
+  --color-inverse-on-surface: #303034;
+  --color-surface-container-lowest: #0d0e11;
+  --color-on-secondary: #2c303b;
+  --color-tertiary-container: #ac8d41;
+  --color-status-passed: #6D9A78;
+  --color-secondary-fixed: #dfe2f0;
+  --color-inverse-surface: #e4e2e6;
+  --color-on-error: #690005;
+  --color-tertiary-fixed: #ffdf97;
+  --color-surface-container-highest: #343438;
+  --color-text-primary: #D6DBE3;
+  --color-surface: #131317;
+  --color-primary: #b4c5fe;
+  --color-primary-container: #7f8fc5;
+  --color-outline: #8f909a;
+  --color-surface-dim: #131317;
+  --color-secondary-fixed-dim: #c3c6d4;
+  --color-surface-variant: #343438;
+  --color-surface-container: #1f1f23;
+  --color-text-muted: #9098A7;
+  --color-on-primary-fixed-variant: #344576;
+  --color-on-primary-fixed: #031848;
+  --color-on-secondary-fixed: #171b25;
+  --color-bg-elevated: #141821;
+  --color-on-tertiary-fixed-variant: #5a4300;
+  --color-on-tertiary: #3e2e00;
+  --color-surface-container-high: #292a2d;
+  --color-on-secondary-fixed-variant: #434752;
+  --color-tertiary-fixed-dim: #e5c270;
+  --color-bg-base: #0F1217;
+  --color-on-secondary-container: #b5b8c5;
+  --color-inverse-primary: #4c5c8f;
+  --color-on-tertiary-container: #362800;
+  --color-on-primary-container: #152757;
+  --color-secondary-container: #454954;
+  --color-tertiary: #e5c270;
+  --color-surface-container-low: #1b1b1f;
+  --color-status-failed: #C2675C;
+  --color-on-surface: #e4e2e6;
+  --color-on-background: #e4e2e6;
+  --color-status-running: #8089A0;
+  --color-text-faint: #666D7C;
+  --color-on-tertiary-fixed: #251a00;
+  --color-outline-variant: #45464f;
+  --color-border-default: #242935;
+  --color-status-gate: #C99A4A;
+  --color-secondary: #c3c6d4;
+  --color-da-accent: #6B7BB0;
+
+  --radius: 0px;
+  --radius-lg: 2px;
+  --radius-xl: 4px;
+  --radius-full: 6px;
+
+  --spacing-tight: 4px;
+  --spacing-section: 24px;
+  --spacing-break: 64px;
+  --spacing-base: 8px;
+  --spacing-rail-width: 60px;
+  --spacing-margin: 32px;
+  --spacing-component: 16px;
+
+  --font-mono-data: "IBM Plex Mono", monospace;
+  --font-headline: "IBM Plex Sans", sans-serif;
+  --font-body: "IBM Plex Sans", sans-serif;
+  --font-label-caps: "IBM Plex Sans", sans-serif;
+  --font-display: "IBM Plex Sans", sans-serif;
+
+  --text-mono-data: 12px;
+  --text-mono-data--line-height: 16px;
+  --text-mono-data--font-weight: 450;
+  
+  --text-headline: 18px;
+  --text-headline--line-height: 24px;
+  --text-headline--letter-spacing: -0.01em;
+  --text-headline--font-weight: 500;
+  
+  --text-body: 13px;
+  --text-body--line-height: 20px;
+  --text-body--font-weight: 400;
+  
+  --text-label-caps: 11.5px;
+  --text-label-caps--line-height: 16px;
+  --text-label-caps--letter-spacing: 0.12em;
+  --text-label-caps--font-weight: 600;
+
+  --text-display: 24px;
+  --text-display--line-height: 32px;
+  --text-display--letter-spacing: -0.02em;
+  --text-display--font-weight: 600;
+}

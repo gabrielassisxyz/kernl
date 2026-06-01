@@ -1,114 +1,149 @@
 <template>
-  <div class="flex h-full w-full overflow-hidden">
-    <!-- File List -->
-    <div class="w-64 border-r border-base-300 bg-base-100 flex flex-col shrink-0">
-      <div class="p-4 border-b border-base-300 font-bold flex justify-between items-center">
-        <span>Files</span>
-        <button class="btn btn-xs btn-ghost" @click="createNewFile">+</button>
-      </div>
-      <div class="flex-1 overflow-y-auto p-2 space-y-1">
-        <button 
-          v-for="file in files" 
-          :key="file" 
-          @click="openFile(file)"
-          class="w-full text-left p-2 rounded hover:bg-base-200 text-sm truncate"
-          :class="{ 'bg-primary text-primary-content hover:bg-primary': currentFile === file }"
-        >
-          {{ file }}
-        </button>
-      </div>
-    </div>
+  <div class="px-margin pt-margin">
+    <!-- Header -->
+    <header class="mb-break">
+      <h1 class="font-headline text-display text-text-primary font-medium tracking-tight">Good morning. Three things landed overnight.</h1>
+    </header>
+    
+    <!-- Bento Grid Layout -->
+    <div class="grid grid-cols-2 gap-section pb-margin">
+      
+      <!-- Pane 1: Today's Tasks -->
+      <section class="bg-surface border border-border-hairline rounded-lg h-[340px] flex flex-col">
+        <div class="px-component py-base border-b border-border-hairline flex items-center justify-between">
+          <h2 class="font-label-caps text-label-caps text-text-muted">TODAY'S TASKS</h2>
+          <span class="material-symbols-outlined text-text-faint text-sm">more_vert</span>
+        </div>
+        <div class="flex-grow overflow-y-auto p-base flex flex-col gap-tight">
+          <!-- Task Item (Gate) -->
+          <div class="flex items-center bg-surface-container-low border-l-2 border-status-gate py-2 px-base gap-component">
+            <span class="font-mono-data text-mono-data text-status-gate">kr-842</span>
+            <span class="font-body text-body text-text-primary">Review schema changes for orchestrator sync</span>
+          </div>
+          <!-- Standard Items -->
+          <div class="flex items-center hover:bg-surface-hover py-2 px-base gap-component transition-colors group">
+            <span class="font-mono-data text-mono-data text-text-faint group-hover:text-text-muted">kr-910</span>
+            <span class="font-body text-body text-text-primary">Push daily metrics to vault</span>
+          </div>
+          <div class="flex items-center hover:bg-surface-hover py-2 px-base gap-component transition-colors group">
+            <span class="font-mono-data text-mono-data text-text-faint group-hover:text-text-muted">kr-112</span>
+            <span class="font-body text-body text-text-primary">Resolve circular dependencies in @kernl/core</span>
+          </div>
+          <div class="flex items-center hover:bg-surface-hover py-2 px-base gap-component transition-colors group">
+            <span class="font-mono-data text-mono-data text-text-faint group-hover:text-text-muted">kr-334</span>
+            <span class="font-body text-body text-text-primary">Update local environment variables for v1.0.5</span>
+          </div>
+          <div class="flex items-center hover:bg-surface-hover py-2 px-base gap-component transition-colors group">
+            <span class="font-mono-data text-mono-data text-text-faint group-hover:text-text-muted">kr-029</span>
+            <span class="font-body text-body text-text-primary">Backup knowledge graph to cold storage</span>
+          </div>
+        </div>
+      </section>
 
-    <!-- Editor -->
-    <div class="flex-1 flex flex-col h-full bg-base-100 min-w-0">
-      <div class="p-4 border-b border-base-300 flex justify-between items-center gap-2 shrink-0">
-        <input 
-          v-model="currentFile" 
-          class="input input-sm input-ghost text-lg font-bold flex-1" 
-          placeholder="Filename (e.g. note.md)" 
-          :disabled="!currentFile"
-        />
-        <div class="text-sm text-base-content/50">{{ saveStatus }}</div>
-        <button class="btn btn-sm btn-primary" @click="saveFile" :disabled="!currentFile">Save</button>
-      </div>
-      <div class="flex-1 p-0 relative">
-        <textarea 
-          v-model="content"
-          @input="debouncedSave"
-          class="absolute inset-0 w-full h-full p-6 font-mono text-base resize-none bg-base-100 focus:outline-none border-none" 
-          placeholder="Select a file or start typing..."
-          :disabled="!currentFile"
-        ></textarea>
-      </div>
+      <!-- Pane 2: Active Projects -->
+      <section class="bg-surface border border-border-hairline rounded-lg h-[340px] flex flex-col">
+        <div class="px-component py-base border-b border-border-hairline flex items-center justify-between">
+          <h2 class="font-label-caps text-label-caps text-text-muted">ACTIVE PROJECTS</h2>
+          <span class="material-symbols-outlined text-text-faint text-sm">filter_list</span>
+        </div>
+        <div class="flex-grow p-component flex flex-col gap-base">
+          <!-- Project Row -->
+          <div class="flex items-center justify-between py-base border-b border-border-hairline last:border-0">
+            <div class="flex items-center gap-component">
+              <span class="w-1.5 h-1.5 rounded-full bg-status-running"></span>
+              <span class="font-body text-body text-text-primary">Orchestrator V2</span>
+            </div>
+            <span class="font-label-caps text-[10px] text-text-muted bg-surface-container py-0.5 px-2 rounded">IN-FLIGHT</span>
+          </div>
+          <!-- Project Row -->
+          <div class="flex items-center justify-between py-base border-b border-border-hairline last:border-0">
+            <div class="flex items-center gap-component">
+              <span class="w-1.5 h-1.5 rounded-full bg-status-gate animate-pulse"></span>
+              <div class="flex flex-col">
+                <span class="font-body text-body text-text-primary">Vault Security Audit</span>
+                <span class="text-[10px] text-status-gate">Attention Required</span>
+              </div>
+            </div>
+            <span class="font-label-caps text-[10px] text-status-gate bg-surface-container py-0.5 px-2 rounded">REVIEW</span>
+          </div>
+          <!-- Project Row -->
+          <div class="flex items-center justify-between py-base border-b border-border-hairline last:border-0">
+            <div class="flex items-center gap-component">
+              <span class="w-1.5 h-1.5 rounded-full bg-status-running opacity-40"></span>
+              <span class="font-body text-body text-text-primary">Documentation Refresh</span>
+            </div>
+            <span class="font-label-caps text-[10px] text-text-muted bg-surface-container py-0.5 px-2 rounded">QUEUED</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pane 3: What Shipped Overnight -->
+      <section class="bg-surface border border-border-hairline rounded-lg h-[340px] flex flex-col">
+        <div class="px-component py-base border-b border-border-hairline">
+          <h2 class="font-label-caps text-label-caps text-text-muted">WHAT SHIPPED OVERNIGHT</h2>
+        </div>
+        <div class="flex-grow p-component overflow-y-auto">
+          <div class="flex flex-col gap-base border-l border-border-hairline ml-base pl-base">
+            <!-- Ledger Entry -->
+            <div class="relative">
+              <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 bg-status-passed rounded-full border-2 border-surface"></div>
+              <span class="font-mono-data text-mono-data text-text-muted block">04:22 AM</span>
+              <span class="font-mono-data text-mono-data text-status-passed">[kr-112]</span>
+              <span class="font-body text-body text-text-primary">Closed by Agent Echo</span>
+            </div>
+            <!-- Ledger Entry -->
+            <div class="relative">
+              <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 bg-status-passed rounded-full border-2 border-surface"></div>
+              <span class="font-mono-data text-mono-data text-text-muted block">02:15 AM</span>
+              <span class="font-mono-data text-mono-data text-status-passed">[kr-904]</span>
+              <span class="font-body text-body text-text-primary">Closed by Agent Delta</span>
+            </div>
+            <!-- Ledger Entry -->
+            <div class="relative">
+              <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 bg-status-passed rounded-full border-2 border-surface"></div>
+              <span class="font-mono-data text-mono-data text-text-muted block">11:58 PM</span>
+              <span class="font-mono-data text-mono-data text-status-passed">[kr-442]</span>
+              <span class="font-body text-body text-text-primary">Closed by Agent Alpha</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pane 4: Quick Capture -->
+      <section class="bg-surface border border-border-hairline rounded-lg h-[340px] flex flex-col">
+        <div class="px-component py-base border-b border-border-hairline">
+          <h2 class="font-label-caps text-label-caps text-text-muted">QUICK CAPTURE</h2>
+        </div>
+        <div class="flex-grow p-component flex flex-col justify-end gap-component">
+          <div class="flex-grow flex items-center justify-center text-center opacity-30">
+            <span class="material-symbols-outlined text-[48px]">lightbulb</span>
+          </div>
+          <div class="w-full">
+            <label class="block font-mono-data text-[10px] text-text-faint mb-tight uppercase tracking-widest">Entry Stream</label>
+            <div class="bg-surface-container-low border border-border-hairline rounded px-base py-component min-h-[44px] flex items-center focus-within:border-primary transition-colors">
+              <input v-model="captureInput" @keyup.enter="submitCapture" class="w-full bg-transparent border-none p-0 focus:ring-0 font-body text-body text-text-primary placeholder:text-text-faint outline-none custom-caret" :placeholder="capturePlaceholder" type="text">
+            </div>
+          </div>
+        </div>
+      </section>
+      
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 
-const files = ref([])
-const { currentFile, currentContent: content } = useVaultContext()
-const saveStatus = ref('')
-let saveTimeout = null
+const captureInput = ref('')
+const capturePlaceholder = ref('capture a thought...')
 
-const loadFiles = async () => {
-  const res = await fetch('/api/vault/list')
-  if (res.ok) {
-    const data = await res.json()
-    files.value = data.files || []
+const submitCapture = () => {
+  if (captureInput.value.trim() !== '') {
+    captureInput.value = ''
+    capturePlaceholder.value = 'Thought logged...'
+    setTimeout(() => {
+      capturePlaceholder.value = 'capture a thought...'
+    }, 2000)
   }
 }
-
-const openFile = async (path) => {
-  currentFile.value = path
-  saveStatus.value = 'Loading...'
-  const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`)
-  if (res.ok) {
-    content.value = await res.text()
-    saveStatus.value = ''
-  } else {
-    saveStatus.value = 'Error loading'
-  }
-}
-
-const createNewFile = () => {
-  const name = prompt('Filename (e.g. new_note.md):')
-  if (name) {
-    let finalName = name
-    if (!finalName.endsWith('.md')) finalName += '.md'
-    files.value.push(finalName)
-    currentFile.value = finalName
-    content.value = `# ${finalName.replace('.md', '')}\n\n`
-    saveFile()
-  }
-}
-
-const saveFile = async () => {
-  if (!currentFile.value) return
-  saveStatus.value = 'Saving...'
-  const res = await fetch(`/api/vault/file?path=${encodeURIComponent(currentFile.value)}`, {
-    method: 'POST',
-    body: content.value
-  })
-  if (res.ok) {
-    saveStatus.value = 'Saved'
-    setTimeout(() => { if (saveStatus.value === 'Saved') saveStatus.value = '' }, 2000)
-    if (!files.value.includes(currentFile.value)) {
-      loadFiles()
-    }
-  } else {
-    saveStatus.value = 'Error saving'
-  }
-}
-
-const debouncedSave = () => {
-  saveStatus.value = 'Editing...'
-  clearTimeout(saveTimeout)
-  saveTimeout = setTimeout(saveFile, 1000)
-}
-
-onMounted(() => {
-  loadFiles()
-})
 </script>
