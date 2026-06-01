@@ -22,6 +22,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterChatRoutes(mux, a)
 	RegisterChatResolveRoutes(mux, a)
 	RegisterVaultRoutes(mux, a)
+	RegisterMemoryRoutes(mux, a)
 	mux.Handle("GET /", http.FileServerFS(web.FS))
 
 	var h http.Handler = mux
