@@ -17,6 +17,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/prompt"
 	"github.com/gabrielassisxyz/kernl/internal/runstate"
@@ -101,6 +102,8 @@ func runEpicList(a *app.App, w io.Writer) error {
 func runEpicRun(a *app.App, args []string, out func(string)) error {
 	var workflowPath string
 	var workflowFlagSeen bool
+	var autonomous bool
+	var interactive bool
 	var remainingArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -122,6 +125,10 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			} else {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
 			}
+		} else if arg == "--autonomous" {
+			autonomous = true
+		} else if arg == "--interactive" {
+			interactive = true
 		} else {
 			remainingArgs = append(remainingArgs, arg)
 		}
@@ -138,6 +145,15 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
 	}
 	epicID := remainingArgs[0]
+	repoPath := a.Config.Registry.Repos[0].Path
+
+	// U1: Config and CLI flags for autonomous mode
+	if !autonomous && !interactive {
+		autoCfg, _ := dispatch.LoadAutonomousConfig("kernl.yaml")
+		if autoCfg {
+			autonomous = true
+		}
+	}
 
 	var customProfileID string
 	if workflowPath != "" {
@@ -147,13 +163,44 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		}
 		backend.RegisterWorkflow(desc)
 		customProfileID = desc.ID
+	} else if autonomous {
+		// U2: DA workflow inference
+		epicBead, err := a.Backend.Get(epicID, repoPath)
+		if err != nil {
+			return err
+		}
+		res, err := dispatch.InferWorkflow(context.Background(), a.Config.LLM, epicBead)
+		if err == nil && res != nil {
+			customProfileID = res.ShapeID
+			out(fmt.Sprintf("Inferred workflow shape: %s (Reason: %s)\n", res.ShapeID, res.Rationale))
+			
+			// U3: CLI confirmation prompting
+			if interactive {
+				out(fmt.Sprintf("Proceed with shape '%s'? [Y/n] ", res.ShapeID))
+				var confirm string
+				fmt.Scanln(&confirm)
+				if confirm != "" && strings.ToLower(confirm) != "y" {
+					return fmt.Errorf("aborted by user")
+				}
+			}
+		}
 	}
-	repoPath := a.Config.Registry.Repos[0].Path
 
 	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
 	if err != nil {
 		return err
 	}
+
+	// Persist autonomous label
+	if autonomous {
+		epicBead, _ := a.Backend.Get(epicID, repoPath)
+		if epicBead != nil {
+			newLabels := dispatch.SetEpicAutonomous(epicBead)
+			_ = a.Backend.Update(epicID, backend.UpdateBeadInput{SetLabels: newLabels}, repoPath)
+		}
+	}
+
+
 
 	beadPort := a.Config.Server.Port
 	if beadPort == 0 {
