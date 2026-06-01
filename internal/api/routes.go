@@ -23,7 +23,11 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterChatRoutes(mux, a)
 	RegisterChatResolveRoutes(mux, a)
 	RegisterVaultRoutes(mux, a)
-	mux.HandleFunc("POST /api/epics/{id}/run", dispatch.HandleEpicRunAPI(a.Backend, a.Config))
+	RegisterIngestRoutes(mux, a)
+	RegisterBookmarkRoutes(mux, a)
+	RegisterMemoryRoutes(mux, a)
+
+  mux.HandleFunc("POST /api/epics/{id}/run", dispatch.HandleEpicRunAPI(a.Backend, a.Config))
 	mux.Handle("GET /", http.FileServerFS(web.FS))
 
 	var h http.Handler = mux
