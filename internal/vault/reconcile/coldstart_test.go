@@ -564,3 +564,42 @@ func TestColdStart_MoveAndEditWhileOff(t *testing.T) {
 		t.Errorf("revision count: got %d, want %d", revsAfter, revsBefore+1)
 	}
 }
+
+// TestColdStart_ConflictingFileDoesNotAbort verifies that a single file whose
+// embedded id conflicts with an existing note_paths binding is logged and
+// skipped, rather than aborting cold-start and taking down the whole server.
+func TestColdStart_ConflictingFileDoesNotAbort(t *testing.T) {
+	ctx := context.Background()
+	g, vault, rec := newColdStartHarness(t)
+
+	// First boot: x.md with id A → binds path x.md to A.
+	xPath := filepath.Join(vault, "x.md")
+	if err := os.WriteFile(xPath, []byte("---\nid: conflict-a\ntitle: X\n---\n\nbody\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := rec.ColdStart(ctx); err != nil {
+		t.Fatalf("first ColdStart: %v", err)
+	}
+
+	// Corrupt: overwrite x.md with a DIFFERENT id while the path is bound to A.
+	if err := os.WriteFile(xPath, []byte("---\nid: conflict-b\ntitle: X2\n---\n\nbody2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// A healthy file that must still be ingested.
+	if err := os.WriteFile(filepath.Join(vault, "good.md"), []byte("---\nid: good-id\ntitle: Good\n---\n\nfine\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	rec2 := reconcile.New(g, vault)
+	if err := rec2.ColdStart(ctx); err != nil {
+		t.Fatalf("ColdStart aborted on a conflicting file (should skip+continue): %v", err)
+	}
+
+	var goodExists int
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE id='good-id' AND deleted_at IS NULL`).Scan(&goodExists)
+	})
+	if goodExists != 1 {
+		t.Errorf("healthy file should be ingested despite the conflicting one; got %d", goodExists)
+	}
+}

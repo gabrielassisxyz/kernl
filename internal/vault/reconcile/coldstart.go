@@ -74,7 +74,12 @@ func (r *Reconciler) ColdStart(ctx context.Context) error {
 			return nil
 		}
 
-		return r.reconcileFile(ctx, path, byUUID, byHash, seenUUIDs, hashTakenBy)
+		// A single malformed or conflicting file must never abort cold-start and
+		// take down the whole server — log it and keep walking.
+		if rerr := r.reconcileFile(ctx, path, byUUID, byHash, seenUUIDs, hashTakenBy); rerr != nil {
+			slog.Warn("coldstart: reconcile file failed; skipping", "path", path, "error", rerr)
+		}
+		return nil
 	})
 	if walkErr != nil {
 		return fmt.Errorf("coldstart: walk: %w", walkErr)

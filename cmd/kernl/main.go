@@ -9,13 +9,14 @@ import (
 )
 
 var (
-	doctorFn   func(configPath string) error                 = runDoctor
-	serveFn    func(configPath string, port int) error       = runServe
-	epicFn     func(configPath string, args []string) error  = runEpic
-	beadFn     func(configPath string, args []string) error  = runBead
-	sweepFn    func(configPath string, args []string) error  = runSweep
-	bookmarkFn func(configPath string, args []string) error  = runBookmark
-	helpFn     func() error                                  = printHelp
+	doctorFn   func(configPath string) error                = runDoctor
+	serveFn    func(configPath string, port int) error      = runServe
+	epicFn     func(configPath string, args []string) error = runEpic
+	beadFn     func(configPath string, args []string) error = runBead
+	sweepFn    func(configPath string, args []string) error = runSweep
+	bookmarkFn func(configPath string, args []string) error = runBookmark
+	captureFn  func(configPath string, args []string) error = runCapture
+	helpFn     func() error                                 = printHelp
 )
 
 func main() {
@@ -89,6 +90,8 @@ func Dispatch(args []string) error {
 		return sweepFn(configPath, args[1:])
 	case "bookmark":
 		return bookmarkFn(configPath, args[1:])
+	case "capture":
+		return captureFn(configPath, args[1:])
 	case "--help", "-h", "help":
 		return helpFn()
 	default:
@@ -109,6 +112,7 @@ Subcommands:
   bead         Manage individual beads
   sweep        Close epics whose PRs are merged in master
   bookmark     Manage bookmarks
+  capture      Capture a quick note/idea into the inbox (text arg or stdin)
 
 Flags:
   --config, -c Path to kernl.yaml (default: kernl.yaml)
