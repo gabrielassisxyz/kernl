@@ -40,11 +40,30 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
-import { EditorState } from '@codemirror/state'
-import { EditorView, lineNumbers } from '@codemirror/view'
+import { EditorState, StateField, StateEffect } from '@codemirror/state'
+import { EditorView, lineNumbers, Decoration } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import FrontmatterUI from './FrontmatterUI.vue'
 import DiffSuggest from './DiffSuggest.vue'
+
+// "DA wrote here": regions written by an accepted DA suggestion are marked for
+// the session so the user can see what the DA authored. Session-scoped (the
+// mark maps through edits but is not persisted across reloads).
+const addDaRegion = StateEffect.define()
+const daMark = Decoration.mark({ class: 'da-authored', attributes: { title: 'DA wrote here' } })
+const daRegionField = StateField.define({
+  create() { return Decoration.none },
+  update(deco, tr) {
+    deco = deco.map(tr.changes)
+    for (const e of tr.effects) {
+      if (e.is(addDaRegion) && e.value.to > e.value.from) {
+        deco = deco.update({ add: [daMark.range(e.value.from, e.value.to)] })
+      }
+    }
+    return deco
+  },
+  provide: (f) => EditorView.decorations.from(f),
+})
 
 const props = defineProps({
   path: String,
@@ -101,6 +120,7 @@ const loadFile = async (path) => {
       extensions: [
         lineNumbers(),
         markdown(),
+        daRegionField,
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
             isDirty.value = true
@@ -218,10 +238,12 @@ const requestSuggestion = async () => {
 
 const acceptHunk = (hunk) => {
   if (!view) return
-  const tr = view.state.update({
-    changes: { from: hunk.from, to: hunk.to, insert: hunk.content }
+  // Apply the suggested change and mark the inserted range as DA-authored.
+  const insertedTo = hunk.from + (hunk.content ? hunk.content.length : 0)
+  view.dispatch({
+    changes: { from: hunk.from, to: hunk.to, insert: hunk.content },
+    effects: addDaRegion.of({ from: hunk.from, to: insertedTo })
   })
-  view.dispatch(tr)
   activeHunks.value = activeHunks.value.filter(h => h.id !== hunk.id)
 }
 
@@ -250,5 +272,10 @@ const rejectHunk = (hunk) => {
 }
 .cm-cursor {
   border-left-color: #6B7BB0 !important;
+}
+.da-authored {
+  background-color: rgba(107, 123, 176, 0.12);
+  border-bottom: 1px dotted #6B7BB0;
+  cursor: help;
 }
 </style>
