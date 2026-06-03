@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
@@ -21,7 +22,18 @@ func RegisterIngestRoutes(mux *http.ServeMux, a *app.App) {
 	}
 	mm := ingest.NewManifestManager(vaultRoot)
 	_ = mm.Load()
-	svc := ingest.NewService(a.Graph, mm, &ingest.StubExtractor{})
+
+	// Use a real LLM-backed extractor only when an LLM is configured; otherwise
+	// fall back to the stub so behavior is unchanged and no tokens are spent.
+	var extractor ingest.Extractor = &ingest.StubExtractor{}
+	if a.Config != nil && a.Config.LLM.IsSet() {
+		if llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM)); err != nil {
+			slog.Error("ingest: failed to build LLM client, falling back to stub extractor", "error", err)
+		} else {
+			extractor = ingest.NewLLMExtractor(llm)
+		}
+	}
+	svc := ingest.NewService(a.Graph, mm, extractor)
 
 	mux.HandleFunc("POST /api/ingest/trigger", ingestTriggerHandler(svc))
 	mux.HandleFunc("GET /api/ingest/queue", ingestQueueListHandler(a))
