@@ -16,6 +16,7 @@ var (
 	sweepFn    func(configPath string, args []string) error = runSweep
 	bookmarkFn func(configPath string, args []string) error = runBookmark
 	captureFn  func(configPath string, args []string) error = runCapture
+	planFn     func(configPath string, args []string) error = runPlan
 	helpFn     func() error                                 = printHelp
 )
 
@@ -92,6 +93,8 @@ func Dispatch(args []string) error {
 		return bookmarkFn(configPath, args[1:])
 	case "capture":
 		return captureFn(configPath, args[1:])
+	case "plan":
+		return planFn(configPath, args[1:])
 	case "--help", "-h", "help":
 		return helpFn()
 	default:
@@ -113,6 +116,7 @@ Subcommands:
   sweep        Close epics whose PRs are merged in master
   bookmark     Manage bookmarks
   capture      Capture a quick note/idea into the inbox (text arg or stdin)
+  plan         Show the vault notes relevant to a topic (substrate-aware planning)
 
 Flags:
   --config, -c Path to kernl.yaml (default: kernl.yaml)

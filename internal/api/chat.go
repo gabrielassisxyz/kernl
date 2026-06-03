@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -13,6 +14,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
 // RegisterChatRoutes registers chat REST + SSE endpoints.
@@ -30,6 +32,26 @@ func createChatSessionHandler(a *app.App) http.HandlerFunc {
 		cs := &nodes.ChatSession{
 			Messages: []nodes.ChatMessage{},
 		}
+
+		// Substrate-aware planning: when the session is opened with a seed, pull
+		// the relevant vault notes and seed the conversation with them as system
+		// context, so the DA plans WITH the user's notes already in scope — the
+		// keystone seam, no manual hunting/pasting.
+		var body struct {
+			Seed string `json:"seed"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body) // body is optional
+		if seed := strings.TrimSpace(body.Seed); seed != "" {
+			if pnotes, err := planning.BuildContext(ctx, a.Graph, seed, 8); err == nil && len(pnotes) > 0 {
+				var b strings.Builder
+				fmt.Fprintf(&b, "The user is planning around: %q.\nRelevant notes already in their vault (use them as context):\n\n", seed)
+				for _, n := range pnotes {
+					fmt.Fprintf(&b, "- %s: %s\n", n.Title, n.Snippet)
+				}
+				cs.Messages = append(cs.Messages, nodes.ChatMessage{Role: "system", Content: b.String()})
+			}
+		}
+
 		var id string
 		err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 			var err error
