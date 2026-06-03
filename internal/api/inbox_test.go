@@ -85,7 +85,7 @@ func TestInboxAPI(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		
+
 		hasTriaged := false
 		for _, tag := range cap.Tags {
 			if tag == "triaged" {
@@ -100,4 +100,60 @@ func TestInboxAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DoRead: %v", err)
 	}
+}
+
+// TestInboxPendingDTOShape verifies /api/inbox/pending emits the camelCase,
+// UI-shaped fields web/pages/inbox.vue reads (id, subtitle), not the raw
+// PascalCase Capture struct.
+func TestInboxPendingDTOShape(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	var captureID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "buy milk", Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+		captureID = id
+		return err
+	}); err != nil {
+		t.Fatalf("CreateCapture: %v", err)
+	}
+
+	a := &app.App{Graph: g, Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}}}
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/inbox/pending", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+
+	var items []map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	it := items[0]
+	if it["id"] != captureID {
+		t.Errorf("expected camelCase id=%q, got %v (keys: %v)", captureID, it["id"], keysOf(it))
+	}
+	if it["subtitle"] != "buy milk" {
+		t.Errorf("expected subtitle to carry the body, got %v", it["subtitle"])
+	}
+	// Title is derived from the body when the capture has no explicit title.
+	if it["title"] != "buy milk" {
+		t.Errorf("expected derived title 'buy milk', got %v", it["title"])
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }

@@ -1,6 +1,19 @@
 <template>
   <div class="notes-editor-pane flex flex-col h-full bg-[#0F1217] text-[#D6DBE3]">
     <FrontmatterUI v-if="frontmatter" :data="frontmatter" />
+    <div class="flex items-center gap-2 px-3 py-2 border-b border-[#242935] shrink-0">
+      <input
+        v-model="instruction"
+        @keydown.enter="requestSuggestion"
+        placeholder="Ask the DA to edit this note (e.g. summarize, fix grammar)…"
+        class="flex-1 bg-[#141821] border border-[#242935] rounded px-2 py-1 text-[12px] text-[#D6DBE3] placeholder-[#666D7C] focus:outline-none focus:border-[#6B7BB0]"
+      />
+      <button
+        @click="requestSuggestion"
+        :disabled="suggesting || !instruction.trim()"
+        class="text-[12px] px-3 py-1 rounded bg-[#6B7BB0] text-[#F0F4F8] disabled:opacity-40"
+      >{{ suggesting ? 'Asking…' : 'Suggest' }}</button>
+    </div>
     <div class="flex-1 relative">
       <div ref="editorContainer" class="h-full w-full"></div>
       
@@ -47,6 +60,8 @@ const isDirty = ref(false)
 const conflict = ref(false)
 const lastModified = ref('')
 const activeHunks = ref([])
+const instruction = ref('')
+const suggesting = ref(false)
 let saveTimer = null
 
 const extractFrontmatter = (text) => {
@@ -172,6 +187,32 @@ const resolveConflict = (action) => {
     saveFile()
   } else {
     loadFile(props.path)
+  }
+}
+
+const requestSuggestion = async () => {
+  if (!props.path || !instruction.value.trim() || suggesting.value) return
+  // Diff is computed against the file on disk, so flush unsaved edits first to
+  // keep hunk offsets aligned with the editor buffer.
+  if (isDirty.value) await saveFile()
+  suggesting.value = true
+  try {
+    const res = await fetch('/api/notes/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: props.path, instruction: instruction.value })
+    })
+    if (res.ok) {
+      const data = await res.json()
+      activeHunks.value = data.hunks || []
+      instruction.value = ''
+    } else if (res.status === 503) {
+      console.warn('DA suggest unavailable: no LLM provider configured')
+    }
+  } catch (e) {
+    console.error('suggest failed', e)
+  } finally {
+    suggesting.value = false
   }
 }
 

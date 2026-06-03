@@ -70,6 +70,12 @@ func (a *Archiver) ArchiveBookmark(ctx context.Context, b *nodes.Bookmark) (*Arc
 		return nil, fmt.Errorf("write raw HTML: %w", err)
 	}
 
+	// Populate the excerpt from the archived HTML so the reader shows content
+	// (deterministic extraction; the DA-driven defuddle flow can refine later).
+	if b.Excerpt == "" {
+		b.Excerpt = ExtractExcerpt(string(body), 500)
+	}
+
 	// Record metadata for future headless screenshotting
 	metaPath := filepath.Join(archiveDir, "meta.json")
 	meta := map[string]string{

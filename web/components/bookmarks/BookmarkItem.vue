@@ -26,6 +26,12 @@
 </template>
 
 <script setup lang="ts">
+export interface BookmarkHighlight {
+  text: string
+  note?: string
+  created_at: string
+}
+
 export interface BookmarkItemData {
   ID: string
   CreatedAt: string
@@ -34,6 +40,7 @@ export interface BookmarkItemData {
   Description: string
   Excerpt: string
   Tags: string[]
+  Highlights?: BookmarkHighlight[]
 }
 
 defineProps<{

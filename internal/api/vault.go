@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 )
@@ -18,7 +19,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			home, _ := os.UserHomeDir()
 			root = filepath.Join(home, ".kernl", "vault")
 		}
-		
+
 		var files []string
 		_ = filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -54,6 +55,13 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		// Expose the file mtime so the editor uses the server's clock as the
+		// conflict-detection baseline (If-Match on save), not the client's.
+		if info, statErr := os.Stat(fullPath); statErr == nil {
+			lm := info.ModTime().Format(time.RFC3339)
+			w.Header().Set("Last-Modified", lm)
+			w.Header().Set("ETag", lm)
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		w.Write(data)
 	})
@@ -85,7 +93,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"saved"}`))
 	})

@@ -33,36 +33,11 @@ const toggle = (name) => {
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/vault/list')
+    // Tag hierarchy comes from the graph in one request (node_tags + note_paths),
+    // shaped as { tag: { files: [...] } } — no per-file frontmatter parsing.
+    const res = await fetch('/api/notes/tags')
     if (res.ok) {
-      const data = await res.json()
-      const builtTree = {}
-      
-      for (const file of data.files) {
-        try {
-          const fileRes = await fetch(`/api/vault/file?path=${encodeURIComponent(file)}`)
-          if (fileRes.ok) {
-            const text = await fileRes.text()
-            if (text.startsWith('---\n')) {
-              const end = text.indexOf('\n---\n', 4)
-              if (end !== -1) {
-                const fmText = text.substring(4, end)
-                const tagsMatch = fmText.match(/tags:\s*\[(.*?)\]/)
-                if (tagsMatch) {
-                  const tags = tagsMatch[1].split(',').map(t => t.trim().replace(/['"]/g, ''))
-                  tags.forEach(tag => {
-                    if (!builtTree[tag]) builtTree[tag] = { files: [] }
-                    builtTree[tag].files.push(file)
-                  })
-                }
-              }
-            }
-          }
-        } catch (e) {
-          console.error('Error fetching file for tags', e)
-        }
-      }
-      tree.value = builtTree
+      tree.value = await res.json()
     }
   } catch (e) {
     console.error('Error fetching tags', e)

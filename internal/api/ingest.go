@@ -1,9 +1,12 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -36,8 +39,12 @@ func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 			return
 		}
 
+		// Detached context: the request context is canceled the moment this
+		// handler returns, which would abort the background write.
 		go func() {
-			if err := svc.ProcessFile(r.Context(), body.FilePath, body.NodeID); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := svc.ProcessFile(ctx, body.FilePath, body.NodeID); err != nil {
 				slog.Error("ingest trigger failed", "error", err)
 			}
 		}()
@@ -75,9 +82,21 @@ func ingestQueueResolveHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		err := a.Graph.DoWrite(r.Context(), func(tx *graph.WriteTx) error {
-			return nodes.DeleteIngestReview(r.Context(), tx, id, nodes.Author{Name: "api"})
-		})
+		var body struct {
+			Action string `json:"action"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body) // empty body → Skip
+
+		vaultRoot := ""
+		if a.Config != nil {
+			vaultRoot = a.Config.Vault.Root
+		}
+
+		err := ingest.ResolveReview(r.Context(), a.Graph, vaultRoot, id, body.Action)
+		if errors.Is(err, ingest.ErrActionNotImplemented) {
+			http.Error(w, "action not implemented yet: "+body.Action, http.StatusNotImplemented)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

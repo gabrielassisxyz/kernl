@@ -1,11 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
@@ -48,6 +53,16 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
+	// Archive (raw HTML + excerpt) in the background so the response is fast,
+	// matching the CLI/inbox paths which also archive.
+	dataDir := filepath.Join(a.Config.Vault.Root, ".kernl", "archives")
+	archiver := bookmarks.NewArchiver(nil, dataDir)
+	go func() {
+		if err := bookmarks.ArchiveAndPersist(context.Background(), a.Graph, archiver, id); err != nil {
+			slog.Warn("bookmark archive failed", "id", id, "error", err)
+		}
+	}()
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": id})
 }
@@ -57,7 +72,9 @@ func listBookmarksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	var list []*nodes.Bookmark
 
 	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
-		filter := nodes.BookmarkFilter{}
+		// Include archived bookmarks — archiving is success, not removal; the
+		// reader should show them (default filter would hide archived ones).
+		filter := nodes.BookmarkFilter{IncludeArchived: true}
 		if tags := r.URL.Query().Get("tags"); tags != "" {
 			filter.Tags = strings.Split(tags, ",")
 		}
@@ -81,5 +98,42 @@ func addHighlightHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		http.Error(w, "missing id", http.StatusBadRequest)
 		return
 	}
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+
+	var req struct {
+		Text string `json:"text"`
+		Note string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Text) == "" {
+		http.Error(w, "highlight text is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	highlight := nodes.Highlight{Text: req.Text, Note: req.Note, CreatedAt: time.Now()}
+
+	var b *nodes.Bookmark
+	if err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		b, err = nodes.GetBookmark(ctx, tx, id)
+		return err
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	b.Highlights = append(b.Highlights, highlight)
+	if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return nodes.UpdateBookmark(ctx, tx, *b, nodes.Author{Name: "api"})
+	}); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(highlight)
 }

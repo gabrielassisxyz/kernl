@@ -11,6 +11,13 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 )
 
+// Highlight is a saved passage from a bookmark, with an optional note.
+type Highlight struct {
+	Text      string    `json:"text"`
+	Note      string    `json:"note,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // Bookmark represents a saved URL in the knowledge graph.
 type Bookmark struct {
 	ID          string
@@ -22,6 +29,7 @@ type Bookmark struct {
 	ArchivedAt  *time.Time
 	Excerpt     string
 	Tags        []string
+	Highlights  []Highlight
 }
 
 // Meta returns the common metadata for this node.
@@ -38,6 +46,9 @@ func (b Bookmark) NodeAttrs() []byte {
 	}
 	if b.ArchivedAt != nil {
 		attrs["archived_at"] = b.ArchivedAt.Format(time.RFC3339)
+	}
+	if len(b.Highlights) > 0 {
+		attrs["highlights"] = b.Highlights
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -84,10 +95,11 @@ func GetBookmark(ctx context.Context, tx *graph.ReadTx, id string) (*Bookmark, e
 	}
 
 	var attrs struct {
-		URL         string     `json:"url"`
-		Description string     `json:"description"`
-		ArchivedAt  *time.Time `json:"archived_at,omitempty"`
-		Excerpt     string     `json:"excerpt,omitempty"`
+		URL         string      `json:"url"`
+		Description string      `json:"description"`
+		ArchivedAt  *time.Time  `json:"archived_at,omitempty"`
+		Excerpt     string      `json:"excerpt,omitempty"`
+		Highlights  []Highlight `json:"highlights,omitempty"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -110,6 +122,7 @@ func GetBookmark(ctx context.Context, tx *graph.ReadTx, id string) (*Bookmark, e
 		ArchivedAt:  attrs.ArchivedAt,
 		Excerpt:     attrs.Excerpt,
 		Tags:        tags,
+		Highlights:  attrs.Highlights,
 	}, nil
 }
 
@@ -164,10 +177,11 @@ func ListBookmarks(ctx context.Context, tx *graph.ReadTx, f BookmarkFilter) ([]*
 		}
 
 		var attrs struct {
-			URL         string     `json:"url"`
-			Description string     `json:"description"`
-			ArchivedAt  *time.Time `json:"archived_at,omitempty"`
-			Excerpt     string     `json:"excerpt,omitempty"`
+			URL         string      `json:"url"`
+			Description string      `json:"description"`
+			ArchivedAt  *time.Time  `json:"archived_at,omitempty"`
+			Excerpt     string      `json:"excerpt,omitempty"`
+			Highlights  []Highlight `json:"highlights,omitempty"`
 		}
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -190,6 +204,7 @@ func ListBookmarks(ctx context.Context, tx *graph.ReadTx, f BookmarkFilter) ([]*
 			ArchivedAt:  attrs.ArchivedAt,
 			Excerpt:     attrs.Excerpt,
 			Tags:        tags,
+			Highlights:  attrs.Highlights,
 		})
 	}
 	return out, rows.Err()

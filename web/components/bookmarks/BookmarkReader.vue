@@ -22,6 +22,15 @@
           No excerpt available. Read original article.
         </div>
         
+        <!-- Existing Highlights -->
+        <div v-if="bookmark.Highlights && bookmark.Highlights.length" class="mt-break border-t border-border-hairline pt-break">
+          <h3 class="font-headline text-text-primary mb-component text-sm uppercase tracking-widest font-semibold text-text-faint">Highlights ({{ bookmark.Highlights.length }})</h3>
+          <div v-for="(h, i) in bookmark.Highlights" :key="i" class="bg-surface border-l-2 border-primary pl-component py-component mb-component">
+            <p class="font-body text-text-primary text-[13.5px] leading-relaxed">{{ h.text }}</p>
+            <p v-if="h.note" class="font-body text-text-muted text-[12px] mt-tight italic">{{ h.note }}</p>
+          </div>
+        </div>
+
         <!-- Highlighter UI -->
         <div class="mt-break border-t border-border-hairline pt-break">
           <h3 class="font-headline text-text-primary mb-component text-sm uppercase tracking-widest font-semibold text-text-faint">Add Highlight</h3>

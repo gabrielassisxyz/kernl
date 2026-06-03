@@ -284,3 +284,57 @@ func TestBookmarkListFilterArchived(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestBookmarkHighlightsRoundtrip verifies highlights persist through
+// CreateBookmark → UpdateBookmark → GetBookmark.
+func TestBookmarkHighlightsRoundtrip(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = CreateBookmark(ctx, tx, Bookmark{Title: "T", URL: "https://e.com"}, Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("CreateBookmark: %v", err)
+	}
+
+	// Read, append two highlights, write back (mirrors the API handler).
+	var b *Bookmark
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		b, err = GetBookmark(ctx, tx, id)
+		return err
+	}); err != nil {
+		t.Fatalf("GetBookmark: %v", err)
+	}
+	b.Highlights = append(b.Highlights,
+		Highlight{Text: "first passage", Note: "important", CreatedAt: time.Now()},
+		Highlight{Text: "second passage", CreatedAt: time.Now()},
+	)
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return UpdateBookmark(ctx, tx, *b, Author{Name: "test"})
+	}); err != nil {
+		t.Fatalf("add highlights: %v", err)
+	}
+
+	var got *Bookmark
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		got, err = GetBookmark(ctx, tx, id)
+		return err
+	}); err != nil {
+		t.Fatalf("GetBookmark: %v", err)
+	}
+
+	if len(got.Highlights) != 2 {
+		t.Fatalf("expected 2 highlights, got %d", len(got.Highlights))
+	}
+	if got.Highlights[0].Text != "first passage" || got.Highlights[0].Note != "important" {
+		t.Errorf("highlight[0] mismatch: %+v", got.Highlights[0])
+	}
+	if got.Highlights[1].Text != "second passage" || got.Highlights[1].Note != "" {
+		t.Errorf("highlight[1] mismatch: %+v", got.Highlights[1])
+	}
+}
