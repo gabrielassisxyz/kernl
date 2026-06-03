@@ -60,7 +60,7 @@ import BookmarkItem from '~/components/bookmarks/BookmarkItem.vue'
 import BookmarkReader from '~/components/bookmarks/BookmarkReader.vue'
 import type { BookmarkItemData } from '~/components/bookmarks/BookmarkItem.vue'
 
-const { data, pending } = useFetch<BookmarkItemData[]>('/api/bookmarks', {
+const { data, pending, refresh } = useFetch<BookmarkItemData[]>('/api/bookmarks', {
   default: () => []
 })
 
@@ -95,7 +95,8 @@ const handleHighlight = async (highlightData: { text: string, note?: string }) =
     if (!res.ok) {
       throw new Error(`Failed with status ${res.status}`)
     }
-    
+
+    await refresh()
     showToast('Highlight saved successfully')
   } catch (err: any) {
     showToast(err.message || 'Error saving highlight')
@@ -132,3 +133,4 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
+</script>

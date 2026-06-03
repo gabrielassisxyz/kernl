@@ -49,7 +49,7 @@ func TestProcess(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		
+
 		hasTriaged := false
 		for _, tag := range cap.Tags {
 			if tag == "triaged" {
@@ -73,7 +73,7 @@ func TestProcess(t *testing.T) {
 			if inEdges[0].Label != "derived_from" {
 				t.Errorf("expected edge label 'derived_from', got %q", inEdges[0].Label)
 			}
-			
+
 			// Verify the source node is a Note
 			note, err := nodes.GetNote(ctx, tx, inEdges[0].Src)
 			if err != nil {
@@ -102,5 +102,62 @@ func TestProcess(t *testing.T) {
 		if !strings.Contains(string(content), "id:") {
 			t.Errorf("expected id in markdown file, got:\n%s", string(content))
 		}
+	}
+}
+
+// TestProcessConvertInfersTarget verifies the single "convert" action infers a
+// bookmark for URL bodies and a note for everything else (UI has one button).
+func TestProcessConvertInfersTarget(t *testing.T) {
+	cases := []struct {
+		name     string
+		body     string
+		wantType string
+	}{
+		{"url becomes bookmark", "https://example.com/article", "bookmark"},
+		{"text becomes note", "remember to water the plants", "note"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			vaultRoot := t.TempDir()
+			g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+			if err != nil {
+				t.Fatalf("graph.Open: %v", err)
+			}
+			defer g.Close()
+
+			var captureID string
+			if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+				id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: tc.body, Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+				captureID = id
+				return err
+			}); err != nil {
+				t.Fatalf("CreateCapture: %v", err)
+			}
+
+			if err := inbox.Process(ctx, g, vaultRoot, nil, captureID, "convert"); err != nil {
+				t.Fatalf("Process: %v", err)
+			}
+
+			if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+				inEdges, err := edges.Incoming(ctx, tx, captureID)
+				if err != nil {
+					return err
+				}
+				if len(inEdges) != 1 {
+					t.Fatalf("expected 1 derived_from edge, got %d", len(inEdges))
+				}
+				var gotType string
+				if err := tx.QueryRow(`SELECT type FROM nodes WHERE id = ?`, inEdges[0].Src).Scan(&gotType); err != nil {
+					return err
+				}
+				if gotType != tc.wantType {
+					t.Errorf("convert(%q): derived node type = %q, want %q", tc.body, gotType, tc.wantType)
+				}
+				return nil
+			}); err != nil {
+				t.Fatalf("DoRead: %v", err)
+			}
+		})
 	}
 }

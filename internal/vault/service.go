@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sync"
 	"time"
 
@@ -21,8 +22,8 @@ type Service struct {
 	g   *graph.Graph
 	cfg config.VaultConfig
 
-	w   *watcher.Watcher
-	r   *reconcile.Reconciler
+	w *watcher.Watcher
+	r *reconcile.Reconciler
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -141,8 +142,21 @@ func (s *Service) routeEvents(ctx context.Context) {
 			}
 			var err error
 			switch ev.Kind {
-			case watcher.KindCreate, watcher.KindMoveCandidate:
+			case watcher.KindCreate:
 				err = s.r.OnCreate(ctx, ev.Path)
+			case watcher.KindMoveCandidate:
+				// fsnotify reports Rename on the OLD path of a move, which has
+				// already vanished from disk. Identity is preserved by the
+				// create/change event on the NEW path (its embedded frontmatter
+				// UUID is recognized there), so a move_candidate whose file is
+				// gone is a no-op for us — not an error. If the path unexpectedly
+				// still exists, fall through to create handling.
+				if _, statErr := os.Stat(ev.Path); statErr == nil {
+					err = s.r.OnCreate(ctx, ev.Path)
+				} else {
+					slog.Debug("vault: move_candidate path already gone; identity handled by new-path event",
+						"path", ev.Path)
+				}
 			case watcher.KindChange:
 				err = s.r.OnChange(ctx, ev.Path)
 				if errors.Is(err, graph.ErrNotFound) {

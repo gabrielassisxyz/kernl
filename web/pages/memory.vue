@@ -67,12 +67,12 @@
 import { ref, computed, watch } from 'vue'
 import MemoryClaimCard from '~/components/MemoryClaimCard.vue'
 
-// Fetch topics
-const { data: topicsData, pending: topicsPending } = useFetch<string[]>('/api/memory/topics', {
-  default: () => []
+// Fetch topics — the API wraps the array as { topics: [...] }.
+const { data: topicsData, pending: topicsPending } = useFetch<{ topics: string[] }>('/api/memory/topics', {
+  default: () => ({ topics: [] })
 })
 
-const topics = computed(() => topicsData.value || [])
+const topics = computed(() => topicsData.value?.topics || [])
 const selectedTopic = ref<string>('')
 
 // Auto-select first topic when loaded
@@ -82,14 +82,14 @@ watch(topics, (newTopics) => {
   }
 }, { immediate: true })
 
-// Fetch claims based on selected topic
-const { data: claimsData, pending: claimsPending, refresh: refreshClaims } = useFetch<any[]>('/api/memory/claims', {
+// Fetch claims based on selected topic — the API wraps as { claims: [...] }.
+const { data: claimsData, pending: claimsPending, refresh: refreshClaims } = useFetch<{ claims: any[] }>('/api/memory/claims', {
   query: computed(() => ({ topic: selectedTopic.value })),
-  default: () => [],
+  default: () => ({ claims: [] }),
   watch: [selectedTopic]
 })
 
-const claims = computed(() => claimsData.value || [])
+const claims = computed(() => claimsData.value?.claims || [])
 
 const selectTopic = (topic: string) => {
   selectedTopic.value = topic
@@ -101,11 +101,10 @@ const handleRefute = async (id: string, reason: string) => {
       method: 'POST',
       body: { reason }
     })
-    
-    // Optimistically remove the refuted claim
-    if (claimsData.value) {
-      claimsData.value = claimsData.value.filter(c => (c.ID || c.id) !== id)
-    }
+
+    // Refetch the topic's active claims (the refuted one drops out server-side
+    // via SynthesizeTopic's 'refutes' filter).
+    await refreshClaims()
   } catch (err) {
     console.error('Failed to refute claim:', err)
     // Could add toast notification here in a full app

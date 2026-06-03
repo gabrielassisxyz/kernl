@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
@@ -13,7 +14,29 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
+// resolveTargetType maps a UI/API action onto a concrete conversion target.
+// The single "convert" action infers note vs bookmark from the capture body
+// (a URL-looking body becomes a bookmark, everything else a note). "keep"
+// triages the capture in place with no target. "note", "bookmark", and
+// "discard" pass through unchanged for direct API/CLI callers.
+func resolveTargetType(action, body string) string {
+	if action == "convert" {
+		if looksLikeURL(body) {
+			return "bookmark"
+		}
+		return "note"
+	}
+	return action
+}
+
+func looksLikeURL(s string) bool {
+	s = strings.TrimSpace(s)
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
 // Process converts a pending capture into a note or bookmark, or discards it.
+// targetType accepts the UI actions ("convert", "keep", "discard") as well as
+// the concrete targets ("note", "bookmark").
 func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bookmarks.Archiver, captureID string, targetType string) error {
 	var capture *nodes.Capture
 	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
@@ -24,6 +47,8 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 	if err != nil {
 		return fmt.Errorf("get capture: %w", err)
 	}
+
+	targetType = resolveTargetType(targetType, capture.Body)
 
 	author := nodes.Author{Name: "inbox-convert"}
 	var targetBookmark *nodes.Bookmark

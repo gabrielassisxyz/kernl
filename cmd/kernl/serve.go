@@ -15,8 +15,9 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/config"
-	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/inbox"
 	"github.com/gabrielassisxyz/kernl/internal/preflight"
 	"github.com/gabrielassisxyz/kernl/internal/sweep"
 	"github.com/gabrielassisxyz/kernl/internal/vault"
@@ -112,16 +113,30 @@ func runServe(configPath string, port int) error {
 		if err := vault.Validate(cfg.Vault); err != nil {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: vault config: %w", err)
 		}
-		vaultDBPath := cfg.Vault.Root + "/.kernl-graph.db"
-		g, err := graph.Open(ctx, graph.Config{Path: vaultDBPath})
-		if err != nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: open vault graph: %w", err)
-		}
-		defer g.Close()
-
-		vaultSvc = vault.New(g, cfg.Vault)
+		// Reuse the App's graph handle so the watcher writes into the same
+		// database the HTTP API serves (single source of truth, one handle per
+		// process). App owns the handle and closes it on shutdown.
+		vaultSvc = vault.New(a.Graph, cfg.Vault)
 		if err := vaultSvc.Start(ctx); err != nil {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: vault service start: %w", err)
+		}
+	}
+
+	// Inbox DA pre-classifier — assigns a suggested action to each pending
+	// capture. Started only when an LLM provider is configured (same gate as the
+	// chat API), so it never spends tokens unless the user opts in.
+	if cfg.LLM.IsSet() {
+		llm, lerr := chat.NewProviderFromConfig(chat.LLMProviderConfig{
+			Provider: cfg.LLM.Provider,
+			APIKey:   cfg.LLM.APIKey,
+			Model:    cfg.LLM.Model,
+			Endpoint: cfg.LLM.Endpoint,
+		})
+		if lerr != nil {
+			slog.Warn("inbox classifier disabled", "error", lerr)
+		} else {
+			go inbox.NewClassifier(a.Graph, llm).Run(ctx)
+			slog.Info("inbox classifier started")
 		}
 	}
 

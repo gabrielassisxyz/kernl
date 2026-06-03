@@ -50,16 +50,24 @@ func (r *Resolver) ResolveInTx(ctx context.Context, tx *graph.WriteTx, srcNodeID
 // resolveInTx is the inner implementation shared by Resolve and ResolveInTx.
 func resolveInTx(ctx context.Context, tx *graph.WriteTx, srcNodeID, body string) ([]ResolveOutcome, error) {
 	links := Parse(body)
+
+	// Re-indexing rebuilds this source's complete outgoing link state, so clear
+	// its stale rows first — both resolved links_to edges and unresolved dangling
+	// links. This runs before the empty-body early return so that removing every
+	// wikilink from a note also clears its old edges/dangling rows, and it makes
+	// re-indexing idempotent (a repeated change does not duplicate edges).
+	if _, err := tx.Exec(`DELETE FROM edges WHERE src = ? AND label = ?`, srcNodeID, string(edges.EdgeTypeLinksTo)); err != nil {
+		return nil, fmt.Errorf("resolver: clear old edges: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM dangling_links WHERE src_node_id = ?`, srcNodeID); err != nil {
+		return nil, fmt.Errorf("resolver: clear old dangling: %w", err)
+	}
+
 	if len(links) == 0 {
 		return nil, nil
 	}
 
 	outcomes := make([]ResolveOutcome, 0, len(links))
-
-	// First, clear old dangling links for this source so re-indexing
-	if _, err := tx.Exec(`DELETE FROM dangling_links WHERE src_node_id = ?`, srcNodeID); err != nil {
-		return nil, fmt.Errorf("resolver: clear old dangling: %w", err)
-	}
 
 	for _, link := range links {
 		kind := ClassifyTarget(link.Target)

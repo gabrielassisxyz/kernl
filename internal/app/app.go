@@ -62,8 +62,10 @@ func NewApp(cfg *config.Config) (*App, error) {
 		}
 		graphDBPath = filepath.Join(home, ".kernl")
 	}
+	// Single graph database shared with the vault watcher (serve.go) and the
+	// capture CLI (capture.go), all keyed on this filename under the vault root.
 	g, err := graph.Open(context.Background(), graph.Config{
-		Path: filepath.Join(graphDBPath, "graph.db"),
+		Path: filepath.Join(graphDBPath, ".kernl-graph.db"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opening graph: %w", err)

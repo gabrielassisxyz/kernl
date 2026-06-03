@@ -43,9 +43,11 @@ const selectedIndex = ref(0)
 const handleAction = async (id: string, action: string) => {
   try {
     await $fetch(`/api/ingest/queue/${id}/resolve`, {
-      method: 'POST'
+      method: 'POST',
+      body: { action }
     })
-    // Optimistically remove the item
+    // Optimistically remove the item (only on success; unimplemented actions
+    // return 501 and throw, leaving the item in the queue).
     if (data.value) {
       data.value = data.value.filter(i => i.ID !== id)
     }

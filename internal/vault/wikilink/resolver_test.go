@@ -77,6 +77,55 @@ func countEdgesWithLabel(t *testing.T, g *graph.Graph, ctx context.Context, srcI
 // Resolve tests
 // ---------------------------------------------------------------------------
 
+// TestResolveIsIdempotent verifies that re-indexing the same body does not
+// accumulate duplicate links_to edges (regression for the edge-duplication bug
+// where every note edit inserted a fresh edge without clearing the old one).
+func TestResolveIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	srcID := createTestNote(t, g, ctx, "Source", "body")
+	dstID := createTestNote(t, g, ctx, "Destination", "body")
+
+	r := &Resolver{}
+	body := "See [[" + dstID + "|Dest]]."
+	for i := 0; i < 3; i++ {
+		if _, err := r.Resolve(ctx, g, srcID, body); err != nil {
+			t.Fatalf("Resolve (pass %d): %v", i, err)
+		}
+	}
+
+	if n := countEdgesWithLabel(t, g, ctx, srcID, dstID, "links_to"); n != 1 {
+		t.Errorf("expected exactly 1 links_to edge after 3 re-indexes, got %d", n)
+	}
+}
+
+// TestResolveClearsEdgesWhenLinksRemoved verifies that re-indexing a body with
+// no wikilinks removes the source's previously resolved edges (and dangling rows).
+func TestResolveClearsEdgesWhenLinksRemoved(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	srcID := createTestNote(t, g, ctx, "Source", "body")
+	dstID := createTestNote(t, g, ctx, "Destination", "body")
+
+	r := &Resolver{}
+	if _, err := r.Resolve(ctx, g, srcID, "See [["+dstID+"|Dest]]."); err != nil {
+		t.Fatalf("Resolve (with link): %v", err)
+	}
+	if n := countEdgesWithLabel(t, g, ctx, srcID, dstID, "links_to"); n != 1 {
+		t.Fatalf("setup: expected 1 edge, got %d", n)
+	}
+
+	// Re-index with the link removed.
+	if _, err := r.Resolve(ctx, g, srcID, "no links here anymore"); err != nil {
+		t.Fatalf("Resolve (links removed): %v", err)
+	}
+	if n := countEdgesWithLabel(t, g, ctx, srcID, dstID, "links_to"); n != 0 {
+		t.Errorf("expected 0 links_to edges after removing the link, got %d", n)
+	}
+}
+
 // TestResolveUUIDTarget verifies that a UUID wikilink target resolves directly to an edge.
 func TestResolveUUIDTarget(t *testing.T) {
 	ctx := context.Background()

@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
@@ -18,7 +22,18 @@ func RegisterIngestRoutes(mux *http.ServeMux, a *app.App) {
 	}
 	mm := ingest.NewManifestManager(vaultRoot)
 	_ = mm.Load()
-	svc := ingest.NewService(a.Graph, mm, &ingest.StubExtractor{})
+
+	// Use a real LLM-backed extractor only when an LLM is configured; otherwise
+	// fall back to the stub so behavior is unchanged and no tokens are spent.
+	var extractor ingest.Extractor = &ingest.StubExtractor{}
+	if a.Config != nil && a.Config.LLM.IsSet() {
+		if llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM)); err != nil {
+			slog.Error("ingest: failed to build LLM client, falling back to stub extractor", "error", err)
+		} else {
+			extractor = ingest.NewLLMExtractor(llm)
+		}
+	}
+	svc := ingest.NewService(a.Graph, mm, extractor)
 
 	mux.HandleFunc("POST /api/ingest/trigger", ingestTriggerHandler(svc))
 	mux.HandleFunc("GET /api/ingest/queue", ingestQueueListHandler(a))
@@ -36,8 +51,12 @@ func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 			return
 		}
 
+		// Detached context: the request context is canceled the moment this
+		// handler returns, which would abort the background write.
 		go func() {
-			if err := svc.ProcessFile(r.Context(), body.FilePath, body.NodeID); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := svc.ProcessFile(ctx, body.FilePath, body.NodeID); err != nil {
 				slog.Error("ingest trigger failed", "error", err)
 			}
 		}()
@@ -75,9 +94,21 @@ func ingestQueueResolveHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		err := a.Graph.DoWrite(r.Context(), func(tx *graph.WriteTx) error {
-			return nodes.DeleteIngestReview(r.Context(), tx, id, nodes.Author{Name: "api"})
-		})
+		var body struct {
+			Action string `json:"action"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body) // empty body → Skip
+
+		vaultRoot := ""
+		if a.Config != nil {
+			vaultRoot = a.Config.Vault.Root
+		}
+
+		err := ingest.ResolveReview(r.Context(), a.Graph, vaultRoot, id, body.Action)
+		if errors.Is(err, ingest.ErrActionNotImplemented) {
+			http.Error(w, "action not implemented yet: "+body.Action, http.StatusNotImplemented)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
