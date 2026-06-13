@@ -24,10 +24,10 @@ func init() {
 	FS = &mergedFS{root: rootEmbed, nuxt: nuxtFS}
 }
 
-// mergedFS tries the root embedded files first, then falls back to
-// the Nuxt build output. This allows the orchestrator monitor
-// (index.html, app.js, style.css) to coexist with the chat SPA
-// served under /chat/.
+// mergedFS serves the Nuxt shell (the main app) at the site root and keeps
+// the legacy orchestrator monitor reachable at /monitor.html. Root-embedded
+// assets (monitor.js, style.css) still resolve directly; everything else
+// falls back to the Nuxt build output.
 type mergedFS struct {
 	root fs.FS
 	nuxt fs.FS
@@ -42,11 +42,20 @@ func (m *mergedFS) Open(name string) (fs.File, error) {
 	if name == "" {
 		name = "."
 	}
-	// Try root-embedded files first (monitor)
-	f, err := m.root.Open(name)
-	if err == nil {
+	// Legacy orchestrator monitor moved to /monitor.html so it no longer
+	// shadows the Nuxt Home at "/". Its assets (/style.css, /monitor.js)
+	// still resolve from the root embed below.
+	if name == "monitor.html" || name == "monitor" {
+		return m.root.Open("index.html")
+	}
+	// Serve the Nuxt shell's index.html at the site root instead of the
+	// legacy monitor (which a root-first lookup would otherwise return).
+	if name == "index.html" {
+		return m.nuxt.Open("index.html")
+	}
+	// Root-embedded assets (monitor.js, style.css) first, then Nuxt output.
+	if f, err := m.root.Open(name); err == nil {
 		return f, nil
 	}
-	// Fall back to Nuxt output
 	return m.nuxt.Open(name)
 }
