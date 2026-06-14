@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
 // DenialReason explains why a permission was denied.
@@ -23,10 +25,10 @@ type PermissionChecker interface {
 
 // Resolution describes the user's decision on a pending permission request.
 type Resolution struct {
-	ToolCallID     string
-	Action         string  // "allow" or "deny"
+	ToolCallID      string
+	Action          string // "allow" or "deny"
 	RequestedNodeID string
-	Feedback       *string
+	Feedback        *string
 }
 
 // ChatEngine handles a single chat session's request/response lifecycle.
@@ -91,7 +93,7 @@ func (e *ChatEngine) RunSession(ctx context.Context) error {
 }
 
 func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, messages []Message) error {
-	tools := []Tool{readNodeTool()}
+	tools := []Tool{readNodeTool(), searchNotesTool()}
 
 	resp, err := e.llmClient.Chat(ctx, messages, tools)
 	if err != nil {
@@ -129,7 +131,7 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 				// Persist pending permission and emit event (U4 replaces this stub).
 				pp := &nodes.PendingPermissionState{
 					ToolCallID:        tc.ID,
-					RequestedNodeID: args.NodeID,
+					RequestedNodeID:   args.NodeID,
 					RequestedNodePath: "",
 					Status:            "pending",
 					CreatedAt:         time.Now().UTC(),
@@ -162,6 +164,36 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 			messages = append(messages, Message{
 				Role:    "tool",
 				Content: fmt.Sprintf("read_node(%s) = %s", args.NodeID, content),
+			})
+			return e.runAgentLoop(ctx, cs, messages)
+		}
+
+		if tc.Function.Name == "search_notes" {
+			args := struct {
+				Query string `json:"query"`
+			}{}
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+				e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
+				return nil
+			}
+
+			notes, err := planning.BuildContext(ctx, e.app.Graph, args.Query, 8)
+			if err != nil {
+				e.emitErrorEvent(fmt.Sprintf("search error: %v", err))
+				return nil
+			}
+
+			var b strings.Builder
+			if len(notes) == 0 {
+				b.WriteString("no matching notes")
+			}
+			for _, n := range notes {
+				fmt.Fprintf(&b, "- [%s] %s: %s\n", n.ID, n.Title, n.Snippet)
+			}
+
+			messages = append(messages, Message{
+				Role:    "tool",
+				Content: fmt.Sprintf("search_notes(%q) =\n%s", args.Query, b.String()),
 			})
 			return e.runAgentLoop(ctx, cs, messages)
 		}
@@ -249,6 +281,20 @@ func readNodeTool() Tool {
 				"node_id": {"type": "string"}
 			},
 			"required": ["node_id"]
+		}`),
+	}
+}
+
+func searchNotesTool() Tool {
+	return Tool{
+		Name:        "search_notes",
+		Description: "Search the user's notes and graph by topic or keywords; returns the most relevant notes (id, title, snippet). Call this to find what the user has written before answering — do not ask the user for a node ID.",
+		Parameters: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"query": {"type": "string"}
+			},
+			"required": ["query"]
 		}`),
 	}
 }
