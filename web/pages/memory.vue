@@ -69,6 +69,7 @@ import MemoryClaimCard from '~/components/MemoryClaimCard.vue'
 
 // Fetch topics — the API wraps the array as { topics: [...] }.
 const { data: topicsData, pending: topicsPending } = useFetch<{ topics: string[] }>('/api/memory/topics', {
+  server: false,
   default: () => ({ topics: [] })
 })
 
@@ -84,6 +85,7 @@ watch(topics, (newTopics) => {
 
 // Fetch claims based on selected topic — the API wraps as { claims: [...] }.
 const { data: claimsData, pending: claimsPending, refresh: refreshClaims } = useFetch<{ claims: any[] }>('/api/memory/claims', {
+  server: false,
   query: computed(() => ({ topic: selectedTopic.value })),
   default: () => ({ claims: [] }),
   watch: [selectedTopic]

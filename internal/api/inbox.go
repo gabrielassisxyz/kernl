@@ -23,6 +23,46 @@ func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/inbox/rollups", func(w http.ResponseWriter, r *http.Request) {
 		getRollupsHandler(w, r, a)
 	})
+	mux.HandleFunc("POST /api/inbox", func(w http.ResponseWriter, r *http.Request) {
+		createCaptureHandler(w, r, a)
+	})
+}
+
+// createCaptureHandler creates a Capture from the web Quick Capture box,
+// mirroring the `kernl capture` CLI (Capture node, pending tag) so the entry
+// lands in the same inbox.
+func createCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	var req struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	body := strings.TrimSpace(req.Body)
+	if body == "" {
+		writeError(w, http.StatusBadRequest, "body is required")
+		return
+	}
+
+	var id string
+	err := a.Graph.DoWrite(r.Context(), func(tx *graph.WriteTx) error {
+		var e error
+		id, e = nodes.CreateCapture(r.Context(), tx, nodes.Capture{
+			Body:         body,
+			CapturedFrom: "web",
+			Tags:         []string{"pending"},
+		}, nodes.Author{Name: "web"})
+		return e
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create capture")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"id": id})
 }
 
 // inboxItemDTO is the UI-shaped, camelCase view of a pending Capture consumed

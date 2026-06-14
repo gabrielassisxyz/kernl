@@ -34,6 +34,7 @@ import IngestHint from '~/components/ingest/IngestHint.vue'
 import type { IngestReviewData } from '~/components/ingest/IngestItem.vue'
 
 const { data, pending, refresh } = useFetch<IngestReviewData[]>('/api/ingest/queue', {
+  server: false,
   default: () => []
 })
 

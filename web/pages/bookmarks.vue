@@ -61,6 +61,7 @@ import BookmarkReader from '~/components/bookmarks/BookmarkReader.vue'
 import type { BookmarkItemData } from '~/components/bookmarks/BookmarkItem.vue'
 
 const { data, pending, refresh } = useFetch<BookmarkItemData[]>('/api/bookmarks', {
+  server: false,
   default: () => []
 })
 

@@ -34,6 +34,7 @@ import InboxHint from '~/components/inbox/InboxHint.vue'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
 
 const { data, pending, refresh } = useFetch<InboxItemData[]>('/api/inbox/pending', {
+  server: false,
   default: () => []
 })
 

@@ -12,37 +12,28 @@
           <span class="font-display text-[10px] tracking-widest text-primary uppercase">Kernl</span>
         </div>
         
-        <!-- Nav Items -->
+        <!-- Nav Items (only built, reachable surfaces; ordered by the magic loop) -->
         <div class="flex flex-col gap-component flex-grow w-full items-center">
-          <NuxtLink to="/" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+          <NuxtLink to="/" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Home">
             <span class="material-symbols-outlined font-bold">dashboard</span>
           </NuxtLink>
-          <NuxtLink to="/projects" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">folder_open</span>
-          </NuxtLink>
-          <NuxtLink to="/notes" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">description</span>
-          </NuxtLink>
-          <NuxtLink to="/tasks" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">assignment</span>
-          </NuxtLink>
-          <NuxtLink to="/orchestrator" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">hub</span>
-          </NuxtLink>
-          <NuxtLink to="/inbox" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+          <NuxtLink to="/inbox" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Inbox">
             <span class="material-symbols-outlined">inbox</span>
           </NuxtLink>
-          <NuxtLink to="/bookmarks" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
+          <NuxtLink to="/notes" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Notes">
+            <span class="material-symbols-outlined">description</span>
+          </NuxtLink>
+          <NuxtLink to="/bookmarks" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Bookmarks">
             <span class="material-symbols-outlined">bookmark</span>
           </NuxtLink>
-          <NuxtLink to="/chat" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">chat</span>
+          <NuxtLink to="/memory" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Memory">
+            <span class="material-symbols-outlined">neurology</span>
           </NuxtLink>
-          <NuxtLink to="/graph" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">query_stats</span>
+          <NuxtLink to="/ingest" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Ingest">
+            <span class="material-symbols-outlined">input</span>
           </NuxtLink>
-          <NuxtLink to="/dashboard" class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover">
-            <span class="material-symbols-outlined">analytics</span>
+          <NuxtLink to="/audit" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Audit">
+            <span class="material-symbols-outlined">policy</span>
           </NuxtLink>
         </div>
         
