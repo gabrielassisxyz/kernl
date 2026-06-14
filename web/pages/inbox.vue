@@ -4,8 +4,8 @@
 
   <!-- Inbox Queue -->
   <section class="flex-1 overflow-y-auto hide-scrollbar relative">
-    <div class="flex flex-col">
-      <InboxItem 
+    <div class="flex flex-col gap-base px-section py-base">
+      <InboxItem
         v-for="(item, index) in items" 
         :key="item.id" 
         :item="item" 

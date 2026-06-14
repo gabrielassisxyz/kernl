@@ -16,7 +16,10 @@
 
     <!-- Chat History -->
     <div class="flex-1 overflow-y-auto p-section flex flex-col gap-section">
-      <p class="font-body text-text-muted mb-4">Ask me about anything in your graph.</p>
+      <div class="mb-4">
+        <p class="font-headline text-text-primary text-lg font-medium tracking-tight">{{ daGreeting }}</p>
+        <p class="font-body text-text-faint text-body mt-1">Ask me about anything in your graph.</p>
+      </div>
       
       <!-- System/existing messages from composable -->
       <div class="flex flex-col gap-section w-full">
@@ -84,11 +87,17 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
 
 defineProps({
   isOpen: Boolean
+})
+
+const daGreeting = computed(() => {
+  const h = new Date().getHours()
+  const tod = h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening'
+  return `${tod}, Gabriel.`
 })
 defineEmits(['close'])
 
