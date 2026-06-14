@@ -39,9 +39,6 @@
         
         <!-- Footer Nav -->
         <div class="flex flex-col gap-component pb-base w-full items-center">
-          <button @click="toggleDa" :class="daOpen ? 'border-l-2 border-primary text-primary bg-surface-hover' : 'text-text-muted hover:text-primary'" class="w-full h-10 flex items-center justify-center transition-colors duration-150 cursor-pointer">
-            <span class="material-symbols-outlined">smart_toy</span>
-          </button>
           <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer">
             <span class="material-symbols-outlined">settings</span>
           </button>
@@ -58,6 +55,17 @@
 
       <!-- Right DA Panel overlay inside flex wrapper -->
       <DaChatSurface :isOpen="daOpen" @close="daOpen = false" />
+
+      <!-- Reopen tab: pinned to right edge, only when DA is closed -->
+      <button
+        v-if="!daOpen"
+        @click="daOpen = true"
+        title="Open DA (⌘.)"
+        class="absolute top-1/2 right-0 -translate-y-1/2 w-6 flex flex-col items-center justify-center gap-1.5 py-3 bg-surface border-y border-l border-border-hairline rounded-l text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer z-40"
+      >
+        <span class="material-symbols-outlined !text-[18px]">smart_toy</span>
+        <span class="font-label-caps text-[10px] tracking-widest [writing-mode:vertical-rl]">DA</span>
+      </button>
     </div>
 
     <!-- Shell: Footer Status Bar -->
@@ -91,7 +99,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 
-const daOpen = ref(false)
+const daOpen = ref(true)
 const currentTime = ref(new Date().toISOString().slice(0, 19).replace('T', ' '))
 
 const toggleDa = () => {
