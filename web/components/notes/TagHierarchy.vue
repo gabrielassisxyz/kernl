@@ -1,5 +1,5 @@
 <template>
-  <div class="tag-hierarchy p-4 h-full overflow-y-auto bg-[#0F1217] text-[13px]">
+  <div class="tag-hierarchy p-4 bg-[#0F1217] text-[13px]">
     <h3 class="text-[11.5px] uppercase font-semibold tracking-[0.12em] text-[#666D7C] mb-4">Tags</h3>
     <div v-if="loading" class="text-[#9098A7]">Loading...</div>
     <div v-else>
