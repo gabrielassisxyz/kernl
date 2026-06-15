@@ -40,7 +40,7 @@
           <td class="py-base pr-section font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ bead.id }}</td>
           <td class="py-base pr-section font-mono-data text-mono-data text-text-dim whitespace-nowrap">{{ prettyState(bead.state) }}</td>
           <td class="py-base pr-section font-mono-data text-mono-data text-text-muted whitespace-nowrap">P{{ bead.priority }}</td>
-          <td class="py-base font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ fmtTime(bead.updatedAt) }}</td>
+          <td class="py-base font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ formatTimestamp(bead.updatedAt) }}</td>
         </tr>
       </tbody>
     </table>
@@ -51,6 +51,7 @@
 import { ref, computed } from 'vue'
 import type { Bead } from '~/composables/useBeads'
 import { statusTone, statusDotClass, prettyState } from '~/utils/workflow'
+import { formatTimestamp } from '~/utils/time'
 
 const props = defineProps<{ tasks: Bead[] }>()
 
@@ -91,12 +92,4 @@ const sorted = computed(() => {
 
 const tone = (b: Bead) => statusTone(b)
 const dotClass = (b: Bead) => statusDotClass(statusTone(b))
-
-function fmtTime(s: string): string {
-  if (!s) return ''
-  const d = new Date(s)
-  return isNaN(d.getTime())
-    ? ''
-    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 </script>

@@ -65,7 +65,7 @@
         <!-- Footer meta -->
         <footer class="px-section py-base border-t border-border-hairline flex items-center justify-between">
           <span class="font-mono-data text-mono-data text-text-faint">{{ prettyState(bead.type) }}</span>
-          <span class="font-mono-data text-mono-data text-text-faint">updated {{ fmtTime(bead.updatedAt) }}</span>
+          <span class="font-mono-data text-mono-data text-text-faint">updated {{ formatTimestamp(bead.updatedAt) }}</span>
         </footer>
       </aside>
     </div>
@@ -76,6 +76,7 @@
 import { computed } from 'vue'
 import type { Bead } from '~/composables/useBeads'
 import { statusTone, statusDotClass, prettyState } from '~/utils/workflow'
+import { formatTimestamp } from '~/utils/time'
 
 const props = defineProps<{ bead: Bead | null }>()
 
@@ -83,12 +84,4 @@ defineEmits<{ (e: 'close'): void }>()
 
 const tone = computed(() => (props.bead ? statusTone(props.bead) : 'neutral'))
 const dotClass = computed(() => statusDotClass(tone.value))
-
-function fmtTime(s: string): string {
-  if (!s) return ''
-  const d = new Date(s)
-  return isNaN(d.getTime())
-    ? ''
-    : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
 </script>

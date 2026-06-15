@@ -70,6 +70,7 @@
 import { computed } from 'vue'
 import type { Bead } from '~/composables/useBeads'
 import { statusTone, statusDotClass, prettyState } from '~/utils/workflow'
+import { formatRelativeTime } from '~/utils/time'
 
 const props = defineProps<{
   epic: Bead
@@ -99,20 +100,5 @@ const percentTone = computed(() =>
   props.total > 0 && props.done >= props.total ? 'text-status-passed' : 'text-text-faint'
 )
 
-const updated = computed(() => relativeTime(props.epic.updatedAt))
-
-function relativeTime(iso?: string): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return ''
-  const diff = Date.now() - d.getTime()
-  const m = Math.round(diff / 60000)
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m}m ago`
-  const h = Math.round(m / 60)
-  if (h < 24) return `${h}h ago`
-  const days = Math.round(h / 24)
-  if (days < 7) return `${days}d ago`
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
+const updated = computed(() => formatRelativeTime(props.epic.updatedAt))
 </script>
