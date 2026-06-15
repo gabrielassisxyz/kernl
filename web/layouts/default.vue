@@ -29,6 +29,15 @@
           <NuxtLink to="/memory" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Memory">
             <span class="material-symbols-outlined">neurology</span>
           </NuxtLink>
+          <NuxtLink to="/projects" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Projects">
+            <span class="material-symbols-outlined">folder_open</span>
+          </NuxtLink>
+          <NuxtLink to="/tasks" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Tasks">
+            <span class="material-symbols-outlined">checklist</span>
+          </NuxtLink>
+          <NuxtLink to="/orchestrator" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Orchestrator">
+            <span class="material-symbols-outlined">account_tree</span>
+          </NuxtLink>
           <NuxtLink to="/ingest" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Ingest">
             <span class="material-symbols-outlined">input</span>
           </NuxtLink>
