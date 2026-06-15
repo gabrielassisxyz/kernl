@@ -270,8 +270,12 @@ const rejectHunk = (hunk) => {
 .cm-activeLine {
   background-color: #1D222D !important;
 }
-.cm-cursor {
-  border-left-color: #6B7BB0 !important;
+.cm-editor .cm-content {
+  caret-color: #FFFFFF !important;
+}
+.cm-cursor,
+.cm-cursor-primary {
+  border-left-color: #FFFFFF !important;
 }
 .da-authored {
   background-color: rgba(107, 123, 176, 0.12);
