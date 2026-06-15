@@ -2,15 +2,15 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import TaskBoard from '../components/tasks/TaskBoard.vue'
 import TaskCard from '../components/tasks/TaskCard.vue'
+import type { Task, TaskStatus } from '../composables/useTasks'
 
-function task(id: string, state: string) {
+function task(id: string, status: TaskStatus, projectId = ''): Task {
   return {
     id,
-    type: 'task',
-    state,
     title: id,
-    priority: 1,
-    labels: [],
+    description: '',
+    status,
+    projectId,
     createdAt: '',
     updatedAt: '',
   }
@@ -18,36 +18,35 @@ function task(id: string, state: string) {
 
 describe('TaskBoard', () => {
   const tasks = [
-    task('a', 'open'),
-    task('b', 'ready_for_implementation'), // → open
-    task('c', 'implementation'), // → in_progress
-    task('d', 'blocked'), // → blocked
-    task('e', 'closed'), // → done
+    task('a', 'todo'),
+    task('b', 'todo'),
+    task('c', 'in_progress'),
+    task('d', 'done'),
   ]
+  const projectTitles = {}
 
   it('renders one card per task', () => {
-    const w = mount(TaskBoard, { props: { tasks } })
-    expect(w.findAllComponents(TaskCard)).toHaveLength(5)
+    const w = mount(TaskBoard, { props: { tasks, projectTitles } })
+    expect(w.findAllComponents(TaskCard)).toHaveLength(4)
   })
 
-  it('buckets tasks into the four normalized columns', () => {
-    const w = mount(TaskBoard, { props: { tasks } })
+  it('buckets tasks into the three status columns', () => {
+    const w = mount(TaskBoard, { props: { tasks, projectTitles } })
     const sections = w.findAll('section')
-    expect(sections).toHaveLength(4)
-    // Columns are rendered in TASK_COLUMNS order: Open, In Progress, Blocked, Done.
+    expect(sections).toHaveLength(3)
+    // Columns render in TASK_STATUSES order: To do, In progress, Done.
     const counts = sections.map((s) => s.get('.font-mono-data').text())
-    expect(counts).toEqual(['2', '1', '1', '1'])
+    expect(counts).toEqual(['2', '1', '1'])
   })
 
   it('shows an em dash placeholder for an empty column', () => {
-    const w = mount(TaskBoard, { props: { tasks: [task('only', 'open')] } })
-    // Open has 1, the other three columns each show the empty placeholder.
+    const w = mount(TaskBoard, { props: { tasks: [task('only', 'todo')], projectTitles } })
     const dashes = w.findAll('section').filter((s) => s.text().includes('—'))
-    expect(dashes.length).toBe(3)
+    expect(dashes.length).toBe(2)
   })
 
-  it('emits open with the bead when a card is clicked', async () => {
-    const w = mount(TaskBoard, { props: { tasks } })
+  it('emits open with the task when a card is clicked', async () => {
+    const w = mount(TaskBoard, { props: { tasks, projectTitles } })
     await w.findComponent(TaskCard).trigger('click')
     expect(w.emitted('open')).toBeTruthy()
   })

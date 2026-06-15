@@ -2,7 +2,7 @@
   <div class="flex-1 overflow-x-auto overflow-y-hidden">
     <div class="flex gap-section h-full min-w-min px-section py-base">
       <section
-        v-for="col in TASK_COLUMNS"
+        v-for="col in TASK_STATUSES"
         :key="col.id"
         class="flex flex-col w-[300px] shrink-0 h-full"
       >
@@ -15,10 +15,11 @@
         <!-- Cards -->
         <div class="flex-1 overflow-y-auto flex flex-col gap-base pb-base pr-tight">
           <TaskCard
-            v-for="bead in grouped[col.id]"
-            :key="bead.id"
-            :bead="bead"
-            @open="$emit('open', bead)"
+            v-for="task in grouped[col.id]"
+            :key="task.id"
+            :task="task"
+            :project-title="projectTitles[task.projectId]"
+            @open="$emit('open', task)"
           />
           <div
             v-if="grouped[col.id].length === 0"
@@ -34,25 +35,16 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Bead } from '~/composables/useBeads'
-import { TASK_COLUMNS, normalizeTaskStatus, type TaskStatus } from '~/utils/workflow'
+import { type Task, type TaskStatus, TASK_STATUSES } from '~/composables/useTasks'
 import TaskCard from '~/components/tasks/TaskCard.vue'
 
-const props = defineProps<{ tasks: Bead[] }>()
+const props = defineProps<{ tasks: Task[]; projectTitles: Record<string, string> }>()
+defineEmits<{ (e: 'open', task: Task): void }>()
 
-defineEmits<{ (e: 'open', bead: Bead): void }>()
-
-// Bucket each task into its normalized column. Done column sinks closed work to
-// the bottom of attention; the others keep input order from the API.
-const grouped = computed<Record<TaskStatus, Bead[]>>(() => {
-  const buckets: Record<TaskStatus, Bead[]> = {
-    open: [],
-    in_progress: [],
-    blocked: [],
-    done: [],
-  }
-  for (const bead of props.tasks) {
-    buckets[normalizeTaskStatus(bead.state)].push(bead)
+const grouped = computed<Record<TaskStatus, Task[]>>(() => {
+  const buckets: Record<TaskStatus, Task[]> = { todo: [], in_progress: [], done: [] }
+  for (const task of props.tasks) {
+    ;(buckets[task.status] ?? buckets.todo).push(task)
   }
   return buckets
 })

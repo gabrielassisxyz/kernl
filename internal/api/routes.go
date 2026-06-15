@@ -26,6 +26,8 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterVaultRoutes(mux, a)
 	RegisterMemoryRoutes(mux, a)
 	RegisterBookmarkRoutes(mux, a)
+	RegisterProjectRoutes(mux, a)
+	RegisterTaskRoutes(mux, a)
 	RegisterIngestRoutes(mux, a)
 	RegisterInboxRoutes(mux, a)
 	RegisterNotesRoutes(mux, a)

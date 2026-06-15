@@ -1,0 +1,152 @@
+package api
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+)
+
+// taskDTO is the camelCase shape the web client consumes.
+type taskDTO struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Description string    `json:"description"`
+	Status      string    `json:"status"`
+	ProjectID   string    `json:"projectId"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+func RegisterTaskRoutes(mux *http.ServeMux, a *app.App) {
+	mux.HandleFunc("GET /api/tasks", func(w http.ResponseWriter, r *http.Request) {
+		listTasksHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/tasks", func(w http.ResponseWriter, r *http.Request) {
+		createTaskHandler(w, r, a)
+	})
+	mux.HandleFunc("PATCH /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		patchTaskHandler(w, r, a)
+	})
+}
+
+func listTasksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	ctx := r.Context()
+	projectID := r.URL.Query().Get("project")
+	var out []taskDTO
+
+	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		tasks, err := nodes.ListTasks(ctx, tx, projectID)
+		if err != nil {
+			return err
+		}
+		out = make([]taskDTO, 0, len(tasks))
+		for _, t := range tasks {
+			out = append(out, taskDTO{
+				ID:          t.ID,
+				Title:       t.Title,
+				Description: t.Description,
+				Status:      t.Status,
+				ProjectID:   t.ProjectID,
+				CreatedAt:   t.CreatedAt,
+				UpdatedAt:   t.UpdatedAt,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list tasks: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	var req struct {
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Status      string `json:"status"`
+		ProjectID   string `json:"projectId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid task body: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		writeError(w, http.StatusBadRequest, "task title is required")
+		return
+	}
+
+	ctx := r.Context()
+	author := nodes.Author{Name: "api"}
+	var id string
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateTask(ctx, tx, nodes.Task{
+			Title:       strings.TrimSpace(req.Title),
+			Description: req.Description,
+			Status:      req.Status,
+			ProjectID:   req.ProjectID,
+		}, author)
+		if err != nil {
+			return err
+		}
+		// Canonical graph relationship: task -[part_of]-> project.
+		if req.ProjectID != "" {
+			_, err = edges.Create(ctx, tx, edges.Edge{
+				Src:  id,
+				Dst:  req.ProjectID,
+				Type: edges.EdgeTypePartOf,
+			}, author)
+		}
+		return err
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create task: "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"id": id})
+}
+
+func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing task id")
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
+		return
+	}
+	if req.Status == "" {
+		writeError(w, http.StatusBadRequest, "status is required")
+		return
+	}
+
+	ctx := r.Context()
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return nodes.SetTaskStatus(ctx, tx, id, req.Status, nodes.Author{Name: "api"})
+	})
+	if err == graph.ErrNotFound {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update task: "+err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
