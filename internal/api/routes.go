@@ -31,7 +31,9 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterIngestRoutes(mux, a)
 	RegisterInboxRoutes(mux, a)
 	RegisterNotesRoutes(mux, a)
+	RegisterNodeSearchRoutes(mux, a)
 	RegisterNodeRelatedRoutes(mux, a)
+	RegisterEdgeRoutes(mux, a)
 	RegisterPlanRoutes(mux, a)
 
 	mux.HandleFunc("POST /api/epics/{id}/run", dispatch.HandleEpicRunAPI(a.Backend, a.Config))

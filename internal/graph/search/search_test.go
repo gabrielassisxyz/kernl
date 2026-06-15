@@ -337,3 +337,48 @@ func TestSearchExcludesTombstoned_NonNoteUnaffected(t *testing.T) {
 		t.Error("expected non-note node to still appear in search after tombstone filter")
 	}
 }
+
+// TestSearchWithPrefixMatchesPartialToken verifies that WithPrefix turns the
+// last query token into a prefix match, so "lin" matches "Linktree" — the
+// behaviour autocomplete-as-you-type depends on.
+func TestSearchWithPrefixMatchesPartialToken(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "n1", "note", "Linktree", "a tree of links", nil)
+
+	var hits []search.Hit
+	err := g.DoRead(context.Background(), func(rtx *graph.ReadTx) error {
+		var serr error
+		hits, serr = search.Search(context.Background(), rtx, "lin", search.WithPrefix())
+		return serr
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected 1 prefix hit, got %d", len(hits))
+	}
+	if hits[0].NodeID != "n1" {
+		t.Errorf("expected NodeID n1, got %s", hits[0].NodeID)
+	}
+}
+
+// TestSearchWithoutPrefixDoesNotMatchPartialToken pins the contrast: without
+// WithPrefix, a partial token does not match (proving the prefix path is the
+// thing doing the work, not a pre-existing behaviour).
+func TestSearchWithoutPrefixDoesNotMatchPartialToken(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "n1", "note", "Linktree", "a tree of links", nil)
+
+	var hits []search.Hit
+	err := g.DoRead(context.Background(), func(rtx *graph.ReadTx) error {
+		var serr error
+		hits, serr = search.Search(context.Background(), rtx, "lin")
+		return serr
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf("expected 0 hits without prefix, got %d", len(hits))
+	}
+}

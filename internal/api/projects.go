@@ -113,18 +113,28 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	ctx := r.Context()
+	title := strings.TrimSpace(req.Title)
 	var id string
+	var companion CompanionFile
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var err error
 		id, err = nodes.CreateProject(ctx, tx, nodes.Project{
-			Title:       strings.TrimSpace(req.Title),
+			Title:       title,
 			Description: req.Description,
 			Status:      req.Status,
 		}, nodes.Author{Name: "api"})
+		if err != nil {
+			return err
+		}
+		companion, err = CreateCompanionNote(ctx, tx, a, id, "projects", title, "#project")
 		return err
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create project: "+err.Error())
+		return
+	}
+	if err := WriteCompanionFile(a, companion); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write companion note: "+err.Error())
 		return
 	}
 

@@ -38,6 +38,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	var id string
+	var companion CompanionFile
 
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		author := nodes.Author{Name: "api"}
@@ -45,10 +46,20 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 		var err error
 		id, err = nodes.CreateBookmark(ctx, tx, b, author)
+		if err != nil {
+			return err
+		}
+		// The bookmark title is "Pending" until archived, so label the companion
+		// note by its URL (the meaningful identifier at creation time).
+		companion, err = CreateCompanionNote(ctx, tx, a, id, "bookmarks", req.URL, "#bookmark")
 		return err
 	})
 
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := WriteCompanionFile(a, companion); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
