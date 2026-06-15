@@ -92,6 +92,7 @@ node_modules/
 # Frontend build artifacts (Nuxt/Vue)
 web/.nuxt/
 web/.output/
+web/dist
 
 *.bak
 *.backup
@@ -104,9 +105,12 @@ result-*
 
 scripts/
 update_binary.sh
+generate-env.sh
+run.sh
 
 # Beads compliance audit dir (managed by /beads-compliance-and-completion-verification skill)
 /beads_compliance_audit/
 
 .ai-jail
 .gstack/
+.stitch/
