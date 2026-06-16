@@ -193,10 +193,6 @@ func OpenCodeNormalizer() Normalizer {
 			}, true
 		}
 		if t == "session_error" {
-			msg, _ := obj["message"].(string)
-			if msg == "" {
-				msg = "OpenCode session error"
-			}
 			return map[string]any{
 				"type":     "result",
 				"result":   s.accumulatedText,

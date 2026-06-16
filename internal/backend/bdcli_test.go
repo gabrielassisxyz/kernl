@@ -13,99 +13,6 @@ import (
 	"time"
 )
 
-type fakeBdServer struct {
-	scriptPath string
-	tmpDir     string
-	responses  map[string]string
-	exitCodes  map[string]int
-	stderrs    map[string]string
-}
-
-func newFakeBdServer(t *testing.T) *fakeBdServer {
-	t.Helper()
-	tmpDir := t.TempDir()
-	return &fakeBdServer{
-		tmpDir:    tmpDir,
-		responses: make(map[string]string),
-		exitCodes: make(map[string]int),
-		stderrs:   make(map[string]string),
-	}
-}
-
-func (f *fakeBdServer) setResponse(cmd string, stdout string) {
-	f.responses[cmd] = stdout
-}
-
-func (f *fakeBdServer) setExitCode(cmd string, code int) {
-	f.exitCodes[cmd] = code
-}
-
-func (f *fakeBdServer) setStderr(cmd string, stderr string) {
-	f.stderrs[cmd] = stderr
-}
-
-func (f *fakeBdServer) writeScript(t *testing.T) string {
-	t.Helper()
-	type resp struct {
-		Stdout   string `json:"stdout"`
-		Stderr   string `json:"stderr"`
-		ExitCode int    `json:"exitCode"`
-	}
-
-	responses := make(map[string]resp)
-	for k, v := range f.responses {
-		responses[k] = resp{Stdout: v, Stderr: f.stderrs[k], ExitCode: f.exitCodes[k]}
-	}
-
-	data, _ := json.Marshal(responses)
-
-	script := filepath.Join(f.tmpDir, "fake-bd.sh")
-	scriptContent := "#!/bin/sh\n" +
-		"RESPONSES='" + string(data) + "'\n" +
-		"CMD=\"$1\"\n" +
-		"shift\n" +
-		"case \"$CMD\" in\n" +
-		"  list) KEY=\"list\";;\n" +
-		"  show) KEY=\"show\";;\n" +
-		"  create) KEY=\"create\";;\n" +
-		"  update) KEY=\"update\";;\n" +
-		"  close) KEY=\"close\";;\n" +
-		"  delete) KEY=\"delete\";;\n" +
-		"  search) KEY=\"search\";;\n" +
-		"  query) KEY=\"query\";;\n" +
-		"  list-workflows) KEY=\"list-workflows\";;\n" +
-		"  sync) KEY=\"sync\";;\n" +
-		"  add-dep) KEY=\"add-dep\";;\n" +
-		"  remove-dep) KEY=\"remove-dep\";;\n" +
-		"  list-deps) KEY=\"list-deps\";;\n" +
-		"  *) KEY=\"$CMD\";;\n" +
-		"esac\n" +
-		"STDOUT=$(echo \"$RESPONSES\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('$KEY',{}).get('stdout',''))\" 2>/dev/null || echo '')\n" +
-		"STDERR=$(echo \"$RESPONSES\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('$KEY',{}).get('stderr',''))\" 2>/dev/null || echo '')\n" +
-		"EXITCODE=$(echo \"$RESPONSES\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('$KEY',{}).get('exitCode','0'))\" 2>/dev/null || echo 0)\n" +
-		"echo \"$STDOUT\"\n" +
-		"echo \"$STDERR\" >&2\n" +
-		"exit $EXITCODE\n"
-	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
-		t.Fatalf("writing fake bd script: %v", err)
-	}
-	f.scriptPath = script
-	return script
-}
-
-func newTestBdCliBackend(t *testing.T) *BdCliBackend {
-	t.Helper()
-	tmpDir := t.TempDir()
-	b := &BdCliBackend{
-		repoPath: tmpDir,
-		queues:   make(map[string]*repoQueue),
-		locksDir: filepath.Join(tmpDir, "locks"),
-		bdBin:    "echo",
-		bdDB:     "",
-	}
-	return b
-}
-
 func TestIsReadOnlyCommand(t *testing.T) {
 	tests := []struct {
 		args []string
@@ -177,12 +84,12 @@ func TestShouldUseNoDBByDefault(t *testing.T) {
 	origBD := os.Getenv(bdNoDBEnv)
 	origRead := os.Getenv("KERNL_BD_READ_NO_DB")
 	defer func() {
-		os.Setenv(bdNoDBEnv, origBD)
-		os.Setenv("KERNL_BD_READ_NO_DB", origRead)
+		_ = os.Setenv(bdNoDBEnv, origBD)
+		_ = os.Setenv("KERNL_BD_READ_NO_DB", origRead)
 	}()
 
-	os.Unsetenv(bdNoDBEnv)
-	os.Unsetenv("KERNL_BD_READ_NO_DB")
+	_ = os.Unsetenv(bdNoDBEnv)
+	_ = os.Unsetenv("KERNL_BD_READ_NO_DB")
 
 	if !shouldUseNoDBByDefault([]string{"list"}) {
 		t.Error("shouldUseNoDBByDefault(list) = false, want true for read command")
@@ -191,13 +98,13 @@ func TestShouldUseNoDBByDefault(t *testing.T) {
 		t.Error("shouldUseNoDBByDefault(create) = true, want false for write command")
 	}
 
-	os.Setenv("KERNL_BD_READ_NO_DB", "0")
+	_ = os.Setenv("KERNL_BD_READ_NO_DB", "0")
 	if shouldUseNoDBByDefault([]string{"list"}) {
 		t.Error("shouldUseNoDBByDefault(list) with KERNL_BD_READ_NO_DB=0 should be false")
 	}
 
-	os.Unsetenv("KERNL_BD_READ_NO_DB")
-	os.Setenv(bdNoDBEnv, "true")
+	_ = os.Unsetenv("KERNL_BD_READ_NO_DB")
+	_ = os.Setenv(bdNoDBEnv, "true")
 	if !shouldUseNoDBByDefault([]string{"create"}) {
 		t.Error("shouldUseNoDBByDefault(create) with BD_NO_DB=true should be true")
 	}

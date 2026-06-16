@@ -178,7 +178,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			if interactive {
 				out(fmt.Sprintf("Proceed with shape '%s'? [Y/n] ", res.ShapeID))
 				var confirm string
-				fmt.Scanln(&confirm)
+				_, _ = fmt.Scanln(&confirm)
 				if confirm != "" && strings.ToLower(confirm) != "y" {
 					return fmt.Errorf("aborted by user")
 				}
@@ -216,7 +216,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 
 	handler := api.NewRouter(a)
 	srv := &http.Server{Handler: handler}
-	go func() { srv.Serve(listener) }()
+	go func() { _ = srv.Serve(listener) }()
 	defer srv.Close()
 
 	// Open the run-state store so we can plan resume actions based on

@@ -104,7 +104,7 @@ func TestListBeadsHandlerReturnsBackendBeads(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	var got []backend.Bead
-	json.Unmarshal(w.Body.Bytes(), &got)
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if len(got) != 1 || got[0].ID != "kb-1" {
 		t.Errorf("body = %s", w.Body.String())
 	}
@@ -120,7 +120,7 @@ func TestGetBeadHandlerReturnsBackendBead(t *testing.T) {
 		t.Fatalf("status = %d", w.Code)
 	}
 	var got backend.Bead
-	json.Unmarshal(w.Body.Bytes(), &got)
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if got.ID != "kb-1" || got.Title != "first" {
 		t.Errorf("body = %s", w.Body.String())
 	}

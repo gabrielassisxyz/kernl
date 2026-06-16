@@ -12,10 +12,6 @@ func newTestRuntime(dialect string, interactive bool) *SessionRuntime {
 	return NewSessionRuntimeWithCapabilities("bead-1", "/repo", dialect, interactive)
 }
 
-func pipeReaderWriter() (*strings.Reader, *strings.Builder) {
-	return nil, &strings.Builder{}
-}
-
 type pipeWriter struct {
 	mu   sync.Mutex
 	data []byte

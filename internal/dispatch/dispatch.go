@@ -98,15 +98,6 @@ func RunDispatch(a DispatchArgs) DispatchResult {
 	}
 }
 
-func findAgentID(agents map[string]config.AgentConfig, cfg *config.AgentConfig) string {
-	for id, ac := range agents {
-		if ac.Command == cfg.Command && ac.Label == cfg.Label && ac.Provider == cfg.Provider {
-			return id
-		}
-	}
-	return ""
-}
-
 func RetryWithoutCrossAgentExclusion(a DispatchArgs, agents map[string]config.AgentConfig, pools map[string]config.PoolConfig) *DispatchResult {
 	beadID := ""
 	if a.Ctx != nil {
@@ -456,10 +447,6 @@ func computeStepExclusions(
 }
 
 const MaxClaimsDefault = 10
-
-func maxClaimsFromConfig(settings *config.Settings) int {
-	return 0
-}
 
 func HandleMaxClaims(ctx *TakeLoopDispatchContext, queueType string, count, maxClaims int) {
 	tag := fmt.Sprintf("[terminal-manager] [%s] [take-loop]", ctx.ID)

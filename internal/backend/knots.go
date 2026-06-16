@@ -32,8 +32,6 @@ type KnotsBackend struct {
 
 	writeQueues  map[string]*knoQueue
 	writeQueueMu sync.Mutex
-	nextQueues   map[string]*knoQueue
-	nextQueueMu  sync.Mutex
 }
 
 type knoQueue struct {
@@ -57,7 +55,6 @@ func NewKnotsBackend(repoPath string) *KnotsBackend {
 		knoBin:      knoBin,
 		knoDB:       os.Getenv("KNOTS_DB_PATH"),
 		writeQueues: make(map[string]*knoQueue),
-		nextQueues:  make(map[string]*knoQueue),
 	}
 }
 
@@ -371,9 +368,10 @@ func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *Dep
 	deps := make([]BeadDependency, len(edges))
 	for i, e := range edges {
 		depType := e.Kind
-		if e.Kind == "blocked_by" {
+		switch e.Kind {
+		case "blocked_by":
 			depType = "blocks"
-		} else if e.Kind == "parent_of" {
+		case "parent_of":
 			depType = "parent-child"
 		}
 		deps[i] = BeadDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}

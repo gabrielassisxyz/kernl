@@ -186,7 +186,7 @@ func buildQuery(cleaned string, o options) (string, []any) {
 
 	if len(o.tags) > 0 {
 		b.WriteString(` GROUP BY n.id HAVING COUNT(DISTINCT t.name) = `)
-		b.WriteString(fmt.Sprintf("%d", len(o.tags)))
+		fmt.Fprintf(&b, "%d", len(o.tags))
 	}
 
 	b.WriteString(` ORDER BY rank ASC`)
@@ -232,7 +232,7 @@ func isFTS5Error(err error) bool {
 	}
 
 	// Also check for fts5-like errors in wrapped errors.
-	var unwrapped error = err
+	var unwrapped = err
 	for {
 		if strings.Contains(unwrapped.Error(), "fts5") {
 			return true

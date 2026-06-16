@@ -66,7 +66,7 @@ func Parse(content string) []Link {
 
 		matches := linkRe.FindAllStringSubmatchIndex(cleanLine, -1)
 		for _, m := range matches {
-			if m == nil || len(m) < 4 {
+			if len(m) < 4 {
 				continue
 			}
 			// m[0], m[1] = full match; m[2], m[3] = group 1 (target); m[4], m[5] = group 2 (alias)

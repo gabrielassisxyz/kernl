@@ -68,7 +68,7 @@ func (c *OllamaClient) Chat(ctx context.Context, messages []Message, tools []Too
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Ollama API error (status %d): %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("error from Ollama API (status %d): %s", resp.StatusCode, string(respBytes))
 	}
 
 	var oResp ollamaResponse
@@ -82,12 +82,12 @@ func (c *OllamaClient) Chat(ctx context.Context, messages []Message, tools []Too
 func buildOllamaPrompt(messages []Message, tools []Tool) string {
 	var b strings.Builder
 	for _, m := range messages {
-		b.WriteString(fmt.Sprintf("[%s] %s\n", m.Role, m.Content))
+		fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
 	}
 	if len(tools) > 0 {
 		b.WriteString("\nAvailable tools:\n")
 		for _, t := range tools {
-			b.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+			fmt.Fprintf(&b, "- %s: %s\n", t.Name, t.Description)
 		}
 		b.WriteString("\nIf you need to use a tool, output JSON in this format: {\"tool\": \"name\", \"args\": {...}}\n")
 	}

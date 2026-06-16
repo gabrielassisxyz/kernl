@@ -21,7 +21,9 @@ func NewDAG(nodes []Node) (*DAG, error) {
 	}
 	for _, n := range nodes {
 		d.nodes[n.ID] = n
-		d.adjacency[n.ID] = d.adjacency[n.ID]
+		if _, ok := d.adjacency[n.ID]; !ok {
+			d.adjacency[n.ID] = nil
+		}
 		if _, ok := d.inDegree[n.ID]; !ok {
 			d.inDegree[n.ID] = 0
 		}

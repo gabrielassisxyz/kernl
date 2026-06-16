@@ -180,12 +180,12 @@ func (r *Runner) applyUp(ctx context.Context, current int, migrations []Migratio
 		}
 
 		if _, err := tx.ExecContext(ctx, m.UpSQL); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate: up version %d: %w", m.Version, err)
 		}
 
 		if _, err := tx.ExecContext(ctx, `UPDATE schema_migrations SET dirty=0 WHERE version=?`, m.Version); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate: mark clean for version %d: %w", m.Version, err)
 		}
 
@@ -225,12 +225,12 @@ func (r *Runner) Down(ctx context.Context) error {
 		}
 
 		if _, err := tx.ExecContext(ctx, m.DownSQL); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate: down version %d: %w", m.Version, err)
 		}
 
 		if _, err := tx.ExecContext(ctx, `DELETE FROM schema_migrations WHERE version=?`, m.Version); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate: delete record for version %d: %w", m.Version, err)
 		}
 

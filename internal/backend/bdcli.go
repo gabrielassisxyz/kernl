@@ -85,7 +85,6 @@ type repoQueue struct {
 
 type BdCliBackend struct {
 	repoPath string
-	mu       sync.Mutex
 
 	queues  map[string]*repoQueue
 	queueMu sync.Mutex
@@ -688,7 +687,7 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 func execOnce(ctx context.Context, bdBin string, bdDB string, args []string, opts *ExecOptions) (*ExecResult, error) {
 	fullArgs := baseArgs(bdDB, args)
 
-	timeoutMs := defaultCommandTimeoutMs
+	var timeoutMs int
 	if opts != nil && opts.TimeoutMs > 0 {
 		timeoutMs = opts.TimeoutMs
 	} else {
@@ -842,11 +841,11 @@ func (b *BdCliBackend) acquireRepoProcessLock(ctx context.Context, repoKey strin
 			}
 			data, _ := json.Marshal(owner)
 			if writeErr := os.WriteFile(lockFile, data, 0o644); writeErr != nil {
-				os.RemoveAll(lockDir)
+				_ = os.RemoveAll(lockDir)
 				return nil, fmt.Errorf("writing lock owner: %w", writeErr)
 			}
 			release := func() {
-				os.RemoveAll(lockDir)
+				_ = os.RemoveAll(lockDir)
 			}
 			return release, nil
 		}
@@ -865,7 +864,7 @@ func (b *BdCliBackend) acquireRepoProcessLock(ctx context.Context, repoKey strin
 			if owner != nil {
 				ownerDetails = fmt.Sprintf(" (owner pid=%d, acquiredAt=%s)", owner.PID, owner.AcquiredAt)
 			}
-			return nil, fmt.Errorf("Timed out waiting for bd repo lock for %s after %dms%s",
+			return nil, fmt.Errorf("timed out waiting for bd repo lock for %s after %dms%s",
 				repoKey, lockWaitTimeoutMs, ownerDetails)
 		}
 
@@ -876,20 +875,17 @@ func (b *BdCliBackend) acquireRepoProcessLock(ctx context.Context, repoKey strin
 func (b *BdCliBackend) evictStaleLock(lockDir, lockFile string) bool {
 	owner := readLockOwner(lockFile)
 	if owner != nil && !isPidAlive(owner.PID) {
-		os.RemoveAll(lockDir)
+		_ = os.RemoveAll(lockDir)
 		return true
 	}
 
 	info, err := os.Stat(lockDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return true
-		}
-		return false
+		return os.IsNotExist(err)
 	}
 
 	if time.Since(info.ModTime()) > time.Duration(defaultLockStaleMs)*time.Millisecond {
-		os.RemoveAll(lockDir)
+		_ = os.RemoveAll(lockDir)
 		return true
 	}
 
@@ -961,12 +957,6 @@ func stripNoDaemonFlag(args []string) []string {
 	}
 	return result
 }
-
-type bdExecError struct {
-	msg string
-}
-
-func (e *bdExecError) Error() string { return e.msg }
 
 func bdResultToError(result *ExecResult) error {
 	stderr := strings.TrimSpace(result.Stderr)
@@ -1044,14 +1034,6 @@ func parseNDJSONBytes(data []byte) (json.RawMessage, error) {
 		return nil, fmt.Errorf("marshaling bd results: %w", err)
 	}
 	return json.RawMessage(encoded), nil
-}
-
-func parseNDJSONOutput(data []byte) ([]byte, error) {
-	raw, err := parseNDJSONBytes(data)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(raw), nil
 }
 
 // unmarshalBdResponse detects the bd JSON envelope (BD_JSON_ENVELOPE=1 format)

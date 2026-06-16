@@ -64,7 +64,7 @@ func sqliteOpenTemp(t *testing.T) *sqlite.Pool {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	pool, err := sqlite.Open(sqlite.Config{Path: f.Name()})
 	if err != nil {

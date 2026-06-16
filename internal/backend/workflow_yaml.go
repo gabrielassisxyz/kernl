@@ -24,11 +24,6 @@ type workflowYAMLDoc struct {
 	QueueActions   map[string]string           `yaml:"queue_actions,omitempty"`
 }
 
-type workflowYAMLTransition struct {
-	From string `yaml:"from"`
-	To   string `yaml:"to"`
-}
-
 // LoadWorkflowYAML parses a YAML workflow descriptor file and rejects
 // unknown top-level keys so that typos in stage field names are caught
 // at load time instead of silently ignored.

@@ -304,7 +304,7 @@ func TestHandleErrorExit_RecordsFailedAgentAndRollsBack(t *testing.T) {
 		PostExitState: "implementation",
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
 
 	if !ctx.FailedAgentsPerQueueType["implementation"]["agent-a"] {
 		t.Error("expected agent-a to be recorded as failed for implementation queue type")
@@ -349,7 +349,7 @@ func TestHandleErrorExit_NoRollbackWhenInQueueState(t *testing.T) {
 		PostExitState: "ready_for_implementation",
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
 
 	if !ctx.FailedAgentsPerQueueType["implementation"]["agent-a"] {
 		t.Error("expected agent-a to be recorded as failed")
@@ -395,7 +395,7 @@ func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 		PostExitState: "shipped",
 	}
 
-	HandleSuccessExit(ctx, record, 0, wf, sb)
+	_ = HandleSuccessExit(ctx, record, 0, wf, sb)
 
 	if !finished {
 		t.Error("expected FinishSession to be called")
@@ -659,7 +659,7 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 		PostExitState: "implementation",
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
 
 	if !finishCalled {
 		t.Error("expected FinishSession to be called even during abort")
@@ -704,7 +704,7 @@ func TestHandleErrorExit_NoAlternativeAgent(t *testing.T) {
 		AlternativeAgentAvailable: false,
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
 
 	if !finishCalled {
 		t.Error("expected FinishSession to be called when no alternative agent")
@@ -796,7 +796,7 @@ func TestHandleTakeIterationClose_AbortedSession(t *testing.T) {
 		TakeIteration: &IterationCounter{Value: 1},
 	}
 
-	HandleTakeIterationClose(ctx, 1, "agent-a", "Claude", "ready_for_implementation", sb)
+	_ = HandleTakeIterationClose(ctx, 1, "agent-a", "Claude", "ready_for_implementation", sb)
 
 	if !finishCalled {
 		t.Error("expected FinishSession to be called for aborted session")

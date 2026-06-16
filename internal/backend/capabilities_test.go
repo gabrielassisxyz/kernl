@@ -7,7 +7,7 @@ func TestAssertCapability_ThrowsWhenBooleanFlagFalse(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for false boolean capability, got nil")
 	}
-	expected := "Backend does not support create bead (missing capability: CanCreate)"
+	expected := "backend does not support create bead (missing capability: CanCreate)"
 	if err.Error() != expected {
 		t.Errorf("expected %q, got %q", expected, err.Error())
 	}
@@ -18,7 +18,7 @@ func TestAssertCapability_ThrowsWhenMaxConcurrencyZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for maxConcurrency 0, got nil")
 	}
-	expected := "Backend does not support concurrent operations (missing capability: MaxConcurrency)"
+	expected := "backend does not support concurrent operations (missing capability: MaxConcurrency)"
 	if err.Error() != expected {
 		t.Errorf("expected %q, got %q", expected, err.Error())
 	}

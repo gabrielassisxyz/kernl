@@ -15,7 +15,7 @@ func openTestGraph(t *testing.T) *graph.Graph {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	g, err := graph.Open(context.Background(), graph.Config{Path: f.Name()})
 	if err != nil {
@@ -30,7 +30,7 @@ func TestOpenAndClose(t *testing.T) {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	g, err := graph.Open(context.Background(), graph.Config{Path: f.Name()})
 	if err != nil {
@@ -97,7 +97,7 @@ func TestOpenIdempotence(t *testing.T) {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	ctx := context.Background()
 	g1, err := graph.Open(ctx, graph.Config{Path: f.Name()})

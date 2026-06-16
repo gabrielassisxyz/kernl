@@ -122,12 +122,8 @@ func convertToOpenAITools(tools []Tool) []openAITool {
 	out := make([]openAITool, len(tools))
 	for i, t := range tools {
 		out[i] = openAITool{
-			Type: "function",
-			Function: openAIFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  t.Parameters,
-			},
+			Type:     "function",
+			Function: openAIFunction(t),
 		}
 	}
 	return out

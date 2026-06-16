@@ -91,7 +91,7 @@ func (g *Graph) DoRead(ctx context.Context, fn func(*ReadTx) error) error {
 	if err != nil {
 		return fmt.Errorf("graph: begin read tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if err := fn(&ReadTx{tx: tx}); err != nil {
 		return err
@@ -109,7 +109,7 @@ func (g *Graph) DoWrite(ctx context.Context, fn func(*WriteTx) error) error {
 	}
 
 	if err := fn(&WriteTx{tx: tx}); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		return err
 	}
 	return tx.Commit()

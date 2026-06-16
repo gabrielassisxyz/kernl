@@ -664,10 +664,7 @@ func isTerminalState(state string, wf WorkflowDescriptor) bool {
 			return true
 		}
 	}
-	if state == "deferred" {
-		return true
-	}
-	return false
+	return state == "deferred"
 }
 
 type BeadTransitionResult struct {
@@ -678,10 +675,10 @@ type BeadTransitionResult struct {
 func NextBead(backend BackendPort, beadID string, expectedState string, repoPath string) (*BeadTransitionResult, error) {
 	bead, err := backend.Get(beadID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load bead %s: %v", beadID, err)
+		return nil, fmt.Errorf("failed to load bead %s: %v", beadID, err)
 	}
 	if bead == nil {
-		return nil, fmt.Errorf("Bead %s not found", beadID)
+		return nil, fmt.Errorf("bead %s not found", beadID)
 	}
 
 	if bead.State != expectedState {
@@ -699,7 +696,7 @@ func NextBead(backend BackendPort, beadID string, expectedState string, repoPath
 
 	updateErr := backend.Update(beadID, UpdateBeadInput{State: target}, repoPath)
 	if updateErr != nil {
-		return nil, fmt.Errorf("Failed to update bead %s: %v", beadID, updateErr)
+		return nil, fmt.Errorf("failed to update bead %s: %v", beadID, updateErr)
 	}
 
 	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
@@ -708,10 +705,10 @@ func NextBead(backend BackendPort, beadID string, expectedState string, repoPath
 func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransitionResult, error) {
 	bead, err := backend.Get(beadID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load bead %s: %v", beadID, err)
+		return nil, fmt.Errorf("failed to load bead %s: %v", beadID, err)
 	}
 	if bead == nil {
-		return nil, fmt.Errorf("Bead %s not found", beadID)
+		return nil, fmt.Errorf("bead %s not found", beadID)
 	}
 
 	wf := ResolveWorkflow(bead)
@@ -732,7 +729,7 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 
 	updateErr := backend.Update(beadID, UpdateBeadInput{State: target}, repoPath)
 	if updateErr != nil {
-		return nil, fmt.Errorf("Failed to update bead %s: %v", beadID, updateErr)
+		return nil, fmt.Errorf("failed to update bead %s: %v", beadID, updateErr)
 	}
 
 	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
@@ -740,18 +737,19 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 
 func ValidateStages(stages map[string]StageContract) error {
 	for name, stage := range stages {
-		if stage.Kind == "subprocess" {
+		switch stage.Kind {
+		case "subprocess":
 			if stage.Subprocess == nil || len(stage.Subprocess.Command) == 0 {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: %s subprocess stage missing script/command", name)
 			}
 			if stage.Role != "" {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
 			}
-		} else if stage.Kind == "native" || stage.Kind == "" {
+		case "native", "":
 			if stage.Subprocess != nil {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
 			}
-		} else {
+		default:
 			return fmt.Errorf("KERNL DISPATCH FAILURE: %s unknown stage kind %q", name, stage.Kind)
 		}
 	}

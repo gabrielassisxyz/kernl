@@ -101,8 +101,8 @@ func TestGetSession(t *testing.T) {
 
 func TestListSessions(t *testing.T) {
 	m := NewTerminalManager()
-	m.CreateSession(context.Background(), "bead-1", "/repo1")
-	m.CreateSession(context.Background(), "bead-2", "/repo2")
+	_, _ = m.CreateSession(context.Background(), "bead-1", "/repo1")
+	_, _ = m.CreateSession(context.Background(), "bead-2", "/repo2")
 
 	sessions := m.ListSessions()
 	if len(sessions) != 2 {

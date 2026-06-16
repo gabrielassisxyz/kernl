@@ -289,10 +289,7 @@ func HasOpenCodeMessagePayload(resp map[string]any) bool {
 			return true
 		}
 	}
-	if len(TranslateOpenCodeEvent(resp)) > 0 {
-		return true
-	}
-	return false
+	return len(TranslateOpenCodeEvent(resp)) > 0
 }
 
 // TranslateOpenCodeResponse translates a full OpenCode message
@@ -317,15 +314,11 @@ func TranslateOpenCodeResponse(resp map[string]any) []map[string]any {
 			continue
 		}
 		for _, e := range collection {
-			for _, ev := range TranslateOpenCodeEvent(e) {
-				events = append(events, ev)
-			}
+			events = append(events, TranslateOpenCodeEvent(e)...)
 		}
 	}
 
-	for _, ev := range TranslateOpenCodeEvent(resp) {
-		events = append(events, ev)
-	}
+	events = append(events, TranslateOpenCodeEvent(resp)...)
 
 	return events
 }

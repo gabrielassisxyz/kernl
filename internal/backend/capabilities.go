@@ -75,7 +75,7 @@ func HasCapability(cap BackendCapabilities, flag string) bool {
 
 func AssertCapability(cap BackendCapabilities, flag string, operation string) error {
 	if !HasCapability(cap, flag) {
-		return fmt.Errorf("Backend does not support %s (missing capability: %s)", operation, flag)
+		return fmt.Errorf("backend does not support %s (missing capability: %s)", operation, flag)
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -214,9 +213,4 @@ func resolveLogRoot() string {
 		return filepath.Join(os.TempDir(), "kernl", "logs")
 	}
 	return filepath.Join(home, ".kernl", "logs")
-}
-
-var logRootOnce struct {
-	sync.Once
-	value string
 }

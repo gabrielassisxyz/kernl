@@ -364,9 +364,9 @@ func (m *TerminalManager) signalSession(id, sig string) SignalOutcome {
 	}
 
 	if sig == "SIGKILL" {
-		entry.Process.Kill()
+		_ = entry.Process.Kill()
 	} else {
-		entry.Process.Signal(sig)
+		_ = entry.Process.Signal(sig)
 	}
 
 	slog.Info("[terminal-manager] session signaled",

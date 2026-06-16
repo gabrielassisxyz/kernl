@@ -64,10 +64,11 @@ func InferWorkflow(ctx context.Context, llmCfg config.LLMConfig, epicBead *backe
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	if llmCfg.Provider == "anthropic" {
+	switch llmCfg.Provider {
+	case "anthropic":
 		httpReq.Header.Set("x-api-key", llmCfg.APIKey)
 		httpReq.Header.Set("anthropic-version", "2023-06-01")
-	} else if llmCfg.Provider == "openai" {
+	case "openai":
 		httpReq.Header.Set("Authorization", "Bearer "+llmCfg.APIKey)
 	}
 
@@ -83,24 +84,23 @@ func InferWorkflow(ctx context.Context, llmCfg config.LLMConfig, epicBead *backe
 	}
 
 	var content string
-	if llmCfg.Provider == "anthropic" {
+	switch llmCfg.Provider {
+	case "anthropic":
 		var anthropicResp struct {
 			Content []struct {
 				Text string `json:"text"`
 			} `json:"content"`
 		}
-		json.Unmarshal(body, &anthropicResp)
-		if len(anthropicResp.Content) > 0 {
+		if err := json.Unmarshal(body, &anthropicResp); err == nil && len(anthropicResp.Content) > 0 {
 			content = anthropicResp.Content[0].Text
 		}
-	} else if llmCfg.Provider == "openai" {
+	case "openai":
 		var openaiResp struct {
 			Choices []struct {
 				Message Message `json:"message"`
 			} `json:"choices"`
 		}
-		json.Unmarshal(body, &openaiResp)
-		if len(openaiResp.Choices) > 0 {
+		if err := json.Unmarshal(body, &openaiResp); err == nil && len(openaiResp.Choices) > 0 {
 			content = openaiResp.Choices[0].Message.Content
 		}
 	}
