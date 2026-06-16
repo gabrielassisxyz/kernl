@@ -162,7 +162,9 @@ func TestChatEventsSSE_SendsCorrectEventSequence(t *testing.T) {
 	createReq := httptest.NewRequest("POST", "/api/chat/sessions", nil)
 	createW := httptest.NewRecorder()
 	r.ServeHTTP(createW, createReq)
-	var createRes struct{ ID string `json:"id"` }
+	var createRes struct {
+		ID string `json:"id"`
+	}
 	json.Unmarshal(createW.Body.Bytes(), &createRes)
 
 	msgBody := `{"content":"hello","scope_node_id":""}`

@@ -3,17 +3,17 @@ package backend
 import "fmt"
 
 type BackendCapabilities struct {
-	CanCreate           bool
-	CanUpdate           bool
-	CanDelete           bool
-	CanClose            bool
-	CanSearch           bool
-	CanQuery            bool
-	CanListReady        bool
+	CanCreate             bool
+	CanUpdate             bool
+	CanDelete             bool
+	CanClose              bool
+	CanSearch             bool
+	CanQuery              bool
+	CanListReady          bool
 	CanManageDependencies bool
-	CanManageLabels     bool
-	CanSync             bool
-	MaxConcurrency      int
+	CanManageLabels       bool
+	CanSync               bool
+	MaxConcurrency        int
 }
 
 var FullCapabilities = BackendCapabilities{

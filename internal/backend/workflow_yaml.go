@@ -10,18 +10,18 @@ import (
 )
 
 type workflowYAMLDoc struct {
-	ID               string                    `yaml:"id"`
-	Label            string                    `yaml:"label,omitempty"`
-	Mode             string                    `yaml:"mode,omitempty"`
-	InitialState     string                    `yaml:"initial_state,omitempty"`
-	States           []string                  `yaml:"states,omitempty"`
-	TerminalStates   []string                  `yaml:"terminal_states,omitempty"`
-	Transitions      []WorkflowTransition      `yaml:"transitions,omitempty"`
-	RetakeState      string                    `yaml:"retake_state,omitempty"`
-	ExitGates        map[string]WorkflowExitGate `yaml:"exit_gates,omitempty"`
-	Stages           map[string]StageContract   `yaml:"stages"`
-	Owners           map[string]ActionOwnerKind `yaml:"owners,omitempty"`
-	QueueActions     map[string]string          `yaml:"queue_actions,omitempty"`
+	ID             string                      `yaml:"id"`
+	Label          string                      `yaml:"label,omitempty"`
+	Mode           string                      `yaml:"mode,omitempty"`
+	InitialState   string                      `yaml:"initial_state,omitempty"`
+	States         []string                    `yaml:"states,omitempty"`
+	TerminalStates []string                    `yaml:"terminal_states,omitempty"`
+	Transitions    []WorkflowTransition        `yaml:"transitions,omitempty"`
+	RetakeState    string                      `yaml:"retake_state,omitempty"`
+	ExitGates      map[string]WorkflowExitGate `yaml:"exit_gates,omitempty"`
+	Stages         map[string]StageContract    `yaml:"stages"`
+	Owners         map[string]ActionOwnerKind  `yaml:"owners,omitempty"`
+	QueueActions   map[string]string           `yaml:"queue_actions,omitempty"`
 }
 
 type workflowYAMLTransition struct {

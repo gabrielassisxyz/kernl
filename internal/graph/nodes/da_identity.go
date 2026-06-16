@@ -23,7 +23,9 @@ type DAIdentity struct {
 }
 
 // Meta implements NodeSpec.
-func (di DAIdentity) Meta() *Meta { return &Meta{ID: di.ID, CreatedAt: di.CreatedAt, UpdatedAt: di.UpdatedAt} }
+func (di DAIdentity) Meta() *Meta {
+	return &Meta{ID: di.ID, CreatedAt: di.CreatedAt, UpdatedAt: di.UpdatedAt}
+}
 
 // NodeAttrs implements NodeSpec.
 func (di DAIdentity) NodeAttrs() []byte {

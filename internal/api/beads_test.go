@@ -15,7 +15,9 @@ type testBackend struct {
 	beads []backend.Bead
 }
 
-func (b *testBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) { return nil, nil }
+func (b *testBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
+	return nil, nil
+}
 func (b *testBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return b.beads, nil
 }
@@ -35,8 +37,10 @@ func (b *testBackend) Create(input backend.CreateBeadInput, repoPath string) (*b
 	b.beads = append(b.beads, *bead)
 	return bead, nil
 }
-func (b *testBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error { return nil }
-func (b *testBackend) Delete(id string, repoPath string) error                                       { return nil }
+func (b *testBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error {
+	return nil
+}
+func (b *testBackend) Delete(id string, repoPath string) error { return nil }
 func (b *testBackend) Close(id string, reason string, repoPath string) (*backend.TerminalState, error) {
 	return nil, nil
 }
@@ -53,7 +57,9 @@ func (b *testBackend) Search(query string, filters *backend.BeadListFilters, rep
 func (b *testBackend) Query(expression string, options *backend.BeadQueryOptions, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
-func (b *testBackend) AddDependency(blockerID string, blockedID string, repoPath string) error { return nil }
+func (b *testBackend) AddDependency(blockerID string, blockedID string, repoPath string) error {
+	return nil
+}
 func (b *testBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
 	return nil
 }
@@ -67,7 +73,9 @@ func (b *testBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPa
 	return nil, nil
 }
 func (b *testBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (b *testBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
+func (b *testBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 func testCfg() *config.Config {
 	return &config.Config{

@@ -151,13 +151,13 @@ func sanitizeHTML(html string) string {
 			if openLoc == nil {
 				break
 			}
-			
+
 			closeLoc := closeRe.FindStringIndex(html[openLoc[1]:])
 			if closeLoc == nil {
 				html = html[:openLoc[0]] + html[openLoc[1]:]
 				break
 			}
-			
+
 			endIndex := openLoc[1] + closeLoc[1]
 			html = html[:openLoc[0]] + html[endIndex:]
 		}

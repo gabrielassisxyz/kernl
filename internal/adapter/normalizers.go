@@ -208,8 +208,8 @@ func OpenCodeNormalizer() Normalizer {
 }
 
 type copilotState struct {
-	accumulatedText     string
-	streamedMessageIDs  map[string]bool
+	accumulatedText    string
+	streamedMessageIDs map[string]bool
 }
 
 func CopilotNormalizer() Normalizer {

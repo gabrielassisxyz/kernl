@@ -17,7 +17,7 @@ import (
 type EdgeType string
 
 const (
-	EdgeTypeRelated  EdgeType = "related"
+	EdgeTypeRelated   EdgeType = "related"
 	EdgeTypeDependsOn EdgeType = "depends_on"
 	EdgeTypeBlocks    EdgeType = "blocks"
 	EdgeTypePartOf    EdgeType = "part_of"
@@ -26,16 +26,16 @@ const (
 
 // Edge models a directed relationship between two nodes.
 type Edge struct {
-	ID        string          `json:"id"`
-	Src       string          `json:"src"`
-	Dst       string          `json:"dst"`
-	Label     string          `json:"label"`
-	Type      EdgeType        `json:"type"`
-	OwnerID   string          `json:"owner_id"`
-	Visibility string         `json:"visibility"`
-	Attrs     json.RawMessage `json:"attrs"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID         string          `json:"id"`
+	Src        string          `json:"src"`
+	Dst        string          `json:"dst"`
+	Label      string          `json:"label"`
+	Type       EdgeType        `json:"type"`
+	OwnerID    string          `json:"owner_id"`
+	Visibility string          `json:"visibility"`
+	Attrs      json.RawMessage `json:"attrs"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
 }
 
 // edgeOptions holds optional query filters.

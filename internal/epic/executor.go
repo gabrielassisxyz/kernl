@@ -33,9 +33,9 @@ type worktreeAdder interface {
 }
 
 type ExecutorDeps struct {
-	Epic          *Epic
-	RunBead       func(ctx context.Context, in RunInput) (RunResult, error)
-	Worktree      worktreeAdder
+	Epic     *Epic
+	RunBead  func(ctx context.Context, in RunInput) (RunResult, error)
+	Worktree worktreeAdder
 	// GetWorktree is an optional hook to reuse an existing worktree
 	// path from a prior run (e.g. for session resume). Returns
 	// (path, true) when the path is known and still exists.
@@ -45,8 +45,8 @@ type ExecutorDeps struct {
 	// reconnects the agent to its existing context rather than
 	// starting a brand-new session.
 	SessionResumes map[string]string
-	MaxConcurrent int
-	Emit          func(EpicEvent)
+	MaxConcurrent  int
+	Emit           func(EpicEvent)
 }
 
 type Executor struct {

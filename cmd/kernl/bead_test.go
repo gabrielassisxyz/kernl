@@ -18,7 +18,9 @@ type testBackend struct {
 	state map[string]string
 }
 
-func (b *testBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) { return nil, nil }
+func (b *testBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
+	return nil, nil
+}
 func (b *testBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
@@ -73,7 +75,9 @@ func (b *testBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPa
 	return nil, nil
 }
 func (b *testBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (b *testBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
+func (b *testBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 type testProcess struct {
 	exitErr error
@@ -96,7 +100,7 @@ type testProvider struct{}
 func (p *testProvider) GetSessionEntry(id string) (session.SessionInfo, bool) {
 	return session.SessionInfo{}, false
 }
-func (p *testProvider) ListSessionIDs() []session.SessionInfo { return nil }
+func (p *testProvider) ListSessionIDs() []session.SessionInfo          { return nil }
 func (p *testProvider) PushEvent(id string, evt session.TerminalEvent) {}
 
 func testSCM() *session.SessionConnectionManager {

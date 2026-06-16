@@ -12,7 +12,7 @@ type ResultDetection string
 
 const (
 	ResultDetectionTypeResult   ResultDetection = "type-result"
-	ResultDetectionStatusResult  ResultDetection = "status-result"
+	ResultDetectionStatusResult ResultDetection = "status-result"
 	ResultDetectionNone         ResultDetection = ""
 )
 
@@ -27,13 +27,13 @@ const (
 )
 
 type DialectCapabilities struct {
-	Interactive               bool
-	PromptTransport           TransportKind
-	SupportsFollowUp          bool
-	SupportsAskUserAutoResp   bool
-	StdinDrainPolicy          DrainPolicy
-	ResultDetection           ResultDetection
-	SupportsInteractive       bool
+	Interactive             bool
+	PromptTransport         TransportKind
+	SupportsFollowUp        bool
+	SupportsAskUserAutoResp bool
+	StdinDrainPolicy        DrainPolicy
+	ResultDetection         ResultDetection
+	SupportsInteractive     bool
 }
 
 var claudeCapabilities = DialectCapabilities{

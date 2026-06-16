@@ -235,5 +235,3 @@ stages:
 		t.Fatal("expected error due to unknown field 'invalid_field' under stages.planning.subprocess")
 	}
 }
-
-

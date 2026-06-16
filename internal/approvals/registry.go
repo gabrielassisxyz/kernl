@@ -3,8 +3,8 @@ package approvals
 import "sync"
 
 type ApprovalRegistry struct {
-	mu         sync.RWMutex
-	approvals  map[string]*ApprovalRequest
+	mu        sync.RWMutex
+	approvals map[string]*ApprovalRequest
 }
 
 func NewApprovalRegistry() *ApprovalRegistry {

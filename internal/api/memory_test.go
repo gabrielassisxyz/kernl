@@ -21,7 +21,7 @@ func setupMemoryTest(t *testing.T) (*app.App, *http.ServeMux) {
 	a := &app.App{Graph: g}
 	mux := http.NewServeMux()
 	RegisterMemoryRoutes(mux, a)
-	
+
 	// Add some data
 	err := g.DoWrite(context.Background(), func(tx *graph.WriteTx) error {
 		_, err := nodes.CreateMemoryClaim(context.Background(), tx, nodes.MemoryClaim{

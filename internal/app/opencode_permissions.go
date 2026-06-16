@@ -18,8 +18,8 @@ type opencodePermission struct {
 }
 
 type opencodeConfig struct {
-	Schema     string            `json:"$schema,omitempty"`
-	Provider   any               `json:"provider,omitempty"`
+	Schema     string             `json:"$schema,omitempty"`
+	Provider   any                `json:"provider,omitempty"`
 	Permission opencodePermission `json:"permission,omitempty"`
 }
 

@@ -430,7 +430,7 @@ func TestWatcherStressBurst(t *testing.T) {
 			goto STOPPED
 		}
 	}
-	STOPPED:
+STOPPED:
 	timeout.Stop()
 
 	n := eventCount.Load()

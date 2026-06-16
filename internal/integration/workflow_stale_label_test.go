@@ -19,9 +19,11 @@ import (
 
 type fakeSessionProvider struct{}
 
-func (fakeSessionProvider) GetSessionEntry(id string) (session.SessionInfo, bool) { return session.SessionInfo{}, true }
-func (fakeSessionProvider) ListSessionIDs() []session.SessionInfo                 { return nil }
-func (fakeSessionProvider) PushEvent(id string, evt session.TerminalEvent)     {}
+func (fakeSessionProvider) GetSessionEntry(id string) (session.SessionInfo, bool) {
+	return session.SessionInfo{}, true
+}
+func (fakeSessionProvider) ListSessionIDs() []session.SessionInfo          { return nil }
+func (fakeSessionProvider) PushEvent(id string, evt session.TerminalEvent) {}
 
 type procWrap struct{ cmd *exec.Cmd }
 

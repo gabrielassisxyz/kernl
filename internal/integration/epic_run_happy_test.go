@@ -201,10 +201,10 @@ func extractPRURL(desc string) string {
 
 // --- fakeGHView implements sweep.GH ---
 type fakeGHView struct {
-	mu   sync.Mutex
-	seq  []sweep.PRState
-	idx  int
-	cnt  map[string]int
+	mu  sync.Mutex
+	seq []sweep.PRState
+	idx int
+	cnt map[string]int
 }
 
 func newFakeGHView() *fakeGHView {

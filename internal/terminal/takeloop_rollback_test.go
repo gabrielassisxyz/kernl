@@ -109,8 +109,8 @@ func makeRollbackWF() *backend.WorkflowDescriptor {
 		StateOwners: map[string]backend.ActionOwnerKind{
 			"ready_for_implementation": backend.ActionOwnerAgent,
 			"implementation":           backend.ActionOwnerAgent,
-			"ready_for_review":        backend.ActionOwnerAgent,
-			"review":                  backend.ActionOwnerAgent,
+			"ready_for_review":         backend.ActionOwnerAgent,
+			"review":                   backend.ActionOwnerAgent,
 		},
 	}
 }
@@ -297,10 +297,10 @@ func TestHandleErrorExit_RecordsFailedAgentAndRollsBack(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:       "bead-1",
-		ClaimedStep:  "implementation",
-		Success:      false,
-		ExitCode:     1,
+		BeadID:        "bead-1",
+		ClaimedStep:   "implementation",
+		Success:       false,
+		ExitCode:      1,
 		PostExitState: "implementation",
 	}
 
@@ -342,10 +342,10 @@ func TestHandleErrorExit_NoRollbackWhenInQueueState(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:       "bead-1",
-		ClaimedStep:  "implementation",
-		Success:      false,
-		ExitCode:     1,
+		BeadID:        "bead-1",
+		ClaimedStep:   "implementation",
+		Success:       false,
+		ExitCode:      1,
 		PostExitState: "ready_for_implementation",
 	}
 
@@ -389,10 +389,10 @@ func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:         "bead-1",
-		Success:        true,
-		ExitCode:       0,
-		PostExitState:  "shipped",
+		BeadID:        "bead-1",
+		Success:       true,
+		ExitCode:      0,
+		PostExitState: "shipped",
 	}
 
 	HandleSuccessExit(ctx, record, 0, wf, sb)
@@ -529,7 +529,7 @@ func TestRollbackStepFailure_CannotResolveQueueState(t *testing.T) {
 		ActionStates:   []string{"unknown_state"},
 		QueueStates:    []string{},
 		Transitions:    []backend.WorkflowTransition{},
-		StateOwners:   map[string]backend.ActionOwnerKind{"unknown_state": backend.ActionOwnerAgent},
+		StateOwners:    map[string]backend.ActionOwnerKind{"unknown_state": backend.ActionOwnerAgent},
 	}
 	sb := &stubRollbackBackend{
 		beads: map[string]*backend.Bead{
@@ -644,7 +644,7 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 		Entry:            entry,
 		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
-		SessionAborted: func() bool { return aborted },
+		SessionAborted:   func() bool { return aborted },
 		FinishSession: func(exitCode int) {
 			finishCalled = true
 		},
@@ -652,10 +652,10 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:       "bead-1",
-		ClaimedStep:  "implementation",
-		Success:      false,
-		ExitCode:     1,
+		BeadID:        "bead-1",
+		ClaimedStep:   "implementation",
+		Success:       false,
+		ExitCode:      1,
 		PostExitState: "implementation",
 	}
 
@@ -789,7 +789,7 @@ func TestHandleTakeIterationClose_AbortedSession(t *testing.T) {
 		Entry:            entry,
 		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
-		SessionAborted: func() bool { return aborted },
+		SessionAborted:   func() bool { return aborted },
 		FinishSession: func(exitCode int) {
 			finishCalled = true
 		},

@@ -82,7 +82,9 @@ func (f *fakeBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescript
 	return nil, nil
 }
 func (f *fakeBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (f *fakeBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
+func (f *fakeBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 func TestLoadEpicBuildsDAGFromBackend(t *testing.T) {
 	be := &fakeBackend{beads: []backend.Bead{

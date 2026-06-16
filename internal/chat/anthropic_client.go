@@ -44,10 +44,10 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []Message, tools []
 	systemPrompt, chatMessages := splitSystemMessages(messages)
 
 	reqBody := anthropicRequest{
-		Model:    c.model,
-		Messages: convertToAnthropicMessages(chatMessages),
-		Tools:    convertToAnthropicTools(tools),
-		System:   systemPrompt,
+		Model:     c.model,
+		Messages:  convertToAnthropicMessages(chatMessages),
+		Tools:     convertToAnthropicTools(tools),
+		System:    systemPrompt,
 		MaxTokens: 4096,
 	}
 	if len(reqBody.Tools) == 0 {
@@ -165,7 +165,7 @@ type anthropicRequest struct {
 }
 
 type anthropicMessage struct {
-	Role    string                 `json:"role"`
+	Role    string                  `json:"role"`
 	Content []anthropicContentBlock `json:"content"`
 }
 

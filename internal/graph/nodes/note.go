@@ -16,8 +16,8 @@ import (
 // and the change ratio (|old-new| / max(old,new,1)) ≤ MaxChangeRatio.
 // Otherwise a full snapshot is stored tagged with kind="snapshot".
 const (
-	MaxDiffBytes    = 256 * 1024   // 256 KiB
-	MaxChangeRatio  = 0.5          // 50% of the larger body
+	MaxDiffBytes   = 256 * 1024 // 256 KiB
+	MaxChangeRatio = 0.5        // 50% of the larger body
 )
 
 // Note represents a vault note node — all notes share type "note".
@@ -311,9 +311,9 @@ func isBinaryBody(s string) bool {
 
 // lineDiffOp represents a single operation in a line-based forward diff.
 type lineDiffOp struct {
-	Op    string `json:"op"`    // "+" or "-"
-	Line  int    `json:"ln"`    // 0-based line index
-	Text  string `json:"t"`     // line content
+	Op   string `json:"op"` // "+" or "-"
+	Line int    `json:"ln"` // 0-based line index
+	Text string `json:"t"`  // line content
 }
 
 // diffLinePayload is the self-describing diff payload stored in revisions.

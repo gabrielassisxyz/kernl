@@ -393,7 +393,6 @@ func TestCreateConcreteBackend_CLI(t *testing.T) {
 	}
 }
 
-
 func TestCreateBackend_AutoPanics(t *testing.T) {
 	defer func() {
 		r := recover()

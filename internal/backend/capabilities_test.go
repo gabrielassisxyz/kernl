@@ -33,17 +33,17 @@ func TestAssertCapability_DoesNotThrowWhenBooleanFlagTrue(t *testing.T) {
 
 func TestAssertCapability_DoesNotThrowWhenMaxConcurrencyPositive(t *testing.T) {
 	caps := BackendCapabilities{
-		CanCreate:        true,
-		CanUpdate:        true,
-		CanDelete:        true,
-		CanClose:         true,
-		CanSearch:        true,
-		CanQuery:         true,
-		CanListReady:     true,
+		CanCreate:             true,
+		CanUpdate:             true,
+		CanDelete:             true,
+		CanClose:              true,
+		CanSearch:             true,
+		CanQuery:              true,
+		CanListReady:          true,
 		CanManageDependencies: true,
-		CanManageLabels:  true,
-		CanSync:          true,
-		MaxConcurrency:   4,
+		CanManageLabels:       true,
+		CanSync:               true,
+		MaxConcurrency:        4,
 	}
 	err := AssertCapability(caps, "MaxConcurrency", "concurrent operations")
 	if err != nil {

@@ -16,7 +16,9 @@ type fakeBackend struct {
 	state map[string]string
 }
 
-func (b *fakeBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) { return nil, nil }
+func (b *fakeBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
+	return nil, nil
+}
 func (b *fakeBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
@@ -71,12 +73,14 @@ func (b *fakeBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPa
 	return nil, nil
 }
 func (b *fakeBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (b *fakeBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
+func (b *fakeBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 type fakeProcess struct {
-	exitErr   error
-	onExit    func()
-	exitOnce  sync.Once
+	exitErr  error
+	onExit   func()
+	exitOnce sync.Once
 }
 
 func (p *fakeProcess) Wait() error {
@@ -106,7 +110,7 @@ type stubProvider struct{}
 func (p *stubProvider) GetSessionEntry(id string) (session.SessionInfo, bool) {
 	return session.SessionInfo{}, false
 }
-func (p *stubProvider) ListSessionIDs() []session.SessionInfo { return nil }
+func (p *stubProvider) ListSessionIDs() []session.SessionInfo          { return nil }
 func (p *stubProvider) PushEvent(id string, evt session.TerminalEvent) {}
 
 func newTestSCM() *session.SessionConnectionManager {

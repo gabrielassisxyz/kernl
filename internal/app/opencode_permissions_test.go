@@ -16,9 +16,9 @@ func TestForbiddenPathsRejectedAtSandbox(t *testing.T) {
 	staticCfgPath := filepath.Join(dir, "opencode-config.json")
 	staticCfg := opencodeConfig{
 		Permission: opencodePermission{
-			Edit:     "allow",
-			Bash:     "allow",
-			Read:     map[string]string{"/tmp/**": "allow"},
+			Edit: "allow",
+			Bash: "allow",
+			Read: map[string]string{"/tmp/**": "allow"},
 		},
 	}
 	data, _ := json.MarshalIndent(staticCfg, "", "  ")

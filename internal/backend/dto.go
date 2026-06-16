@@ -18,27 +18,27 @@ type Invariant struct {
 }
 
 type RawBead struct {
-	ID                 string         `json:"id"`
-	Aliases            []string       `json:"aliases,omitempty"`
-	Title              string         `json:"title"`
-	Description        string         `json:"description,omitempty"`
-	Notes              string         `json:"notes,omitempty"`
-	AcceptanceCriteria string         `json:"acceptance_criteria,omitempty"`
-	IssueType          string         `json:"issue_type,omitempty"`
-	Status             string         `json:"status,omitempty"`
-	Priority           int            `json:"priority,omitempty"`
-	Labels             []string       `json:"labels,omitempty"`
-	Assignee           string         `json:"assignee,omitempty"`
-	Owner              string         `json:"owner,omitempty"`
-	Parent             string         `json:"parent,omitempty"`
-	Due                string         `json:"due,omitempty"`
-	EstimatedMinutes   int            `json:"estimated_minutes,omitempty"`
-	CreatedAt          string         `json:"created_at,omitempty"`
-	CreatedBy          string         `json:"created_by,omitempty"`
-	UpdatedAt          string         `json:"updated_at,omitempty"`
-	ClosedAt           string         `json:"closed_at,omitempty"`
-	CloseReason        string         `json:"close_reason,omitempty"`
-	Metadata           map[string]any `json:"metadata,omitempty"`
+	ID                 string          `json:"id"`
+	Aliases            []string        `json:"aliases,omitempty"`
+	Title              string          `json:"title"`
+	Description        string          `json:"description,omitempty"`
+	Notes              string          `json:"notes,omitempty"`
+	AcceptanceCriteria string          `json:"acceptance_criteria,omitempty"`
+	IssueType          string          `json:"issue_type,omitempty"`
+	Status             string          `json:"status,omitempty"`
+	Priority           int             `json:"priority,omitempty"`
+	Labels             []string        `json:"labels,omitempty"`
+	Assignee           string          `json:"assignee,omitempty"`
+	Owner              string          `json:"owner,omitempty"`
+	Parent             string          `json:"parent,omitempty"`
+	Due                string          `json:"due,omitempty"`
+	EstimatedMinutes   int             `json:"estimated_minutes,omitempty"`
+	CreatedAt          string          `json:"created_at,omitempty"`
+	CreatedBy          string          `json:"created_by,omitempty"`
+	UpdatedAt          string          `json:"updated_at,omitempty"`
+	ClosedAt           string          `json:"closed_at,omitempty"`
+	CloseReason        string          `json:"close_reason,omitempty"`
+	Metadata           map[string]any  `json:"metadata,omitempty"`
 	Dependencies       []RawDependency `json:"dependencies,omitempty"`
 
 	Acceptance string `json:"acceptance,omitempty"`
@@ -65,33 +65,33 @@ func isValidType(t string) bool {
 
 var workflowInitialStates = map[string]bool{
 	"ready_for_implementation": true,
-	"ready_for_planning":      true,
+	"ready_for_planning":       true,
 	"ready_for_review":         true,
 }
 
 var workflowKnownStates = map[string]bool{
-	"ready_for_implementation":         true,
-	"implementation":                   true,
+	"ready_for_implementation":        true,
+	"implementation":                  true,
 	"ready_for_implementation_review": true,
-	"implementation_review":            true,
+	"implementation_review":           true,
 	"ready_for_integration":           true,
-	"integration":                      true,
+	"integration":                     true,
 	"ready_for_integration_review":    true,
-	"integration_review":               true,
+	"integration_review":              true,
 	"ready_for_shipment":              true,
-	"shipment":                         true,
+	"shipment":                        true,
 	"ready_for_shipment_review":       true,
-	"shipment_review":                  true,
-	"shipped":                          true,
+	"shipment_review":                 true,
+	"shipped":                         true,
 	"ready_for_planning":              true,
-	"planning":                         true,
+	"planning":                        true,
 	"ready_for_plan_review":           true,
-	"plan_review":                      true,
-	"deferred":                         true,
-	"blocked":                          true,
+	"plan_review":                     true,
+	"deferred":                        true,
+	"blocked":                         true,
 	"awaiting_integration":            true,
 	"awaiting_pr_review":              true,
-	"abandoned":                        true,
+	"abandoned":                       true,
 }
 
 // defaultState returns the workflow state for this bead. It is a total
@@ -368,12 +368,12 @@ func DenormalizeBead(bead Bead) RawBead {
 	notesWithInvariants := embedInvariantsInNotes(bead.Notes, bead.Invariants)
 
 	raw := RawBead{
-		ID:       bead.ID,
-		Title:    bead.Title,
+		ID:        bead.ID,
+		Title:     bead.Title,
 		IssueType: bead.Type,
-		Status:   status,
-		Priority: bead.Priority,
-		Labels:   labels,
+		Status:    status,
+		Priority:  bead.Priority,
+		Labels:    labels,
 		CreatedAt: bead.CreatedAt,
 		UpdatedAt: bead.UpdatedAt,
 	}

@@ -31,10 +31,10 @@ func IsRetakeSourceState(state string) bool {
 // legacyToWorkflow maps legacy bead state names to workflow.IssueStatus string
 // values for backward compatibility.
 var legacyToWorkflow = map[string]string{
-	"shipped":   string(workflow.StatusClosed),
-	"closed":    string(workflow.StatusClosed),
-	"done":      string(workflow.StatusClosed),
-	"approved":  string(workflow.StatusClosed),
+	"shipped":  string(workflow.StatusClosed),
+	"closed":   string(workflow.StatusClosed),
+	"done":     string(workflow.StatusClosed),
+	"approved": string(workflow.StatusClosed),
 }
 
 // RetakeTerminal is a minimal representation of a running terminal session

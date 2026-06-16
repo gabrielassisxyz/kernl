@@ -786,8 +786,8 @@ func TestAssertTakeSceneInteractiveCapabilities_Fail(t *testing.T) {
 
 func TestResolveInteractiveTransport(t *testing.T) {
 	tests := []struct {
-		dialect      AgentDialect
-		interactive  bool
+		dialect       AgentDialect
+		interactive   bool
 		wantTransport string
 	}{
 		{DialectClaude, true, "stdin-stream-json"},

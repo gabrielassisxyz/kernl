@@ -1,25 +1,25 @@
 package approvals
 
 type ApprovalRequest struct {
-	ID                string   `json:"id"`
-	NotificationKey   string   `json:"notificationKey"`
-	Status            string   `json:"status"`
-	CreatedAt         string   `json:"createdAt"`
-	UpdatedAt         string   `json:"updatedAt"`
-	RepoPath          string   `json:"repoPath"`
-	BeadID            string   `json:"beadId"`
-	SessionID         string   `json:"sessionId"`
-	Adapter           string   `json:"adapter"`
-	Source            string   `json:"source"`
-	ToolName          string   `json:"toolName"`
-	SupportedActions  []string `json:"supportedActions"`
-	Actionable        bool     `json:"actionable"`
+	ID               string   `json:"id"`
+	NotificationKey  string   `json:"notificationKey"`
+	Status           string   `json:"status"`
+	CreatedAt        string   `json:"createdAt"`
+	UpdatedAt        string   `json:"updatedAt"`
+	RepoPath         string   `json:"repoPath"`
+	BeadID           string   `json:"beadId"`
+	SessionID        string   `json:"sessionId"`
+	Adapter          string   `json:"adapter"`
+	Source           string   `json:"source"`
+	ToolName         string   `json:"toolName"`
+	SupportedActions []string `json:"supportedActions"`
+	Actionable       bool     `json:"actionable"`
 }
 
 type ApprovalFilter struct {
-	RepoPath    string
-	ActiveOnly  bool
-	Status      string
+	RepoPath     string
+	ActiveOnly   bool
+	Status       string
 	UpdatedSince string
 }
 

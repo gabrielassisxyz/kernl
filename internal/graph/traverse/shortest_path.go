@@ -57,8 +57,8 @@ func ShortestPath(ctx context.Context, tx *graph.ReadTx, a, b string, labels ...
 
 	// BFS
 	type node struct {
-		id   string
-		prev *node
+		id    string
+		prev  *node
 		depth int
 	}
 

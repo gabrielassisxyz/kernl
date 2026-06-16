@@ -27,7 +27,7 @@ func ImportPocket(ctx context.Context, tx *graph.WriteTx, r io.Reader, author no
 	for _, m := range matches {
 		url := m[1]
 		title := m[2]
-		
+
 		b := nodes.Bookmark{
 			URL:   url,
 			Title: title,

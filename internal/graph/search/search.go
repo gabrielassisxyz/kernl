@@ -245,5 +245,3 @@ func isFTS5Error(err error) bool {
 
 	return false
 }
-
-

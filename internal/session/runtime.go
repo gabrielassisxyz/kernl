@@ -21,12 +21,12 @@ type TerminalEvent struct {
 }
 
 type CloseDiagnostics struct {
-	ExitReason      string `json:"exitReason"`
-	LastEventType   string `json:"lastEventType"`
-	Signal          string `json:"signal,omitempty"`
-	ExitCode        int    `json:"exitCode"`
-	MsSinceLastStdout int64 `json:"msSinceLastStdout"`
-	TurnError       string `json:"turnError,omitempty"`
+	ExitReason        string `json:"exitReason"`
+	LastEventType     string `json:"lastEventType"`
+	Signal            string `json:"signal,omitempty"`
+	ExitCode          int    `json:"exitCode"`
+	MsSinceLastStdout int64  `json:"msSinceLastStdout"`
+	TurnError         string `json:"turnError,omitempty"`
 }
 
 type PromptDeliveryHook struct {
@@ -39,47 +39,47 @@ type PromptDeliveryHook struct {
 type OnTurnEndedFunc func(exitReason string) bool
 
 type SessionRuntime struct {
-	beadID        string
-	repoPath       string
-	capabilities   DialectCapabilities
-	dialect        string
-	events        chan TerminalEvent
-	resultObserved bool
-	exitReason     string
-	isError        bool
-	lastEventType  string
-	lastStdoutAt   *time.Time
-	stdinClosed    bool
-	autoAnswered   map[string]bool
-	mu            sync.Mutex
-	cancel        context.CancelFunc
-	stdin         io.Writer
-	stdinMu       sync.Mutex
-	onTurnEnded   OnTurnEndedFunc
-	promptHooks   PromptDeliveryHook
-	inputCloseTimer *time.Timer
-	lastTurnError string
-	tokenLogger  TokenUsageLogger
+	beadID            string
+	repoPath          string
+	capabilities      DialectCapabilities
+	dialect           string
+	events            chan TerminalEvent
+	resultObserved    bool
+	exitReason        string
+	isError           bool
+	lastEventType     string
+	lastStdoutAt      *time.Time
+	stdinClosed       bool
+	autoAnswered      map[string]bool
+	mu                sync.Mutex
+	cancel            context.CancelFunc
+	stdin             io.Writer
+	stdinMu           sync.Mutex
+	onTurnEnded       OnTurnEndedFunc
+	promptHooks       PromptDeliveryHook
+	inputCloseTimer   *time.Timer
+	lastTurnError     string
+	tokenLogger       TokenUsageLogger
 	capturedSessionID string
 }
 
 func NewSessionRuntime(beadID, repoPath string) *SessionRuntime {
 	return &SessionRuntime{
 		beadID:       beadID,
-		repoPath:      repoPath,
-		events:        make(chan TerminalEvent, 5000),
-		autoAnswered:  make(map[string]bool),
+		repoPath:     repoPath,
+		events:       make(chan TerminalEvent, 5000),
+		autoAnswered: make(map[string]bool),
 	}
 }
 
 func NewSessionRuntimeWithCapabilities(beadID, repoPath, dialect string, interactive bool) *SessionRuntime {
 	r := &SessionRuntime{
-		beadID:        beadID,
-		repoPath:       repoPath,
-		dialect:        dialect,
-		capabilities:   CapabilitiesForDialect(dialect, interactive),
-		events:        make(chan TerminalEvent, 5000),
-		autoAnswered:  make(map[string]bool),
+		beadID:       beadID,
+		repoPath:     repoPath,
+		dialect:      dialect,
+		capabilities: CapabilitiesForDialect(dialect, interactive),
+		events:       make(chan TerminalEvent, 5000),
+		autoAnswered: make(map[string]bool),
 	}
 	if !r.capabilities.Interactive {
 		r.stdinClosed = true
@@ -226,7 +226,7 @@ func (r *SessionRuntime) SendUserTurn(prompt string) bool {
 	}
 
 	msg := map[string]any{
-		"type": "user_message",
+		"type":    "user_message",
 		"content": prompt,
 	}
 	data, err := json.Marshal(msg)
@@ -331,8 +331,8 @@ func CaptureChildCloseDiagnostics(runtime *SessionRuntime, exitCode int, signal 
 	defer runtime.mu.Unlock()
 
 	d := CloseDiagnostics{
-		ExitCode:  exitCode,
-		Signal:    signal,
+		ExitCode:   exitCode,
+		Signal:     signal,
 		ExitReason: "normal",
 	}
 	if runtime.exitReason != "" {
@@ -672,9 +672,9 @@ func (r *SessionRuntime) maybeAutoAnswerClaude(obj map[string]any) {
 		r.mu.Unlock()
 	}
 	msg := map[string]any{
-		"type":       "tool_result",
+		"type":        "tool_result",
 		"tool_use_id": id,
-		"content":    "auto-response",
+		"content":     "auto-response",
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {

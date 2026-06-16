@@ -18,10 +18,10 @@ import (
 // run on 2026-05-17 with bd timing out at 5s, then the next request
 // hitting the same path while the first was still in flight.
 type listBeadsCache struct {
-	mu      sync.Mutex
-	data    []backend.Bead
-	at      time.Time
-	ttl     time.Duration
+	mu   sync.Mutex
+	data []backend.Bead
+	at   time.Time
+	ttl  time.Duration
 }
 
 func (c *listBeadsCache) get(load func() ([]backend.Bead, error)) ([]backend.Bead, error) {

@@ -15,8 +15,8 @@ import (
 
 const (
 	knoCommandTimeoutMs = 20000
-	knoMaxBufferBytes    = 10 * 1024 * 1024
-	knoDefaultBin        = "kno"
+	knoMaxBufferBytes   = 10 * 1024 * 1024
+	knoDefaultBin       = "kno"
 
 	knoRetriableLock    = "database is locked"
 	knoRetriableBusy    = "busy"
@@ -30,10 +30,10 @@ type KnotsBackend struct {
 	knoBin   string
 	knoDB    string
 
-	writeQueues   map[string]*knoQueue
-	writeQueueMu  sync.Mutex
-	nextQueues    map[string]*knoQueue
-	nextQueueMu   sync.Mutex
+	writeQueues  map[string]*knoQueue
+	writeQueueMu sync.Mutex
+	nextQueues   map[string]*knoQueue
+	nextQueueMu  sync.Mutex
 }
 
 type knoQueue struct {
@@ -87,13 +87,13 @@ func (k *KnotsBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 			queueActions[wf.InitialState] = wf.InitialState
 		}
 		descriptors[i] = WorkflowDescriptor{
-			ID:               wf.ID,
-			Label:            wf.ID,
+			ID:                wf.ID,
+			Label:             wf.ID,
 			BackingWorkflowID: wf.ID,
-			InitialState:     wf.InitialState,
-			States:           wf.States,
-			TerminalStates:   wf.TerminalStates,
-			QueueActions:     queueActions,
+			InitialState:      wf.InitialState,
+			States:            wf.States,
+			TerminalStates:    wf.TerminalStates,
+			QueueActions:      queueActions,
 		}
 	}
 	return descriptors, nil
@@ -396,8 +396,8 @@ type CreateLeaseOptions struct {
 }
 
 type LeaseResult struct {
-	ID    string      `json:"id"`
-	Lease *knoLease   `json:"lease,omitempty"`
+	ID    string    `json:"id"`
+	Lease *knoLease `json:"lease,omitempty"`
 }
 
 func (k *KnotsBackend) CreateLease(opts CreateLeaseOptions, repoPath string) (*LeaseResult, error) {
@@ -612,9 +612,9 @@ func isKnoRetriable(stderr string) bool {
 }
 
 type knoWorkflowDefinition struct {
-	ID             string `json:"id"`
-	Description    string `json:"description"`
-	InitialState   string `json:"initial_state"`
+	ID             string   `json:"id"`
+	Description    string   `json:"description"`
+	InitialState   string   `json:"initial_state"`
 	States         []string `json:"states"`
 	TerminalStates []string `json:"terminal_states"`
 	Transitions    []struct {
@@ -624,23 +624,23 @@ type knoWorkflowDefinition struct {
 }
 
 type knoRecord struct {
-	ID          string         `json:"id"`
-	Alias       string         `json:"alias,omitempty"`
-	Title       string         `json:"title"`
-	State       string         `json:"state"`
-	ProfileID   string         `json:"profile_id,omitempty"`
-	WorkflowID  string         `json:"workflow_id,omitempty"`
-	UpdatedAt   string         `json:"updated_at"`
-	Body        string         `json:"body,omitempty"`
-	Description string         `json:"description,omitempty"`
-	Acceptance  string         `json:"acceptance,omitempty"`
-	Priority    *int           `json:"priority,omitempty"`
-	Type        string         `json:"type,omitempty"`
-	Tags        []string       `json:"tags,omitempty"`
+	ID          string          `json:"id"`
+	Alias       string          `json:"alias,omitempty"`
+	Title       string          `json:"title"`
+	State       string          `json:"state"`
+	ProfileID   string          `json:"profile_id,omitempty"`
+	WorkflowID  string          `json:"workflow_id,omitempty"`
+	UpdatedAt   string          `json:"updated_at"`
+	Body        string          `json:"body,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Acceptance  string          `json:"acceptance,omitempty"`
+	Priority    *int            `json:"priority,omitempty"`
+	Type        string          `json:"type,omitempty"`
+	Tags        []string        `json:"tags,omitempty"`
 	Notes       json.RawMessage `json:"notes,omitempty"`
-	LeaseID     string         `json:"lease_id,omitempty"`
-	Lease       *knoLease      `json:"lease,omitempty"`
-	CreatedAt   string         `json:"created_at,omitempty"`
+	LeaseID     string          `json:"lease_id,omitempty"`
+	Lease       *knoLease       `json:"lease,omitempty"`
+	CreatedAt   string          `json:"created_at,omitempty"`
 }
 
 type knoLease struct {

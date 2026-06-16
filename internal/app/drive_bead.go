@@ -24,14 +24,14 @@ type BeadDriver interface {
 
 // DriveBeadDeps wires the inputs the per-bead workflow loop needs.
 type DriveBeadDeps struct {
-	Backend            backend.BackendPort
-	Driver             BeadDriver
-	Config             *config.Config
-	BeadID             string
-	RepoPath           string
-	Worktree           string
-	Log                func(stage int, state string)
-	MaxStages          int
+	Backend   backend.BackendPort
+	Driver    BeadDriver
+	Config    *config.Config
+	BeadID    string
+	RepoPath  string
+	Worktree  string
+	Log       func(stage int, state string)
+	MaxStages int
 	// SessionID is the opencode session to resume via -s. Non-empty means
 	// the bead is being resumed from a previous run rather than dispatched
 	// fresh.

@@ -9,12 +9,12 @@ import (
 type AgentProviderId string
 
 const (
-	ProviderClaude  AgentProviderId = "Claude"
-	ProviderCopilot AgentProviderId = "Copilot"
-	ProviderCodex   AgentProviderId = "Codex"
-	ProviderGemini  AgentProviderId = "Gemini"
+	ProviderClaude   AgentProviderId = "Claude"
+	ProviderCopilot  AgentProviderId = "Copilot"
+	ProviderCodex    AgentProviderId = "Codex"
+	ProviderGemini   AgentProviderId = "Gemini"
 	ProviderOpenCode AgentProviderId = "OpenCode"
-	ProviderUnknown AgentProviderId = "unknown"
+	ProviderUnknown  AgentProviderId = "unknown"
 )
 
 func DetectAgentProviderId(command string) AgentProviderId {
@@ -53,17 +53,17 @@ func providerLabel(provider, command string) string {
 }
 
 type AgentIdentityLike struct {
-	Command   string
-	Provider  string
-	Model     string
-	Flavor    string
-	Version   string
-	Label     string
-	AgentType string
-	Vendor    string
-	AgentName string
+	Command    string
+	Provider   string
+	Model      string
+	Flavor     string
+	Version    string
+	Label      string
+	AgentType  string
+	Vendor     string
+	AgentName  string
 	LeaseModel string
-	Kind      string
+	Kind       string
 }
 
 func NewAgentIdentityFromCommand(command string) AgentIdentityLike {
@@ -144,12 +144,12 @@ func ToExecutionAgentInfo(agent AgentIdentityLike) ExecutionAgentInfo {
 
 type canonicalCore struct {
 	Normalized NormalizedAgentIdentity
-	AgentType string
-	Vendor    string
-	Provider  string
-	AgentName string
+	AgentType  string
+	Vendor     string
+	Provider   string
+	AgentName  string
 	LeaseModel string
-	Version   string
+	Version    string
 }
 
 func buildCanonicalCore(agent AgentIdentityLike) canonicalCore {
@@ -236,9 +236,9 @@ func NormalizeAgentIdentity(agent AgentIdentityLike) NormalizedAgentIdentity {
 		return combineProviderResult(
 			normalized.Provider,
 			NormalizedAgentIdentity{
-				Model:    normalized.Model,
-				Flavor:   normalized.Flavor,
-				Version:  normalized.Version,
+				Model:   normalized.Model,
+				Flavor:  normalized.Flavor,
+				Version: normalized.Version,
 			},
 			NormalizedAgentIdentity{Flavor: flavor, Version: version},
 		)
@@ -620,12 +620,12 @@ func openCodeDisplayParts(agent AgentIdentityLike) AgentDisplayParts {
 }
 
 var commandDisplayLabels = map[string]string{
-	"claude":       "Claude",
-	"copilot":      "Copilot",
-	"codex":        "Codex",
-	"codex-cli":    "Codex",
-	"gemini":       "Gemini",
-	"opencode":     "OpenCode",
+	"claude":    "Claude",
+	"copilot":   "Copilot",
+	"codex":     "Codex",
+	"codex-cli": "Codex",
+	"gemini":    "Gemini",
+	"opencode":  "OpenCode",
 }
 
 func displayCommandLabel(command string) string {
@@ -754,9 +754,9 @@ func SplitOpenCodeModelToken(token string) OpenCodeModelSplit {
 }
 
 type versionTokens struct {
-	Values               []string
-	FirstSegmentPrefix   string
-	AfterIdx             int
+	Values             []string
+	FirstSegmentPrefix string
+	AfterIdx           int
 }
 
 func collectVersionTokens(segments []string, startIdx int) versionTokens {
@@ -776,34 +776,34 @@ func collectVersionTokens(segments []string, startIdx int) versionTokens {
 		i++
 	}
 	return versionTokens{
-		Values:               values,
-		FirstSegmentPrefix:   prefix,
-		AfterIdx:             i,
+		Values:             values,
+		FirstSegmentPrefix: prefix,
+		AfterIdx:           i,
 	}
 }
 
 var vendorDisplayNames = map[string]string{
 	"openrouter": "OpenRouter",
 	"moonshotai": "MoonshotAI",
-	"anthropic":   "Anthropic",
-	"z-ai":        "Z-AI",
-	"mistral":     "Mistral",
-	"mistralai":   "MistralAI",
-	"google":      "Google",
-	"copilot":     "Copilot",
-	"opencode":    "OpenCode",
-	"openai":      "OpenAI",
-	"meta":        "Meta",
-	"qwen":        "Qwen",
-	"deepseek":    "DeepSeek",
-	"xai":         "xAI",
-	"perplexity":  "Perplexity",
-	"cohere":      "Cohere",
-	"glm":         "GLM",
-	"llama":       "Llama",
-	"bert":        "BERT",
-	"rwkv":        "RWKV",
-	"t5":          "T5",
+	"anthropic":  "Anthropic",
+	"z-ai":       "Z-AI",
+	"mistral":    "Mistral",
+	"mistralai":  "MistralAI",
+	"google":     "Google",
+	"copilot":    "Copilot",
+	"opencode":   "OpenCode",
+	"openai":     "OpenAI",
+	"meta":       "Meta",
+	"qwen":       "Qwen",
+	"deepseek":   "DeepSeek",
+	"xai":        "xAI",
+	"perplexity": "Perplexity",
+	"cohere":     "Cohere",
+	"glm":        "GLM",
+	"llama":      "Llama",
+	"bert":       "BERT",
+	"rwkv":       "RWKV",
+	"t5":         "T5",
 }
 
 var trailingUpperSuffixes = []string{"ai", "ml", "io", "js"}
@@ -905,7 +905,7 @@ func ToCanonicalLeaseIdentitySimple(command, model, provider, flavor, version st
 // identifier into its provider prefix and the remainder model path.
 type OpenCodeModelSelection struct {
 	ProviderID string
-	ModelID   string
+	ModelID    string
 }
 
 // ParseOpenCodeModelSelection splits an OpenCode model identifier of the form

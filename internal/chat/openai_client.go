@@ -102,13 +102,13 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Too
 }
 
 type openAIRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
+	Model    string       `json:"model"`
+	Messages []Message    `json:"messages"`
 	Tools    []openAITool `json:"tools,omitempty"`
 }
 
 type openAITool struct {
-	Type     string        `json:"type"`
+	Type     string         `json:"type"`
 	Function openAIFunction `json:"function"`
 }
 
@@ -142,13 +142,13 @@ type openAIChoice struct {
 }
 
 type openAIMessage struct {
-	Content   string          `json:"content"`
+	Content   string           `json:"content"`
 	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
 type openAIToolCall struct {
-	ID       string        `json:"id"`
-	Type     string        `json:"type"`
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`
 	Function openAIFuncCall `json:"function"`
 }
 

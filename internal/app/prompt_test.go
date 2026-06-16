@@ -163,7 +163,7 @@ func TestBuildBeadStagePrompt_BeadIsInputNotInstruction(t *testing.T) {
 
 	stages := map[string]backend.StageContract{
 		"planning": {
-			Role: "Create a plan.",
+			Role:   "Create a plan.",
 			Inputs: []string{"bead.description"},
 		},
 	}

@@ -180,10 +180,10 @@ func pruneOrphanActionRefs(root *config.Settings, registeredIDs map[string]bool,
 		return
 	}
 	actionRefs := map[string]*string{
-		"take":             &root.Actions.Take,
-		"scene":            &root.Actions.Scene,
-		"scopeRefinement":  &root.Actions.ScopeRefinement,
-		"staleGrooming":    &root.Actions.StaleGrooming,
+		"take":            &root.Actions.Take,
+		"scene":           &root.Actions.Scene,
+		"scopeRefinement": &root.Actions.ScopeRefinement,
+		"staleGrooming":   &root.Actions.StaleGrooming,
 	}
 	for _, key := range actionKeys {
 		ptr, ok := actionRefs[key]

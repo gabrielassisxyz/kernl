@@ -29,8 +29,8 @@ func (sw *statusWriter) Flush() {
 type timingCtxKey struct{}
 
 type ServerMetric struct {
-	Name        string
-	DurationMs  float64
+	Name       string
+	DurationMs float64
 }
 
 type ServerTimingTracker struct {

@@ -11,10 +11,10 @@ import (
 )
 
 type WorktreeManager struct {
-	root        string
-	repoPath    string
-	gitRun      func(dir string, args ...string) (string, error)
-	updateDesc  func(beadID string, fn func(oldDesc string) string) error
+	root       string
+	repoPath   string
+	gitRun     func(dir string, args ...string) (string, error)
+	updateDesc func(beadID string, fn func(oldDesc string) string) error
 }
 
 func NewWorktreeManager(root string, repoPath string, gitRun func(dir string, args ...string) (string, error), updateDesc func(beadID string, fn func(oldDesc string) string) error) *WorktreeManager {

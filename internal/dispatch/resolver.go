@@ -7,7 +7,7 @@ import (
 )
 
 type ResolvedAgent struct {
-	ID   string
+	ID     string
 	Config *config.AgentConfig
 }
 

@@ -34,9 +34,9 @@ func LogAutonomousDecision(ctx context.Context, g *graph.Graph, epicID, beadID, 
 		// Link it to epic
 		if epicID != "" {
 			_, err = edges.Create(ctx, tx, edges.Edge{
-				Src:      epicID,
-				Dst:      id,
-				Type:     "audit-log",
+				Src:  epicID,
+				Dst:  id,
+				Type: "audit-log",
 			}, author)
 			if err != nil {
 				return err
@@ -46,9 +46,9 @@ func LogAutonomousDecision(ctx context.Context, g *graph.Graph, epicID, beadID, 
 		// Link it to bead if different
 		if beadID != "" && beadID != epicID {
 			_, err = edges.Create(ctx, tx, edges.Edge{
-				Src:      beadID,
-				Dst:      id,
-				Type:     "audit-log",
+				Src:  beadID,
+				Dst:  id,
+				Type: "audit-log",
 			}, author)
 			if err != nil {
 				return err

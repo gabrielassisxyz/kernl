@@ -7,10 +7,10 @@ import (
 )
 
 type SwapPoolResult struct {
-	Pools      map[string]config.PoolConfig
-	Changed    bool
-	Affected   int
-	Updated    config.PoolConfig
+	Pools    map[string]config.PoolConfig
+	Changed  bool
+	Affected int
+	Updated  config.PoolConfig
 }
 
 // swapPoolEntries replaces all occurrences of fromAgentID with toAgentID in a
@@ -110,9 +110,9 @@ func SwapPoolAgent(pools map[string]config.PoolConfig, poolKey, oldAgentID, newA
 }
 
 type SwapActionsResult struct {
-	Actions    map[string]string
-	Affected   int
-	Updates    map[string]string
+	Actions  map[string]string
+	Affected int
+	Updates  map[string]string
 }
 
 func SwapActionsAgent(actions map[string]string, oldAgentID, newAgentID string) SwapActionsResult {
@@ -140,10 +140,10 @@ func SwapActionsAgent(actions map[string]string, oldAgentID, newAgentID string) 
 }
 
 type SwapPoolsResult struct {
-	Pools         map[string]config.PoolConfig
+	Pools           map[string]config.PoolConfig
 	AffectedEntries int
-	AffectedSteps int
-	Updates       map[string]config.PoolConfig
+	AffectedSteps   int
+	Updates         map[string]config.PoolConfig
 }
 
 func SwapPoolsAgent(pools map[string]config.PoolConfig, oldAgentID, newAgentID string) SwapPoolsResult {
@@ -182,10 +182,10 @@ func SwapPoolsAgent(pools map[string]config.PoolConfig, oldAgentID, newAgentID s
 	}
 
 	return SwapPoolsResult{
-		Pools:         result,
+		Pools:           result,
 		AffectedEntries: totalEntries,
-		AffectedSteps: steps,
-		Updates:       updates,
+		AffectedSteps:   steps,
+		Updates:         updates,
 	}
 }
 

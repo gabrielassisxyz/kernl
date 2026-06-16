@@ -13,21 +13,21 @@ import (
 // deferred and abandoned map to StatusClosed so wildcard transitions produce
 // a terminal state in the new model.
 var legacyToWorkflowState = map[string]string{
-	"ready_for_implementation":       string(workflow.StatusOpen),
-	"implementation":                 string(workflow.StatusInProgress),
-	"implementation_review":          string(workflow.StatusAwaitingIntegration),
-	"ready_for_integration":          string(workflow.StatusAwaitingIntegration),
-	"integration":                    string(workflow.StatusAwaitingIntegration),
-	"integration_review":             string(workflow.StatusAwaitingIntegration),
-	"ready_for_shipment":             string(workflow.StatusAwaitingIntegration),
-	"shipment":                       string(workflow.StatusClosed),
-	"shipment_review":                string(workflow.StatusClosed),
-	"shipped":                        string(workflow.StatusClosed),
-	"closed":                         string(workflow.StatusClosed),
-	"done":                           string(workflow.StatusClosed),
-	"approved":                       string(workflow.StatusClosed),
-	"deferred":                       string(workflow.StatusClosed),
-	"abandoned":                      string(workflow.StatusClosed),
+	"ready_for_implementation": string(workflow.StatusOpen),
+	"implementation":           string(workflow.StatusInProgress),
+	"implementation_review":    string(workflow.StatusAwaitingIntegration),
+	"ready_for_integration":    string(workflow.StatusAwaitingIntegration),
+	"integration":              string(workflow.StatusAwaitingIntegration),
+	"integration_review":       string(workflow.StatusAwaitingIntegration),
+	"ready_for_shipment":       string(workflow.StatusAwaitingIntegration),
+	"shipment":                 string(workflow.StatusClosed),
+	"shipment_review":          string(workflow.StatusClosed),
+	"shipped":                  string(workflow.StatusClosed),
+	"closed":                   string(workflow.StatusClosed),
+	"done":                     string(workflow.StatusClosed),
+	"approved":                 string(workflow.StatusClosed),
+	"deferred":                 string(workflow.StatusClosed),
+	"abandoned":                string(workflow.StatusClosed),
 }
 
 type Step struct {
@@ -51,11 +51,11 @@ type ResolvedStep struct {
 }
 
 type WorkflowRuntimeState struct {
-	State                string
-	NextActionState      string
-	NextActionOwnerKind  backend.ActionOwnerKind
-	RequiresHumanAction  bool
-	IsAgentClaimable      bool
+	State               string
+	NextActionState     string
+	NextActionOwnerKind backend.ActionOwnerKind
+	RequiresHumanAction bool
+	IsAgentClaimable    bool
 }
 
 func ResolveStep(steps []Step, stepID string) (*Step, error) {
@@ -68,23 +68,23 @@ func ResolveStep(steps []Step, stepID string) (*Step, error) {
 }
 
 var statePipelineOrder = map[string]int{
-	"ready_for_planning":              0,
-	"planning":                        1,
-	"ready_for_plan_review":            2,
-	"plan_review":                     3,
-	"ready_for_implementation":         4,
-	"implementation":                  5,
-	"ready_for_implementation_review": 6,
-	"implementation_review":           7,
-	"ready_for_integration":           8,
-	"integration":                     9,
-	"ready_for_integration_review":    10,
-	"integration_review":            11,
-	"ready_for_shipment":              12,
-	"shipment":                        13,
-	"ready_for_shipment_review":       14,
-	"shipment_review":                 15,
-	"shipped":                         16,
+	"ready_for_planning":                       0,
+	"planning":                                 1,
+	"ready_for_plan_review":                    2,
+	"plan_review":                              3,
+	"ready_for_implementation":                 4,
+	"implementation":                           5,
+	"ready_for_implementation_review":          6,
+	"implementation_review":                    7,
+	"ready_for_integration":                    8,
+	"integration":                              9,
+	"ready_for_integration_review":             10,
+	"integration_review":                       11,
+	"ready_for_shipment":                       12,
+	"shipment":                                 13,
+	"ready_for_shipment_review":                14,
+	"shipment_review":                          15,
+	"shipped":                                  16,
 	string(workflow.StatusOpen):                4,
 	string(workflow.StatusInProgress):          5,
 	string(workflow.StatusAwaitingIntegration): 8,
@@ -632,20 +632,20 @@ func DeriveWorkflowRuntimeState(wf *backend.WorkflowDescriptor, workflowState st
 
 	if phase == PhaseTerminal {
 		return WorkflowRuntimeState{
-			State:                normalizedState,
-			NextActionOwnerKind:  backend.ActionOwnerNone,
-			RequiresHumanAction:  false,
-			IsAgentClaimable:      false,
+			State:               normalizedState,
+			NextActionOwnerKind: backend.ActionOwnerNone,
+			RequiresHumanAction: false,
+			IsAgentClaimable:    false,
 		}
 	}
 
 	resolved := ResolveStepForWorkflow(normalizedState, wf)
 	if resolved == nil {
 		return WorkflowRuntimeState{
-			State:                normalizedState,
-			NextActionOwnerKind:  backend.ActionOwnerNone,
-			RequiresHumanAction:  false,
-			IsAgentClaimable:      false,
+			State:               normalizedState,
+			NextActionOwnerKind: backend.ActionOwnerNone,
+			RequiresHumanAction: false,
+			IsAgentClaimable:    false,
 		}
 	}
 
@@ -668,19 +668,19 @@ func DeriveWorkflowRuntimeState(wf *backend.WorkflowDescriptor, workflowState st
 
 	if phase == PhaseQueued {
 		return WorkflowRuntimeState{
-			State:                normalizedState,
-			NextActionState:      resolved.Step,
-			NextActionOwnerKind:  ownerKind,
-			RequiresHumanAction:  ownerKind == backend.ActionOwnerHuman,
-			IsAgentClaimable:      ownerKind == backend.ActionOwnerAgent,
+			State:               normalizedState,
+			NextActionState:     resolved.Step,
+			NextActionOwnerKind: ownerKind,
+			RequiresHumanAction: ownerKind == backend.ActionOwnerHuman,
+			IsAgentClaimable:    ownerKind == backend.ActionOwnerAgent,
 		}
 	}
 
 	return WorkflowRuntimeState{
-		State:                normalizedState,
-		NextActionOwnerKind:  ownerKind,
-		RequiresHumanAction:  false,
-		IsAgentClaimable:      false,
+		State:               normalizedState,
+		NextActionOwnerKind: ownerKind,
+		RequiresHumanAction: false,
+		IsAgentClaimable:    false,
 	}
 }
 
@@ -906,9 +906,9 @@ func WfToSteps(wf *backend.WorkflowDescriptor) []Step {
 			}
 		}
 		steps = append(steps, Step{
-			ID:   s,
-			Name: s,
-			Kind: kind,
+			ID:    s,
+			Name:  s,
+			Kind:  kind,
 			State: s,
 		})
 	}

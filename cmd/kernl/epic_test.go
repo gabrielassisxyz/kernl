@@ -18,7 +18,9 @@ type epicTestBackend struct {
 	beads []backend.Bead
 }
 
-func (b *epicTestBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) { return nil, nil }
+func (b *epicTestBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
+	return nil, nil
+}
 func (b *epicTestBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	var result []backend.Bead
 	for _, bead := range b.beads {
@@ -75,7 +77,9 @@ func (b *epicTestBackend) BuildPollPrompt(options *backend.PollPromptOptions, re
 	return nil, nil
 }
 func (b *epicTestBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (b *epicTestBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
+func (b *epicTestBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 func captureEpicList(t *testing.T, be backend.BackendPort) string {
 	t.Helper()
@@ -106,7 +110,9 @@ type epicRunTestBackend struct {
 	beads []backend.Bead
 }
 
-func (b *epicRunTestBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) { return nil, nil }
+func (b *epicRunTestBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
+	return nil, nil
+}
 func (b *epicRunTestBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	var result []backend.Bead
 	for _, bead := range b.beads {
@@ -179,7 +185,9 @@ func (b *epicRunTestBackend) BuildPollPrompt(options *backend.PollPromptOptions,
 	return nil, nil
 }
 func (b *epicRunTestBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (b *epicRunTestBackend) Capabilities() backend.BackendCapabilities { return backend.BackendCapabilities{} }
+func (b *epicRunTestBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 type epicRunTestProcess struct {
 	exitErr error
@@ -193,7 +201,7 @@ type epicRunProvider struct{}
 func (p *epicRunProvider) GetSessionEntry(id string) (session.SessionInfo, bool) {
 	return session.SessionInfo{}, false
 }
-func (p *epicRunProvider) ListSessionIDs() []session.SessionInfo { return nil }
+func (p *epicRunProvider) ListSessionIDs() []session.SessionInfo          { return nil }
 func (p *epicRunProvider) PushEvent(id string, evt session.TerminalEvent) {}
 
 func epicRunSuccessSpawn(ctx context.Context, cmd string, args []string, cwd string, env []string) (app.Process, io.Reader, io.Reader, error) {
@@ -218,19 +226,19 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
 	driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawnFn, SCM: scm})
 	pools := map[string]config.PoolConfig{
-		"implementation":          {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"planning":                {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"plan_review":             {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"implementation_review":    {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"integration":              {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"integration_review":       {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"shipment":                {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
-		"shipment_review":          {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"implementation":        {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"planning":              {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"plan_review":           {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"implementation_review": {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"integration":           {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"integration_review":    {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"shipment":              {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+		"shipment_review":       {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 	}
 
 	return &app.App{
-		Backend:    be,
-		Driver:     driver,
+		Backend: be,
+		Driver:  driver,
 		Config: &config.Config{
 			Settings: config.Settings{
 				Agents: map[string]config.AgentConfig{

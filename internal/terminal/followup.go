@@ -47,10 +47,10 @@ type LeaseHealthChecker interface {
 }
 
 type LeaseHealthResult struct {
-	Healthy   bool
-	Reason    string
+	Healthy    bool
+	Reason     string
 	LeaseState string
-	Detail    string
+	Detail     string
 }
 
 type DefaultLeaseHealthChecker struct{}
@@ -60,10 +60,10 @@ func (d *DefaultLeaseHealthChecker) EvaluateLeaseHealth(leaseID, repoPath string
 }
 
 type FollowUpDeps struct {
-	GetBead          func(beadID, repoPath string) (*backend.Bead, error)
-	SendUserTurn     SendUserTurnFunc
-	LeaseChecker     LeaseHealthChecker
-	InteractionLog   InteractionLog
+	GetBead        func(beadID, repoPath string) (*backend.Bead, error)
+	SendUserTurn   SendUserTurnFunc
+	LeaseChecker   LeaseHealthChecker
+	InteractionLog InteractionLog
 }
 
 func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {

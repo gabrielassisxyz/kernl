@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"path/filepath"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -173,7 +173,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		if err == nil && res != nil {
 			customProfileID = res.ShapeID
 			out(fmt.Sprintf("Inferred workflow shape: %s (Reason: %s)\n", res.ShapeID, res.Rationale))
-			
+
 			// U3: CLI confirmation prompting
 			if interactive {
 				out(fmt.Sprintf("Proceed with shape '%s'? [Y/n] ", res.ShapeID))
@@ -199,8 +199,6 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			_ = a.Backend.Update(epicID, backend.UpdateBeadInput{SetLabels: newLabels}, repoPath)
 		}
 	}
-
-
 
 	beadPort := a.Config.Server.Port
 	if beadPort == 0 {
@@ -319,7 +317,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		Worktree:       wm,
 		GetWorktree:    rs.Worktree,
 		SessionResumes: sessionResumes,
-		MaxConcurrent: a.Config.Orchestrator.MaxConcurrentBeads,
+		MaxConcurrent:  a.Config.Orchestrator.MaxConcurrentBeads,
 		Emit: func(ev epic.EpicEvent) {
 			a.EpicEvents.Publish(ev)
 			if ev.Type == epic.BeadStateChanged {
@@ -448,4 +446,3 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 	out(fmt.Sprintf("epic %s → %s\n", epicID, res.FinalState))
 	return nil
 }
-

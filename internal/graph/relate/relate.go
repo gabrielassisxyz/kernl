@@ -65,9 +65,9 @@ func RelatedTo(ctx context.Context, tx *graph.ReadTx, nodeID string, limit int) 
 
 // discoverCandidates returns a deduplicated set of candidate node IDs using
 // structural signals only. It unions three sources:
-//   1. Direct neighbours (any edge direction, any label).
-//   2. Nodes reachable within two undirected hops (common neighbourhood).
-//   3. Provenance co-neighbours (nodes sharing a provenance source).
+//  1. Direct neighbours (any edge direction, any label).
+//  2. Nodes reachable within two undirected hops (common neighbourhood).
+//  3. Provenance co-neighbours (nodes sharing a provenance source).
 func discoverCandidates(ctx context.Context, tx *graph.ReadTx, origin string) (map[string]struct{}, error) {
 	cands := make(map[string]struct{})
 

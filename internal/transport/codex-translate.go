@@ -5,10 +5,10 @@ var translatedMethods = map[string]bool{
 	"turn/completed":                            true,
 	"item/started":                              true,
 	"item/completed":                            true,
-	"item/agentMessage/delta":                  true,
-	"item/reasoning/summaryTextDelta":          true,
-	"item/reasoning/textDelta":                 true,
-	"item/commandExecution/outputDelta":        true,
+	"item/agentMessage/delta":                   true,
+	"item/reasoning/summaryTextDelta":           true,
+	"item/reasoning/textDelta":                  true,
+	"item/commandExecution/outputDelta":         true,
 	"item/commandExecution/terminalInteraction": true,
 }
 
@@ -60,8 +60,8 @@ func translateCommandExecution(item map[string]any, eventType string) map[string
 	result := map[string]any{
 		"type": eventType,
 		"item": map[string]any{
-			"type":             "command_execution",
-			"command":          command,
+			"type":              "command_execution",
+			"command":           command,
 			"aggregated_output": output,
 		},
 	}
@@ -238,7 +238,7 @@ func TranslateTerminalInteraction(params map[string]any) map[string]any {
 		item["id"] = itemID
 	}
 	result := map[string]any{
-		"type": "command_execution.terminal_interaction",
+		"type":  "command_execution.terminal_interaction",
 		"item":  item,
 		"stdin": stdin,
 	}

@@ -9,17 +9,17 @@ import (
 )
 
 type ActionsConfig struct {
-	Take             string `yaml:"take,omitempty"`
-	Scene            string `yaml:"scene,omitempty"`
-	ScopeRefinement  string `yaml:"scopeRefinement,omitempty"`
-	StaleGrooming    string `yaml:"staleGrooming,omitempty"`
+	Take            string `yaml:"take,omitempty"`
+	Scene           string `yaml:"scene,omitempty"`
+	ScopeRefinement string `yaml:"scopeRefinement,omitempty"`
+	StaleGrooming   string `yaml:"staleGrooming,omitempty"`
 }
 
 type Settings struct {
 	Agents   map[string]AgentConfig `yaml:"agents"`
-	Actions  ActionsConfig           `yaml:"actions,omitempty"`
-	Pools    map[string]PoolConfig   `yaml:"pools"`
-	Defaults DefaultsConfig          `yaml:"defaults"`
+	Actions  ActionsConfig          `yaml:"actions,omitempty"`
+	Pools    map[string]PoolConfig  `yaml:"pools"`
+	Defaults DefaultsConfig         `yaml:"defaults"`
 }
 
 type AgentConfig struct {
@@ -56,7 +56,7 @@ type RegistryConfig struct {
 }
 
 type RepoEntry struct {
-	Path           string `yaml:"path"`
+	Path          string `yaml:"path"`
 	MemoryManager string `yaml:"memoryManager"`
 }
 
@@ -65,24 +65,24 @@ type ServerConfig struct {
 }
 
 type OrchestratorConfig struct {
-	WorktreeRoot        string `yaml:"worktreeRoot,omitempty"`
-	MaxConcurrentBeads  int    `yaml:"maxConcurrentBeads,omitempty"`
-	RunStatePath        string `yaml:"runStatePath,omitempty"`
-	StageRetryAttempts  int    `yaml:"stageRetryAttempts,omitempty"`
+	WorktreeRoot       string `yaml:"worktreeRoot,omitempty"`
+	MaxConcurrentBeads int    `yaml:"maxConcurrentBeads,omitempty"`
+	RunStatePath       string `yaml:"runStatePath,omitempty"`
+	StageRetryAttempts int    `yaml:"stageRetryAttempts,omitempty"`
 }
 
 type SweepConfig struct {
-	AutoIntervalSeconds int    `yaml:"auto_interval_seconds"`
-	PRStaleWarnDays     int    `yaml:"pr_stale_warn_days"`
-	FailureThreshold    int    `yaml:"failure_threshold"`
-	BackoffMinutes      []int  `yaml:"backoff_minutes"`
+	AutoIntervalSeconds int   `yaml:"auto_interval_seconds"`
+	PRStaleWarnDays     int   `yaml:"pr_stale_warn_days"`
+	FailureThreshold    int   `yaml:"failure_threshold"`
+	BackoffMinutes      []int `yaml:"backoff_minutes"`
 }
 
 // VaultConfig holds settings for the notes vault watcher.
 type VaultConfig struct {
 	// Root is the absolute path to the vault directory.
 	// When empty, vault watching is disabled.
-	Root           string `yaml:"root"`
+	Root string `yaml:"root"`
 	// CoalesceWindowMs is the fsnotify quiet period before emitting an event (ms).
 	// Default: 300.
 	CoalesceWindowMs int `yaml:"coalesceWindowMs,omitempty"`

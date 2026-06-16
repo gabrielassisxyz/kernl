@@ -26,17 +26,17 @@ type Notification struct {
 	Kind      NotificationKind `json:"kind"`
 	Message   string           `json:"message"`
 	BeadID    string           `json:"beadId,omitempty"`
-	RepoPath   string           `json:"repoPath,omitempty"`
+	RepoPath  string           `json:"repoPath,omitempty"`
 	SessionID string           `json:"sessionId,omitempty"`
 	ExitCode  int              `json:"exitCode,omitempty"`
 }
 
 type SessionInfo struct {
-	ID         string
-	BeadID     string
-	BeadTitle  string
-	RepoPath    string
-	Status     string
+	ID        string
+	BeadID    string
+	BeadTitle string
+	RepoPath  string
+	Status    string
 }
 
 type SessionProvider interface {
@@ -250,7 +250,7 @@ func (m *SessionConnectionManager) handleAgentFailure(sessionID string, evt Term
 		Kind:      NotificationKindFailure,
 		Message:   evt.Content,
 		BeadID:    beadID,
-		RepoPath:   repoPath,
+		RepoPath:  repoPath,
 		SessionID: sessionID,
 	})
 }
@@ -328,7 +328,7 @@ func (m *SessionConnectionManager) handleExitNotification(sessionID string, conn
 		Kind:      NotificationKindExit,
 		Message:   message,
 		BeadID:    beadID,
-		RepoPath:   repoPath,
+		RepoPath:  repoPath,
 		SessionID: sessionID,
 		ExitCode:  exitCode,
 	})

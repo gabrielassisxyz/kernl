@@ -1,7 +1,5 @@
 package transport
 
-
-
 // TranslateOpenCodePart converts an OpenCode message part into
 // one or more normalized event maps. Tool parts with completed
 // state produce both a tool_use and tool_result. Unknown parts
@@ -331,4 +329,3 @@ func TranslateOpenCodeResponse(resp map[string]any) []map[string]any {
 
 	return events
 }
-

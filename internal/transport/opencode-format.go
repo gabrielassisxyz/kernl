@@ -170,4 +170,3 @@ func formatMessageUpdated(obj map[string]any) *FormattedEvent {
 		IsDetail: true,
 	}
 }
-

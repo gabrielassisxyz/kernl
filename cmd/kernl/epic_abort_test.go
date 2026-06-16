@@ -22,7 +22,9 @@ type closeCall struct {
 	reason string
 }
 
-func (b *epicAbortTestBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error)       { return nil, nil }
+func (b *epicAbortTestBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
+	return nil, nil
+}
 func (b *epicAbortTestBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	var result []backend.Bead
 	for _, bead := range b.beads {
@@ -36,7 +38,9 @@ func (b *epicAbortTestBackend) List(filters *backend.BeadListFilters, repoPath s
 	}
 	return result, nil
 }
-func (b *epicAbortTestBackend) ListReady(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) { return nil, nil }
+func (b *epicAbortTestBackend) ListReady(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
+	return nil, nil
+}
 func (b *epicAbortTestBackend) Get(id string, repoPath string) (*backend.Bead, error) {
 	for i := range b.beads {
 		if b.beads[i].ID == id {
@@ -46,24 +50,36 @@ func (b *epicAbortTestBackend) Get(id string, repoPath string) (*backend.Bead, e
 	}
 	return nil, nil
 }
-func (b *epicAbortTestBackend) Create(input backend.CreateBeadInput, repoPath string) (*backend.Bead, error) { return nil, nil }
-func (b *epicAbortTestBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error      { return nil }
-func (b *epicAbortTestBackend) Delete(id string, repoPath string) error                                    { return nil }
+func (b *epicAbortTestBackend) Create(input backend.CreateBeadInput, repoPath string) (*backend.Bead, error) {
+	return nil, nil
+}
+func (b *epicAbortTestBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error {
+	return nil
+}
+func (b *epicAbortTestBackend) Delete(id string, repoPath string) error { return nil }
 func (b *epicAbortTestBackend) Close(id string, reason string, repoPath string) (*backend.TerminalState, error) {
 	b.closeCalls = append(b.closeCalls, closeCall{id: id, reason: reason})
 	return nil, nil
 }
-func (b *epicAbortTestBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error { return nil }
-func (b *epicAbortTestBackend) Reopen(id string, reason string, repoPath string) error                              { return nil }
-func (b *epicAbortTestBackend) Rewind(id string, targetState string, reason string, repoPath string) error          { return nil }
+func (b *epicAbortTestBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {
+	return nil
+}
+func (b *epicAbortTestBackend) Reopen(id string, reason string, repoPath string) error { return nil }
+func (b *epicAbortTestBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
+	return nil
+}
 func (b *epicAbortTestBackend) Search(query string, filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
 func (b *epicAbortTestBackend) Query(expression string, options *backend.BeadQueryOptions, repoPath string) ([]backend.Bead, error) {
 	return nil, nil
 }
-func (b *epicAbortTestBackend) AddDependency(blockerID string, blockedID string, repoPath string) error          { return nil }
-func (b *epicAbortTestBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error      { return nil }
+func (b *epicAbortTestBackend) AddDependency(blockerID string, blockedID string, repoPath string) error {
+	return nil
+}
+func (b *epicAbortTestBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
+	return nil
+}
 func (b *epicAbortTestBackend) ListDependencies(id string, repoPath string, options *backend.DependencyListOptions) ([]backend.BeadDependency, error) {
 	return nil, nil
 }
@@ -73,8 +89,10 @@ func (b *epicAbortTestBackend) BuildTakePrompt(beadID string, options *backend.T
 func (b *epicAbortTestBackend) BuildPollPrompt(options *backend.PollPromptOptions, repoPath string) (*backend.PollPromptResult, error) {
 	return nil, nil
 }
-func (b *epicAbortTestBackend) Comment(id string, body string, repoPath string) error                  { return nil }
-func (b *epicAbortTestBackend) Capabilities() backend.BackendCapabilities                                { return backend.BackendCapabilities{} }
+func (b *epicAbortTestBackend) Comment(id string, body string, repoPath string) error { return nil }
+func (b *epicAbortTestBackend) Capabilities() backend.BackendCapabilities {
+	return backend.BackendCapabilities{}
+}
 
 func TestEpicAbortRequiresEpicID(t *testing.T) {
 	a := &app.App{Config: &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: "/test"}}}}}

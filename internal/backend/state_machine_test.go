@@ -83,7 +83,7 @@ func (s *stateMachineBackend) BuildPollPrompt(options *PollPromptOptions, repoPa
 	return nil, nil
 }
 func (s *stateMachineBackend) Comment(id string, body string, repoPath string) error { return nil }
-func (s *stateMachineBackend) Capabilities() BackendCapabilities { return FullCapabilities }
+func (s *stateMachineBackend) Capabilities() BackendCapabilities                     { return FullCapabilities }
 
 func isExpectedStateMismatchError(msg string) bool {
 	lower := strings.ToLower(msg)
@@ -516,7 +516,7 @@ func TestCustomWorkflowRegistry(t *testing.T) {
 
 		// Case 2: register custom workflow with matching ID
 		customDesc := WorkflowDescriptor{
-			ID: "My-Custom-WF",
+			ID:    "My-Custom-WF",
 			Label: "My Custom Workflow Label",
 		}
 		RegisterWorkflow(customDesc)
@@ -532,7 +532,7 @@ func TestCustomWorkflowRegistry(t *testing.T) {
 		// Beads-coarse is normalized to autopilot.
 		// Let's register a custom descriptor with ID "autopilot" (which "beads-coarse" resolves to)
 		customDesc := WorkflowDescriptor{
-			ID: "Autopilot",
+			ID:    "Autopilot",
 			Label: "Custom Autopilot Override",
 		}
 		RegisterWorkflow(customDesc)

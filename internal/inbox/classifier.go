@@ -90,7 +90,7 @@ func (c *Classifier) classify(ctx context.Context, text string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	
+
 	result := strings.ToLower(strings.TrimSpace(resp.Content))
 	if strings.Contains(result, "bookmark") {
 		return "convert_to_bookmark", nil

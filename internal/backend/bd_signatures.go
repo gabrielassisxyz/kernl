@@ -11,28 +11,28 @@ package backend
 //
 // Reproduction recipes (also documented in the integration test):
 //
-//   outOfSyncSignature:
-//     Modify .beads/issues.jsonl directly without going through bd, then run
-//     any mutating bd command. bd detects the checksum mismatch and emits this
-//     string.
+//	outOfSyncSignature:
+//	  Modify .beads/issues.jsonl directly without going through bd, then run
+//	  any mutating bd command. bd detects the checksum mismatch and emits this
+//	  string.
 //
-//   doltNilPanicSignature / doltPanicStackSignature:
-//     Trigger the embedded Dolt engine panic by interrupting a write mid-flight
-//     (e.g., kill -9 mid-transaction) or by corrupting the Dolt store. Both
-//     signatures must appear together for the panic to be conclusive; the
-//     orchestrator checks either.
+//	doltNilPanicSignature / doltPanicStackSignature:
+//	  Trigger the embedded Dolt engine panic by interrupting a write mid-flight
+//	  (e.g., kill -9 mid-transaction) or by corrupting the Dolt store. Both
+//	  signatures must appear together for the panic to be conclusive; the
+//	  orchestrator checks either.
 //
-//   lockWaitTimeoutSig:
-//     Emitted by the orchestrator itself (bdcli.go) when a repo-lock wait
-//     exceeds the configured limit — not by bd directly.
+//	lockWaitTimeoutSig:
+//	  Emitted by the orchestrator itself (bdcli.go) when a repo-lock wait
+//	  exceeds the configured limit — not by bd directly.
 //
-//   commandTimeoutSig:
-//     Emitted by the orchestrator itself (bdcli.go) when a bd invocation
-//     exceeds its per-call timeout.
+//	commandTimeoutSig:
+//	  Emitted by the orchestrator itself (bdcli.go) when a bd invocation
+//	  exceeds its per-call timeout.
 //
-//   noDaemonFlag / "unknown flag" pattern:
-//     Run `bd --no-daemon list` against a bd version older than the one that
-//     introduced the flag. bd emits "unknown flag: --no-daemon" to stderr.
+//	noDaemonFlag / "unknown flag" pattern:
+//	  Run `bd --no-daemon list` against a bd version older than the one that
+//	  introduced the flag. bd emits "unknown flag: --no-daemon" to stderr.
 const (
 	// expectedBdVersion is the bd release this binary was validated against.
 	// If the installed version differs, the orchestrator logs a warning with

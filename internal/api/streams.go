@@ -47,11 +47,11 @@ func serveNudgePrompts(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"beadId":             rec.BeadID,
-		"opencodeSessionId":  rec.OpencodeSessionID,
-		"running":            rec.Running,
-		"generic":            app.DefaultNudgePrompt(app.NudgePresetGeneric, rec.BeadID, rec.RepoPath),
-		"advance_status":     app.DefaultNudgePrompt(app.NudgePresetAdvanceStatus, rec.BeadID, rec.RepoPath),
+		"beadId":            rec.BeadID,
+		"opencodeSessionId": rec.OpencodeSessionID,
+		"running":           rec.Running,
+		"generic":           app.DefaultNudgePrompt(app.NudgePresetGeneric, rec.BeadID, rec.RepoPath),
+		"advance_status":    app.DefaultNudgePrompt(app.NudgePresetAdvanceStatus, rec.BeadID, rec.RepoPath),
 	})
 }
 

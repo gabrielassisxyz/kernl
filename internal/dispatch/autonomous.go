@@ -4,8 +4,8 @@ import (
 	"os"
 	"strings"
 
-	"gopkg.in/yaml.v3"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"gopkg.in/yaml.v3"
 )
 
 // ConfigExtra parses the autonomous flag from kernl.yaml directly

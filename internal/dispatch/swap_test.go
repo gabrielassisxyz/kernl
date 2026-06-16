@@ -193,9 +193,9 @@ func TestSwapPoolsAgent_NotPresent(t *testing.T) {
 
 func TestCountDispatchAgentOccurrences(t *testing.T) {
 	actions := map[string]string{
-		"take":           "claude",
-		"scene":          "codex",
-		"staleGrooming":  "claude",
+		"take":          "claude",
+		"scene":         "codex",
+		"staleGrooming": "claude",
 	}
 	pools := map[string]config.PoolConfig{
 		"evaluating": {Agents: []config.WeightedAgent{we("claude", 3), we("codex", 1)}},

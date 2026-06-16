@@ -45,7 +45,7 @@ func NormalizeSupportedActions(actions []ApprovalAction) []ApprovalAction {
 	allowed := map[ApprovalAction]bool{
 		ActionAccept:        true,
 		ActionAlwaysApprove: true,
-		ActionDecline:        true,
+		ActionDecline:       true,
 	}
 	filtered := make([]ApprovalAction, 0, len(actions))
 	for _, a := range actions {

@@ -56,7 +56,7 @@ func TestTranslateOpenCodePartToolRunning(t *testing.T) {
 	out := TranslateOpenCodePart(map[string]any{
 		"type": "tool",
 		"id":   "call_1",
-		"tool":  "bash",
+		"tool": "bash",
 		"state": map[string]any{
 			"status": "running",
 			"input":  map[string]any{"command": "ls -la"},
@@ -80,7 +80,7 @@ func TestTranslateOpenCodePartToolCompleted(t *testing.T) {
 	out := TranslateOpenCodePart(map[string]any{
 		"type": "tool",
 		"id":   "call_2",
-		"tool":  "read",
+		"tool": "read",
 		"state": map[string]any{
 			"status": "completed",
 			"input":  map[string]any{"file_path": "/tmp/x"},
@@ -106,8 +106,8 @@ func TestTranslateOpenCodePartToolCompleted(t *testing.T) {
 
 func TestTranslateOpenCodePartToolPending(t *testing.T) {
 	out := TranslateOpenCodePart(map[string]any{
-		"type": "tool",
-		"id":   "call_3",
+		"type":  "tool",
+		"id":    "call_3",
 		"tool":  "edit",
 		"state": map[string]any{"status": "pending"},
 	})
@@ -201,7 +201,7 @@ func TestTranslateOpenCodeEventMessagePartUpdatedTool(t *testing.T) {
 			"part": map[string]any{
 				"type": "tool",
 				"id":   "call_a",
-				"tool":  "grep",
+				"tool": "grep",
 				"state": map[string]any{
 					"status": "completed",
 					"input":  map[string]any{"pattern": "foo"},
@@ -287,7 +287,7 @@ func TestTranslateOpenCodeEventSessionStatusIdle(t *testing.T) {
 		"type": "session.status",
 		"properties": map[string]any{
 			"sessionID": "ses_status_1",
-			"status":     map[string]any{"type": "idle"},
+			"status":    map[string]any{"type": "idle"},
 		},
 	})
 	if len(out) != 1 || out[0]["type"] != "session_idle" {
@@ -300,7 +300,7 @@ func TestTranslateOpenCodeEventSessionStatusBusy(t *testing.T) {
 		"type": "session.status",
 		"properties": map[string]any{
 			"sessionID": "ses_status_2",
-			"status":     map[string]any{"type": "busy"},
+			"status":    map[string]any{"type": "busy"},
 		},
 	})
 	if len(out) != 0 {
@@ -349,7 +349,7 @@ func TestTranslateOpenCodeResponseMixedParts(t *testing.T) {
 			map[string]any{
 				"type": "tool",
 				"id":   "t1",
-				"tool":  "bash",
+				"tool": "bash",
 				"state": map[string]any{
 					"status": "completed",
 					"input":  map[string]any{"command": "echo"},

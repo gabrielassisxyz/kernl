@@ -26,7 +26,7 @@ func TestIngestAPI(t *testing.T) {
 			Repos: []config.RepoEntry{{Path: tempDir}},
 		},
 	}
-	
+
 	a := &app.App{
 		Config: cfg,
 		Graph:  g,
@@ -63,7 +63,7 @@ func TestIngestAPI(t *testing.T) {
 	if w2.Code != http.StatusOK {
 		t.Errorf("Queue expected 200, got %d", w2.Code)
 	}
-	
+
 	var items []nodes.IngestReview
 	json.NewDecoder(w2.Body).Decode(&items)
 	if len(items) == 0 {
