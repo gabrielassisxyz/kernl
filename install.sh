@@ -43,11 +43,17 @@ if [ "$VERSION" = "latest" ]; then
     # Primary: GitHub API. Falls back to the redirect target of the
     # /releases/latest page, which does not consume the API's 60/hr
     # unauthenticated rate limit (often exhausted behind shared/CI IPs).
-    VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)
+    #
+    # Buffer the API body before parsing: piping curl straight into
+    # `grep -m1` lets grep close the pipe after the first match, which hands
+    # curl a SIGPIPE (exit 23) that `set -o pipefail` turns into a fatal
+    # error mid-install. Capturing the body first avoids that race; a real
+    # API failure (e.g. rate limit) leaves VERSION empty and falls through.
+    api_body=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null || true)
+    VERSION=$(printf '%s\n' "$api_body" | grep -m1 '"tag_name"' | cut -d'"' -f4 || true)
     if [ -z "$VERSION" ]; then
         VERSION=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
-            "https://github.com/$REPO/releases/latest" | sed -E 's#.*/tag/##')
+            "https://github.com/$REPO/releases/latest" | sed -E 's#.*/tag/##' || true)
     fi
     [ -n "$VERSION" ] || err "could not resolve the latest release tag"
 fi
