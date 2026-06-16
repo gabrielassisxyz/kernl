@@ -1,0 +1,126 @@
+name: ci
+
+# Runs on the default branch (master) and every PR. The previous workflow
+# triggered on `main`, which this repo does not use, so CI never ran.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# The Go packages embed the built web UI via `//go:embed all:.output/public`
+# (see web/embed.go). That directory is the Nuxt `generate` output and is
+# gitignored, so a fresh checkout has nothing to embed and `go build` fails.
+# Jobs that only need the Go code to COMPILE (vet, lint, test, govulncheck)
+# write a minimal placeholder so the embed resolves. The real web build is
+# exercised by the `test-web` job and by the release workflow.
+env:
+  GO_VERSION_FILE: go.mod
+
+jobs:
+  fmt-vet:
+    name: gofmt + go vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"; echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+  lint:
+    name: golangci-lint (advisory)
+    runs-on: ubuntu-latest
+    # Advisory until the inherited lint debt (errcheck/unused/staticcheck) is
+    # burned down. Flip `continue-on-error` to false once `.golangci.yml`
+    # runs clean. Until then it surfaces findings without blocking the merge.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: v2.6.1
+
+  test-go:
+    name: go test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+      - name: go test (unit, hermetic)
+        run: go test ./...
+      # Integration tests (`-tags=integration`) are intentionally NOT run here.
+      # Per AGENTS.md §4 they are manual-only: they shell out to a real `bd`
+      # binary and a real `opencode` agent (e.g. TestPassoA_SingleBeadRealOpencode),
+      # neither of which exists on a clean runner, and they currently also trip
+      # a `bd` CLI version drift (`bd close --reason` was removed upstream).
+      # Run them locally with `bin/ci` once that drift is resolved.
+
+  test-web:
+    name: web test + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: vitest
+        run: npm test
+      # A real `nuxt generate` here is the signal the embed placeholder hides
+      # in the Go jobs: it proves the UI still builds and produces .output/public.
+      - name: nuxt generate
+        run: npm run generate
+
+  govulncheck:
+    name: govulncheck (dependency CVEs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers every reachable commit, not just HEAD.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
