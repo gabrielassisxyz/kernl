@@ -10,6 +10,7 @@
 # Windows is not a release target — run kernl via Docker there
 # (see the Dockerfile / compose.yaml in the repo).
 set -euo pipefail
+umask 022
 
 REPO="gabrielassisxyz/kernl"
 BIN_DIR="${KERNL_BIN_DIR:-$HOME/.local/bin}"
@@ -39,8 +40,15 @@ command -v tar  >/dev/null 2>&1 || err "tar is required"
 # --- resolve version ---
 if [ "$VERSION" = "latest" ]; then
     info "resolving latest release"
+    # Primary: GitHub API. Falls back to the redirect target of the
+    # /releases/latest page, which does not consume the API's 60/hr
+    # unauthenticated rate limit (often exhausted behind shared/CI IPs).
     VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
         | grep -m1 '"tag_name"' | cut -d'"' -f4)
+    if [ -z "$VERSION" ]; then
+        VERSION=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+            "https://github.com/$REPO/releases/latest" | sed -E 's#.*/tag/##')
+    fi
     [ -n "$VERSION" ] || err "could not resolve the latest release tag"
 fi
 
@@ -56,19 +64,20 @@ info "downloading $asset ($VERSION)"
 curl -fsSL "$url" -o "$tmp/kernl.tar.gz" \
     || err "download failed: $url"
 
-# Verify checksum if the release publishes one.
-if curl -fsSL "https://github.com/$REPO/releases/download/$VERSION/checksums.txt" -o "$tmp/checksums.txt" 2>/dev/null; then
-    info "verifying checksum"
-    expected=$(grep " $asset\$" "$tmp/checksums.txt" | awk '{print $1}')
-    if [ -n "$expected" ]; then
-        if command -v sha256sum >/dev/null 2>&1; then
-            actual=$(sha256sum "$tmp/kernl.tar.gz" | awk '{print $1}')
-        else
-            actual=$(shasum -a 256 "$tmp/kernl.tar.gz" | awk '{print $1}')
-        fi
-        [ "$expected" = "$actual" ] || err "checksum mismatch (expected $expected, got $actual)"
-    fi
+# Verify the checksum. goreleaser always publishes checksums.txt, so a
+# missing file or asset line is treated as a hard failure rather than
+# silently installing an unverified binary.
+info "verifying checksum"
+curl -fsSL "https://github.com/$REPO/releases/download/$VERSION/checksums.txt" -o "$tmp/checksums.txt" \
+    || err "could not download checksums.txt for $VERSION; refusing to install unverified binary"
+expected=$(grep " $asset\$" "$tmp/checksums.txt" | awk '{print $1}')
+[ -n "$expected" ] || err "no checksum listed for $asset in checksums.txt"
+if command -v sha256sum >/dev/null 2>&1; then
+    actual=$(sha256sum "$tmp/kernl.tar.gz" | awk '{print $1}')
+else
+    actual=$(shasum -a 256 "$tmp/kernl.tar.gz" | awk '{print $1}')
 fi
+[ "$expected" = "$actual" ] || err "checksum mismatch (expected $expected, got $actual)"
 
 info "extracting"
 tar -xzf "$tmp/kernl.tar.gz" -C "$tmp"
