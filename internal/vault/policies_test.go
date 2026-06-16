@@ -129,7 +129,7 @@ func TestCanReadGlobal_CacheReloadsOnMtimeChange(t *testing.T) {
 
 func TestCanReadGlobal_CommentAndBlankLines(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, ".kernl-policies"), []byte("# comment\n\n*.secret.md\n\n"), 0644)
+	_ = os.WriteFile(filepath.Join(dir, ".kernl-policies"), []byte("# comment\n\n*.secret.md\n\n"), 0644)
 
 	pp := NewPolicyParser(dir)
 

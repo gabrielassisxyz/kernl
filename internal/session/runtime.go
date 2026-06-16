@@ -682,8 +682,11 @@ func (r *SessionRuntime) maybeAutoAnswerClaude(obj map[string]any) {
 	}
 	data = append(data, '\n')
 	r.stdinMu.Lock()
-	stdin.Write(data)
+	_, writeErr := stdin.Write(data)
 	r.stdinMu.Unlock()
+	if writeErr != nil {
+		slog.Warn("session: writing to agent stdin failed", "error", writeErr)
+	}
 }
 
 func (r *SessionRuntime) maybeAutoAnswerCopilot(obj map[string]any) {
@@ -704,8 +707,11 @@ func (r *SessionRuntime) maybeAutoAnswerCopilot(obj map[string]any) {
 	}
 	data = append(data, '\n')
 	r.stdinMu.Lock()
-	stdin.Write(data)
+	_, writeErr := stdin.Write(data)
 	r.stdinMu.Unlock()
+	if writeErr != nil {
+		slog.Warn("session: writing to agent stdin failed", "error", writeErr)
+	}
 }
 
 func (r *SessionRuntime) readStderr(ctx context.Context, reader io.Reader) {

@@ -50,7 +50,7 @@ func GenerateSynthetic(t testing.TB, seed int64, nodeCount int) *SyntheticGraph 
 	}
 
 	// Create nodes.
-	g.DoWrite(t.Context(), func(tx *graph.WriteTx) error {
+	_ = g.DoWrite(t.Context(), func(tx *graph.WriteTx) error {
 		for i := 0; i < nodeCount; i++ {
 			id := ids.New()
 			typ := nodeTypes[rng.Intn(len(nodeTypes))]

@@ -46,11 +46,11 @@ func TestListReturnsAllRevisions(t *testing.T) {
 		insertRevision(t, wtx, rev1ID, nodeID, nil, `{"title":"First Title","attrs":"{}","tags":[]}`, "agent:test")
 
 		// Update: update node title + insert revision
-		wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Second Title", nodeID)
+		_, _ = wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Second Title", nodeID)
 		insertRevision(t, wtx, rev2ID, nodeID, &rev1ID, `{"title":"Second Title","attrs":"{}","tags":[]}`, "agent:test")
 
 		// Update again
-		wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Third Title", nodeID)
+		_, _ = wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Third Title", nodeID)
 		insertRevision(t, wtx, rev3ID, nodeID, &rev2ID, `{"title":"Third Title","attrs":"{}","tags":[]}`, "agent:test")
 
 		// Tombstone revision (delete marker) — node left intact so node_id FK is not SET NULL
@@ -144,7 +144,7 @@ func TestGetAtReturnsHistoricalState(t *testing.T) {
 		insertNode(t, wtx, nodeID, "note", "Original Title")
 		insertRevision(t, wtx, rev1ID, nodeID, nil, `{"title":"Original Title","attrs":"{}","tags":[]}`, "agent:test")
 
-		wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Updated Title", nodeID)
+		_, _ = wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Updated Title", nodeID)
 		insertRevision(t, wtx, rev2ID, nodeID, &rev1ID, `{"title":"Updated Title","attrs":"{}","tags":[]}`, "agent:test")
 		return nil
 	})
@@ -216,10 +216,10 @@ func TestPrevRevisionChainUnbroken(t *testing.T) {
 		insertNode(t, wtx, nodeID, "note", "V1")
 		insertRevision(t, wtx, rev1ID, nodeID, nil, `{"title":"V1","attrs":"{}","tags":[]}`, "agent:test")
 
-		wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "V2", nodeID)
+		_, _ = wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "V2", nodeID)
 		insertRevision(t, wtx, rev2ID, nodeID, &rev1ID, `{"title":"V2","attrs":"{}","tags":[]}`, "agent:test")
 
-		wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "V3", nodeID)
+		_, _ = wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "V3", nodeID)
 		insertRevision(t, wtx, rev3ID, nodeID, &rev2ID, `{"title":"V3","attrs":"{}","tags":[]}`, "agent:test")
 
 		insertRevision(t, wtx, rev4ID, nodeID, &rev3ID, `{"title":"V3","attrs":"{}","tags":[]}`, "agent:test")

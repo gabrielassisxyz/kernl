@@ -140,7 +140,9 @@ func convertToAnthropicTools(tools []Tool) []anthropicTool {
 	for _, t := range tools {
 		var schema map[string]interface{}
 		if t.Parameters != nil {
-			json.Unmarshal(t.Parameters, &schema)
+			if err := json.Unmarshal(t.Parameters, &schema); err != nil {
+				schema = nil
+			}
 		}
 		out = append(out, anthropicTool{
 			Name:        t.Name,

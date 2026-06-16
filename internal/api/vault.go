@@ -63,7 +63,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			w.Header().Set("ETag", lm)
 		}
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write(data)
+		_, _ = w.Write(data)
 	})
 
 	mux.HandleFunc("POST /api/vault/file", func(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +80,10 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		}
 
 		fullPath := filepath.Join(root, filePath)
-		os.MkdirAll(filepath.Dir(fullPath), 0755)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -95,6 +98,6 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"saved"}`))
+		_, _ = w.Write([]byte(`{"status":"saved"}`))
 	})
 }

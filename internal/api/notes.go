@@ -96,7 +96,10 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 		clientLastModifiedStr := r.Header.Get("If-Match")
 
 		fullPath := filepath.Join(root, filePath)
-		os.MkdirAll(filepath.Dir(fullPath), 0755)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -125,6 +128,6 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 		w.Header().Set("ETag", newLastModified)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"saved", "last_modified": "` + newLastModified + `"}`))
+		_, _ = w.Write([]byte(`{"status":"saved", "last_modified": "` + newLastModified + `"}`))
 	})
 }

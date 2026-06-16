@@ -91,8 +91,7 @@ func InferWorkflow(ctx context.Context, llmCfg config.LLMConfig, epicBead *backe
 				Text string `json:"text"`
 			} `json:"content"`
 		}
-		json.Unmarshal(body, &anthropicResp)
-		if len(anthropicResp.Content) > 0 {
+		if err := json.Unmarshal(body, &anthropicResp); err == nil && len(anthropicResp.Content) > 0 {
 			content = anthropicResp.Content[0].Text
 		}
 	case "openai":
@@ -101,8 +100,7 @@ func InferWorkflow(ctx context.Context, llmCfg config.LLMConfig, epicBead *backe
 				Message Message `json:"message"`
 			} `json:"choices"`
 		}
-		json.Unmarshal(body, &openaiResp)
-		if len(openaiResp.Choices) > 0 {
+		if err := json.Unmarshal(body, &openaiResp); err == nil && len(openaiResp.Choices) > 0 {
 			content = openaiResp.Choices[0].Message.Content
 		}
 	}

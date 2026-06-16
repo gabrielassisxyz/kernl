@@ -841,11 +841,11 @@ func (b *BdCliBackend) acquireRepoProcessLock(ctx context.Context, repoKey strin
 			}
 			data, _ := json.Marshal(owner)
 			if writeErr := os.WriteFile(lockFile, data, 0o644); writeErr != nil {
-				os.RemoveAll(lockDir)
+				_ = os.RemoveAll(lockDir)
 				return nil, fmt.Errorf("writing lock owner: %w", writeErr)
 			}
 			release := func() {
-				os.RemoveAll(lockDir)
+				_ = os.RemoveAll(lockDir)
 			}
 			return release, nil
 		}
@@ -875,7 +875,7 @@ func (b *BdCliBackend) acquireRepoProcessLock(ctx context.Context, repoKey strin
 func (b *BdCliBackend) evictStaleLock(lockDir, lockFile string) bool {
 	owner := readLockOwner(lockFile)
 	if owner != nil && !isPidAlive(owner.PID) {
-		os.RemoveAll(lockDir)
+		_ = os.RemoveAll(lockDir)
 		return true
 	}
 
@@ -885,7 +885,7 @@ func (b *BdCliBackend) evictStaleLock(lockDir, lockFile string) bool {
 	}
 
 	if time.Since(info.ModTime()) > time.Duration(defaultLockStaleMs)*time.Millisecond {
-		os.RemoveAll(lockDir)
+		_ = os.RemoveAll(lockDir)
 		return true
 	}
 

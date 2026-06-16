@@ -44,7 +44,7 @@ func TestArchiver_ArchiveBookmark(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	archiver := NewArchiver(client, tmpDir)
 
@@ -99,7 +99,7 @@ func TestArchiver_ArchiveBookmark_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	archiver := NewArchiver(client, tmpDir)
 

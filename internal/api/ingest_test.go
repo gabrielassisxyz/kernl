@@ -37,7 +37,7 @@ func TestIngestAPI(t *testing.T) {
 
 	// Test 1: Trigger ingest
 	testFile := filepath.Join(tempDir, "test.md")
-	os.WriteFile(testFile, []byte("hello"), 0644)
+	_ = os.WriteFile(testFile, []byte("hello"), 0644)
 
 	body := `{"file_path":"` + testFile + `", "node_id":"n1"}`
 	req := httptest.NewRequest("POST", "/api/ingest/trigger", bytes.NewBufferString(body))
@@ -50,7 +50,7 @@ func TestIngestAPI(t *testing.T) {
 
 	// Test 2: List queue (insert dummy first)
 	var id string
-	g.DoWrite(req.Context(), func(tx *graph.WriteTx) error {
+	_ = g.DoWrite(req.Context(), func(tx *graph.WriteTx) error {
 		var err error
 		id, err = nodes.CreateIngestReview(req.Context(), tx, nodes.IngestReview{Title: "Test"}, nodes.Author{Name: "test"})
 		return err
@@ -65,7 +65,7 @@ func TestIngestAPI(t *testing.T) {
 	}
 
 	var items []nodes.IngestReview
-	json.NewDecoder(w2.Body).Decode(&items)
+	_ = json.NewDecoder(w2.Body).Decode(&items)
 	if len(items) == 0 {
 		t.Error("Expected at least one item in queue")
 	}
@@ -79,7 +79,7 @@ func TestIngestAPI(t *testing.T) {
 		t.Errorf("Resolve expected 200, got %d", w3.Code)
 	}
 
-	g.DoRead(req.Context(), func(tx *graph.ReadTx) error {
+	_ = g.DoRead(req.Context(), func(tx *graph.ReadTx) error {
 		_, err := nodes.GetIngestReview(req.Context(), tx, id)
 		if err == nil {
 			t.Error("Expected node to be deleted")

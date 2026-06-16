@@ -16,7 +16,7 @@ func openTestGraph(t *testing.T) *graph.Graph {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	g, err := graph.Open(context.Background(), graph.Config{Path: f.Name()})
 	if err != nil {
