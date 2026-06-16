@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -210,17 +209,4 @@ func (i *SuppressionInternals) SetFailureFirstFailedAt(key string, ts time.Time)
 	if entry, ok := i.cache.failureState[key]; ok {
 		entry.firstFailedAt = ts
 	}
-}
-
-func suppressJSON(v map[string]string) string {
-	if v == nil {
-		return "{}"
-	}
-	keys := make([]string, 0, len(v))
-	for k := range v {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	b, _ := json.Marshal(keys)
-	return string(b)
 }

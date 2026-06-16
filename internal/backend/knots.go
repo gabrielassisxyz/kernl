@@ -32,8 +32,6 @@ type KnotsBackend struct {
 
 	writeQueues  map[string]*knoQueue
 	writeQueueMu sync.Mutex
-	nextQueues   map[string]*knoQueue
-	nextQueueMu  sync.Mutex
 }
 
 type knoQueue struct {
@@ -57,7 +55,6 @@ func NewKnotsBackend(repoPath string) *KnotsBackend {
 		knoBin:      knoBin,
 		knoDB:       os.Getenv("KNOTS_DB_PATH"),
 		writeQueues: make(map[string]*knoQueue),
-		nextQueues:  make(map[string]*knoQueue),
 	}
 }
 

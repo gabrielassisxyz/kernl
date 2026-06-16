@@ -85,7 +85,6 @@ type repoQueue struct {
 
 type BdCliBackend struct {
 	repoPath string
-	mu       sync.Mutex
 
 	queues  map[string]*repoQueue
 	queueMu sync.Mutex
@@ -959,12 +958,6 @@ func stripNoDaemonFlag(args []string) []string {
 	return result
 }
 
-type bdExecError struct {
-	msg string
-}
-
-func (e *bdExecError) Error() string { return e.msg }
-
 func bdResultToError(result *ExecResult) error {
 	stderr := strings.TrimSpace(result.Stderr)
 	stdout := strings.TrimSpace(result.Stdout)
@@ -1041,14 +1034,6 @@ func parseNDJSONBytes(data []byte) (json.RawMessage, error) {
 		return nil, fmt.Errorf("marshaling bd results: %w", err)
 	}
 	return json.RawMessage(encoded), nil
-}
-
-func parseNDJSONOutput(data []byte) ([]byte, error) {
-	raw, err := parseNDJSONBytes(data)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(raw), nil
 }
 
 // unmarshalBdResponse detects the bd JSON envelope (BD_JSON_ENVELOPE=1 format)

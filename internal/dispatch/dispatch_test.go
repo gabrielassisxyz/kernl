@@ -87,16 +87,6 @@ func collectStderr(events []session.TerminalEvent) string {
 	return b.String()
 }
 
-func collectAgentFailures(events []session.TerminalEvent) []string {
-	var result []string
-	for _, e := range events {
-		if e.Type == "agent_failure" {
-			result = append(result, e.Content)
-		}
-	}
-	return result
-}
-
 func TestRunDispatch_CrossAgentReviewFallback(t *testing.T) {
 	wf := makeSDLCWorkflow()
 	settings := makeBaseSettings()

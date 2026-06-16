@@ -249,23 +249,6 @@ func firstActionState(wf *backend.WorkflowDescriptor) string {
 	return string(workflow.StatusInProgress)
 }
 
-func terminalStateForClosed(wf *backend.WorkflowDescriptor) string {
-	for _, s := range wf.States {
-		if s == string(workflow.StatusClosed) || legacyToWorkflowState[s] == string(workflow.StatusClosed) {
-			return string(workflow.StatusClosed)
-		}
-	}
-	for _, ts := range wf.TerminalStates {
-		if ts == string(workflow.StatusClosed) {
-			return string(workflow.StatusClosed)
-		}
-	}
-	if len(wf.TerminalStates) > 0 {
-		return wf.TerminalStates[0]
-	}
-	return string(workflow.StatusClosed)
-}
-
 func NormalizeStateForWorkflow(workflowState string, wf *backend.WorkflowDescriptor) string {
 	normalized := strings.TrimSpace(strings.ToLower(workflowState))
 	if normalized == "" {

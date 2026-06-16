@@ -45,11 +45,6 @@ type SessionProvider interface {
 	PushEvent(id string, evt TerminalEvent)
 }
 
-type sseListener struct {
-	id uint64
-	ch chan TerminalEvent
-}
-
 type connection struct {
 	listeners    map[uint64]chan TerminalEvent
 	buffer       []BufferedEvent

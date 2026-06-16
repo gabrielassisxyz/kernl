@@ -436,19 +436,3 @@ func mapBeadStateToCompatStatus(state string) string {
 		return "open"
 	}
 }
-
-func clampPriority(p int) int {
-	if p < 0 || p > 4 {
-		return 2
-	}
-	return p
-}
-
-func parentFromDeps(deps []RawDependency) string {
-	for _, d := range deps {
-		if d.DepType == "parent-child" {
-			return d.TargetID
-		}
-	}
-	return ""
-}

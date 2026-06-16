@@ -172,33 +172,6 @@ func (w *Watcher) addDirRecursive(dir string) error {
 	})
 }
 
-// addDir adds a single directory watch (used for newly created dirs).
-func (w *Watcher) addDir(path string) {
-	absPath := filepath.Join(w.root, strings.TrimPrefix(path, w.root))
-	if _, err := os.Stat(absPath); err != nil {
-		return
-	}
-
-	w.mu.Lock()
-	if _, ok := w.dirs[absPath]; ok {
-		w.mu.Unlock()
-		return
-	}
-	w.mu.Unlock()
-
-	if err := w.fsw.Add(absPath); err != nil {
-		slog.Warn("watcher: add watch failed",
-			"path", absPath,
-			"error", err,
-		)
-		return
-	}
-
-	w.mu.Lock()
-	w.dirs[absPath] = struct{}{}
-	w.mu.Unlock()
-}
-
 func (w *Watcher) loop(ctx context.Context) {
 	defer w.wg.Done()
 
