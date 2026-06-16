@@ -24,7 +24,7 @@ bad()     { printf '    \033[31mFAIL\033[0m\n'; fail=1; }
 section "web assets (embed prerequisite)"
 if [ ! -e web/.output/public ]; then
     if command -v npm >/dev/null 2>&1; then
-        (cd web && npm ci --silent && npm run generate) && ok || bad
+        (cd web && npm install --no-audit --no-fund --silent && npm run generate) && ok || bad
     else
         mkdir -p web/.output/public
         printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
