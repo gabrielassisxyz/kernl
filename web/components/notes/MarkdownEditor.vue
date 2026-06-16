@@ -43,6 +43,7 @@ import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
 import { EditorState, StateField, StateEffect } from '@codemirror/state'
 import { EditorView, lineNumbers, Decoration } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
+import { wikilinkExtensions } from '~/utils/wikilinkEditor'
 import FrontmatterUI from './FrontmatterUI.vue'
 import DiffSuggest from './DiffSuggest.vue'
 
@@ -69,6 +70,10 @@ const props = defineProps({
   path: String,
   initialContent: String
 })
+
+// Best-effort navigation: emitted when a wikilink pill is ctrl/cmd-clicked, so
+// the parent can open the target node.
+const emit = defineEmits(['open-wikilink'])
 
 const editorContainer = ref(null)
 let view = null
@@ -121,25 +126,11 @@ const loadFile = async (path) => {
         lineNumbers(),
         markdown(),
         daRegionField,
+        wikilinkExtensions((target) => emit('open-wikilink', target)),
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
             isDirty.value = true
             scheduleSave()
-          }
-        }),
-        EditorView.domEventHandlers({
-          click: (event, view) => {
-            if (event.ctrlKey || event.metaKey) {
-              const pos = view.posAtCoords({ x: event.clientX, y: event.clientY })
-              if (pos) {
-                const line = view.state.doc.lineAt(pos)
-                const text = line.text
-                const linkMatch = text.match(/\[\[(.*?)\]\]/)
-                if (linkMatch) {
-                  console.log('Wikilink clicked:', linkMatch[1])
-                }
-              }
-            }
           }
         })
       ]

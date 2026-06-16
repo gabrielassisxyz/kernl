@@ -643,3 +643,45 @@ func TestStemCollisionTiebreak(t *testing.T) {
 		t.Errorf("expected edge to lexicographically-first dst (%s), got none; outcomes: %+v", expectedDst, outcomes)
 	}
 }
+
+// TestResolveUUIDTargetToNonNoteNode confirms that a [[<uuid>|Alias]] link
+// resolves to a NON-note node (here a bookmark) through the KindUUID path, and
+// that the alias does not interfere with resolution. This is the editor's
+// "link to any entity by uuid" contract.
+func TestResolveUUIDTargetToNonNoteNode(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	srcID := createTestNote(t, g, ctx, "Source", "body")
+
+	var bookmarkID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		bookmarkID, err = nodes.CreateBookmark(ctx, tx, nodes.Bookmark{
+			URL:   "https://example.com",
+			Title: "My Bookmark",
+		}, testAuthor)
+		return err
+	}); err != nil {
+		t.Fatalf("CreateBookmark: %v", err)
+	}
+
+	r := &Resolver{}
+	outcomes, err := r.Resolve(ctx, g, srcID, "See [["+bookmarkID+"|My Bookmark]].")
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+
+	if len(outcomes) != 1 {
+		t.Fatalf("expected 1 outcome, got %d", len(outcomes))
+	}
+	if !outcomes[0].Resolved {
+		t.Fatalf("expected Resolved=true for uuid link to bookmark, got %+v", outcomes[0])
+	}
+	if outcomes[0].ResolvedBy != "uuid" {
+		t.Errorf("expected ResolvedBy='uuid', got %q", outcomes[0].ResolvedBy)
+	}
+	if n := countEdgesWithLabel(t, g, ctx, srcID, bookmarkID, "links_to"); n != 1 {
+		t.Errorf("expected 1 links_to edge note->bookmark, got %d", n)
+	}
+}

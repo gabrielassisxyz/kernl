@@ -1,4 +1,5 @@
 /kernl
+/migrate.go
 orchestrator/kernl
 orchestrator/.gitignore
 orchestrator/AGENTS.md

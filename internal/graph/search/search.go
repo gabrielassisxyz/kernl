@@ -19,12 +19,22 @@ type Hit struct {
 
 // options holds optional filters for a search query.
 type options struct {
-	tags  []string
-	types []string
+	tags   []string
+	types  []string
+	prefix bool
 }
 
 // Option modifies search behaviour.
 type Option func(*options)
+
+// WithPrefix turns the final query token into a prefix match, so a partial
+// token like "lin" matches "Linktree". This enables autocomplete-as-you-type
+// without affecting the default exact-phrase behaviour.
+func WithPrefix() Option {
+	return func(o *options) {
+		o.prefix = true
+	}
+}
 
 // WithTags filters results to nodes that have ALL of the given tags.
 func WithTags(tags ...string) Option {
@@ -131,7 +141,7 @@ func buildQuery(cleaned string, o options) (string, []any) {
 
 	b.WriteString(`SELECT n.id, n.title, rank`)
 	b.WriteString(` FROM nodes_fts(?) ft`)
-	args = append(args, `"`+cleaned+`"`)
+	args = append(args, buildMatchExpr(cleaned, o.prefix))
 
 	b.WriteString(` JOIN nodes n ON n.fts_rowid = ft.rowid`)
 
@@ -182,6 +192,29 @@ func buildQuery(cleaned string, o options) (string, []any) {
 	b.WriteString(` ORDER BY rank ASC`)
 
 	return b.String(), args
+}
+
+// buildMatchExpr builds the FTS5 MATCH expression from the sanitized query.
+//
+// Without prefix it wraps the whole query in double-quotes for a phrase match,
+// preserving the original behaviour. With prefix it quotes each token and
+// appends '*' to the final token (FTS5 prefix syntax), so the last word the
+// user is still typing matches by prefix while earlier words match exactly.
+// The '*' is added here, after sanitizeFTSQuery has already stripped any
+// user-supplied '*', so it cannot be injected.
+func buildMatchExpr(cleaned string, prefix bool) string {
+	if !prefix {
+		return `"` + cleaned + `"`
+	}
+	tokens := strings.Fields(cleaned)
+	parts := make([]string, len(tokens))
+	for i, tok := range tokens {
+		parts[i] = `"` + tok + `"`
+		if i == len(tokens)-1 {
+			parts[i] += "*"
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // isFTS5Error checks whether an error returned by the SQLite driver

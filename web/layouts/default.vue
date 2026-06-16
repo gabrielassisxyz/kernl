@@ -35,6 +35,9 @@
           <NuxtLink to="/tasks" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Tasks">
             <span class="material-symbols-outlined">checklist</span>
           </NuxtLink>
+          <NuxtLink to="/graph" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Graph">
+            <span class="material-symbols-outlined">hub</span>
+          </NuxtLink>
           <NuxtLink to="/orchestrator" class="relative w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors duration-150 cursor-pointer" active-class="border-l-2 border-primary text-primary bg-surface-hover" title="Orchestrator">
             <span class="material-symbols-outlined">account_tree</span>
           </NuxtLink>

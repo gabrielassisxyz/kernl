@@ -86,11 +86,13 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
+	title := strings.TrimSpace(req.Title)
 	var id string
+	var companion CompanionFile
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var err error
 		id, err = nodes.CreateTask(ctx, tx, nodes.Task{
-			Title:       strings.TrimSpace(req.Title),
+			Title:       title,
 			Description: req.Description,
 			Status:      req.Status,
 			ProjectID:   req.ProjectID,
@@ -100,16 +102,23 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		}
 		// Canonical graph relationship: task -[part_of]-> project.
 		if req.ProjectID != "" {
-			_, err = edges.Create(ctx, tx, edges.Edge{
+			if _, err = edges.Create(ctx, tx, edges.Edge{
 				Src:  id,
 				Dst:  req.ProjectID,
 				Type: edges.EdgeTypePartOf,
-			}, author)
+			}, author); err != nil {
+				return err
+			}
 		}
+		companion, err = CreateCompanionNote(ctx, tx, a, id, "tasks", title, "#task")
 		return err
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task: "+err.Error())
+		return
+	}
+	if err := WriteCompanionFile(a, companion); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write companion note: "+err.Error())
 		return
 	}
 
