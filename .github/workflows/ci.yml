@@ -39,7 +39,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: stub embedded web assets
-        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
       - name: gofmt
         run: |
           unformatted=$(gofmt -l $(git ls-files '*.go'))
@@ -65,8 +65,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: stub embedded web assets
-        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
-      - uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+      - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
           version: v2.6.1
 
@@ -81,7 +81,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: stub embedded web assets
-        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
       - name: go test (unit, hermetic)
         run: go test ./...
       # Integration tests (`-tags=integration`) are intentionally NOT run here.
@@ -127,7 +127,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: stub embedded web assets
-        run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - run: govulncheck ./...
 

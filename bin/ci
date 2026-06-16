@@ -27,7 +27,7 @@ if [ ! -e web/.output/public ]; then
         (cd web && npm install --no-audit --no-fund --silent && npm run generate) && ok || bad
     else
         mkdir -p web/.output/public
-        printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
+        printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
         skip "npm not found — wrote a placeholder so the embed compiles"
     fi
 else
