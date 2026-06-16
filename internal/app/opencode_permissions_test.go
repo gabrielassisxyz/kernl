@@ -16,16 +16,16 @@ func TestForbiddenPathsRejectedAtSandbox(t *testing.T) {
 	staticCfgPath := filepath.Join(dir, "opencode-config.json")
 	staticCfg := opencodeConfig{
 		Permission: opencodePermission{
-			Edit:     "allow",
-			Bash:     "allow",
-			Read:     map[string]string{"/tmp/**": "allow"},
+			Edit: "allow",
+			Bash: "allow",
+			Read: map[string]string{"/tmp/**": "allow"},
 		},
 	}
 	data, _ := json.MarshalIndent(staticCfg, "", "  ")
-	os.WriteFile(staticCfgPath, data, 0644)
+	_ = os.WriteFile(staticCfgPath, data, 0644)
 
 	worktree := filepath.Join(dir, "worktree")
-	os.MkdirAll(worktree, 0755)
+	_ = os.MkdirAll(worktree, 0755)
 
 	stages := map[string]backend.StageContract{
 		"planning": {
@@ -71,10 +71,10 @@ func TestForbiddenPathsEmptyWhenNoContract(t *testing.T) {
 	dir := t.TempDir()
 	staticCfgPath := filepath.Join(dir, "opencode-config.json")
 	data, _ := json.MarshalIndent(opencodeConfig{Permission: opencodePermission{Edit: "allow"}}, "", "  ")
-	os.WriteFile(staticCfgPath, data, 0644)
+	_ = os.WriteFile(staticCfgPath, data, 0644)
 
 	worktree := filepath.Join(dir, "worktree")
-	os.MkdirAll(worktree, 0755)
+	_ = os.MkdirAll(worktree, 0755)
 
 	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, worktree, "kb-1", "implementation", nil)
 	if err != nil {
@@ -83,7 +83,7 @@ func TestForbiddenPathsEmptyWhenNoContract(t *testing.T) {
 
 	raw, _ := os.ReadFile(cfgPath)
 	var cfg opencodeConfig
-	json.Unmarshal(raw, &cfg)
+	_ = json.Unmarshal(raw, &cfg)
 
 	editMap, _ := cfg.Permission.Edit.(map[string]any)
 	if len(editMap) != 1 {

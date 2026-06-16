@@ -68,7 +68,7 @@ func TestPostMessageAndGetSession(t *testing.T) {
 	var createRes struct {
 		ID string `json:"id"`
 	}
-	json.Unmarshal(createW.Body.Bytes(), &createRes)
+	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
 	// Post message.
 	body := `{"content":"hello","scope_node_id":""}`
@@ -88,7 +88,7 @@ func TestPostMessageAndGetSession(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", getW.Code, getW.Body.String())
 	}
 	var cs nodes.ChatSession
-	json.Unmarshal(getW.Body.Bytes(), &cs)
+	_ = json.Unmarshal(getW.Body.Bytes(), &cs)
 	if len(cs.Messages) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(cs.Messages))
 	}
@@ -118,7 +118,7 @@ func TestChatEventsSSE(t *testing.T) {
 	var createRes struct {
 		ID string `json:"id"`
 	}
-	json.Unmarshal(createW.Body.Bytes(), &createRes)
+	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
 	msgBody := `{"content":"hello","scope_node_id":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
@@ -162,8 +162,10 @@ func TestChatEventsSSE_SendsCorrectEventSequence(t *testing.T) {
 	createReq := httptest.NewRequest("POST", "/api/chat/sessions", nil)
 	createW := httptest.NewRecorder()
 	r.ServeHTTP(createW, createReq)
-	var createRes struct{ ID string `json:"id"` }
-	json.Unmarshal(createW.Body.Bytes(), &createRes)
+	var createRes struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
 	msgBody := `{"content":"hello","scope_node_id":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
@@ -232,7 +234,7 @@ func TestListNodes(t *testing.T) {
 		Title string `json:"title"`
 		Type  string `json:"type"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &list)
+	_ = json.Unmarshal(w.Body.Bytes(), &list)
 	if len(list) == 0 {
 		t.Fatal("expected at least one node")
 	}

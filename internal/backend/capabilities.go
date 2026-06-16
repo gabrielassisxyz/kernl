@@ -3,17 +3,17 @@ package backend
 import "fmt"
 
 type BackendCapabilities struct {
-	CanCreate           bool
-	CanUpdate           bool
-	CanDelete           bool
-	CanClose            bool
-	CanSearch           bool
-	CanQuery            bool
-	CanListReady        bool
+	CanCreate             bool
+	CanUpdate             bool
+	CanDelete             bool
+	CanClose              bool
+	CanSearch             bool
+	CanQuery              bool
+	CanListReady          bool
 	CanManageDependencies bool
-	CanManageLabels     bool
-	CanSync             bool
-	MaxConcurrency      int
+	CanManageLabels       bool
+	CanSync               bool
+	MaxConcurrency        int
 }
 
 var FullCapabilities = BackendCapabilities{
@@ -75,7 +75,7 @@ func HasCapability(cap BackendCapabilities, flag string) bool {
 
 func AssertCapability(cap BackendCapabilities, flag string, operation string) error {
 	if !HasCapability(cap, flag) {
-		return fmt.Errorf("Backend does not support %s (missing capability: %s)", operation, flag)
+		return fmt.Errorf("backend does not support %s (missing capability: %s)", operation, flag)
 	}
 	return nil
 }

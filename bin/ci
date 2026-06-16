@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Run the same checks the remote CI runs, locally, in one command.
+#
+#   bin/ci
+#
+# Mirrors .github/workflows/ci.yml. Run it before pushing so what passes here
+# passes there. Each check that needs a tool you don't have installed is
+# skipped with a hint rather than failing the run (CI is the hard gate).
+#
+# Exit nonzero if any *runnable* check fails.
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+fail=0
+section() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
+skip()    { printf '    \033[33mskip:\033[0m %s\n' "$1"; }
+ok()      { printf '    \033[32mok\033[0m\n'; }
+bad()     { printf '    \033[31mFAIL\033[0m\n'; fail=1; }
+
+# The Go packages embed web/.output/public (see web/embed.go). Make sure it
+# exists so the Go toolchain can compile; build it for real if it's missing.
+section "web assets (embed prerequisite)"
+if [ ! -e web/.output/public ]; then
+    if command -v npm >/dev/null 2>&1; then
+        (cd web && npm install --no-audit --no-fund --silent && npm run generate) && ok || bad
+    else
+        mkdir -p web/.output/public
+        printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+        skip "npm not found — wrote a placeholder so the embed compiles"
+    fi
+else
+    ok
+fi
+
+section "gofmt"
+unformatted=$(gofmt -l $(git ls-files '*.go'))
+if [ -n "$unformatted" ]; then
+    echo "$unformatted" | sed 's/^/    /'
+    bad
+else
+    ok
+fi
+
+section "go vet"
+go vet ./... && ok || bad
+
+section "golangci-lint"
+if command -v golangci-lint >/dev/null 2>&1; then
+    golangci-lint run ./... && ok || bad
+else
+    skip "golangci-lint not installed: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
+fi
+
+section "go test (unit)"
+go test ./... && ok || bad
+
+section "go test (integration contracts) — advisory, manual-only (see AGENTS.md §4)"
+# Not part of the hard gate: needs a real bd. Full e2e tests are split behind
+# extra tags: `bde2e` for bd fixture workflows and `realagent` for real agents.
+if command -v bd >/dev/null 2>&1; then
+    go test -tags=integration ./... || skip "integration failures above (advisory — real bd contract drift)"
+else
+    skip "bd not installed: go install github.com/gastownhall/beads@v1.0.4"
+fi
+
+section "web test (vitest)"
+if command -v npm >/dev/null 2>&1; then
+    (cd web && npm test) && ok || bad
+else
+    skip "npm not installed"
+fi
+
+section "govulncheck (dependency CVEs)"
+if command -v govulncheck >/dev/null 2>&1; then
+    govulncheck ./... && ok || bad
+else
+    skip "govulncheck not installed: go install golang.org/x/vuln/cmd/govulncheck@latest"
+fi
+
+section "gitleaks (secret scan)"
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks detect --no-banner --redact --config .gitleaks.toml && ok || bad
+else
+    skip "gitleaks not installed: go install github.com/zricethezav/gitleaks/v8@latest"
+fi
+
+echo
+if [ "$fail" -eq 0 ]; then
+    printf '\033[32mbin/ci: all runnable checks passed.\033[0m\n'
+else
+    printf '\033[31mbin/ci: failures above.\033[0m\n'
+fi
+exit "$fail"

@@ -804,7 +804,7 @@ func TestE2E_RebuildFromVault(t *testing.T) {
 	// Assert: FTS-findable.
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("rebuild-%d", i)
-		query := fmt.Sprintf("unique rebuild text")
+		query := "unique rebuild text"
 		waitFor(t, 5*time.Second, fmt.Sprintf("FTS finds rebuild-%d", i), func() bool {
 			hits := searchFTS(t, g2, query)
 			for _, h := range hits {

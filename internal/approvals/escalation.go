@@ -2,16 +2,16 @@ package approvals
 
 type Escalation struct {
 	NotificationKey string `json:"notificationKey"`
-	ApprovalID     string `json:"approvalId"`
-	Status         string `json:"status"`
-	Reason         string `json:"reason"`
+	ApprovalID      string `json:"approvalId"`
+	Status          string `json:"status"`
+	Reason          string `json:"reason"`
 }
 
 func BuildEscalation(approval *ApprovalRequest) *Escalation {
 	return &Escalation{
 		NotificationKey: BuildApprovalLogicalKey(approval),
-		ApprovalID:     approval.ID,
-		Status:         "pending",
+		ApprovalID:      approval.ID,
+		Status:          "pending",
 	}
 }
 

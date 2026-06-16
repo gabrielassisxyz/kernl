@@ -68,9 +68,9 @@ func TestDAIdentityGetIdempotent(t *testing.T) {
 	}
 
 	var di1 nodes.DAIdentity
-	json.Unmarshal(w1.Body.Bytes(), &di1)
+	_ = json.Unmarshal(w1.Body.Bytes(), &di1)
 	var di2 nodes.DAIdentity
-	json.Unmarshal(w2.Body.Bytes(), &di2)
+	_ = json.Unmarshal(w2.Body.Bytes(), &di2)
 
 	if di1.ID != di2.ID {
 		t.Errorf("expected same ID across calls, got %q vs %q", di1.ID, di2.ID)
@@ -78,14 +78,14 @@ func TestDAIdentityGetIdempotent(t *testing.T) {
 
 	// Verify only one row exists in DB.
 	count := 0
-	a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+	_ = a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
 		rows, err := tx.Query(`SELECT COUNT(*) FROM nodes WHERE type = ?`, nodes.TypeDAIdentity)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		if rows.Next() {
-			rows.Scan(&count)
+			_ = rows.Scan(&count)
 		}
 		return nil
 	})
@@ -124,7 +124,7 @@ func TestDAIdentityPutUpdates(t *testing.T) {
 	}
 
 	var got nodes.DAIdentity
-	json.Unmarshal(getW.Body.Bytes(), &got)
+	_ = json.Unmarshal(getW.Body.Bytes(), &got)
 
 	if got.SystemPrompt != "New prompt" {
 		t.Errorf("SystemPrompt = %q, want 'New prompt'", got.SystemPrompt)
@@ -160,7 +160,7 @@ func TestDAIdentityPutOnlyUpdatesProvidedFields(t *testing.T) {
 	r.ServeHTTP(getW, getReq)
 
 	var got nodes.DAIdentity
-	json.Unmarshal(getW.Body.Bytes(), &got)
+	_ = json.Unmarshal(getW.Body.Bytes(), &got)
 
 	if got.DisplayName != "Only Name Changed" {
 		t.Errorf("DisplayName = %q, want 'Only Name Changed'", got.DisplayName)
@@ -211,14 +211,14 @@ func TestDAIdentityConcurrentGetsNoDuplicate(t *testing.T) {
 
 	// Verify exactly one row.
 	count := 0
-	a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+	_ = a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
 		rows, err := tx.Query(`SELECT COUNT(*) FROM nodes WHERE type = ?`, nodes.TypeDAIdentity)
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		if rows.Next() {
-			rows.Scan(&count)
+			_ = rows.Scan(&count)
 		}
 		return nil
 	})

@@ -68,10 +68,6 @@ func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 		t.Skip("integration test requires bd CLI in PATH")
 	}
 	ensureBdVersion(t)
-	if _, err := exec.LookPath("opencode"); err != nil {
-		t.Skip("integration test requires opencode CLI in PATH")
-	}
-
 	cfgPath := filepath.Join(packageDir(), "testdata", "kernl.yaml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -141,6 +137,13 @@ func newHarnessWithFixture(t *testing.T, fixtureName string) *Harness {
 		Config:   cfg,
 		RepoPath: repoDir,
 		t:        t,
+	}
+}
+
+func RequireOpencode(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("opencode"); err != nil {
+		t.Skip("integration test requires opencode CLI in PATH")
 	}
 }
 

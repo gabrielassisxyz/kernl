@@ -1,0 +1,66 @@
+# goreleaser config — https://goreleaser.com
+#
+# Driven by .github/workflows/release.yml on a `v*` tag. Produces
+# cross-compiled archives + checksums and a GitHub Release.
+#
+# Windows is intentionally absent: internal/session/watchdog.go uses
+# syscall.Kill (Unix-only), so a Windows port is non-trivial. Windows users
+# run kernl via the Docker image instead (see Dockerfile / compose.yaml).
+version: 2
+
+project_name: kernl
+
+before:
+  hooks:
+    # The Go binary embeds the built web UI via web/embed.go
+    # (//go:embed all:.output/public). That output is gitignored, so generate
+    # it once here before the Go builds run, or the embed has nothing to bundle.
+    # `npm install` (not ci) — see the lockfile note in .github/workflows/ci.yml.
+    - bash -c "cd web && npm install --no-audit --no-fund && npm run generate"
+
+builds:
+  - id: kernl
+    main: ./cmd/kernl
+    binary: kernl
+    env:
+      # modernc.org/sqlite is pure Go — no cgo, so cross-compilation is clean.
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.Version={{ .Version }}
+      - -X main.Commit={{ .ShortCommit }}
+      - -X main.Date={{ .Date }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: kernl
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - kernl.yaml.example
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^style:"
+      - "^chore:"
+
+release:
+  github:
+    owner: gabrielassisxyz
+    name: kernl
+  prerelease: auto

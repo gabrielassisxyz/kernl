@@ -1,0 +1,142 @@
+name: ci
+
+# Runs on the default branch (master) and every PR. The previous workflow
+# triggered on `main`, which this repo does not use, so CI never ran.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Read-only by default; only the gitleaks job needs the token, which it
+# passes explicitly. Avoids inheriting the repo's default (often write-all).
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so rapid PR pushes don't run
+# redundant full CI in parallel.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# The Go packages embed the built web UI via `//go:embed all:.output/public`
+# (see web/embed.go). That directory is the Nuxt `generate` output and is
+# gitignored, so a fresh checkout has nothing to embed and `go build` fails.
+# Jobs that only need the Go code to COMPILE (vet, lint, test, govulncheck)
+# write a minimal placeholder so the embed resolves. The real web build is
+# exercised by the `test-web` job and by the release workflow.
+env:
+  GO_VERSION_FILE: go.mod
+
+jobs:
+  fmt-vet:
+    name: gofmt + go vet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l $(git ls-files '*.go'))
+          if [ -n "$unformatted" ]; then
+            echo "::error::these files are not gofmt-clean:"; echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Required gate: the inherited lint debt has been burned down and
+    # `.golangci.yml` runs clean. New lint findings fail the build.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+      - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
+        with:
+          version: v2.12.2
+
+  test-go:
+    name: go test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+      - name: go test (unit, hermetic)
+        run: go test ./...
+      # Integration tests are intentionally NOT run here. `-tags=integration`
+      # exercises local bd contract/smoke tests; fuller suites add tags:
+      # `bde2e` for bd fixture workflows and `realagent` for real CLI agents.
+      # Run them locally from bin/ci or explicitly when validating that surface.
+
+  test-web:
+    name: web test + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # `npm install`, not `npm ci`: the committed lockfile drifts from
+      # package.json over optional wasm deps (@emnapi/*) that npm ci rejects.
+      # Tracked as deferred hygiene in artifacts/STATE.md.
+      - run: npm install --no-audit --no-fund
+      - name: vitest
+        run: npm test
+      # A real `nuxt generate` here is the signal the embed placeholder hides
+      # in the Go jobs: it proves the UI still builds and produces .output/public.
+      - name: nuxt generate
+        run: npm run generate
+
+  govulncheck:
+    name: govulncheck (dependency CVEs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: stub embedded web assets
+        run: mkdir -p web/.output/public && printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - run: govulncheck ./...
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Full history so the scan covers every reachable commit, not just HEAD.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	MaxBuffer        = 5000
+	MaxBuffer          = 5000
 	DefaultMaxSessions = 5
 	CleanupDelay       = 5 * time.Minute
 )
@@ -19,29 +19,29 @@ const (
 type SessionStatus string
 
 const (
-	StatusRunning     SessionStatus = "running"
-	StatusCompleted   SessionStatus = "completed"
-	StatusError       SessionStatus = "error"
-	StatusAborted     SessionStatus = "aborted"
+	StatusRunning      SessionStatus = "running"
+	StatusCompleted    SessionStatus = "completed"
+	StatusError        SessionStatus = "error"
+	StatusAborted      SessionStatus = "aborted"
 	StatusDisconnected SessionStatus = "disconnected"
 )
 
 var exitedStatuses = map[SessionStatus]bool{
-	StatusCompleted:   true,
-	StatusError:       true,
-	StatusAborted:     true,
+	StatusCompleted:    true,
+	StatusError:        true,
+	StatusAborted:      true,
 	StatusDisconnected: true,
 }
 
 type TerminalSession struct {
-	ID             string        `json:"id"`
-	BeadID         string        `json:"beadId"`
-	BeadTitle      string        `json:"beatTitle,omitempty"`
-	RepoPath        string        `json:"repoPath,omitempty"`
-	Status          SessionStatus `json:"status"`
-	StartedAt       string        `json:"startedAt"`
-	KnotsLeaseID   string        `json:"knotsLeaseId,omitempty"`
-	KnotsAgentInfo  *AgentInfo   `json:"knotsAgentInfo,omitempty"`
+	ID               string                   `json:"id"`
+	BeadID           string                   `json:"beadId"`
+	BeadTitle        string                   `json:"beatTitle,omitempty"`
+	RepoPath         string                   `json:"repoPath,omitempty"`
+	Status           SessionStatus            `json:"status"`
+	StartedAt        string                   `json:"startedAt"`
+	KnotsLeaseID     string                   `json:"knotsLeaseId,omitempty"`
+	KnotsAgentInfo   *AgentInfo               `json:"knotsAgentInfo,omitempty"`
 	PendingApprovals []*PendingApprovalRecord `json:"pendingApprovals,omitempty"`
 }
 
@@ -70,52 +70,52 @@ type ApprovalReplyTarget struct {
 }
 
 type PendingApprovalRecord struct {
-	ApprovalID       string         `json:"approvalId"`
-	Status           ApprovalStatus `json:"status"`
-	SupportedActions  []string       `json:"supportedActions,omitempty"`
-	NativeSessionID  string         `json:"nativeSessionId,omitempty"`
-	ReplyTarget      *ApprovalReplyTarget `json:"replyTarget,omitempty"`
-	FailureReason    string         `json:"failureReason,omitempty"`
-	Actionable       bool           `json:"actionable"`
-	ActionableReason string         `json:"actionableReason,omitempty"`
-	BeadID           string         `json:"beadId,omitempty"`
-	BeadTitle        string         `json:"beatTitle,omitempty"`
-	RepoPath         string         `json:"repoPath,omitempty"`
-	Adapter          string         `json:"adapter,omitempty"`
-	Source           string         `json:"source,omitempty"`
-	Message          string         `json:"message,omitempty"`
-	Question         string         `json:"question,omitempty"`
-	ServerName       string         `json:"serverName,omitempty"`
-	ToolName         string         `json:"toolName,omitempty"`
-	ToolParamsDisplay string        `json:"toolParamsDisplay,omitempty"`
-	ParameterSummary string         `json:"parameterSummary,omitempty"`
-	ToolUseID        string         `json:"toolUseId,omitempty"`
-	RequestID        string         `json:"requestId,omitempty"`
-	PermissionID     string         `json:"permissionId,omitempty"`
-	PermissionName   string         `json:"permissionName,omitempty"`
-	Patterns         []string       `json:"patterns,omitempty"`
-	Options          []string       `json:"options,omitempty"`
-	NotificationKey  string         `json:"notificationKey,omitempty"`
-	TerminalSessionID string        `json:"terminalSessionId,omitempty"`
-	AgentName         string        `json:"agentName,omitempty"`
-	AgentModel        string        `json:"agentModel,omitempty"`
-	AgentVersion      string        `json:"agentVersion,omitempty"`
-	CreatedAt        int64          `json:"createdAt,omitempty"`
-	UpdatedAt        int64          `json:"updatedAt,omitempty"`
+	ApprovalID        string               `json:"approvalId"`
+	Status            ApprovalStatus       `json:"status"`
+	SupportedActions  []string             `json:"supportedActions,omitempty"`
+	NativeSessionID   string               `json:"nativeSessionId,omitempty"`
+	ReplyTarget       *ApprovalReplyTarget `json:"replyTarget,omitempty"`
+	FailureReason     string               `json:"failureReason,omitempty"`
+	Actionable        bool                 `json:"actionable"`
+	ActionableReason  string               `json:"actionableReason,omitempty"`
+	BeadID            string               `json:"beadId,omitempty"`
+	BeadTitle         string               `json:"beatTitle,omitempty"`
+	RepoPath          string               `json:"repoPath,omitempty"`
+	Adapter           string               `json:"adapter,omitempty"`
+	Source            string               `json:"source,omitempty"`
+	Message           string               `json:"message,omitempty"`
+	Question          string               `json:"question,omitempty"`
+	ServerName        string               `json:"serverName,omitempty"`
+	ToolName          string               `json:"toolName,omitempty"`
+	ToolParamsDisplay string               `json:"toolParamsDisplay,omitempty"`
+	ParameterSummary  string               `json:"parameterSummary,omitempty"`
+	ToolUseID         string               `json:"toolUseId,omitempty"`
+	RequestID         string               `json:"requestId,omitempty"`
+	PermissionID      string               `json:"permissionId,omitempty"`
+	PermissionName    string               `json:"permissionName,omitempty"`
+	Patterns          []string             `json:"patterns,omitempty"`
+	Options           []string             `json:"options,omitempty"`
+	NotificationKey   string               `json:"notificationKey,omitempty"`
+	TerminalSessionID string               `json:"terminalSessionId,omitempty"`
+	AgentName         string               `json:"agentName,omitempty"`
+	AgentModel        string               `json:"agentModel,omitempty"`
+	AgentVersion      string               `json:"agentVersion,omitempty"`
+	CreatedAt         int64                `json:"createdAt,omitempty"`
+	UpdatedAt         int64                `json:"updatedAt,omitempty"`
 }
 
 type ApprovalStatus string
 
 const (
-	ApprovalPending           ApprovalStatus = "pending"
-	ApprovalApproved          ApprovalStatus = "approved"
-	ApprovalAlwaysApproved    ApprovalStatus = "always_approved"
-	ApprovalRejected          ApprovalStatus = "rejected"
-	ApprovalManualRequired    ApprovalStatus = "manual_required"
-	ApprovalDismissed         ApprovalStatus = "dismissed"
-	ApprovalResponding        ApprovalStatus = "responding"
-	ApprovalReplyFailed       ApprovalStatus = "reply_failed"
-	ApprovalUnsupported       ApprovalStatus = "unsupported"
+	ApprovalPending        ApprovalStatus = "pending"
+	ApprovalApproved       ApprovalStatus = "approved"
+	ApprovalAlwaysApproved ApprovalStatus = "always_approved"
+	ApprovalRejected       ApprovalStatus = "rejected"
+	ApprovalManualRequired ApprovalStatus = "manual_required"
+	ApprovalDismissed      ApprovalStatus = "dismissed"
+	ApprovalResponding     ApprovalStatus = "responding"
+	ApprovalReplyFailed    ApprovalStatus = "reply_failed"
+	ApprovalUnsupported    ApprovalStatus = "unsupported"
 )
 
 type ApprovalAction string
@@ -133,14 +133,14 @@ type ApprovalReplyResult struct {
 }
 
 type TakeLoopIterationTrace struct {
-	Iteration        int    `json:"iteration"`
-	AgentID          string `json:"agentId,omitempty"`
-	ClaimedState     string `json:"claimedState,omitempty"`
-	PostExitState    string `json:"postExitState,omitempty"`
-	ExitCode         int    `json:"exitCode,omitempty"`
-	Success          bool   `json:"success"`
-	RolledBack       bool   `json:"rolledBack"`
-	AlternativeAvailable bool `json:"alternativeAgentAvailable,omitempty"`
+	Iteration            int    `json:"iteration"`
+	AgentID              string `json:"agentId,omitempty"`
+	ClaimedState         string `json:"claimedState,omitempty"`
+	PostExitState        string `json:"postExitState,omitempty"`
+	ExitCode             int    `json:"exitCode,omitempty"`
+	Success              bool   `json:"success"`
+	RolledBack           bool   `json:"rolledBack"`
+	AlternativeAvailable bool   `json:"alternativeAgentAvailable,omitempty"`
 }
 
 type ReleaseKnotsLeaseFunc func(reason string, outcome string, data map[string]any)
@@ -148,34 +148,34 @@ type ReleaseKnotsLeaseFunc func(reason string, outcome string, data map[string]a
 type ApprovalResponderFunc func(record *PendingApprovalRecord, action ApprovalAction) (*ApprovalReplyResult, error)
 
 type SessionEntry struct {
-	mu                  sync.RWMutex
-	Session             *TerminalSession
-	Events              chan session.TerminalEvent
-	Buffer              []session.TerminalEvent
-	Runtime             *session.SessionRuntime
-	Watchdog            *session.Watchdog
-	Cancel              context.CancelFunc
-	Process            ProcessHandle
+	mu       sync.RWMutex
+	Session  *TerminalSession
+	Events   chan session.TerminalEvent
+	Buffer   []session.TerminalEvent
+	Runtime  *session.SessionRuntime
+	Watchdog *session.Watchdog
+	Cancel   context.CancelFunc
+	Process  ProcessHandle
 
-	KnotsLeaseID       string
-	KnotsLeaseSeq      int
-	KnotsLeaseStep     string
+	KnotsLeaseID        string
+	KnotsLeaseSeq       int
+	KnotsLeaseStep      string
 	KnotsLeaseAgentInfo *AgentInfo
 	LastReleasedLeaseID string
 
-	ReleaseKnotsLease  ReleaseKnotsLeaseFunc
-	ApprovalResponder  ApprovalResponderFunc
+	ReleaseKnotsLease   ReleaseKnotsLeaseFunc
+	ApprovalResponder   ApprovalResponderFunc
 	ApprovalBridgeURL   string
 	ApprovalBridgeToken string
 
-	TakeLoopLifecycle   map[int]*TakeLoopIterationTrace
-	PendingApprovals    map[string]*PendingApprovalRecord
-	ClaimsPerQueueType map[string]int
-	LastAgentPerQueueType map[string]string
+	TakeLoopLifecycle        map[int]*TakeLoopIterationTrace
+	PendingApprovals         map[string]*PendingApprovalRecord
+	ClaimsPerQueueType       map[string]int
+	LastAgentPerQueueType    map[string]string
 	FailedAgentsPerQueueType map[string]map[string]bool
-	FollowUpAttempts    map[string]int
+	FollowUpAttempts         map[string]int
 
-	InteractionLog      InteractionLog
+	InteractionLog InteractionLog
 }
 
 type ProcessHandle interface {
@@ -191,10 +191,10 @@ type InteractionLog interface {
 }
 
 type TerminalManager struct {
-	mu            sync.RWMutex
-	sessions      map[string]*SessionEntry
-	maxSessions   int
-	idCounter     int64
+	mu          sync.RWMutex
+	sessions    map[string]*SessionEntry
+	maxSessions int
+	idCounter   int64
 }
 
 func NewTerminalManager(opts ...ManagerOption) *TerminalManager {
@@ -243,9 +243,9 @@ func (m *TerminalManager) CreateSession(ctx context.Context, beadID, repoPath st
 	sess := &TerminalSession{
 		ID:        id,
 		BeadID:    beadID,
-		RepoPath:   repoPath,
-		Status:     StatusRunning,
-		StartedAt:  time.Now().UTC().Format(time.RFC3339),
+		RepoPath:  repoPath,
+		Status:    StatusRunning,
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	onKill := func(pid int) {
@@ -254,17 +254,17 @@ func (m *TerminalManager) CreateSession(ctx context.Context, beadID, repoPath st
 	watchdog := session.NewWatchdog(0, onKill)
 
 	entry := &SessionEntry{
-		Session:                     sess,
-		Events:                       make(chan session.TerminalEvent, MaxBuffer),
-		Buffer:                       make([]session.TerminalEvent, 0, MaxBuffer),
-		Runtime:                      session.NewSessionRuntime(beadID, repoPath),
-		Watchdog:                     watchdog,
-		TakeLoopLifecycle:            make(map[int]*TakeLoopIterationTrace),
-		PendingApprovals:             make(map[string]*PendingApprovalRecord),
-		ClaimsPerQueueType:           make(map[string]int),
-		LastAgentPerQueueType:        make(map[string]string),
-		FailedAgentsPerQueueType:     make(map[string]map[string]bool),
-		FollowUpAttempts:             make(map[string]int),
+		Session:                  sess,
+		Events:                   make(chan session.TerminalEvent, MaxBuffer),
+		Buffer:                   make([]session.TerminalEvent, 0, MaxBuffer),
+		Runtime:                  session.NewSessionRuntime(beadID, repoPath),
+		Watchdog:                 watchdog,
+		TakeLoopLifecycle:        make(map[int]*TakeLoopIterationTrace),
+		PendingApprovals:         make(map[string]*PendingApprovalRecord),
+		ClaimsPerQueueType:       make(map[string]int),
+		LastAgentPerQueueType:    make(map[string]string),
+		FailedAgentsPerQueueType: make(map[string]map[string]bool),
+		FollowUpAttempts:         make(map[string]int),
 	}
 
 	m.sessions[id] = entry
@@ -320,9 +320,9 @@ func (m *TerminalManager) KillSession(id string) SignalOutcome {
 }
 
 type SignalOutcome struct {
-	OK      bool           `json:"ok"`
-	Reason  string         `json:"reason,omitempty"`
-	Status  string         `json:"status,omitempty"`
+	OK      bool             `json:"ok"`
+	Reason  string           `json:"reason,omitempty"`
+	Status  string           `json:"status,omitempty"`
 	Session *TerminalSession `json:"session,omitempty"`
 }
 
@@ -364,9 +364,9 @@ func (m *TerminalManager) signalSession(id, sig string) SignalOutcome {
 	}
 
 	if sig == "SIGKILL" {
-		entry.Process.Kill()
+		_ = entry.Process.Kill()
 	} else {
-		entry.Process.Signal(sig)
+		_ = entry.Process.Signal(sig)
 	}
 
 	slog.Info("[terminal-manager] session signaled",

@@ -526,10 +526,10 @@ func TestSpec11_04_NoteBodyFTSReplacedOnUpdate(t *testing.T) {
 // exercises the invariants required by spec §11 #8.  The underlying test runs
 // random sequences of Create/Update/Delete/Tag/Edge operations and verifies:
 //
-//   1. Every mutation produces exactly one revision row.
-//   2. FTS5 reflects current state (no stale entries after Update).
-//   3. ON DELETE CASCADE removes edges/tags/fts_map/revisions.
-//   4. UUIDv7s are monotonically increasing.
+//  1. Every mutation produces exactly one revision row.
+//  2. FTS5 reflects current state (no stale entries after Update).
+//  3. ON DELETE CASCADE removes edges/tags/fts_map/revisions.
+//  4. UUIDv7s are monotonically increasing.
 //
 // Re-exporting it here makes the spec↔test link mechanically auditable via grep.
 func TestSpec11_08_PropertyTestPasses(t *testing.T) {

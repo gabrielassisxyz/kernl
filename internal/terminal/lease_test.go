@@ -17,7 +17,7 @@ func TestLeaseNickname(t *testing.T) {
 		{
 			name: "uses session ID when available",
 			input: &EnsureLeaseInput{
-				Source:     LeaseSourceTerminalManagerTake,
+				Source:    LeaseSourceTerminalManagerTake,
 				SessionID: "sess-123",
 				BeadID:    "bead-1",
 			},
@@ -50,7 +50,7 @@ func TestLeaseNickname(t *testing.T) {
 		{
 			name: "truncates at 120 chars",
 			input: &EnsureLeaseInput{
-				Source:     LeaseSourceTerminalManagerTake,
+				Source:    LeaseSourceTerminalManagerTake,
 				SessionID: strings.Repeat("x", 200),
 			},
 			expected: "kernl:terminal_manager_take:" + strings.Repeat("x", 92),
@@ -259,11 +259,11 @@ func TestBuildCreateLeaseOptions(t *testing.T) {
 	}
 
 	input := &EnsureLeaseInput{
-		RepoPath:   "/tmp/repo",
-		Source:      LeaseSourceTerminalManagerTake,
-		SessionID:  "sess-1",
-		BeadID:     "bead-1",
-		AgentInfo:  info,
+		RepoPath:  "/tmp/repo",
+		Source:    LeaseSourceTerminalManagerTake,
+		SessionID: "sess-1",
+		BeadID:    "bead-1",
+		AgentInfo: info,
 	}
 
 	opts := buildCreateLeaseOptions(input)
@@ -291,7 +291,7 @@ func TestBuildCreateLeaseOptions(t *testing.T) {
 func TestBuildCreateLeaseOptionsNilAgentInfo(t *testing.T) {
 	input := &EnsureLeaseInput{
 		RepoPath:  "/tmp/repo",
-		Source:     LeaseSourceDoctorActiveLeases,
+		Source:    LeaseSourceDoctorActiveLeases,
 		BeadID:    "bead-2",
 		AgentInfo: nil,
 	}
@@ -348,14 +348,14 @@ func TestKnotsBackendCreateLeaseOptionsFields(t *testing.T) {
 
 func newTestSessionEntry() *SessionEntry {
 	return &SessionEntry{
-		Session:                     &TerminalSession{ID: "sess-test"},
-		Events:                       make(chan session.TerminalEvent, MaxBuffer),
-		Buffer:                       make([]session.TerminalEvent, 0),
-		TakeLoopLifecycle:             make(map[int]*TakeLoopIterationTrace),
-		PendingApprovals:             make(map[string]*PendingApprovalRecord),
-		ClaimsPerQueueType:           make(map[string]int),
-		LastAgentPerQueueType:        make(map[string]string),
-		FailedAgentsPerQueueType:     make(map[string]map[string]bool),
-		FollowUpAttempts:             make(map[string]int),
+		Session:                  &TerminalSession{ID: "sess-test"},
+		Events:                   make(chan session.TerminalEvent, MaxBuffer),
+		Buffer:                   make([]session.TerminalEvent, 0),
+		TakeLoopLifecycle:        make(map[int]*TakeLoopIterationTrace),
+		PendingApprovals:         make(map[string]*PendingApprovalRecord),
+		ClaimsPerQueueType:       make(map[string]int),
+		LastAgentPerQueueType:    make(map[string]string),
+		FailedAgentsPerQueueType: make(map[string]map[string]bool),
+		FollowUpAttempts:         make(map[string]int),
 	}
 }

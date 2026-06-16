@@ -50,7 +50,7 @@ func runBookmarkAdd(a *app.App, args []string) error {
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		author := nodes.Author{Name: "cli"}
 		b := nodes.Bookmark{URL: url, Title: "Imported via CLI"}
-		
+
 		var err error
 		id, err = nodes.CreateBookmark(ctx, tx, b, author)
 		if err != nil {
@@ -70,7 +70,7 @@ func runBookmarkAdd(a *app.App, args []string) error {
 		if err := nodes.UpdateBookmark(ctx, tx, b, author); err != nil {
 			return fmt.Errorf("update bookmark: %w", err)
 		}
-		
+
 		return nil
 	})
 

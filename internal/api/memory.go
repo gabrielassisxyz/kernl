@@ -13,7 +13,7 @@ import (
 func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/memory/topics", func(w http.ResponseWriter, r *http.Request) {
 		var topics []string
-		
+
 		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
 			rows, err := tx.Query(`SELECT DISTINCT json_extract(attrs, '$.subject') FROM nodes WHERE type = 'memory_claim' AND json_extract(attrs, '$.subject') IS NOT NULL`)
 			if err != nil {

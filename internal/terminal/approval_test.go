@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,7 +9,7 @@ import (
 
 func TestPerformApprovalAction_NotFound(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	result := PerformApprovalAction(entry, "nonexistent", ActionAccept)
 	if result.OK {
@@ -24,12 +25,12 @@ func TestPerformApprovalAction_NotFound(t *testing.T) {
 
 func TestPerformApprovalAction_UnsupportedAction(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-1",
+		ApprovalID:       "approval-1",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"decline"},
+		SupportedActions: []string{"decline"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP},
 		Actionable:       true,
 	}
@@ -57,12 +58,12 @@ func TestPerformApprovalAction_UnsupportedAction(t *testing.T) {
 
 func TestPerformApprovalAction_MissingReplyTarget(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-1",
+		ApprovalID:       "approval-1",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept"},
+		SupportedActions: []string{"accept"},
 		ReplyTarget:      nil,
 		Actionable:       true,
 	}
@@ -79,12 +80,12 @@ func TestPerformApprovalAction_MissingReplyTarget(t *testing.T) {
 
 func TestPerformApprovalAction_NoResponder(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-1",
+		ApprovalID:       "approval-1",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept"},
+		SupportedActions: []string{"accept"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP},
 		Actionable:       true,
 	}
@@ -101,12 +102,12 @@ func TestPerformApprovalAction_NoResponder(t *testing.T) {
 
 func TestPerformApprovalAction_Success(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-1",
+		ApprovalID:       "approval-1",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept", "decline"},
+		SupportedActions: []string{"accept", "decline"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP, NativeSessionID: "ses_1", PermissionID: "perm_1"},
 		Actionable:       true,
 	}
@@ -140,12 +141,12 @@ func TestPerformApprovalAction_Success(t *testing.T) {
 
 func TestPerformApprovalAction_DeclineRejects(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-2",
+		ApprovalID:       "approval-2",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept", "decline"},
+		SupportedActions: []string{"accept", "decline"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP, PermissionID: "perm_1"},
 		Actionable:       true,
 	}
@@ -168,12 +169,12 @@ func TestPerformApprovalAction_DeclineRejects(t *testing.T) {
 
 func TestPerformApprovalAction_AlwaysApprove(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-3",
+		ApprovalID:       "approval-3",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept", "always_approve", "decline"},
+		SupportedActions: []string{"accept", "always_approve", "decline"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP},
 		Actionable:       true,
 	}
@@ -196,12 +197,12 @@ func TestPerformApprovalAction_AlwaysApprove(t *testing.T) {
 
 func TestPerformApprovalAction_ReplyFailed(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-4",
+		ApprovalID:       "approval-4",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept"},
+		SupportedActions: []string{"accept"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP, NativeSessionID: "ses_1", PermissionID: "perm_1"},
 		Actionable:       true,
 	}
@@ -248,12 +249,12 @@ func TestPerformApprovalAction_ReplyFailed(t *testing.T) {
 
 func TestPerformApprovalAction_RetrySuccessClearsFailureReason(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-5",
+		ApprovalID:       "approval-5",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept"},
+		SupportedActions: []string{"accept"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP, NativeSessionID: "ses_1", PermissionID: "perm_1"},
 		Actionable:       true,
 	}
@@ -294,12 +295,12 @@ func TestPerformApprovalAction_RetrySuccessClearsFailureReason(t *testing.T) {
 
 func TestPerformApprovalAction_ResponderError(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-6",
+		ApprovalID:       "approval-6",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept"},
+		SupportedActions: []string{"accept"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "opencode", Transport: ReplyTransportHTTP},
 		Actionable:       true,
 	}
@@ -328,12 +329,12 @@ func TestPerformApprovalAction_ResponderError(t *testing.T) {
 
 func TestPerformApprovalAction_ClaudeBridgeSuccess(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-7",
+		ApprovalID:       "approval-7",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept", "decline"},
+		SupportedActions: []string{"accept", "decline"},
 		ReplyTarget:      &ApprovalReplyTarget{Adapter: "claude-bridge", Transport: ReplyTransportStdio, RequestID: "toolu_1"},
 		Actionable:       true,
 	}
@@ -412,12 +413,12 @@ func TestNormalizeSupportedActions(t *testing.T) {
 
 func TestCleanupSessionResources_MarksManualRequired(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	entry.RecordPendingApproval(&PendingApprovalRecord{
 		ApprovalID: "approval-1",
-		Status:      ApprovalPending,
-		Actionable:  true,
+		Status:     ApprovalPending,
+		Actionable: true,
 	})
 
 	CleanupSessionResources(entry, "session_aborted")
@@ -436,13 +437,13 @@ func TestCleanupSessionResources_MarksManualRequired(t *testing.T) {
 
 func TestCleanupSessionResources_MultipleApprovals(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	for i := 0; i < 3; i++ {
 		entry.RecordPendingApproval(&PendingApprovalRecord{
 			ApprovalID: fmt.Sprintf("approval-%d", i),
-			Status:      ApprovalPending,
-			Actionable:  true,
+			Status:     ApprovalPending,
+			Actionable: true,
 		})
 	}
 
@@ -461,28 +462,28 @@ func TestCleanupSessionResources_MultipleApprovals(t *testing.T) {
 
 func TestPendingApprovalRecord_Fields(t *testing.T) {
 	m := NewTerminalManager()
-	entry, _ := m.CreateSession(nil, "bead-1", "/repo")
+	entry, _ := m.CreateSession(context.TODO(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
 		ApprovalID:       "approval-1",
-		Status:            ApprovalPending,
-		SupportedActions:   []string{"accept", "decline"},
-		NativeSessionID:   "ses_1",
-		ReplyTarget:       &ApprovalReplyTarget{
-			Adapter:        "opencode",
+		Status:           ApprovalPending,
+		SupportedActions: []string{"accept", "decline"},
+		NativeSessionID:  "ses_1",
+		ReplyTarget: &ApprovalReplyTarget{
+			Adapter:         "opencode",
 			Transport:       ReplyTransportHTTP,
 			NativeSessionID: "ses_1",
 			PermissionID:    "perm_1",
 		},
-		Actionable:        true,
-		BeadID:            "bead-1",
-		BeadTitle:         "Fix bug",
-		RepoPath:          "/repo",
-		Adapter:           "opencode",
-		Source:            "permission.asked",
-		RequestID:         "req_1",
-		PermissionID:      "perm_1",
-		AgentName:         "OpenCode",
+		Actionable:   true,
+		BeadID:       "bead-1",
+		BeadTitle:    "Fix bug",
+		RepoPath:     "/repo",
+		Adapter:      "opencode",
+		Source:       "permission.asked",
+		RequestID:    "req_1",
+		PermissionID: "perm_1",
+		AgentName:    "OpenCode",
 	}
 	entry.RecordPendingApproval(rec)
 

@@ -20,8 +20,8 @@ func (m *mockLeaseChecker) EvaluateLeaseHealth(leaseID, repoPath string) (LeaseH
 		return LeaseHealthResult{}, m.err
 	}
 	return LeaseHealthResult{
-		Healthy:   m.healthy,
-		Reason:    m.reason,
+		Healthy:    m.healthy,
+		Reason:     m.reason,
 		LeaseState: m.state,
 	}, nil
 }

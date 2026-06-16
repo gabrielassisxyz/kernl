@@ -1,0 +1,20 @@
+# Optional quickstart: run kernl's API + web UI in a container.
+#
+#   docker compose up --build
+#   open http://localhost:8080
+#
+# Bring your own kernl.yaml (copy from kernl.yaml.example) — it is mounted
+# read-only. The graph/runtime state persists in the named volume.
+services:
+  kernl:
+    build: .
+    image: kernl:local
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./kernl.yaml:/home/kernl/kernl.yaml:ro
+      - kernl-data:/home/kernl/.kernl
+    restart: unless-stopped
+
+volumes:
+  kernl-data:

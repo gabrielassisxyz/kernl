@@ -267,7 +267,7 @@ func TestRemoveRepo(t *testing.T) {
 
 	data, _ := os.ReadFile(registryFile)
 	var reg Registry
-	json.Unmarshal(data, &reg)
+	_ = json.Unmarshal(data, &reg)
 	for _, r := range reg.Repos {
 		if r.Path == dir {
 			t.Error("repo still present after removal")
@@ -381,7 +381,7 @@ func TestInspectRegistryPermissions_CorrectPermissions(t *testing.T) {
 func TestEnsureRegistryPermissions_FixesLoosePermissions(t *testing.T) {
 	_, registryFile := setupTestRegistry(t)
 	writeTestRegistry(t, registryFile, map[string]any{"repos": []any{}})
-	os.Chmod(registryFile, 0o644)
+	_ = os.Chmod(registryFile, 0o644)
 
 	result := EnsureRegistryPermissions()
 	if !result.Changed {

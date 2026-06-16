@@ -18,7 +18,7 @@ type Message struct {
 
 // ChatResponse is the LLM response — either content text or tool calls.
 type ChatResponse struct {
-	Content   string    `json:"content"`
+	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 

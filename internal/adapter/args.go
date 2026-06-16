@@ -208,9 +208,9 @@ func BuildInteractiveArgs(agent AgentTarget) PromptModeArgs {
 }
 
 const (
-	EnvTerminalSessionID      = "KERNL_TERMINAL_SESSION_ID"
-	EnvApprovalBridgeBaseURL  = "KERNL_APPROVAL_BRIDGE_BASE_URL"
-	EnvApprovalBridgeToken    = "KERNL_APPROVAL_BRIDGE_TOKEN"
+	EnvTerminalSessionID     = "KERNL_TERMINAL_SESSION_ID"
+	EnvApprovalBridgeBaseURL = "KERNL_APPROVAL_BRIDGE_BASE_URL"
+	EnvApprovalBridgeToken   = "KERNL_APPROVAL_BRIDGE_TOKEN"
 )
 
 func ApprovalBridgeEnvVars(sessionID, baseURL, token string) map[string]string {

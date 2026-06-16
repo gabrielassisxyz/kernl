@@ -2,8 +2,8 @@ package prompt
 
 type ExecutionBoundary struct {
 	AllowedExitStates []string
-	BeadID           string
-	StepName         string
+	BeadID            string
+	StepName          string
 }
 
 func FormatBoundary(b ExecutionBoundary) string {

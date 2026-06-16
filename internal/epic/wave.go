@@ -84,14 +84,14 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		ex.done[r.beadID] = true
 		ex.mu.Unlock()
 
-	ex.emit(EpicEvent{
-		Type:      BeadStateChanged,
-		EpicID:    ex.deps.Epic.ID,
-		BeadID:    r.beadID,
-		SessionID: r.result.SessionID,
-		Detail:    r.result.FinalState,
-		Time:      time.Now().Unix(),
-	})
+		ex.emit(EpicEvent{
+			Type:      BeadStateChanged,
+			EpicID:    ex.deps.Epic.ID,
+			BeadID:    r.beadID,
+			SessionID: r.result.SessionID,
+			Detail:    r.result.FinalState,
+			Time:      time.Now().Unix(),
+		})
 	}
 
 	return nil

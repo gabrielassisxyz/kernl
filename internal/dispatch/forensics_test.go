@@ -10,29 +10,29 @@ import (
 
 func makePreSnapshot(beadID, state string, stepHistory []StepEntry, leases []backend.Bead) BeadSnapshot {
 	return BeadSnapshot{
-		Boundary:      "pre_lease",
-		CapturedAt:    "2026-04-30T02:19:41.449Z",
-		SessionID:     "ses-1",
-		BeadID:        beadID,
-		LeaseID:       "lease-A",
-		Iteration:     1,
-		KernlPID:    1,
-		Bead:          beatWithSteps(beadID, state, stepHistory),
-		Leases:        leases,
+		Boundary:   "pre_lease",
+		CapturedAt: "2026-04-30T02:19:41.449Z",
+		SessionID:  "ses-1",
+		BeadID:     beadID,
+		LeaseID:    "lease-A",
+		Iteration:  1,
+		KernlPID:   1,
+		Bead:       beatWithSteps(beadID, state, stepHistory),
+		Leases:     leases,
 	}
 }
 
 func makePostSnapshot(beadID, state string, stepHistory []StepEntry, leases []backend.Bead) BeadSnapshot {
 	return BeadSnapshot{
-		Boundary:      "post_turn_failure",
-		CapturedAt:    "2026-04-30T02:19:58.791Z",
-		SessionID:     "ses-1",
-		BeadID:        beadID,
-		LeaseID:       "lease-A",
-		Iteration:     1,
-		KernlPID:    1,
-		Bead:          beatWithSteps(beadID, state, stepHistory),
-		Leases:        leases,
+		Boundary:   "post_turn_failure",
+		CapturedAt: "2026-04-30T02:19:58.791Z",
+		SessionID:  "ses-1",
+		BeadID:     beadID,
+		LeaseID:    "lease-A",
+		Iteration:  1,
+		KernlPID:   1,
+		Bead:       beatWithSteps(beadID, state, stepHistory),
+		Leases:     leases,
 	}
 }
 
@@ -282,9 +282,9 @@ func TestCaptureBeadSnapshot_WritesAndAudits(t *testing.T) {
 	ctx := CaptureContext{
 		SessionID: "ses-1",
 		BeadID:    "test-bead",
-		RepoPath:   "/repo",
-		LeaseID:    "lease-A",
-		Iteration:  1,
+		RepoPath:  "/repo",
+		LeaseID:   "lease-A",
+		Iteration: 1,
 	}
 
 	snapshot := CaptureBeadSnapshot("pre_lease", ctx, &ForensicDeps{
@@ -342,8 +342,8 @@ func TestCaptureBeadSnapshot_RecordsShowKnotError(t *testing.T) {
 	ctx := CaptureContext{
 		SessionID: "ses-1",
 		BeadID:    "test-bead",
-		RepoPath:   "/repo",
-		LeaseID:    "lease-A",
+		RepoPath:  "/repo",
+		LeaseID:   "lease-A",
 	}
 
 	snapshot := CaptureBeadSnapshot("post_turn_failure", ctx, &ForensicDeps{
@@ -376,7 +376,7 @@ func TestCaptureBeadSnapshot_DoesNotThrowWhenWriterFails(t *testing.T) {
 	ctx := CaptureContext{
 		SessionID: "ses-1",
 		BeadID:    "test-bead",
-		RepoPath:   "/repo",
+		RepoPath:  "/repo",
 	}
 
 	snapshot := CaptureBeadSnapshot("post_turn_success", ctx, &ForensicDeps{

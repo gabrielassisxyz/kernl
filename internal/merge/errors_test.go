@@ -8,11 +8,11 @@ import (
 
 func TestParseOutcome_Valid(t *testing.T) {
 	cases := map[string]merge.Outcome{
-		"success":            merge.OutcomeSuccess,
-		"merge_conflict":     merge.OutcomeMergeConflict,
-		"push_failed":        merge.OutcomePushFailed,
-		"pr_create_failed":   merge.OutcomePRCreateFailed,
-		"pr_already_exists":  merge.OutcomePRAlreadyExists,
+		"success":           merge.OutcomeSuccess,
+		"merge_conflict":    merge.OutcomeMergeConflict,
+		"push_failed":       merge.OutcomePushFailed,
+		"pr_create_failed":  merge.OutcomePRCreateFailed,
+		"pr_already_exists": merge.OutcomePRAlreadyExists,
 	}
 	for s, want := range cases {
 		t.Run(s, func(t *testing.T) {

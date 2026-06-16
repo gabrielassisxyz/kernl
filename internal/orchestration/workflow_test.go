@@ -132,9 +132,9 @@ func TestResolveStepForWorkflow(t *testing.T) {
 	wf := autopilotWorkflow()
 
 	queueTests := []struct {
-		state       string
-		wantStep    string
-		wantPhase   StepPhase
+		state     string
+		wantStep  string
+		wantPhase StepPhase
 	}{
 		{"ready_for_planning", "planning", PhaseQueued},
 		{"ready_for_plan_review", "plan_review", PhaseQueued},
@@ -760,12 +760,12 @@ func TestWorkflowQueueStateForState(t *testing.T) {
 
 func TestDeriveWorkflowStructure(t *testing.T) {
 	owners := map[string]backend.ActionOwnerKind{
-		"planning":                backend.ActionOwnerAgent,
-		"plan_review":             backend.ActionOwnerAgent,
-		"implementation":          backend.ActionOwnerAgent,
-		"implementation_review":   backend.ActionOwnerAgent,
-		"shipment":                backend.ActionOwnerAgent,
-		"shipment_review":         backend.ActionOwnerAgent,
+		"planning":              backend.ActionOwnerAgent,
+		"plan_review":           backend.ActionOwnerAgent,
+		"implementation":        backend.ActionOwnerAgent,
+		"implementation_review": backend.ActionOwnerAgent,
+		"shipment":              backend.ActionOwnerAgent,
+		"shipment_review":       backend.ActionOwnerAgent,
 	}
 	transitions := []backend.WorkflowTransition{
 		{From: "ready_for_planning", To: "planning"},
@@ -831,11 +831,11 @@ func TestDeriveWorkflowStructure(t *testing.T) {
 
 	expectedQueueActions := map[string]string{
 		"ready_for_planning":              "planning",
-		"ready_for_plan_review":            "plan_review",
+		"ready_for_plan_review":           "plan_review",
 		"ready_for_implementation":        "implementation",
 		"ready_for_implementation_review": "implementation_review",
 		"ready_for_shipment":              "shipment",
-		"ready_for_shipment_review":      "shipment_review",
+		"ready_for_shipment_review":       "shipment_review",
 	}
 	for k, v := range expectedQueueActions {
 		if queueActions[k] != v {

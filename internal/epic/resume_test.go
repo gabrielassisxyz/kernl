@@ -75,9 +75,9 @@ func (f *staticFilter) IsHumanGate(bead *backend.Bead) bool {
 
 func TestPlanResumeSkipsTerminalAndHumanGate(t *testing.T) {
 	be := &fakeBackend{state: map[string]string{
-		"a": "shipped",                        // terminal
+		"a": "shipped",                         // terminal
 		"b": "ready_for_implementation_review", // human gate
-		"c": "ready_for_implementation",      // fresh dispatch
+		"c": "ready_for_implementation",        // fresh dispatch
 	}}
 	f := &staticFilter{
 		terminal:  map[string]bool{"shipped": true},
@@ -121,8 +121,8 @@ func TestPlanResumeWithDoneSet(t *testing.T) {
 
 func TestResumeSkipsDoneResumesInterruptedRedispatchesGap(t *testing.T) {
 	be := &fakeBackend{state: map[string]string{
-		"a": "shipped",               // terminal workflow state
-		"b": "implementation",      // active state with session
+		"a": "shipped",        // terminal workflow state
+		"b": "implementation", // active state with session
 		"c": "ready_for_implementation",
 	}}
 	rs := memStore(t)

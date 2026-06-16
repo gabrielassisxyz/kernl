@@ -264,7 +264,7 @@ func TestFormatCodexEvent_ReasoningEmpty_Dropped(t *testing.T) {
 
 func TestFormatCodexEvent_TerminalInteraction(t *testing.T) {
 	result := FormatCodexEvent(map[string]any{
-		"type": "command_execution.terminal_interaction",
+		"type":      "command_execution.terminal_interaction",
 		"item":      map[string]any{"type": "command_execution", "id": "call-1"},
 		"processId": "12345",
 		"stdin":     "y\n",
@@ -286,7 +286,7 @@ func TestFormatCodexEvent_TerminalInteraction(t *testing.T) {
 
 func TestFormatCodexEvent_TerminalInteractionEmptyStdin(t *testing.T) {
 	result := FormatCodexEvent(map[string]any{
-		"type": "command_execution.terminal_interaction",
+		"type":      "command_execution.terminal_interaction",
 		"item":      map[string]any{"type": "command_execution", "id": "c"},
 		"processId": "1",
 		"stdin":     "",
@@ -581,11 +581,11 @@ func TestTranslateItemNotification_AgentMessageStarted(t *testing.T) {
 func TestTranslateItemNotification_CommandExecution(t *testing.T) {
 	result := TranslateItemNotification("item/completed", map[string]any{
 		"item": map[string]any{
-			"type":              "commandExecution",
-			"id":                "call-1",
-			"command":           "echo hi",
-			"aggregatedOutput":  "hi\n",
-			"status":            "completed",
+			"type":             "commandExecution",
+			"id":               "call-1",
+			"command":          "echo hi",
+			"aggregatedOutput": "hi\n",
+			"status":           "completed",
 		},
 	})
 	if result == nil {
@@ -692,4 +692,3 @@ func TestTranslateItemNotification_AgentMessageFragments(t *testing.T) {
 		t.Errorf("expected 'hello\\nworld', got %q", item["text"])
 	}
 }
-

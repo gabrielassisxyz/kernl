@@ -83,11 +83,12 @@ func TestReaderSeesPreDeleteSnapshot(t *testing.T) {
 			close(readStarted) // signal AFTER BeginTx
 			var dummy string
 			err := tx.QueryRow("SELECT id FROM nodes WHERE id = ?", id).Scan(&dummy)
-			if err == nil {
+			switch err {
+			case nil:
 				seen = true
-			} else if err == sql.ErrNoRows {
+			case sql.ErrNoRows:
 				seen = false
-			} else {
+			default:
 				readErr = err
 			}
 			return nil

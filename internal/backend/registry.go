@@ -58,10 +58,10 @@ func DetectMemoryManager(repoPath string) MemoryManagerType {
 }
 
 type RegistryRepo struct {
-	Path               string            `json:"path"`
-	Name               string            `json:"name"`
-	AddedAt            string            `json:"addedAt"`
-	MemoryManagerType  MemoryManagerType `json:"memoryManagerType,omitempty"`
+	Path              string            `json:"path"`
+	Name              string            `json:"name"`
+	AddedAt           string            `json:"addedAt"`
+	MemoryManagerType MemoryManagerType `json:"memoryManagerType,omitempty"`
 }
 
 type Registry struct {
@@ -97,12 +97,12 @@ type RegistryPermissionsFixResult struct {
 }
 
 type RepoMemoryManagerSyncResult struct {
-	Changed               bool
-	FileMissing           bool
-	RepoFound             bool
+	Changed                   bool
+	FileMissing               bool
+	RepoFound                 bool
 	PreviousMemoryManagerType MemoryManagerType
-	MemoryManagerType     MemoryManagerType
-	Error                 string
+	MemoryManagerType         MemoryManagerType
+	Error                     string
 }
 
 var registryFilePath = func() string {
@@ -244,7 +244,7 @@ func AddRepo(repoPath string) (*RegistryRepo, error) {
 	reg, _ := LoadRegistry()
 	for _, r := range reg.Repos {
 		if r.Path == repoPath {
-			return nil, fmt.Errorf("Repository already registered: %s", repoPath)
+			return nil, fmt.Errorf("repository already registered: %s", repoPath)
 		}
 	}
 

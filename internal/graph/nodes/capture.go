@@ -13,13 +13,13 @@ import (
 
 // Capture represents content captured from an external source.
 type Capture struct {
-	ID           string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Title        string
-	Body         string
-	CapturedFrom string
-	Tags         []string
+	ID              string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Title           string
+	Body            string
+	CapturedFrom    string
+	Tags            []string
 	SuggestedAction string
 }
 
@@ -92,9 +92,9 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	}
 
 	return &Capture{
-		ID:           id,
-		CreatedAt:    tryParseTime(createdAt.String),
-		UpdatedAt:    tryParseTime(updatedAt.String),
+		ID:              id,
+		CreatedAt:       tryParseTime(createdAt.String),
+		UpdatedAt:       tryParseTime(updatedAt.String),
 		Title:           title.String,
 		Body:            attrs.Body,
 		CapturedFrom:    attrs.CapturedFrom,
@@ -171,9 +171,9 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 		}
 
 		out = append(out, &Capture{
-			ID:           id,
-			CreatedAt:    tryParseTime(createdAt.String),
-			UpdatedAt:    tryParseTime(updatedAt.String),
+			ID:              id,
+			CreatedAt:       tryParseTime(createdAt.String),
+			UpdatedAt:       tryParseTime(updatedAt.String),
 			Title:           title.String,
 			Body:            attrs.Body,
 			CapturedFrom:    attrs.CapturedFrom,

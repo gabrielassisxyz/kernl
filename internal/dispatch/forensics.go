@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -70,7 +69,7 @@ func CaptureBeadSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, 
 		Iteration:     ctx.Iteration,
 		ObservedState: ctx.ObservedState,
 		ExpectedStep:  ctx.ExpectedStep,
-		KernlPID:    os.Getpid(),
+		KernlPID:      os.Getpid(),
 		ChildPID:      ctx.ChildPID,
 	}
 
@@ -111,7 +110,7 @@ func CaptureBeadSnapshot(boundary DispatchForensicBoundary, ctx CaptureContext, 
 		"beadId":        ctx.BeadID,
 		"knotsLeaseId":  ctx.LeaseID,
 		"iteration":     ctx.Iteration,
-		"observedState":  snapshot.ObservedState,
+		"observedState": snapshot.ObservedState,
 		"expectedStep":  ctx.ExpectedStep,
 		"snapshotPath":  snapshotPath,
 		"captureErrors": snapshot.CaptureErrors,
@@ -161,15 +160,15 @@ func RunPostTurnForensics(pre, post BeadSnapshot, preSnapshotPath, postSnapshotP
 		conflictingLeaseID = classification.ConflictingLease.ID
 	}
 	logAudit("dispatch_forensic_classified", map[string]any{
-		"message":             fmt.Sprintf("Dispatch forensic classified: %s.", classification.Category),
-		"sessionId":           post.SessionID,
-		"beadId":              post.BeadID,
-		"knotsLeaseId":        post.LeaseID,
-		"category":            string(classification.Category),
-		"reasoning":           classification.Reasoning,
-		"conflictingLeaseId":  conflictingLeaseID,
-		"preSnapshotPath":     preSnapshotPath,
-		"postSnapshotPath":    postSnapshotPath,
+		"message":            fmt.Sprintf("Dispatch forensic classified: %s.", classification.Category),
+		"sessionId":          post.SessionID,
+		"beadId":             post.BeadID,
+		"knotsLeaseId":       post.LeaseID,
+		"category":           string(classification.Category),
+		"reasoning":          classification.Reasoning,
+		"conflictingLeaseId": conflictingLeaseID,
+		"preSnapshotPath":    preSnapshotPath,
+		"postSnapshotPath":   postSnapshotPath,
 	})
 
 	return PostTurnForensicResult{
@@ -214,9 +213,4 @@ func resolveLogRoot() string {
 		return filepath.Join(os.TempDir(), "kernl", "logs")
 	}
 	return filepath.Join(home, ".kernl", "logs")
-}
-
-var logRootOnce struct {
-	sync.Once
-	value string
 }

@@ -1,0 +1,38 @@
+# golangci-lint v2 config.
+#
+# Run in CI by the `lint` job in .github/workflows/ci.yml as a REQUIRED gate.
+# The inherited lint debt has been burned down and the tree runs clean; new
+# findings fail the build. Keep it that way — don't add nolint blankets.
+#
+# Locally: `golangci-lint run ./...`
+version: "2"
+
+linters:
+  # Default set: errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  settings:
+    errcheck:
+      # Encode/Fprintf write to an http.ResponseWriter or SSE stream; by the
+      # time they fail the status line is already flushed, so there is nothing
+      # to recover. Meaningful errors (os.WriteFile, os.MkdirAll, json.Unmarshal,
+      # db.Exec, Tx.Rollback, stdin.Write, io.Copy, …) are still checked.
+      exclude-functions:
+        - (*encoding/json.Encoder).Encode
+        - fmt.Fprintf
+        - fmt.Fprintln
+  exclusions:
+    generated: lax
+    paths:
+      - web/.output
+      - web/node_modules
+    rules:
+      # Close() is deferred cleanup across many concrete types (*sql.Rows,
+      # *os.File, *http.Server, the sqlite pool, fsnotify watcher, …). A failed
+      # close on a read path or finished request is not actionable; excluding by
+      # source keeps this from devolving into a brittle per-type allowlist.
+      - linters: [errcheck]
+        source: '\.Close\(\)'
+
+formatters:
+  enable:
+    - gofmt

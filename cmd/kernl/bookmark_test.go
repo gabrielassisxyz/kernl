@@ -15,9 +15,9 @@ import (
 func TestRunBookmarkAdd(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Vault.Root = t.TempDir()
-	
+
 	a := &app.App{
-		Config: cfg,
+		Config:  cfg,
 		Backend: backend.NewBdCliBackend("/tmp/test"),
 	}
 	a.Graph = testutil.NewInMemoryTestGraph(t)

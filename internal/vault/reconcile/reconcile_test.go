@@ -768,7 +768,7 @@ type advancedClock struct {
 	t time.Time
 }
 
-func (c *advancedClock) Now() time.Time { return c.t }
+func (c *advancedClock) Now() time.Time          { return c.t }
 func (c *advancedClock) Advance(d time.Duration) { c.t = c.t.Add(d) }
 
 // newTestReconciler creates a Reconciler with a zero-duration window (so

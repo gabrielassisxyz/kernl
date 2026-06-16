@@ -38,7 +38,7 @@ type DriverDeps struct {
 // distinct from the binary, which is the same `opencode` for every agent
 // when going through litellm.
 type RunBeadInput struct {
-	BeadID    string
+	BeadID string
 	// RepoPath is the canonical bd-tracked repo -- passed to every backend call.
 	RepoPath string
 	// Cwd is the working directory for the spawned agent process. Defaults to

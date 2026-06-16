@@ -71,7 +71,7 @@ func TestIsolationAcrossParallelTests(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
+		name     string
 		sentinel row
 	}{
 		{name: "A", sentinel: row{id: "iso-a", typ: "t", title: "isolated A"}},

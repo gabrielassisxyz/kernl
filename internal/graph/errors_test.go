@@ -74,5 +74,5 @@ func createTempDB(t *testing.T) (*os.File, error) {
 }
 
 func removeFile(name string) {
-	os.Remove(name)
+	_ = os.Remove(name)
 }

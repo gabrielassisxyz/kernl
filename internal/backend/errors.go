@@ -17,8 +17,8 @@ const (
 	ErrorCodeUnavailable      BackendErrorCode = "UNAVAILABLE"
 	ErrorCodePermissionDenied BackendErrorCode = "PERMISSION_DENIED"
 	ErrorCodeInternal         BackendErrorCode = "INTERNAL"
-	ErrorCodeConflict        BackendErrorCode = "CONFLICT"
-	ErrorCodeRateLimited     BackendErrorCode = "RATE_LIMITED"
+	ErrorCodeConflict         BackendErrorCode = "CONFLICT"
+	ErrorCodeRateLimited      BackendErrorCode = "RATE_LIMITED"
 )
 
 var defaultRetryable = map[BackendErrorCode]bool{
@@ -35,11 +35,11 @@ var defaultRetryable = map[BackendErrorCode]bool{
 }
 
 type BackendError struct {
-	Code       BackendErrorCode
-	Message    string
-	Retryable  bool
-	Details    map[string]any
-	Cause      error
+	Code      BackendErrorCode
+	Message   string
+	Retryable bool
+	Details   map[string]any
+	Cause     error
 }
 
 func NewBackendError(code BackendErrorCode, message string, opts ...BackendErrorOption) *BackendError {

@@ -21,7 +21,7 @@ func setupMemoryTest(t *testing.T) (*app.App, *http.ServeMux) {
 	a := &app.App{Graph: g}
 	mux := http.NewServeMux()
 	RegisterMemoryRoutes(mux, a)
-	
+
 	// Add some data
 	err := g.DoWrite(context.Background(), func(tx *graph.WriteTx) error {
 		_, err := nodes.CreateMemoryClaim(context.Background(), tx, nodes.MemoryClaim{
@@ -121,7 +121,7 @@ func TestMemoryAPI_Refute(t *testing.T) {
 	var res struct {
 		Claims []nodes.MemoryClaim `json:"claims"`
 	}
-	json.Unmarshal(w2.Body.Bytes(), &res)
+	_ = json.Unmarshal(w2.Body.Bytes(), &res)
 
 	if len(res.Claims) != 0 {
 		t.Errorf("expected 0 claims after refutation, got %v", len(res.Claims))

@@ -11,14 +11,14 @@ import (
 
 func makeSDLCWorkflow() *backend.WorkflowDescriptor {
 	return &backend.WorkflowDescriptor{
-		ID:               "sdlc",
-		ProfileID:        "sdlc",
+		ID:                "sdlc",
+		ProfileID:         "sdlc",
 		BackingWorkflowID: "sdlc",
-		Label:            "SDLC",
-		Mode:             "granular_autonomous",
+		Label:             "SDLC",
+		Mode:              "granular_autonomous",
 		InitialState:      "ready_for_planning",
-		States:           []string{"ready_for_planning", "planning", "ready_for_plan_review", "plan_review", "ready_for_implementation", "implementation"},
-		TerminalStates:   []string{},
+		States:            []string{"ready_for_planning", "planning", "ready_for_plan_review", "plan_review", "ready_for_implementation", "implementation"},
+		TerminalStates:    []string{},
 		Transitions: []backend.WorkflowTransition{
 			{From: "ready_for_planning", To: "planning"},
 			{From: "planning", To: "ready_for_plan_review"},
@@ -26,22 +26,22 @@ func makeSDLCWorkflow() *backend.WorkflowDescriptor {
 			{From: "plan_review", To: "ready_for_implementation"},
 			{From: "plan_review", To: "ready_for_planning"},
 		},
-		FinalCutState: "",
-		RetakeState:   "ready_for_planning",
+		FinalCutState:   "",
+		RetakeState:     "ready_for_planning",
 		PromptProfileID: "sdlc",
 		StateOwners: map[string]backend.ActionOwnerKind{
-			"ready_for_planning":   backend.ActionOwnerAgent,
-			"planning":            backend.ActionOwnerAgent,
-			"ready_for_plan_review": backend.ActionOwnerAgent,
-			"plan_review":         backend.ActionOwnerAgent,
+			"ready_for_planning":       backend.ActionOwnerAgent,
+			"planning":                 backend.ActionOwnerAgent,
+			"ready_for_plan_review":    backend.ActionOwnerAgent,
+			"plan_review":              backend.ActionOwnerAgent,
 			"ready_for_implementation": backend.ActionOwnerAgent,
-			"implementation":      backend.ActionOwnerAgent,
+			"implementation":           backend.ActionOwnerAgent,
 		},
-		QueueStates:    []string{"ready_for_planning", "ready_for_plan_review", "ready_for_implementation"},
-		ActionStates:   []string{"planning", "plan_review", "implementation"},
+		QueueStates:  []string{"ready_for_planning", "ready_for_plan_review", "ready_for_implementation"},
+		ActionStates: []string{"planning", "plan_review", "implementation"},
 		QueueActions: map[string]string{
-			"ready_for_planning":     "planning",
-			"ready_for_plan_review":  "plan_review",
+			"ready_for_planning":       "planning",
+			"ready_for_plan_review":    "plan_review",
 			"ready_for_implementation": "implementation",
 		},
 		ReviewQueueStates: []string{"ready_for_plan_review"},
@@ -53,25 +53,25 @@ func makeBaseSettings() *config.Settings {
 	return &config.Settings{
 		Agents: map[string]config.AgentConfig{
 			"claude": {
-				Command:  "/usr/local/bin/claude",
-				Type:     "cli",
-				Vendor:   "claude",
-				Provider: "Claude",
+				Command:   "/usr/local/bin/claude",
+				Type:      "cli",
+				Vendor:    "claude",
+				Provider:  "Claude",
 				AgentName: "Claude",
-				Label:    "Claude",
+				Label:     "Claude",
 			},
 			"codex": {
-				Command:  "/usr/local/bin/codex",
-				Type:     "cli",
-				Vendor:   "codex",
-				Provider: "Codex",
+				Command:   "/usr/local/bin/codex",
+				Type:      "cli",
+				Vendor:    "codex",
+				Provider:  "Codex",
 				AgentName: "Codex",
-				Label:    "Codex",
+				Label:     "Codex",
 			},
 		},
 		Pools: map[string]config.PoolConfig{
-			"planning":      {Agents: []config.WeightedAgent{{AgentID: "claude", Weight: 1}, {AgentID: "codex", Weight: 1}}},
-			"plan_review":   {Agents: []config.WeightedAgent{{AgentID: "claude", Weight: 1}, {AgentID: "codex", Weight: 1}}},
+			"planning":       {Agents: []config.WeightedAgent{{AgentID: "claude", Weight: 1}, {AgentID: "codex", Weight: 1}}},
+			"plan_review":    {Agents: []config.WeightedAgent{{AgentID: "claude", Weight: 1}, {AgentID: "codex", Weight: 1}}},
 			"implementation": {Agents: []config.WeightedAgent{{AgentID: "claude", Weight: 1}, {AgentID: "codex", Weight: 1}}},
 		},
 	}
@@ -85,16 +85,6 @@ func collectStderr(events []session.TerminalEvent) string {
 		}
 	}
 	return b.String()
-}
-
-func collectAgentFailures(events []session.TerminalEvent) []string {
-	var result []string
-	for _, e := range events {
-		if e.Type == "agent_failure" {
-			result = append(result, e.Content)
-		}
-	}
-	return result
 }
 
 func TestRunDispatch_CrossAgentReviewFallback(t *testing.T) {
@@ -116,17 +106,17 @@ func TestRunDispatch_CrossAgentReviewFallback(t *testing.T) {
 	result := RunDispatch(DispatchArgs{
 		Ctx:              ctx,
 		Settings:         settings,
-		Workflow:          wf,
+		Workflow:         wf,
 		State:            "ready_for_plan_review",
-		PoolKey:           "plan_review",
-		QueueType:         "plan_review",
-		ExcludeAgentIDs:   []string{"codex", "claude"},
-		IsErrorRetry:      true,
-		IsReview:          true,
-		PriorAction:       "planning",
-		FailedAgentID:     "codex",
-		MaxClaims:         10,
-		StepAgentTracker:  tracker,
+		PoolKey:          "plan_review",
+		QueueType:        "plan_review",
+		ExcludeAgentIDs:  []string{"codex", "claude"},
+		IsErrorRetry:     true,
+		IsReview:         true,
+		PriorAction:      "planning",
+		FailedAgentID:    "codex",
+		MaxClaims:        10,
+		StepAgentTracker: tracker,
 	})
 
 	if result.Stopped {
@@ -152,12 +142,12 @@ func TestRunDispatch_CrossAgentReviewNoAlternative(t *testing.T) {
 	settings := &config.Settings{
 		Agents: map[string]config.AgentConfig{
 			"claude": {
-				Command:  "/usr/local/bin/claude",
-				Type:     "cli",
-				Vendor:   "claude",
-				Provider: "Claude",
+				Command:   "/usr/local/bin/claude",
+				Type:      "cli",
+				Vendor:    "claude",
+				Provider:  "Claude",
 				AgentName: "Claude",
-				Label:    "Claude",
+				Label:     "Claude",
 			},
 		},
 		Pools: map[string]config.PoolConfig{
@@ -181,17 +171,17 @@ func TestRunDispatch_CrossAgentReviewNoAlternative(t *testing.T) {
 	result := RunDispatch(DispatchArgs{
 		Ctx:              ctx,
 		Settings:         settings,
-		Workflow:          wf,
+		Workflow:         wf,
 		State:            "ready_for_plan_review",
-		PoolKey:           "plan_review",
-		QueueType:         "plan_review",
-		ExcludeAgentIDs:   []string{"claude"},
-		IsErrorRetry:      true,
-		IsReview:          true,
-		PriorAction:       "planning",
-		FailedAgentID:     "claude",
-		MaxClaims:         10,
-		StepAgentTracker:  tracker,
+		PoolKey:          "plan_review",
+		QueueType:        "plan_review",
+		ExcludeAgentIDs:  []string{"claude"},
+		IsErrorRetry:     true,
+		IsReview:         true,
+		PriorAction:      "planning",
+		FailedAgentID:    "claude",
+		MaxClaims:        10,
+		StepAgentTracker: tracker,
 	})
 
 	if !result.Stopped {
@@ -203,8 +193,8 @@ func TestRunDispatch_CrossAgentInvariantHonored(t *testing.T) {
 	wf := makeSDLCWorkflow()
 	settings := &config.Settings{
 		Agents: map[string]config.AgentConfig{
-			"claude": {Command: "/usr/local/bin/claude", Type: "cli", Vendor: "claude", Provider: "Claude", AgentName: "Claude", Label: "Claude"},
-			"codex":  {Command: "/usr/local/bin/codex", Type: "cli", Vendor: "codex", Provider: "Codex", AgentName: "Codex", Label: "Codex"},
+			"claude":   {Command: "/usr/local/bin/claude", Type: "cli", Vendor: "claude", Provider: "Claude", AgentName: "Claude", Label: "Claude"},
+			"codex":    {Command: "/usr/local/bin/codex", Type: "cli", Vendor: "codex", Provider: "Codex", AgentName: "Codex", Label: "Codex"},
 			"opencode": {Command: "/usr/local/bin/opencode", Type: "cli", Vendor: "opencode", Provider: "OpenCode", AgentName: "OpenCode", Label: "OpenCode"},
 		},
 		Pools: map[string]config.PoolConfig{
@@ -228,17 +218,17 @@ func TestRunDispatch_CrossAgentInvariantHonored(t *testing.T) {
 	result := RunDispatch(DispatchArgs{
 		Ctx:              ctx,
 		Settings:         settings,
-		Workflow:          wf,
+		Workflow:         wf,
 		State:            "ready_for_plan_review",
-		PoolKey:           "plan_review",
-		QueueType:         "plan_review",
-		ExcludeAgentIDs:   []string{"claude"},
-		IsErrorRetry:      false,
-		IsReview:          true,
-		PriorAction:       "planning",
-		FailedAgentID:     "",
-		MaxClaims:         10,
-		StepAgentTracker:  tracker,
+		PoolKey:          "plan_review",
+		QueueType:        "plan_review",
+		ExcludeAgentIDs:  []string{"claude"},
+		IsErrorRetry:     false,
+		IsReview:         true,
+		PriorAction:      "planning",
+		FailedAgentID:    "",
+		MaxClaims:        10,
+		StepAgentTracker: tracker,
 	})
 
 	if result.Stopped {
@@ -276,17 +266,17 @@ func TestRunDispatch_NormalSelection(t *testing.T) {
 	result := RunDispatch(DispatchArgs{
 		Ctx:              ctx,
 		Settings:         settings,
-		Workflow:          wf,
+		Workflow:         wf,
 		State:            "ready_for_implementation",
-		PoolKey:           "implementation",
-		QueueType:         "implementation",
-		ExcludeAgentIDs:   []string{},
-		IsErrorRetry:      false,
-		IsReview:          false,
-		PriorAction:       "",
-		FailedAgentID:     "",
-		MaxClaims:         10,
-		StepAgentTracker:  NewStepAgentTracker(),
+		PoolKey:          "implementation",
+		QueueType:        "implementation",
+		ExcludeAgentIDs:  []string{},
+		IsErrorRetry:     false,
+		IsReview:         false,
+		PriorAction:      "",
+		FailedAgentID:    "",
+		MaxClaims:        10,
+		StepAgentTracker: NewStepAgentTracker(),
 	})
 
 	if result.Stopped {
@@ -552,15 +542,15 @@ func TestRunDispatch_DispatchFailureEmitsBanner(t *testing.T) {
 	result := RunDispatch(DispatchArgs{
 		Ctx:              ctx,
 		Settings:         settings,
-		Workflow:          wf,
+		Workflow:         wf,
 		State:            "ready_for_implementation",
-		PoolKey:           "implementation",
-		QueueType:         "implementation",
-		ExcludeAgentIDs:   []string{},
-		IsErrorRetry:      false,
-		IsReview:          false,
-		MaxClaims:         10,
-		StepAgentTracker:  NewStepAgentTracker(),
+		PoolKey:          "implementation",
+		QueueType:        "implementation",
+		ExcludeAgentIDs:  []string{},
+		IsErrorRetry:     false,
+		IsReview:         false,
+		MaxClaims:        10,
+		StepAgentTracker: NewStepAgentTracker(),
 	})
 
 	if !result.Stopped {

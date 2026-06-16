@@ -12,10 +12,10 @@ import (
 type BackendType string
 
 const (
-	BackendTypeAuto   BackendType = "auto"
-	BackendTypeCLI    BackendType = "cli"
-	BackendTypeKnots  BackendType = "knots"
-	BackendTypeBeads  BackendType = "beads"
+	BackendTypeAuto  BackendType = "auto"
+	BackendTypeCLI   BackendType = "cli"
+	BackendTypeKnots BackendType = "knots"
+	BackendTypeBeads BackendType = "beads"
 )
 
 type BackendEntry struct {
@@ -476,11 +476,11 @@ func CanonicalStageContracts() map[string]StageContract {
 func BuiltinWorkflowDescriptors() []WorkflowDescriptor {
 	return []WorkflowDescriptor{
 		{
-			ID:              "sdlc",
+			ID:                "sdlc",
 			BackingWorkflowID: "sdlc",
-			Label:           "SDLC",
-			Mode:            "semiauto",
-			InitialState:    "ready_for_implementation",
+			Label:             "SDLC",
+			Mode:              "semiauto",
+			InitialState:      "ready_for_implementation",
 			States: []string{
 				"ready_for_implementation",
 				"implementation",
@@ -500,8 +500,8 @@ func BuiltinWorkflowDescriptors() []WorkflowDescriptor {
 				{From: "ready_for_shipment", To: "shipment"},
 				{From: "shipment", To: "shipped"},
 			},
-			RetakeState:   "ready_for_implementation",
-			ProfileID:     "sdlc",
+			RetakeState: "ready_for_implementation",
+			ProfileID:   "sdlc",
 			QueueActions: map[string]string{
 				"ready_for_implementation": "implementation",
 				"ready_for_review":         "review",
@@ -525,12 +525,12 @@ func BuiltinWorkflowDescriptors() []WorkflowDescriptor {
 				"ready_for_review":         ActionOwnerAgent,
 				"review":                   ActionOwnerHuman,
 				"ready_for_shipment":       ActionOwnerAgent,
-				"shipment":                ActionOwnerAgent,
+				"shipment":                 ActionOwnerAgent,
 			},
 			StateOwners: map[string]ActionOwnerKind{
 				"implementation": ActionOwnerAgent,
-				"review":        ActionOwnerHuman,
-				"shipment":      ActionOwnerAgent,
+				"review":         ActionOwnerHuman,
+				"shipment":       ActionOwnerAgent,
 			},
 		},
 	}

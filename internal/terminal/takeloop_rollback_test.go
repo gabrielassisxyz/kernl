@@ -109,8 +109,8 @@ func makeRollbackWF() *backend.WorkflowDescriptor {
 		StateOwners: map[string]backend.ActionOwnerKind{
 			"ready_for_implementation": backend.ActionOwnerAgent,
 			"implementation":           backend.ActionOwnerAgent,
-			"ready_for_review":        backend.ActionOwnerAgent,
-			"review":                  backend.ActionOwnerAgent,
+			"ready_for_review":         backend.ActionOwnerAgent,
+			"review":                   backend.ActionOwnerAgent,
 		},
 	}
 }
@@ -297,14 +297,14 @@ func TestHandleErrorExit_RecordsFailedAgentAndRollsBack(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:       "bead-1",
-		ClaimedStep:  "implementation",
-		Success:      false,
-		ExitCode:     1,
+		BeadID:        "bead-1",
+		ClaimedStep:   "implementation",
+		Success:       false,
+		ExitCode:      1,
 		PostExitState: "implementation",
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
 
 	if !ctx.FailedAgentsPerQueueType["implementation"]["agent-a"] {
 		t.Error("expected agent-a to be recorded as failed for implementation queue type")
@@ -342,14 +342,14 @@ func TestHandleErrorExit_NoRollbackWhenInQueueState(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:       "bead-1",
-		ClaimedStep:  "implementation",
-		Success:      false,
-		ExitCode:     1,
+		BeadID:        "bead-1",
+		ClaimedStep:   "implementation",
+		Success:       false,
+		ExitCode:      1,
 		PostExitState: "ready_for_implementation",
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
 
 	if !ctx.FailedAgentsPerQueueType["implementation"]["agent-a"] {
 		t.Error("expected agent-a to be recorded as failed")
@@ -389,13 +389,13 @@ func TestHandleSuccessExit_EnforcesInvariant(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:         "bead-1",
-		Success:        true,
-		ExitCode:       0,
-		PostExitState:  "shipped",
+		BeadID:        "bead-1",
+		Success:       true,
+		ExitCode:      0,
+		PostExitState: "shipped",
 	}
 
-	HandleSuccessExit(ctx, record, 0, wf, sb)
+	_ = HandleSuccessExit(ctx, record, 0, wf, sb)
 
 	if !finished {
 		t.Error("expected FinishSession to be called")
@@ -529,7 +529,7 @@ func TestRollbackStepFailure_CannotResolveQueueState(t *testing.T) {
 		ActionStates:   []string{"unknown_state"},
 		QueueStates:    []string{},
 		Transitions:    []backend.WorkflowTransition{},
-		StateOwners:   map[string]backend.ActionOwnerKind{"unknown_state": backend.ActionOwnerAgent},
+		StateOwners:    map[string]backend.ActionOwnerKind{"unknown_state": backend.ActionOwnerAgent},
 	}
 	sb := &stubRollbackBackend{
 		beads: map[string]*backend.Bead{
@@ -644,7 +644,7 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 		Entry:            entry,
 		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
-		SessionAborted: func() bool { return aborted },
+		SessionAborted:   func() bool { return aborted },
 		FinishSession: func(exitCode int) {
 			finishCalled = true
 		},
@@ -652,14 +652,14 @@ func TestConcurrentAbortDuringRollback(t *testing.T) {
 	}
 
 	record := OutcomeRecord{
-		BeadID:       "bead-1",
-		ClaimedStep:  "implementation",
-		Success:      false,
-		ExitCode:     1,
+		BeadID:        "bead-1",
+		ClaimedStep:   "implementation",
+		Success:       false,
+		ExitCode:      1,
 		PostExitState: "implementation",
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "implementation", wf, sb)
 
 	if !finishCalled {
 		t.Error("expected FinishSession to be called even during abort")
@@ -704,7 +704,7 @@ func TestHandleErrorExit_NoAlternativeAgent(t *testing.T) {
 		AlternativeAgentAvailable: false,
 	}
 
-	HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
+	_ = HandleErrorExit(ctx, record, 1, "agent-a", "ready_for_implementation", wf, sb)
 
 	if !finishCalled {
 		t.Error("expected FinishSession to be called when no alternative agent")
@@ -789,14 +789,14 @@ func TestHandleTakeIterationClose_AbortedSession(t *testing.T) {
 		Entry:            entry,
 		Bead:             &backend.Bead{ID: "bead-1", State: "implementation", WorkflowID: "wf-sdlc"},
 		PushEvent:        func(evt session.TerminalEvent) {},
-		SessionAborted: func() bool { return aborted },
+		SessionAborted:   func() bool { return aborted },
 		FinishSession: func(exitCode int) {
 			finishCalled = true
 		},
 		TakeIteration: &IterationCounter{Value: 1},
 	}
 
-	HandleTakeIterationClose(ctx, 1, "agent-a", "Claude", "ready_for_implementation", sb)
+	_ = HandleTakeIterationClose(ctx, 1, "agent-a", "Claude", "ready_for_implementation", sb)
 
 	if !finishCalled {
 		t.Error("expected FinishSession to be called for aborted session")

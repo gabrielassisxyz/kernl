@@ -12,7 +12,7 @@ func TestLoadAutonomousConfig(t *testing.T) {
 	tmp := t.TempDir()
 	cfgPath := filepath.Join(tmp, "kernl.yaml")
 
-	os.WriteFile(cfgPath, []byte(`autonomous: true`), 0644)
+	_ = os.WriteFile(cfgPath, []byte(`autonomous: true`), 0644)
 	isAuto, err := LoadAutonomousConfig(cfgPath)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -21,7 +21,7 @@ func TestLoadAutonomousConfig(t *testing.T) {
 		t.Errorf("expected true, got %v", isAuto)
 	}
 
-	os.WriteFile(cfgPath, []byte(`autonomous: false`), 0644)
+	_ = os.WriteFile(cfgPath, []byte(`autonomous: false`), 0644)
 	isAuto, _ = LoadAutonomousConfig(cfgPath)
 	if isAuto {
 		t.Errorf("expected false, got %v", isAuto)

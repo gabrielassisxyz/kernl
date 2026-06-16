@@ -12,9 +12,9 @@ type LeaseSource string
 const (
 	LeaseSourceTerminalManagerTake         LeaseSource = "terminal_manager_take"
 	LeaseSourceStructuredPrepareTake       LeaseSource = "structured_prepare_take"
-	LeaseSourceStructuredPreparePoll        LeaseSource = "structured_prepare_poll"
-	LeaseSourceStructuredCompleteIteration  LeaseSource = "structured_complete_iteration"
-	LeaseSourceStructuredRollbackIteration  LeaseSource = "structured_rollback_iteration"
+	LeaseSourceStructuredPreparePoll       LeaseSource = "structured_prepare_poll"
+	LeaseSourceStructuredCompleteIteration LeaseSource = "structured_complete_iteration"
+	LeaseSourceStructuredRollbackIteration LeaseSource = "structured_rollback_iteration"
 	LeaseSourceDoctorActiveLeases          LeaseSource = "doctor_active_leases"
 )
 
@@ -132,7 +132,7 @@ func MakeReleaseKnotsLeaseFunc(entry *SessionEntry, knots *backend.KnotsBackend)
 
 		TerminateKnotsRuntimeLease(knots, &TerminateLeaseInput{
 			RepoPath:     repoPath,
-			Source:        LeaseSourceTerminalManagerTake,
+			Source:       LeaseSourceTerminalManagerTake,
 			KnotsLeaseID: leaseID,
 			Reason:       reason,
 			Outcome:      outcome,

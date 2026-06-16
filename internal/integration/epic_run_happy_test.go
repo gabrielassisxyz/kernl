@@ -36,17 +36,6 @@ func (f *fakeBeadBackend) get(id string) (backend.Bead, bool) {
 	return b, ok
 }
 
-func (f *fakeBeadBackend) setState(id, state string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	b, ok := f.beads[id]
-	if !ok {
-		return
-	}
-	b.State = state
-	f.beads[id] = b
-}
-
 // --- BackendPort implementation ---
 
 func (f *fakeBeadBackend) Get(id string, _ string) (*backend.Bead, error) {
@@ -201,10 +190,10 @@ func extractPRURL(desc string) string {
 
 // --- fakeGHView implements sweep.GH ---
 type fakeGHView struct {
-	mu   sync.Mutex
-	seq  []sweep.PRState
-	idx  int
-	cnt  map[string]int
+	mu  sync.Mutex
+	seq []sweep.PRState
+	idx int
+	cnt map[string]int
 }
 
 func newFakeGHView() *fakeGHView {

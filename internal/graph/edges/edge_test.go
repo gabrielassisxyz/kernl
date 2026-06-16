@@ -209,7 +209,7 @@ func TestSelfEdgeAllowed(t *testing.T) {
 
 	// Verify it appears in both outgoing and incoming
 	var out, in []edges.Edge
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var rerr error
 		out, rerr = edges.Outgoing(ctx, tx, "self-node")
 		if rerr != nil {
@@ -250,7 +250,7 @@ func TestDeleteSourceCascadesEdge(t *testing.T) {
 
 	// Edge should no longer exist
 	var count int
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE id = ?`, "edge-csc-src").Scan(&count)
 	})
 	if count != 0 {
@@ -282,7 +282,7 @@ func TestDeleteDestCascadesEdge(t *testing.T) {
 
 	// Edge should no longer exist
 	var count int
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE id = ?`, "edge-csc-dst").Scan(&count)
 	})
 	if count != 0 {
@@ -318,7 +318,7 @@ func TestCascadeOnNodeDelete(t *testing.T) {
 
 	// Verify B→A edge is gone
 	var count int
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE id = ?`, "edge-ba").Scan(&count)
 	})
 	if count != 0 {
@@ -326,7 +326,7 @@ func TestCascadeOnNodeDelete(t *testing.T) {
 	}
 
 	// Verify A→C edge is gone
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE id = ?`, "edge-ac").Scan(&count)
 	})
 	if count != 0 {
@@ -335,7 +335,7 @@ func TestCascadeOnNodeDelete(t *testing.T) {
 
 	// Verify B→C edge SURVIVES
 	var bcCount int
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE id = ?`, "edge-bc-not-via-a").Scan(&bcCount)
 	})
 	if bcCount != 1 {

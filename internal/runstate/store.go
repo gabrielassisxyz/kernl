@@ -3,6 +3,7 @@ package runstate
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -82,10 +83,13 @@ func (s *Store) Worktree(epicID, beadID string) (string, bool) {
 }
 
 func (s *Store) RecordAgent(beadID, state string, rec AgentRecord) {
-	s.db.Exec(
+	_, err := s.db.Exec(
 		"INSERT OR REPLACE INTO agent_records (bead_id, state, agent_id, session_id, status, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
 		beadID, state, rec.AgentID, rec.SessionID, rec.Status, time.Now().UTC().Format(time.RFC3339),
 	)
+	if err != nil {
+		slog.Warn("runstate: recording agent state failed", "beadId", beadID, "state", state, "error", err)
+	}
 }
 
 func (s *Store) AgentRecord(beadID, state string) (AgentRecord, bool) {

@@ -12,6 +12,13 @@ func TestServerServesWebIndex(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Kernl") {
-		t.Errorf("expected web/index.html at /, got %d %q", w.Code, w.Body.String()[:80])
+		t.Errorf("expected web/index.html at /, got %d %q", w.Code, responseSnippet(w.Body.String()))
 	}
+}
+
+func responseSnippet(body string) string {
+	if len(body) <= 80 {
+		return body
+	}
+	return body[:80]
 }

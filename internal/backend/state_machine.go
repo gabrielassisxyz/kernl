@@ -22,11 +22,11 @@ type ResolvedStep struct {
 }
 
 type WorkflowRuntimeState struct {
-	State              string
-	NextActionState    string
+	State               string
+	NextActionState     string
 	NextActionOwnerKind ActionOwnerKind
 	RequiresHumanAction bool
-	IsAgentClaimable   bool
+	IsAgentClaimable    bool
 }
 
 func stateMismatchError(beadID, expectedState, currentState string) error {
@@ -56,25 +56,25 @@ func normalizeProfileID(profileID string) string {
 }
 
 var agentOwners = map[string]ActionOwnerKind{
-	"planning":                ActionOwnerAgent,
-	"plan_review":             ActionOwnerAgent,
-	"implementation":          ActionOwnerAgent,
-	"implementation_review":   ActionOwnerAgent,
-	"integration":             ActionOwnerAgent,
-	"integration_review":      ActionOwnerAgent,
-	"shipment":                ActionOwnerAgent,
-	"shipment_review":         ActionOwnerAgent,
+	"planning":              ActionOwnerAgent,
+	"plan_review":           ActionOwnerAgent,
+	"implementation":        ActionOwnerAgent,
+	"implementation_review": ActionOwnerAgent,
+	"integration":           ActionOwnerAgent,
+	"integration_review":    ActionOwnerAgent,
+	"shipment":              ActionOwnerAgent,
+	"shipment_review":       ActionOwnerAgent,
 }
 
 var semiautoOwners = map[string]ActionOwnerKind{
-	"planning":                ActionOwnerAgent,
-	"plan_review":             ActionOwnerHuman,
-	"implementation":          ActionOwnerAgent,
-	"implementation_review":   ActionOwnerHuman,
-	"integration":             ActionOwnerAgent,
-	"integration_review":      ActionOwnerAgent,
-	"shipment":                ActionOwnerAgent,
-	"shipment_review":         ActionOwnerAgent,
+	"planning":              ActionOwnerAgent,
+	"plan_review":           ActionOwnerHuman,
+	"implementation":        ActionOwnerAgent,
+	"implementation_review": ActionOwnerHuman,
+	"integration":           ActionOwnerAgent,
+	"integration_review":    ActionOwnerAgent,
+	"shipment":              ActionOwnerAgent,
+	"shipment_review":       ActionOwnerAgent,
 }
 
 type profileConfig struct {
@@ -164,58 +164,58 @@ var builtinProfiles = []profileConfig{
 		},
 	},
 	{
-		ID:                      "autopilot",
-		DisplayName:             "Autopilot",
-		Description:             "Agent-owned full flow with remote main output",
-		PlanningMode:            "required",
+		ID:                       "autopilot",
+		DisplayName:              "Autopilot",
+		Description:              "Agent-owned full flow with remote main output",
+		PlanningMode:             "required",
 		ImplementationReviewMode: "required",
-		Output:                  "remote_main",
-		Owners:                  agentOwners,
+		Output:                   "remote_main",
+		Owners:                   agentOwners,
 	},
 	{
-		ID:                      "autopilot_with_pr",
-		DisplayName:             "Autopilot (PR)",
-		Description:             "Agent-owned full flow with PR output",
-		PlanningMode:            "required",
+		ID:                       "autopilot_with_pr",
+		DisplayName:              "Autopilot (PR)",
+		Description:              "Agent-owned full flow with PR output",
+		PlanningMode:             "required",
 		ImplementationReviewMode: "required",
-		Output:                  "pr",
-		Owners:                  agentOwners,
+		Output:                   "pr",
+		Owners:                   agentOwners,
 	},
 	{
-		ID:                      "semiauto",
-		DisplayName:             "Semiauto",
-		Description:             "Human-gated plan and implementation reviews",
-		PlanningMode:            "required",
+		ID:                       "semiauto",
+		DisplayName:              "Semiauto",
+		Description:              "Human-gated plan and implementation reviews",
+		PlanningMode:             "required",
 		ImplementationReviewMode: "required",
-		Output:                  "remote_main",
-		Owners:                  semiautoOwners,
+		Output:                   "remote_main",
+		Owners:                   semiautoOwners,
 	},
 	{
-		ID:                      "autopilot_no_planning",
-		DisplayName:             "Autopilot (no planning)",
-		Description:             "Agent-owned flow starting at implementation",
-		PlanningMode:            "skipped",
+		ID:                       "autopilot_no_planning",
+		DisplayName:              "Autopilot (no planning)",
+		Description:              "Agent-owned flow starting at implementation",
+		PlanningMode:             "skipped",
 		ImplementationReviewMode: "required",
-		Output:                  "remote_main",
-		Owners:                  agentOwners,
+		Output:                   "remote_main",
+		Owners:                   agentOwners,
 	},
 	{
-		ID:                      "autopilot_with_pr_no_planning",
-		DisplayName:             "Autopilot (PR, no planning)",
-		Description:             "Agent-owned flow with PR output and no planning",
-		PlanningMode:            "skipped",
+		ID:                       "autopilot_with_pr_no_planning",
+		DisplayName:              "Autopilot (PR, no planning)",
+		Description:              "Agent-owned flow with PR output and no planning",
+		PlanningMode:             "skipped",
 		ImplementationReviewMode: "required",
-		Output:                  "pr",
-		Owners:                  agentOwners,
+		Output:                   "pr",
+		Owners:                   agentOwners,
 	},
 	{
-		ID:                      "semiauto_no_planning",
-		DisplayName:             "Semiauto (no planning)",
-		Description:             "Human-gated implementation review with skipped planning",
-		PlanningMode:            "skipped",
+		ID:                       "semiauto_no_planning",
+		DisplayName:              "Semiauto (no planning)",
+		Description:              "Human-gated implementation review with skipped planning",
+		PlanningMode:             "skipped",
 		ImplementationReviewMode: "required",
-		Output:                  "remote_main",
-		Owners:                  semiautoOwners,
+		Output:                   "remote_main",
+		Owners:                   semiautoOwners,
 	},
 }
 
@@ -415,25 +415,25 @@ func descriptorFromProfileConfig(cfg profileConfig) WorkflowDescriptor {
 	}
 
 	desc := WorkflowDescriptor{
-		ID:                  cfg.ID,
-		BackingWorkflowID:  cfg.ID,
-		Label:               cfg.DisplayName,
-		Mode:                mode,
-		InitialState:        initialState,
-		States:              states,
-		TerminalStates:      terminalStates,
-		Transitions:         transitions,
-		FinalCutState:       finalCutState,
-		RetakeState:         retakeState,
-		PromptProfileID:     cfg.ID,
-		ProfileID:           cfg.ID,
-		QueueActions:        queueActions,
-		QueueStates:         queueStates,
-		ActionStates:        actionStates,
-		ReviewQueueStates:   reviewQueueStates,
-		HumanQueueStates:    humanQueueStates,
-		Owners:              cfg.Owners,
-		StateOwners:         stateOwners,
+		ID:                cfg.ID,
+		BackingWorkflowID: cfg.ID,
+		Label:             cfg.DisplayName,
+		Mode:              mode,
+		InitialState:      initialState,
+		States:            states,
+		TerminalStates:    terminalStates,
+		Transitions:       transitions,
+		FinalCutState:     finalCutState,
+		RetakeState:       retakeState,
+		PromptProfileID:   cfg.ID,
+		ProfileID:         cfg.ID,
+		QueueActions:      queueActions,
+		QueueStates:       queueStates,
+		ActionStates:      actionStates,
+		ReviewQueueStates: reviewQueueStates,
+		HumanQueueStates:  humanQueueStates,
+		Owners:            cfg.Owners,
+		StateOwners:       stateOwners,
 	}
 
 	if cfg.Stages != nil {
@@ -514,27 +514,27 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 	}
 
 	statePipelineOrder := map[string]int{
-		"ready_for_planning":            0,
-		"planning":                       1,
-		"ready_for_plan_review":          2,
-		"plan_review":                    3,
-		"ready_for_implementation":       4,
-		"implementation":                 5,
-		"ready_for_review":               6,
+		"ready_for_planning":              0,
+		"planning":                        1,
+		"ready_for_plan_review":           2,
+		"plan_review":                     3,
+		"ready_for_implementation":        4,
+		"implementation":                  5,
+		"ready_for_review":                6,
 		"ready_for_implementation_review": 6,
-		"review":                         7,
-		"implementation_review":          7,
-		"awaiting_integration":          8,
-		"ready_for_integration":         8,
-		"integration":                    9,
-		"ready_for_integration_review":  10,
-		"integration_review":            11,
-		"ready_for_shipment":            12,
-		"shipment":                       13,
-		"awaiting_pr_review":            14,
-		"ready_for_shipment_review":      14,
-		"shipment_review":                15,
-		"shipped":                        16,
+		"review":                          7,
+		"implementation_review":           7,
+		"awaiting_integration":            8,
+		"ready_for_integration":           8,
+		"integration":                     9,
+		"ready_for_integration_review":    10,
+		"integration_review":              11,
+		"ready_for_shipment":              12,
+		"shipment":                        13,
+		"awaiting_pr_review":              14,
+		"ready_for_shipment_review":       14,
+		"shipment_review":                 15,
+		"shipped":                         16,
 	}
 
 	for _, t := range wf.Transitions {
@@ -630,10 +630,10 @@ func DeriveWorkflowRuntimeState(wf WorkflowDescriptor, workflowState string) Wor
 	resolved, err := ResolveStepForWorkflow(workflowState, wf)
 	if err != nil {
 		return WorkflowRuntimeState{
-			State:                workflowState,
-			NextActionOwnerKind:  ActionOwnerNone,
-			RequiresHumanAction:  false,
-			IsAgentClaimable:     false,
+			State:               workflowState,
+			NextActionOwnerKind: ActionOwnerNone,
+			RequiresHumanAction: false,
+			IsAgentClaimable:    false,
 		}
 	}
 
@@ -650,11 +650,11 @@ func DeriveWorkflowRuntimeState(wf WorkflowDescriptor, workflowState string) Wor
 	}
 
 	return WorkflowRuntimeState{
-		State:                workflowState,
-		NextActionState:      resolved.Step,
-		NextActionOwnerKind:  ownerKind,
-		RequiresHumanAction:  ownerKind == ActionOwnerHuman && resolved.Phase == StepPhaseQueued,
-		IsAgentClaimable:     resolved.Phase == StepPhaseQueued && ownerKind == ActionOwnerAgent,
+		State:               workflowState,
+		NextActionState:     resolved.Step,
+		NextActionOwnerKind: ownerKind,
+		RequiresHumanAction: ownerKind == ActionOwnerHuman && resolved.Phase == StepPhaseQueued,
+		IsAgentClaimable:    resolved.Phase == StepPhaseQueued && ownerKind == ActionOwnerAgent,
 	}
 }
 
@@ -664,10 +664,7 @@ func isTerminalState(state string, wf WorkflowDescriptor) bool {
 			return true
 		}
 	}
-	if state == "deferred" {
-		return true
-	}
-	return false
+	return state == "deferred"
 }
 
 type BeadTransitionResult struct {
@@ -678,10 +675,10 @@ type BeadTransitionResult struct {
 func NextBead(backend BackendPort, beadID string, expectedState string, repoPath string) (*BeadTransitionResult, error) {
 	bead, err := backend.Get(beadID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load bead %s: %v", beadID, err)
+		return nil, fmt.Errorf("failed to load bead %s: %v", beadID, err)
 	}
 	if bead == nil {
-		return nil, fmt.Errorf("Bead %s not found", beadID)
+		return nil, fmt.Errorf("bead %s not found", beadID)
 	}
 
 	if bead.State != expectedState {
@@ -699,7 +696,7 @@ func NextBead(backend BackendPort, beadID string, expectedState string, repoPath
 
 	updateErr := backend.Update(beadID, UpdateBeadInput{State: target}, repoPath)
 	if updateErr != nil {
-		return nil, fmt.Errorf("Failed to update bead %s: %v", beadID, updateErr)
+		return nil, fmt.Errorf("failed to update bead %s: %v", beadID, updateErr)
 	}
 
 	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
@@ -708,10 +705,10 @@ func NextBead(backend BackendPort, beadID string, expectedState string, repoPath
 func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransitionResult, error) {
 	bead, err := backend.Get(beadID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to load bead %s: %v", beadID, err)
+		return nil, fmt.Errorf("failed to load bead %s: %v", beadID, err)
 	}
 	if bead == nil {
-		return nil, fmt.Errorf("Bead %s not found", beadID)
+		return nil, fmt.Errorf("bead %s not found", beadID)
 	}
 
 	wf := ResolveWorkflow(bead)
@@ -732,7 +729,7 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 
 	updateErr := backend.Update(beadID, UpdateBeadInput{State: target}, repoPath)
 	if updateErr != nil {
-		return nil, fmt.Errorf("Failed to update bead %s: %v", beadID, updateErr)
+		return nil, fmt.Errorf("failed to update bead %s: %v", beadID, updateErr)
 	}
 
 	return &BeadTransitionResult{Bead: bead, NextState: target}, nil
@@ -740,18 +737,19 @@ func ClaimBead(backend BackendPort, beadID string, repoPath string) (*BeadTransi
 
 func ValidateStages(stages map[string]StageContract) error {
 	for name, stage := range stages {
-		if stage.Kind == "subprocess" {
+		switch stage.Kind {
+		case "subprocess":
 			if stage.Subprocess == nil || len(stage.Subprocess.Command) == 0 {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: %s subprocess stage missing script/command", name)
 			}
 			if stage.Role != "" {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
 			}
-		} else if stage.Kind == "native" || stage.Kind == "" {
+		case "native", "":
 			if stage.Subprocess != nil {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: %s setting both native-only and subprocess fields", name)
 			}
-		} else {
+		default:
 			return fmt.Errorf("KERNL DISPATCH FAILURE: %s unknown stage kind %q", name, stage.Kind)
 		}
 	}

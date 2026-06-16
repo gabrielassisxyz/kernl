@@ -24,9 +24,7 @@ type NudgeInput struct {
 }
 
 func BuildNudgePrompt(input NudgeInput) string {
-	core := fmt.Sprintf(
-		"Either complete the action to advance the knot, or run `kno rollback` if you cannot proceed. Do not exit without advancing or rolling back.",
-	)
+	core := "Either complete the action to advance the knot, or run `kno rollback` if you cannot proceed. Do not exit without advancing or rolling back."
 
 	switch input.Cause {
 	case NudgeResumedAfterInterruption:

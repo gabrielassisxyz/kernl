@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Install kernl's local git hooks.
+#
+# Git hooks live in .git/hooks/, which is not tracked, so they cannot ship in
+# the repo directly. This script (which IS tracked) writes them. Run once after
+# cloning:
+#
+#   bin/install-hooks
+#
+# Installs:
+#   pre-commit — runs `gitleaks protect --staged` so a staged secret is caught
+#                before it ever lands in a commit. This is the deterministic
+#                backstop; the agent's "show me git diff --cached" habit is the
+#                probabilistic one. If gitleaks is not installed the hook warns
+#                and lets the commit through (CI still scans full history).
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HOOK_DIR="$REPO_ROOT/.git/hooks"
+
+if [ ! -d "$REPO_ROOT/.git" ]; then
+    echo "error: $REPO_ROOT is not a git repository" >&2
+    exit 1
+fi
+
+mkdir -p "$HOOK_DIR"
+
+cat > "$HOOK_DIR/pre-commit" <<'HOOK'
+#!/usr/bin/env bash
+# Managed by bin/install-hooks. Re-run that script to update.
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: gitleaks not installed — skipping secret scan." >&2
+    echo "            install it (https://github.com/gitleaks/gitleaks) so staged secrets are caught locally." >&2
+    exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+if ! gitleaks protect --staged --no-banner --redact --config "$REPO_ROOT/.gitleaks.toml"; then
+    echo >&2
+    echo "pre-commit: gitleaks found a secret in the staged changes. Commit aborted." >&2
+    echo "            Remove the secret and re-stage. If it is a deliberate fake fixture," >&2
+    echo "            allowlist its exact shape in .gitleaks.toml (never the path)." >&2
+    exit 1
+fi
+HOOK
+
+chmod +x "$HOOK_DIR/pre-commit"
+echo "installed: $HOOK_DIR/pre-commit (gitleaks staged-secret scan)"
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo
+    echo "note: gitleaks is not on your PATH yet. The hook is a no-op until you install it:"
+    echo "  go install github.com/zricethezav/gitleaks/v8@latest   # or: brew install gitleaks"
+fi

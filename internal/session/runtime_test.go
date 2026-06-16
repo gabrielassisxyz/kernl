@@ -12,10 +12,6 @@ func newTestRuntime(dialect string, interactive bool) *SessionRuntime {
 	return NewSessionRuntimeWithCapabilities("bead-1", "/repo", dialect, interactive)
 }
 
-func pipeReaderWriter() (*strings.Reader, *strings.Builder) {
-	return nil, &strings.Builder{}
-}
-
 type pipeWriter struct {
 	mu   sync.Mutex
 	data []byte
@@ -242,7 +238,7 @@ func TestSessionRuntime_PromptDeliveryHooks_OneShotFailure(t *testing.T) {
 	var attempted, failed bool
 	r.SetPromptHooks(PromptDeliveryHook{
 		OnAttempted: func(transport string) { attempted = true },
-		OnFailed: func(transport string, err error) { failed = true },
+		OnFailed:    func(transport string, err error) { failed = true },
 	})
 
 	r.SendUserTurn("hello")
@@ -742,12 +738,12 @@ func TestCloseDiagnostics_NilRuntime(t *testing.T) {
 
 func TestFormatDiagnosticsForLog(t *testing.T) {
 	d := CloseDiagnostics{
-		ExitReason:      "turn_ended",
-		LastEventType:   "result",
-		Signal:          "",
-		ExitCode:        0,
+		ExitReason:        "turn_ended",
+		LastEventType:     "result",
+		Signal:            "",
+		ExitCode:          0,
 		MsSinceLastStdout: 500,
-		TurnError:       "",
+		TurnError:         "",
 	}
 	logLine := FormatDiagnosticsForLog(d)
 	if !strings.Contains(logLine, "exitReason=turn_ended") {
@@ -766,7 +762,7 @@ func TestFormatDiagnosticsForLog(t *testing.T) {
 
 func TestFormatDiagnosticsForLog_AllNull(t *testing.T) {
 	d := CloseDiagnostics{
-		ExitReason:      "normal",
+		ExitReason:        "normal",
 		MsSinceLastStdout: -1,
 	}
 	logLine := FormatDiagnosticsForLog(d)

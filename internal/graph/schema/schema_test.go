@@ -470,7 +470,7 @@ func schemaOpenTemp(t *testing.T) *sql.DB {
 		t.Fatalf("CreateTemp: %v", err)
 	}
 	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 
 	dsn := "file:" + f.Name() + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
 	db, err := sql.Open("sqlite", dsn)

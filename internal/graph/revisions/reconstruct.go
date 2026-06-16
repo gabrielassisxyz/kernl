@@ -109,8 +109,8 @@ func bodyFromSnapshot(r Revision) (string, error) {
 	if err := json.Unmarshal(r.Diff, &s); err != nil {
 		// Try legacy snapshot format (title/attrs/tags).
 		var legacy struct {
-			Title string `json:"title"`
-			Attrs string `json:"attrs"`
+			Title string   `json:"title"`
+			Attrs string   `json:"attrs"`
 			Tags  []string `json:"tags"`
 		}
 		if err2 := json.Unmarshal(r.Diff, &legacy); err2 != nil {

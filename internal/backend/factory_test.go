@@ -10,112 +10,6 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
-type stubBackend struct {
-	calls []string
-	caps  BackendCapabilities
-}
-
-func (s *stubBackend) record(method string) {
-	s.calls = append(s.calls, method)
-}
-
-func (s *stubBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, error) {
-	s.record("ListWorkflows")
-	return BuiltinWorkflowDescriptors(), nil
-}
-func (s *stubBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, error) {
-	s.record("List")
-	return nil, nil
-}
-func (s *stubBackend) ListReady(filters *BeadListFilters, repoPath string) ([]Bead, error) {
-	s.record("ListReady")
-	return nil, nil
-}
-func (s *stubBackend) Get(id string, repoPath string) (*Bead, error) {
-	s.record("Get")
-	return &Bead{ID: id}, nil
-}
-func (s *stubBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
-	s.record("Create")
-	return &Bead{ID: "new"}, nil
-}
-func (s *stubBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
-	s.record("Update")
-	return nil
-}
-func (s *stubBackend) Delete(id string, repoPath string) error {
-	s.record("Delete")
-	return nil
-}
-func (s *stubBackend) Close(id string, reason string, repoPath string) (*TerminalState, error) {
-	s.record("Close")
-	return &TerminalState{State: "shipped"}, nil
-}
-func (s *stubBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {
-	s.record("MarkTerminal")
-	return nil
-}
-func (s *stubBackend) Reopen(id string, reason string, repoPath string) error {
-	s.record("Reopen")
-	return nil
-}
-func (s *stubBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
-	s.record("Rewind")
-	return nil
-}
-func (s *stubBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
-	s.record("Search")
-	return nil, nil
-}
-func (s *stubBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
-	s.record("Query")
-	return nil, nil
-}
-func (s *stubBackend) AddDependency(blockerID string, blockedID string, repoPath string) error {
-	s.record("AddDependency")
-	return nil
-}
-func (s *stubBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
-	s.record("RemoveDependency")
-	return nil
-}
-func (s *stubBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
-	s.record("ListDependencies")
-	return nil, nil
-}
-func (s *stubBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
-	s.record("BuildTakePrompt")
-	return &TakePromptResult{Prompt: "take"}, nil
-}
-func (s *stubBackend) BuildPollPrompt(options *PollPromptOptions, repoPath string) (*PollPromptResult, error) {
-	s.record("BuildPollPrompt")
-	return &PollPromptResult{Prompt: "poll"}, nil
-}
-func (s *stubBackend) Comment(id string, body string, repoPath string) error {
-	s.record("Comment")
-	return nil
-}
-func (s *stubBackend) Capabilities() BackendCapabilities {
-	return s.caps
-}
-
-var stubCaps = BackendCapabilities{
-	CanCreate:             true,
-	CanUpdate:             true,
-	CanDelete:             true,
-	CanClose:              true,
-	CanManageDependencies: true,
-	CanManageLabels:       true,
-	CanSync:               true,
-	CanSearch:             true,
-	CanQuery:              true,
-	CanListReady:          true,
-}
-
-func newStubBackend() *stubBackend {
-	return &stubBackend{caps: stubCaps}
-}
-
 func TestAutoRoutingBackend_NoRepoPath_ThrowsDispatchFailure(t *testing.T) {
 	arb := NewAutoRoutingBackend(&config.Config{})
 	_, err := arb.Get("some-id", "")
@@ -186,11 +80,7 @@ func TestAutoRoutingBackend_KnotsRepo_ResolvesType(t *testing.T) {
 		return MemoryManagerKnots
 	}
 
-	_, err := arb.Get("id", "/knots-repo")
-	if err == nil || detectedType != MemoryManagerKnots {
-		if err != nil {
-		}
-	}
+	_, _ = arb.Get("id", "/knots-repo")
 	if detectedType != MemoryManagerKnots {
 		t.Errorf("expected knots detection, got %s", detectedType)
 	}
@@ -204,11 +94,7 @@ func TestAutoRoutingBackend_BeadsRepo_ResolvesType(t *testing.T) {
 		return MemoryManagerBeads
 	}
 
-	_, err := arb.Get("id", "/beads-repo")
-	if err == nil || detectedType != MemoryManagerBeads {
-		if err != nil {
-		}
-	}
+	_, _ = arb.Get("id", "/beads-repo")
 	if detectedType != MemoryManagerBeads {
 		t.Errorf("expected beads detection, got %s", detectedType)
 	}
@@ -393,7 +279,6 @@ func TestCreateConcreteBackend_CLI(t *testing.T) {
 	}
 }
 
-
 func TestCreateBackend_AutoPanics(t *testing.T) {
 	defer func() {
 		r := recover()
@@ -424,9 +309,7 @@ func TestAutoRoutingBackend_DelegatesAllMethods(t *testing.T) {
 		return MemoryManagerBeads
 	}
 
-	_, err := arb.List(nil, "/repo")
-	if _, ok := err.(*BackendDispatchError); ok && err != nil {
-	}
+	_, _ = arb.List(nil, "/repo")
 	_, _ = arb.ListReady(nil, "/repo")
 	_, _ = arb.Get("id", "/repo")
 	_, _ = arb.Create(CreateBeadInput{Title: "t"}, "/repo")

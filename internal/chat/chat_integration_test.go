@@ -26,7 +26,7 @@ type eventRecorder struct {
 }
 
 func (e *eventRecorder) Write(p []byte) (int, error) { return e.buf.Write(p) }
-func (e *eventRecorder) Flush()                        {}
+func (e *eventRecorder) Flush()                      {}
 
 func (e *eventRecorder) events() []map[string]any {
 	raw := e.buf.String()

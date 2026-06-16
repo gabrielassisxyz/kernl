@@ -15,11 +15,11 @@ const TypeChatSession = "chat_session"
 
 // ChatSession represents a chat conversation node.
 type ChatSession struct {
-	ID              string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Messages        []ChatMessage
-	PendingPermission *PendingPermissionState
+	ID                 string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	Messages           []ChatMessage
+	PendingPermission  *PendingPermissionState
 	DerivedScopeNodeID string
 }
 
@@ -40,7 +40,9 @@ type PendingPermissionState struct {
 }
 
 // Meta implements NodeSpec.
-func (cs ChatSession) Meta() *Meta { return &Meta{ID: cs.ID, CreatedAt: cs.CreatedAt, UpdatedAt: cs.UpdatedAt} }
+func (cs ChatSession) Meta() *Meta {
+	return &Meta{ID: cs.ID, CreatedAt: cs.CreatedAt, UpdatedAt: cs.UpdatedAt}
+}
 
 // NodeAttrs implements NodeSpec. Empty Messages serializes as [] (not null),
 // nil PendingPermission omits the key entirely.
@@ -73,9 +75,9 @@ func CreateChatSession(ctx context.Context, tx *graph.WriteTx, cs *ChatSession, 
 
 // chatSessionAttrs is the deserialized attrs payload for a chat_session node.
 type chatSessionAttrs struct {
-	Messages            []ChatMessage           `json:"messages"`
-	PendingPermission   *PendingPermissionState `json:"pending_permission,omitempty"`
-	DerivedScopeNodeID  string                  `json:"derived_scope_node_id"`
+	Messages           []ChatMessage           `json:"messages"`
+	PendingPermission  *PendingPermissionState `json:"pending_permission,omitempty"`
+	DerivedScopeNodeID string                  `json:"derived_scope_node_id"`
 }
 
 // GetChatSession fetches a single chat session by ID.
@@ -107,9 +109,9 @@ func GetChatSession(ctx context.Context, tx *graph.ReadTx, nodeID string) (*Chat
 	}
 
 	return &ChatSession{
-		ID:        nodeID,
-		CreatedAt: tryParseTime(createdAt.String),
-		UpdatedAt: tryParseTime(updatedAt.String),
+		ID:                 nodeID,
+		CreatedAt:          tryParseTime(createdAt.String),
+		UpdatedAt:          tryParseTime(updatedAt.String),
 		Messages:           attrs.Messages,
 		PendingPermission:  attrs.PendingPermission,
 		DerivedScopeNodeID: attrs.DerivedScopeNodeID,

@@ -127,7 +127,7 @@ func TestAgentStateStore_Purge_RemovesFile(t *testing.T) {
 
 func TestAgentStateStore_ContextPayload_Roundtrip(t *testing.T) {
 	s := newStore(t)
-	
+
 	// Missing bead should return empty
 	got, err := s.Load("missing-bead")
 	if err != nil {
@@ -157,7 +157,7 @@ func TestAgentStateStore_ContextPayload_Roundtrip(t *testing.T) {
 
 func TestAgentStateStore_ContextPayload_LargePayload(t *testing.T) {
 	s := newStore(t)
-	
+
 	// Generate a ~1MB context payload (1,000,000 characters)
 	sb := strings.Builder{}
 	for i := 0; i < 100000; i++ {
@@ -183,4 +183,3 @@ func TestAgentStateStore_ContextPayload_LargePayload(t *testing.T) {
 		t.Fatalf("large context payload corrupted during roundtrip, size got %d, want %d", len(got.ContextPayload), len(largePayload))
 	}
 }
-

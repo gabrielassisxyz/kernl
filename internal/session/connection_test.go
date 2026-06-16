@@ -52,7 +52,7 @@ func (p *stubSessionProvider) addSession(id, beadID, beatTitle, repoPath, status
 		ID:        id,
 		BeadID:    beadID,
 		BeadTitle: beatTitle,
-		RepoPath:   repoPath,
+		RepoPath:  repoPath,
 		Status:    status,
 	}
 	p.events[id] = ch

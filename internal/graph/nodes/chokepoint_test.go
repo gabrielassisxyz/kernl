@@ -270,8 +270,8 @@ func TestNonDiffableStillStoresSnapshot(t *testing.T) {
 	ctx := context.Background()
 
 	oldSpec := fakeSpec{
-		meta: Meta{ID: "node-char1"},
-		fts:  FTSFields{Title: "original title", Body: "original body"},
+		meta:  Meta{ID: "node-char1"},
+		fts:   FTSFields{Title: "original title", Body: "original body"},
 		attrs: json.RawMessage(`{"body":"original body"}`),
 		tags:  []string{"alpha"},
 	}
@@ -285,8 +285,8 @@ func TestNonDiffableStillStoresSnapshot(t *testing.T) {
 	}
 
 	newSpec := fakeSpec{
-		meta: Meta{ID: "node-char1"},
-		fts:  FTSFields{Title: "updated title", Body: "updated body"},
+		meta:  Meta{ID: "node-char1"},
+		fts:   FTSFields{Title: "updated title", Body: "updated body"},
 		attrs: json.RawMessage(`{"body":"updated body"}`),
 		tags:  []string{"beta"},
 	}

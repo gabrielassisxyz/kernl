@@ -101,8 +101,8 @@ func TestGetSession(t *testing.T) {
 
 func TestListSessions(t *testing.T) {
 	m := NewTerminalManager()
-	m.CreateSession(context.Background(), "bead-1", "/repo1")
-	m.CreateSession(context.Background(), "bead-2", "/repo2")
+	_, _ = m.CreateSession(context.Background(), "bead-1", "/repo1")
+	_, _ = m.CreateSession(context.Background(), "bead-2", "/repo2")
 
 	sessions := m.ListSessions()
 	if len(sessions) != 2 {
@@ -191,7 +191,7 @@ type mockProcess struct {
 	mu     sync.Mutex
 }
 
-func (p *mockProcess) Pid() int         { return p.pid }
+func (p *mockProcess) Pid() int { return p.pid }
 func (p *mockProcess) Kill() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -313,9 +313,9 @@ func TestRecordPendingApproval(t *testing.T) {
 	entry, _ := m.CreateSession(context.Background(), "bead-1", "/repo")
 
 	rec := &PendingApprovalRecord{
-		ApprovalID:      "approval-1",
+		ApprovalID:       "approval-1",
 		Status:           ApprovalPending,
-		SupportedActions:  []string{"accept", "decline"},
+		SupportedActions: []string{"accept", "decline"},
 		Actionable:       true,
 	}
 	entry.RecordPendingApproval(rec)
@@ -347,8 +347,8 @@ func TestUpdateApprovalStatus(t *testing.T) {
 
 	rec := &PendingApprovalRecord{
 		ApprovalID: "approval-1",
-		Status:      ApprovalPending,
-		Actionable:  true,
+		Status:     ApprovalPending,
+		Actionable: true,
 	}
 	entry.RecordPendingApproval(rec)
 
@@ -450,8 +450,8 @@ func TestCleanupSessionResources(t *testing.T) {
 
 	entry.RecordPendingApproval(&PendingApprovalRecord{
 		ApprovalID: "approval-1",
-		Status:      ApprovalPending,
-		Actionable:  true,
+		Status:     ApprovalPending,
+		Actionable: true,
 	})
 
 	CleanupSessionResources(entry, "test_cleanup")
@@ -514,8 +514,8 @@ func TestListSessionsIncludesPendingApprovals(t *testing.T) {
 
 	entry.RecordPendingApproval(&PendingApprovalRecord{
 		ApprovalID: "approval-1",
-		Status:      ApprovalPending,
-		Actionable:  true,
+		Status:     ApprovalPending,
+		Actionable: true,
 	})
 
 	sessions := m.ListSessions()

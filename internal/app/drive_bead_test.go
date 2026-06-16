@@ -144,12 +144,12 @@ func TestDriveBead_OrchestratorAdvancesAfterAgentSuccess(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		Backend:   be,
+		Driver:    driver,
+		Config:    newDriveTestConfig(),
+		BeadID:    "kb-1",
+		RepoPath:  "/tmp/repo",
+		Worktree:  "/tmp/worktree",
 		MaxStages: 16,
 	})
 
@@ -173,12 +173,12 @@ func TestDriveBead_GateDefaultIsAgentExitZero(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		Backend:   be,
+		Driver:    driver,
+		Config:    newDriveTestConfig(),
+		BeadID:    "kb-1",
+		RepoPath:  "/tmp/repo",
+		Worktree:  "/tmp/worktree",
 		MaxStages: 16,
 	})
 
@@ -202,12 +202,12 @@ func TestDriveBead_AgentBdUpdateAttemptDoesNotDoubleAdvance(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		Backend:   be,
+		Driver:    driver,
+		Config:    newDriveTestConfig(),
+		BeadID:    "kb-1",
+		RepoPath:  "/tmp/repo",
+		Worktree:  "/tmp/worktree",
 		MaxStages: 16,
 	})
 
@@ -341,12 +341,12 @@ func TestDriveBead_StageCommentRecorded(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		Backend:   be,
+		Driver:    driver,
+		Config:    newDriveTestConfig(),
+		BeadID:    "kb-1",
+		RepoPath:  "/tmp/repo",
+		Worktree:  "/tmp/worktree",
 		MaxStages: 16,
 	})
 	if err != nil {
@@ -468,9 +468,9 @@ print(json.dumps({"context_payload": new_payload}))
 			"implementation",
 		},
 		QueueActions: map[string]string{
-			"ready_for_planning": "planning",
-			"ready_for_sub1":     "sub1",
-			"ready_for_sub2":     "sub2",
+			"ready_for_planning":       "planning",
+			"ready_for_sub1":           "sub1",
+			"ready_for_sub2":           "sub2",
 			"ready_for_implementation": "implementation",
 		},
 		ExitGates: map[string]backend.WorkflowExitGate{
@@ -1081,4 +1081,3 @@ sys.exit(1)
 		}
 	})
 }
-

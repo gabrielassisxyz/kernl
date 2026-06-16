@@ -115,3 +115,6 @@ run.sh
 .ai-jail
 .gstack/
 .stitch/
+
+# goreleaser build output
+/dist/

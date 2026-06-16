@@ -123,7 +123,7 @@ func TestLoggingMiddlewareCapturesStatus(t *testing.T) {
 
 func TestTimingMiddlewareSetsServerTimingHeader(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		Measure(r.Context(), "db_query", func() error {
+		_ = Measure(r.Context(), "db_query", func() error {
 			return nil
 		})
 		w.WriteHeader(http.StatusOK)
@@ -164,8 +164,8 @@ func TestTimingMiddlewareWithNoMeasures(t *testing.T) {
 
 func TestTimingMiddlewareMultipleMeasures(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		Measure(r.Context(), "read", func() error { return nil })
-		Measure(r.Context(), "process", func() error { return nil })
+		_ = Measure(r.Context(), "read", func() error { return nil })
+		_ = Measure(r.Context(), "process", func() error { return nil })
 		w.WriteHeader(http.StatusOK)
 	})
 

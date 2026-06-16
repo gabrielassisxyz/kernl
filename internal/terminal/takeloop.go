@@ -283,10 +283,10 @@ func RollbackInvariantViolation(ctx *TakeLoopContext, current *backend.Bead, wf 
 	slog.Warn(fmt.Sprintf("%s [WARN] bead=%s state=%s — VIOLATION: action state on exit", tag, ctx.BeadID, current.State))
 
 	ctx.PushEvent(session.TerminalEvent{
-		Type:   "stdout",
-		BeadID: ctx.BeadID,
+		Type:    "stdout",
+		BeadID:  ctx.BeadID,
 		Content: fmt.Sprintf("\x1b[33m--- Invariant violation: bead %s in action state \"%s\" after agent exit ---\x1b[0m\n", ctx.BeadID, current.State),
-		Time:   time.Now().UnixMilli(),
+		Time:    time.Now().UnixMilli(),
 	})
 
 	rollbackState := orchestration.WorkflowQueueStateForState(wf, current.State)
@@ -301,19 +301,19 @@ func RollbackInvariantViolation(ctx *TakeLoopContext, current *backend.Bead, wf 
 	if err != nil {
 		slog.Error(fmt.Sprintf("%s rollback failed: %v", tag, err))
 		ctx.PushEvent(session.TerminalEvent{
-			Type:   "stderr",
-			BeadID: ctx.BeadID,
+			Type:    "stderr",
+			BeadID:  ctx.BeadID,
 			Content: fmt.Sprintf("Invariant enforcement: failed to roll back %s from %s to %s: %v\n", ctx.BeadID, current.State, rollbackState, err),
-			Time:   time.Now().UnixMilli(),
+			Time:    time.Now().UnixMilli(),
 		})
 		return false, err
 	}
 
 	ctx.PushEvent(session.TerminalEvent{
-		Type:   "stdout",
-		BeadID: ctx.BeadID,
+		Type:    "stdout",
+		BeadID:  ctx.BeadID,
 		Content: fmt.Sprintf("\x1b[33m--- Invariant fix: rolled back %s from \"%s\" to \"%s\" ---\x1b[0m\n", ctx.BeadID, current.State, rollbackState),
-		Time:   time.Now().UnixMilli(),
+		Time:    time.Now().UnixMilli(),
 	})
 	slog.Warn(fmt.Sprintf("%s [WARN] rollback succeeded for %s", tag, ctx.BeadID))
 
@@ -377,8 +377,8 @@ func HandleTakeIterationClose(ctx *TakeLoopContext, exitCode int, iterationAgent
 
 		ctx.PushEvent(session.TerminalEvent{
 			Type:    "beat_state_observed",
-			BeadID:   ctx.BeadID,
-			Content:  fmt.Sprintf(`{"beadId":"%s","state":"%s","reason":"post_exit_state_observed"}`, ctx.BeadID, postExitState),
+			BeadID:  ctx.BeadID,
+			Content: fmt.Sprintf(`{"beadId":"%s","state":"%s","reason":"post_exit_state_observed"}`, ctx.BeadID, postExitState),
 			Time:    time.Now().UnixMilli(),
 		})
 	}
@@ -535,10 +535,10 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 	if rollbackState == "" {
 		slog.Error(fmt.Sprintf("%s cannot resolve queue state for %s — cannot rollback", tag, current.State))
 		ctx.PushEvent(session.TerminalEvent{
-			Type:   "stderr",
-			BeadID: ctx.BeadID,
+			Type:    "stderr",
+			BeadID:  ctx.BeadID,
 			Content: fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: cannot resolve queue state for \"%s\" — cannot rollback step failure\x1b[0m\n", current.State),
-			Time:   time.Now().UnixMilli(),
+			Time:    time.Now().UnixMilli(),
 		})
 		return nil, fmt.Errorf("cannot resolve queue state for %s", current.State)
 	}
@@ -546,20 +546,20 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 	reason := fmt.Sprintf("take-loop: rolled back from %s to %s — agent left bead in action state", current.State, rollbackState)
 
 	ctx.PushEvent(session.TerminalEvent{
-		Type:   "stdout",
-		BeadID: ctx.BeadID,
+		Type:    "stdout",
+		BeadID:  ctx.BeadID,
 		Content: fmt.Sprintf("\x1b[33m--- Step failure: rolling back %s from \"%s\" to \"%s\" ---\x1b[0m\n", ctx.BeadID, current.State, rollbackState),
-		Time:   time.Now().UnixMilli(),
+		Time:    time.Now().UnixMilli(),
 	})
 
 	err = RollbackBeadState(ctx.BeadID, current.State, rollbackState, ctx.RepoPath, ctx.MemoryManagerType, reason, backendPort)
 	if err != nil {
 		slog.Error(fmt.Sprintf("%s step-failure rollback failed: %v", tag, err))
 		ctx.PushEvent(session.TerminalEvent{
-			Type:   "stderr",
-			BeadID: ctx.BeadID,
+			Type:    "stderr",
+			BeadID:  ctx.BeadID,
 			Content: fmt.Sprintf("Step failure rollback failed for %s: %v\n", ctx.BeadID, err),
-			Time:   time.Now().UnixMilli(),
+			Time:    time.Now().UnixMilli(),
 		})
 		return nil, fmt.Errorf("step-failure rollback: %w", err)
 	}
@@ -580,10 +580,10 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 
 	ctx.Bead = refreshed
 	ctx.PushEvent(session.TerminalEvent{
-		Type:   "stdout",
-		BeadID: ctx.BeadID,
+		Type:    "stdout",
+		BeadID:  ctx.BeadID,
 		Content: fmt.Sprintf("\x1b[33m--- Step failure resolved: %s rolled back to \"%s\" ---\x1b[0m\n", ctx.BeadID, refreshed.State),
-		Time:   time.Now().UnixMilli(),
+		Time:    time.Now().UnixMilli(),
 	})
 
 	return nil, nil

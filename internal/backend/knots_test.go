@@ -18,9 +18,9 @@ func TestKnotRecordToBead(t *testing.T) {
 		State:       "implementation",
 		Type:        "feature",
 		Priority:    &priority,
-		Description:  "A test description",
+		Description: "A test description",
 		Acceptance:  "Must pass tests",
-		Tags:         []string{"backend", "knots"},
+		Tags:        []string{"backend", "knots"},
 		ProfileID:   "autopilot",
 		WorkflowID:  "sdlc",
 		CreatedAt:   "2024-01-01T00:00:00Z",
@@ -131,8 +131,8 @@ func TestKnotRecordToBead_NilPriority(t *testing.T) {
 
 func TestIsKnoRetriable(t *testing.T) {
 	tests := []struct {
-		stderr  string
-		want    bool
+		stderr string
+		want   bool
 	}{
 		{"database is locked", true},
 		{"Database is locked for repo", true},
@@ -152,24 +152,24 @@ func TestIsKnoRetriable(t *testing.T) {
 
 func TestKnotsBackend_buildBaseArgs(t *testing.T) {
 	tests := []struct {
-		name    string
-		repoPath string
-		knoDB   string
-		wantContains []string
+		name            string
+		repoPath        string
+		knoDB           string
+		wantContains    []string
 		wantNotContains []string
 	}{
 		{
-			name:     "default db path",
-			repoPath: "/tmp/myrepo",
-			knoDB:    "",
-			wantContains: []string{"--repo-root", "/tmp/myrepo", "--db"},
+			name:            "default db path",
+			repoPath:        "/tmp/myrepo",
+			knoDB:           "",
+			wantContains:    []string{"--repo-root", "/tmp/myrepo", "--db"},
 			wantNotContains: []string{},
 		},
 		{
-			name:     "custom db path",
-			repoPath: "/tmp/myrepo",
-			knoDB:    "/custom/db.sqlite",
-			wantContains: []string{"--repo-root", "/tmp/myrepo", "--db", "/custom/db.sqlite"},
+			name:            "custom db path",
+			repoPath:        "/tmp/myrepo",
+			knoDB:           "/custom/db.sqlite",
+			wantContains:    []string{"--repo-root", "/tmp/myrepo", "--db", "/custom/db.sqlite"},
 			wantNotContains: []string{".knots"},
 		},
 	}
@@ -247,9 +247,10 @@ func TestKnotsBackend_EdgeDepDependencyMapping(t *testing.T) {
 	expectedTypes := []string{"blocks", "parent-child"}
 	for i, e := range edges {
 		depType := e.Kind
-		if e.Kind == "blocked_by" {
+		switch e.Kind {
+		case "blocked_by":
 			depType = "blocks"
-		} else if e.Kind == "parent_of" {
+		case "parent_of":
 			depType = "parent-child"
 		}
 		deps[i] = BeadDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}
@@ -261,9 +262,9 @@ func TestKnotsBackend_EdgeDepDependencyMapping(t *testing.T) {
 
 func TestKnotsWorkflowToDescriptor(t *testing.T) {
 	wf := knoWorkflowDefinition{
-		ID:           "sdlc",
-		InitialState: "ready_for_implementation",
-		States:       []string{"ready_for_implementation", "implementation", "shipped"},
+		ID:             "sdlc",
+		InitialState:   "ready_for_implementation",
+		States:         []string{"ready_for_implementation", "implementation", "shipped"},
 		TerminalStates: []string{"shipped"},
 		Transitions: []struct {
 			From string `json:"from"`
@@ -275,9 +276,9 @@ func TestKnotsWorkflowToDescriptor(t *testing.T) {
 	}
 
 	descriptor := WorkflowDescriptor{
-		ID:           wf.ID,
-		Label:        wf.ID,
-		RetakeState:  wf.InitialState,
+		ID:          wf.ID,
+		Label:       wf.ID,
+		RetakeState: wf.InitialState,
 		QueueActions: map[string]string{
 			"ready_for_implementation": "implementation",
 		},

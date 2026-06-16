@@ -214,9 +214,9 @@ func TestNormalizeBead_EstimatedMinutesPreferredOverEstimate(t *testing.T) {
 
 func TestNormalizeBead_EstimateFallback(t *testing.T) {
 	raw := RawBead{
-		ID:        "x",
-		Title:     "T",
-		Estimate:  60,
+		ID:       "x",
+		Title:    "T",
+		Estimate: 60,
 	}
 	bead := NormalizeBead(raw)
 	if bead.Estimate != 60 {
@@ -315,10 +315,10 @@ func TestNormalizeBead_TrimmedInvariantConditions(t *testing.T) {
 
 func TestNormalizeBead_WorkflowStateLabelAuthoritative(t *testing.T) {
 	raw := RawBead{
-		ID:      "x",
-		Title:   "T",
-		Status:  "open",
-		Labels:  []string{"wf:state:plan_review", "wf:profile:semiauto"},
+		ID:     "x",
+		Title:  "T",
+		Status: "open",
+		Labels: []string{"wf:state:plan_review", "wf:profile:semiauto"},
 	}
 	bead := NormalizeBead(raw)
 	if bead.State != "plan_review" {
@@ -369,8 +369,8 @@ func TestNormalizeBead_ParentFromDependencies(t *testing.T) {
 		t.Errorf("expected parent from dependency proj.1, got %s", bead.ParentID)
 	}
 	raw2 := RawBead{
-		ID:    "proj.1.2",
-		Title: "Child",
+		ID:     "proj.1.2",
+		Title:  "Child",
 		Parent: "explicit.parent",
 		Dependencies: []RawDependency{
 			{SourceID: "proj.1.2", TargetID: "proj.1", DepType: "parent-child"},
@@ -505,13 +505,13 @@ func TestDenormalizeBead_OmitsUndefinedFields(t *testing.T) {
 
 func TestDenormalizeBead_InvariantEmbedding(t *testing.T) {
 	bead := Bead{
-		ID:         "inv-3",
-		Title:      "Invariant write",
-		Notes:      "Operator note",
-		Type:       "task",
-		State:      "open",
-		Priority:   2,
-		Labels:     []string{},
+		ID:       "inv-3",
+		Title:    "Invariant write",
+		Notes:    "Operator note",
+		Type:     "task",
+		State:    "open",
+		Priority: 2,
+		Labels:   []string{},
 		Invariants: []Invariant{
 			{Kind: InvariantKindScope, Condition: "src/lib"},
 			{Kind: InvariantKindState, Condition: "remain queued"},
@@ -529,12 +529,12 @@ func TestDenormalizeBead_InvariantEmbedding(t *testing.T) {
 
 func TestDenormalizeBead_InvariantSectionOnly(t *testing.T) {
 	bead := Bead{
-		ID:        "inv-4",
-		Title:     "Invariant section only",
-		Type:      "task",
-		State:     "open",
-		Priority:  2,
-		Labels:    []string{},
+		ID:       "inv-4",
+		Title:    "Invariant section only",
+		Type:     "task",
+		State:    "open",
+		Priority: 2,
+		Labels:   []string{},
 		Invariants: []Invariant{
 			{Kind: InvariantKindScope, Condition: "src/lib"},
 		},
@@ -550,13 +550,13 @@ func TestDenormalizeBead_InvariantSectionOnly(t *testing.T) {
 
 func TestDenormalizeBead_SkipsBlankInvariantConditions(t *testing.T) {
 	bead := Bead{
-		ID:        "inv-5",
-		Title:     "Invariant blank",
-		Notes:     "Operator note",
-		Type:      "task",
-		State:     "open",
-		Priority:  2,
-		Labels:    []string{},
+		ID:       "inv-5",
+		Title:    "Invariant blank",
+		Notes:    "Operator note",
+		Type:     "task",
+		State:    "open",
+		Priority: 2,
+		Labels:   []string{},
 		Invariants: []Invariant{
 			{Kind: InvariantKindScope, Condition: "   "},
 			{Kind: InvariantKindState, Condition: " must remain queued "},

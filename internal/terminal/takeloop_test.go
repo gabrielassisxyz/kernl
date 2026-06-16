@@ -148,7 +148,7 @@ func TestTakeLoopContext_IncrementClaims(t *testing.T) {
 
 func TestTakeLoopContext_ComputeExclusions_FailedAgents(t *testing.T) {
 	entry := &SessionEntry{
-		Session:                  &TerminalSession{ID: "test"},
+		Session: &TerminalSession{ID: "test"},
 		FailedAgentsPerQueueType: map[string]map[string]bool{
 			"implementation": {"agent-a": true},
 		},

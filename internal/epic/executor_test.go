@@ -102,7 +102,7 @@ func TestExecutorSemaphoreCapsConcurrency(t *testing.T) {
 		return RunResult{FinalState: "done", Success: true}, nil
 	}
 	ex := NewExecutor(ExecutorDeps{Epic: ep, RunBead: runBead, Worktree: fakeWT(), MaxConcurrent: 3})
-	ex.Run(context.Background())
+	_ = ex.Run(context.Background())
 	if peak > 3 {
 		t.Errorf("peak %d exceeded MaxConcurrent 3", peak)
 	}

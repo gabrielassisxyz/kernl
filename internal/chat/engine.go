@@ -97,7 +97,7 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 
 	resp, err := e.llmClient.Chat(ctx, messages, tools)
 	if err != nil {
-		e.emitErrorEvent(fmt.Sprintf("LLM error: %v", err))
+		_ = e.emitErrorEvent(fmt.Sprintf("LLM error: %v", err))
 		return nil
 	}
 
@@ -118,13 +118,13 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 				NodeID string `json:"node_id"`
 			}{}
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-				e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
+				_ = e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
 				return nil
 			}
 
 			allowed, _, err := e.permissionChecker.CanRead(ctx, args.NodeID)
 			if err != nil {
-				e.emitErrorEvent(fmt.Sprintf("permission check error: %v", err))
+				_ = e.emitErrorEvent(fmt.Sprintf("permission check error: %v", err))
 				return nil
 			}
 			if !allowed {
@@ -156,7 +156,7 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 				content = note.Body
 				return nil
 			}); err != nil {
-				e.emitErrorEvent(fmt.Sprintf("read node: %v", err))
+				_ = e.emitErrorEvent(fmt.Sprintf("read node: %v", err))
 				return nil
 			}
 
@@ -173,13 +173,13 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 				Query string `json:"query"`
 			}{}
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-				e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
+				_ = e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
 				return nil
 			}
 
 			notes, err := planning.BuildContext(ctx, e.app.Graph, args.Query, 8)
 			if err != nil {
-				e.emitErrorEvent(fmt.Sprintf("search error: %v", err))
+				_ = e.emitErrorEvent(fmt.Sprintf("search error: %v", err))
 				return nil
 			}
 

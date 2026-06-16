@@ -13,20 +13,20 @@ import (
 )
 
 type DispatchArgs struct {
-	Ctx                   *TakeLoopDispatchContext
-	Settings              *config.Settings
-	Workflow              *backend.WorkflowDescriptor
-	State                 string
-	PoolKey               string
-	QueueType             string
-	ExcludeAgentIDs       []string
-	IsErrorRetry          bool
-	StepFailureRollback   bool
-	IsReview              bool
-	PriorAction           string
-	FailedAgentID         string
-	MaxClaims             int
-	StepAgentTracker      *StepAgentTracker
+	Ctx                 *TakeLoopDispatchContext
+	Settings            *config.Settings
+	Workflow            *backend.WorkflowDescriptor
+	State               string
+	PoolKey             string
+	QueueType           string
+	ExcludeAgentIDs     []string
+	IsErrorRetry        bool
+	StepFailureRollback bool
+	IsReview            bool
+	PriorAction         string
+	FailedAgentID       string
+	MaxClaims           int
+	StepAgentTracker    *StepAgentTracker
 }
 
 type TakeLoopDispatchContext struct {
@@ -96,15 +96,6 @@ func RunDispatch(a DispatchArgs) DispatchResult {
 		StepAgentID:       selected.ID,
 		MaxClaims:         a.MaxClaims,
 	}
-}
-
-func findAgentID(agents map[string]config.AgentConfig, cfg *config.AgentConfig) string {
-	for id, ac := range agents {
-		if ac.Command == cfg.Command && ac.Label == cfg.Label && ac.Provider == cfg.Provider {
-			return id
-		}
-	}
-	return ""
 }
 
 func RetryWithoutCrossAgentExclusion(a DispatchArgs, agents map[string]config.AgentConfig, pools map[string]config.PoolConfig) *DispatchResult {
@@ -353,20 +344,20 @@ func SelectStepAgent(
 	dispatchCtx := ctxToDispatchCtx(ctx)
 
 	return RunDispatch(DispatchArgs{
-		Ctx:                   dispatchCtx,
-		Settings:              settings,
-		Workflow:              wf,
-		State:                 state,
-		PoolKey:               poolKey,
-		QueueType:             queueType,
-		ExcludeAgentIDs:       excludeAgentIDs,
-		IsErrorRetry:          isErrorRetry,
-		StepFailureRollback:   stepFailureRollback,
-		IsReview:              isReview,
-		PriorAction:           priorAction,
-		FailedAgentID:         failedAgentID,
-		MaxClaims:             maxClaims,
-		StepAgentTracker:      stepAgentTracker,
+		Ctx:                 dispatchCtx,
+		Settings:            settings,
+		Workflow:            wf,
+		State:               state,
+		PoolKey:             poolKey,
+		QueueType:           queueType,
+		ExcludeAgentIDs:     excludeAgentIDs,
+		IsErrorRetry:        isErrorRetry,
+		StepFailureRollback: stepFailureRollback,
+		IsReview:            isReview,
+		PriorAction:         priorAction,
+		FailedAgentID:       failedAgentID,
+		MaxClaims:           maxClaims,
+		StepAgentTracker:    stepAgentTracker,
 	})
 }
 
@@ -456,10 +447,6 @@ func computeStepExclusions(
 }
 
 const MaxClaimsDefault = 10
-
-func maxClaimsFromConfig(settings *config.Settings) int {
-	return 0
-}
 
 func HandleMaxClaims(ctx *TakeLoopDispatchContext, queueType string, count, maxClaims int) {
 	tag := fmt.Sprintf("[terminal-manager] [%s] [take-loop]", ctx.ID)

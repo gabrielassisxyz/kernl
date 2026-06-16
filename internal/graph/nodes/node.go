@@ -7,7 +7,7 @@ import (
 // NodeSpec is what the chokepoint accepts.
 type NodeSpec interface {
 	Meta() *Meta
-	NodeAttrs() []byte    // JSON attrs payload
+	NodeAttrs() []byte // JSON attrs payload
 	NodeTags() []string
 	FTSFields() FTSFields // returns searchable text
 }
@@ -39,7 +39,7 @@ type Author struct {
 	Name string // e.g. "gabriel" or agent string
 }
 
-func (a Author) Valid() bool  { return a.Name != "" }
+func (a Author) Valid() bool    { return a.Name != "" }
 func (a Author) String() string { return a.Name }
 
 // AuthorAgent returns an agent-prefixed author (e.g. AuthorAgent("kimi") -> "agent:kimi").

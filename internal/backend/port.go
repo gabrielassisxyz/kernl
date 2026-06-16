@@ -5,7 +5,7 @@ type ActionOwnerKind string
 const (
 	ActionOwnerAgent ActionOwnerKind = "agent"
 	ActionOwnerHuman ActionOwnerKind = "human"
-	ActionOwnerNone   ActionOwnerKind = "none"
+	ActionOwnerNone  ActionOwnerKind = "none"
 )
 
 type BackendPort interface {
@@ -46,27 +46,27 @@ func ErrResult[T any](err *BackendError) BackendResult[T] {
 }
 
 type WorkflowDescriptor struct {
-	ID               string                        `json:"id"`
-	BackingWorkflowID string                       `json:"backingWorkflowId"`
-	Label            string                        `json:"label"`
-	Mode             string                        `json:"mode"`
-	InitialState     string                        `json:"initialState"`
-	States           []string                      `json:"states"`
-	TerminalStates   []string                      `json:"terminalStates"`
-	Transitions      []WorkflowTransition          `json:"transitions,omitempty"`
-	FinalCutState    string                        `json:"finalCutState,omitempty"`
-	RetakeState      string                        `json:"retakeState"`
-	PromptProfileID  string                       `json:"promptProfileId"`
-	ProfileID        string                        `json:"profileId,omitempty"`
-	Owners           map[string]ActionOwnerKind   `json:"owners,omitempty"`
-	StateOwners      map[string]ActionOwnerKind   `json:"stateOwners,omitempty"`
-	QueueActions     map[string]string            `json:"queueActions,omitempty"`
-	QueueStates      []string                     `json:"queueStates,omitempty"`
-	ActionStates     []string                     `json:"actionStates,omitempty"`
+	ID                string                      `json:"id"`
+	BackingWorkflowID string                      `json:"backingWorkflowId"`
+	Label             string                      `json:"label"`
+	Mode              string                      `json:"mode"`
+	InitialState      string                      `json:"initialState"`
+	States            []string                    `json:"states"`
+	TerminalStates    []string                    `json:"terminalStates"`
+	Transitions       []WorkflowTransition        `json:"transitions,omitempty"`
+	FinalCutState     string                      `json:"finalCutState,omitempty"`
+	RetakeState       string                      `json:"retakeState"`
+	PromptProfileID   string                      `json:"promptProfileId"`
+	ProfileID         string                      `json:"profileId,omitempty"`
+	Owners            map[string]ActionOwnerKind  `json:"owners,omitempty"`
+	StateOwners       map[string]ActionOwnerKind  `json:"stateOwners,omitempty"`
+	QueueActions      map[string]string           `json:"queueActions,omitempty"`
+	QueueStates       []string                    `json:"queueStates,omitempty"`
+	ActionStates      []string                    `json:"actionStates,omitempty"`
 	ReviewQueueStates []string                    `json:"reviewQueueStates,omitempty"`
 	HumanQueueStates  []string                    `json:"humanQueueStates,omitempty"`
 	ExitGates         map[string]WorkflowExitGate `json:"exitGates,omitempty"`
-	Stages            map[string]StageContract     `json:"stages,omitempty" yaml:"stages,omitempty"`
+	Stages            map[string]StageContract    `json:"stages,omitempty" yaml:"stages,omitempty"`
 }
 
 type WorkflowExitGate struct {
@@ -75,11 +75,11 @@ type WorkflowExitGate struct {
 }
 
 type StageContract struct {
-	Role           string         `json:"role"                     yaml:"role"`
-	Inputs         []string       `json:"inputs,omitempty"         yaml:"inputs,omitempty"`
-	OutputArtifact StageArtifact  `json:"outputArtifact"           yaml:"output_artifact"`
-	ForbiddenPaths []string       `json:"forbiddenPaths,omitempty" yaml:"forbidden_paths,omitempty"`
-	Kind           string         `json:"kind,omitempty"           yaml:"kind,omitempty"`
+	Role           string          `json:"role"                     yaml:"role"`
+	Inputs         []string        `json:"inputs,omitempty"         yaml:"inputs,omitempty"`
+	OutputArtifact StageArtifact   `json:"outputArtifact"           yaml:"output_artifact"`
+	ForbiddenPaths []string        `json:"forbiddenPaths,omitempty" yaml:"forbidden_paths,omitempty"`
+	Kind           string          `json:"kind,omitempty"           yaml:"kind,omitempty"`
 	Subprocess     *SubprocessSpec `json:"subprocess,omitempty"     yaml:"subprocess,omitempty"`
 }
 
@@ -87,7 +87,6 @@ type SubprocessSpec struct {
 	Command []string `json:"command,omitempty" yaml:"command,omitempty"`
 	Timeout string   `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 }
-
 
 type StageArtifact struct {
 	Path         string `json:"path,omitempty"          yaml:"path,omitempty"`
@@ -102,74 +101,74 @@ type WorkflowTransition struct {
 }
 
 type Bead struct {
-	ID                  string         `json:"id"`
-	Aliases             []string       `json:"aliases,omitempty"`
-	Type                string         `json:"type"`
-	State               string         `json:"state"`
-	Title               string         `json:"title"`
-	Description         string         `json:"description,omitempty"`
-	Notes               string         `json:"notes,omitempty"`
-	Acceptance          string         `json:"acceptance,omitempty"`
-	Priority            int            `json:"priority"`
-	Labels              []string       `json:"labels"`
-	Assignee            string         `json:"assignee,omitempty"`
-	Owner               string         `json:"owner,omitempty"`
-	ParentID            string         `json:"parentId,omitempty"`
-	Due                 string         `json:"due,omitempty"`
-	Estimate            int            `json:"estimate"`
-	CreatedAt           string         `json:"createdAt"`
-	UpdatedAt           string         `json:"updatedAt"`
-	ClosedAt            string         `json:"closedAt,omitempty"`
-	RepoPath            string         `json:"repoPath,omitempty"`
-	Metadata            map[string]any `json:"metadata,omitempty"`
-	Invariants          []Invariant   `json:"invariants,omitempty"`
+	ID                  string           `json:"id"`
+	Aliases             []string         `json:"aliases,omitempty"`
+	Type                string           `json:"type"`
+	State               string           `json:"state"`
+	Title               string           `json:"title"`
+	Description         string           `json:"description,omitempty"`
+	Notes               string           `json:"notes,omitempty"`
+	Acceptance          string           `json:"acceptance,omitempty"`
+	Priority            int              `json:"priority"`
+	Labels              []string         `json:"labels"`
+	Assignee            string           `json:"assignee,omitempty"`
+	Owner               string           `json:"owner,omitempty"`
+	ParentID            string           `json:"parentId,omitempty"`
+	Due                 string           `json:"due,omitempty"`
+	Estimate            int              `json:"estimate"`
+	CreatedAt           string           `json:"createdAt"`
+	UpdatedAt           string           `json:"updatedAt"`
+	ClosedAt            string           `json:"closedAt,omitempty"`
+	RepoPath            string           `json:"repoPath,omitempty"`
+	Metadata            map[string]any   `json:"metadata,omitempty"`
+	Invariants          []Invariant      `json:"invariants,omitempty"`
 	Dependencies        []BeadDependency `json:"dependencies,omitempty"`
-	ProfileID           string         `json:"profileId,omitempty"`
-	WorkflowID          string         `json:"workflowId,omitempty"`
-	WorkflowMode        string         `json:"workflowMode,omitempty"`
-	NextActionState     string         `json:"nextActionState,omitempty"`
-	NextActionOwnerKind ActionOwnerKind `json:"nextActionOwnerKind,omitempty"`
-	RequiresHumanAction bool           `json:"requiresHumanAction,omitempty"`
-	IsAgentClaimable    bool           `json:"isAgentClaimable,omitempty"`
+	ProfileID           string           `json:"profileId,omitempty"`
+	WorkflowID          string           `json:"workflowId,omitempty"`
+	WorkflowMode        string           `json:"workflowMode,omitempty"`
+	NextActionState     string           `json:"nextActionState,omitempty"`
+	NextActionOwnerKind ActionOwnerKind  `json:"nextActionOwnerKind,omitempty"`
+	RequiresHumanAction bool             `json:"requiresHumanAction,omitempty"`
+	IsAgentClaimable    bool             `json:"isAgentClaimable,omitempty"`
 }
 
 type CreateBeadInput struct {
-	Title        string   `json:"title"`
-	Description  string   `json:"description,omitempty"`
-	Type         string   `json:"type,omitempty"`
-	Priority     int      `json:"priority"`
-	Labels       []string `json:"labels,omitempty"`
-	Assignee     string   `json:"assignee,omitempty"`
-	Due          string   `json:"due,omitempty"`
-	Acceptance   string   `json:"acceptance,omitempty"`
-	Notes        string   `json:"notes,omitempty"`
-	ParentID     string   `json:"parentId,omitempty"`
-	Estimate     int      `json:"estimate,omitempty"`
-	Invariants   []Invariant `json:"invariants,omitempty"`
-	ProfileID   string   `json:"profileId,omitempty"`
-	WorkflowID   string   `json:"workflowId,omitempty"`
+	Title       string      `json:"title"`
+	Description string      `json:"description,omitempty"`
+	Type        string      `json:"type,omitempty"`
+	Priority    int         `json:"priority"`
+	Labels      []string    `json:"labels,omitempty"`
+	Assignee    string      `json:"assignee,omitempty"`
+	Due         string      `json:"due,omitempty"`
+	Acceptance  string      `json:"acceptance,omitempty"`
+	Notes       string      `json:"notes,omitempty"`
+	ParentID    string      `json:"parentId,omitempty"`
+	Estimate    int         `json:"estimate,omitempty"`
+	Invariants  []Invariant `json:"invariants,omitempty"`
+	ProfileID   string      `json:"profileId,omitempty"`
+	WorkflowID  string      `json:"workflowId,omitempty"`
 }
 
 type UpdateBeadInput struct {
-	Title           string     `json:"title,omitempty"`
-	Description     string     `json:"description,omitempty"`
-	Type            string     `json:"type,omitempty"`
-	State           string     `json:"state,omitempty"`
-	ProfileID       string     `json:"profileId,omitempty"`
-	Priority        *int       `json:"priority,omitempty"`
-	ParentID        string     `json:"parentId,omitempty"`
-	Labels          []string   `json:"labels,omitempty"`
-	SetLabels       []string   `json:"setLabels,omitempty"`
-	RemoveLabels    []string   `json:"removeLabels,omitempty"`
-	Assignee        string     `json:"assignee,omitempty"`
-	Due             string     `json:"due,omitempty"`
-	Acceptance      string     `json:"acceptance,omitempty"`
-	Notes           string     `json:"notes,omitempty"`
-	AddHandoffCapsule string   `json:"addHandoffCapsule,omitempty"`
-	Estimate        *int       `json:"estimate,omitempty"`
-	AddInvariants   []Invariant `json:"addInvariants,omitempty"`
-	RemoveInvariants []Invariant `json:"removeInvariants,omitempty"`
-	ClearInvariants bool       `json:"clearInvariants,omitempty"`
+	Title             string      `json:"title,omitempty"`
+	Description       string      `json:"description,omitempty"`
+	Type              string      `json:"type,omitempty"`
+	State             string      `json:"state,omitempty"`
+	ProfileID         string      `json:"profileId,omitempty"`
+	Priority          *int        `json:"priority,omitempty"`
+	ParentID          string      `json:"parentId,omitempty"`
+	Labels            []string    `json:"labels,omitempty"`
+	SetLabels         []string    `json:"setLabels,omitempty"`
+	RemoveLabels      []string    `json:"removeLabels,omitempty"`
+	Assignee          string      `json:"assignee,omitempty"`
+	Due               string      `json:"due,omitempty"`
+	Acceptance        string      `json:"acceptance,omitempty"`
+	Notes             string      `json:"notes,omitempty"`
+	AddHandoffCapsule string      `json:"addHandoffCapsule,omitempty"`
+	Estimate          *int        `json:"estimate,omitempty"`
+	AddInvariants     []Invariant `json:"addInvariants,omitempty"`
+	RemoveInvariants  []Invariant `json:"removeInvariants,omitempty"`
+	ClearInvariants   bool        `json:"clearInvariants,omitempty"`
 }
 
 type BeadListFilters struct {
@@ -196,18 +195,18 @@ type DependencyListOptions struct {
 }
 
 type BeadDependency struct {
-	ID             string `json:"id,omitempty"`
+	ID             string   `json:"id,omitempty"`
 	Aliases        []string `json:"aliases,omitempty"`
-	Type           string `json:"type,omitempty"`
-	SourceID       string `json:"sourceId,omitempty"`
-	TargetID       string `json:"targetId,omitempty"`
-	DependencyType string `json:"dependencyType,omitempty"`
-	Title          string `json:"title,omitempty"`
-	Description    string `json:"description,omitempty"`
-	State          string `json:"state,omitempty"`
-	Priority       int    `json:"priority,omitempty"`
-	IssueType      string `json:"issueType,omitempty"`
-	Owner          string `json:"owner,omitempty"`
+	Type           string   `json:"type,omitempty"`
+	SourceID       string   `json:"sourceId,omitempty"`
+	TargetID       string   `json:"targetId,omitempty"`
+	DependencyType string   `json:"dependencyType,omitempty"`
+	Title          string   `json:"title,omitempty"`
+	Description    string   `json:"description,omitempty"`
+	State          string   `json:"state,omitempty"`
+	Priority       int      `json:"priority,omitempty"`
+	IssueType      string   `json:"issueType,omitempty"`
+	Owner          string   `json:"owner,omitempty"`
 }
 
 type TerminalState struct {
@@ -216,14 +215,14 @@ type TerminalState struct {
 }
 
 type TakePromptOptions struct {
-	IsParent      bool     `json:"isParent,omitempty"`
-	ChildBeadIDs  []string `json:"childBeadIds,omitempty"`
-	KnotsLeaseID  string   `json:"knotsLeaseId,omitempty"`
+	IsParent     bool     `json:"isParent,omitempty"`
+	ChildBeadIDs []string `json:"childBeadIds,omitempty"`
+	KnotsLeaseID string   `json:"knotsLeaseId,omitempty"`
 }
 
 type TakePromptResult struct {
 	Prompt  string `json:"prompt"`
-	Claimed  bool   `json:"claimed,omitempty"`
+	Claimed bool   `json:"claimed,omitempty"`
 }
 
 type PollPromptOptions struct {
