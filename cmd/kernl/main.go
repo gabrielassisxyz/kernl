@@ -3,9 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 
 	"github.com/gabrielassisxyz/kernl/internal/logging"
+)
+
+// Build metadata, overridden at release time via goreleaser ldflags.
+// Defaults apply to `go build`/`go run`.
+var (
+	Version = "dev"
+	Commit  = "none"
+	Date    = "unknown"
 )
 
 var (
@@ -95,6 +104,8 @@ func Dispatch(args []string) error {
 		return captureFn(configPath, args[1:])
 	case "plan":
 		return planFn(configPath, args[1:])
+	case "version", "--version", "-v":
+		return printVersion()
 	case "--help", "-h", "help":
 		return helpFn()
 	default:
@@ -117,12 +128,20 @@ Subcommands:
   bookmark     Manage bookmarks
   capture      Capture a quick note/idea into the inbox (text arg or stdin)
   plan         Show the vault notes relevant to a topic (substrate-aware planning)
+  version      Print version and build information
 
 Flags:
   --config, -c Path to kernl.yaml (default: kernl.yaml)
   --port,  -p  Server port (default: from kernl.yaml, or 8080)
+  --version,-v Print version and build information
   --help,  -h  Show this help
 
 Run 'kernl <subcommand> --help' for subcommand-specific help.`)
+	return nil
+}
+
+func printVersion() error {
+	fmt.Printf("kernl %s\ncommit: %s\nbuilt:  %s\ngo:     %s\n",
+		Version, Commit, Date, runtime.Version())
 	return nil
 }
