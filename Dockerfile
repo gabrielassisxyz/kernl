@@ -1,10 +1,8 @@
-# Multi-stage build for kernl. Produces a small image that runs `kernl serve`
-# (the API + embedded web UI) — an optional, simpler quickstart for users who
-# just want the GUI without a local Go/Node toolchain.
+# Multi-stage build for kernl. Produces an image that runs `kernl serve`
+# (the API + embedded web UI) and includes the beads orchestrator (bd).
 #
-# Note: the multi-agent orchestrator shells out to host tools (git, gh, the
-# agent CLIs). Those are NOT in this image — it targets the graph/notes/serve
-# experience. Full orchestration still runs on a host with the toolchain.
+# Note: full multi-agent orchestration also requires agent CLIs (opencode, etc.)
+# which are NOT in this image by default.
 
 # 1. Build the web UI (embedded into the Go binary).
 FROM node:24-bookworm-slim AS web
@@ -24,8 +22,25 @@ COPY --from=web /web/.output/public ./web/.output/public
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /kernl ./cmd/kernl
 
 # 3. Minimal runtime.
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates git && adduser -D -u 10001 kernl
+FROM debian:bookworm-slim
+ARG DOLT_VERSION=2.1.7
+
+# Install system dependencies, beads (bd) and dolt
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    git \
+    curl \
+    bash \
+    sqlite3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash \
+    && curl -fsSL https://github.com/dolthub/dolt/releases/download/v${DOLT_VERSION}/install.sh | bash \
+    && useradd -m -u 10001 kernl \
+    && mkdir -p /home/kernl/.kernl \
+    && chown -R kernl:kernl /home/kernl
+
+WORKDIR /home/kernl
+
 COPY --from=build /kernl /usr/local/bin/kernl
 USER kernl
 EXPOSE 8080

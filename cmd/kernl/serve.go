@@ -45,17 +45,21 @@ func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
 	return sweep.New(adapter, ghAdapter, sweepCfg), nil
 }
 
-func runServe(configPath string, port int) error {
+func runServe(configPath string, port int, noOrchestrator bool) error {
+	if noOrchestrator {
+		slog.Info("starting in GUI-only mode (orchestrator disabled): bd is not required")
+	}
 	report := preflight.Run(preflight.Deps{
-		LookPath:   preflight.LookPath,
-		ConfigPath: configPath,
-		GoVersion:  runtime.Version(),
+		LookPath:     preflight.LookPath,
+		ConfigPath:   configPath,
+		GoVersion:    runtime.Version(),
+		Orchestrator: !noOrchestrator,
 	})
 	if !report.AllOK() {
 		printReport(report)
-		if hardCheckFailed(report) {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: preflight checks failed — fix the issues above and retry")
-		}
+	}
+	if report.RequiredFailed() {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: preflight checks failed — fix the issues above and retry")
 	}
 
 	cfg, err := config.Load(configPath)
@@ -97,7 +101,7 @@ func runServe(configPath string, port int) error {
 		}
 	}()
 
-	if cfg.Sweep.AutoIntervalSeconds > 0 {
+	if !noOrchestrator && cfg.Sweep.AutoIntervalSeconds > 0 {
 		sw, err := sweeperFactory(cfg)
 		if err != nil {
 			slog.Warn("sweep auto-tick disabled", "error", err)
@@ -170,15 +174,4 @@ func startAutoTick(ctx context.Context, sw sweepRunner, interval time.Duration) 
 			_ = sw.Tick()
 		}
 	}
-}
-
-func hardCheckFailed(r *preflight.Report) bool {
-	names := []string{"bd", "opencode", "go"}
-	for _, name := range names {
-		c := r.Check(name)
-		if c != nil && !c.OK {
-			return true
-		}
-	}
-	return false
 }

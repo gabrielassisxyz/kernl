@@ -62,6 +62,12 @@ func NewApp(cfg *config.Config) (*App, error) {
 		}
 		graphDBPath = filepath.Join(home, ".kernl")
 	}
+	// Ensure the directory exists before SQLite tries to open the file there —
+	// otherwise the open fails with an opaque "unable to open database file"
+	// (e.g. a fresh container/data volume where ~/.kernl does not exist yet).
+	if err := os.MkdirAll(graphDBPath, 0o755); err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: creating graph db dir %s: %w", graphDBPath, err)
+	}
 	// Single graph database shared with the vault watcher (serve.go) and the
 	// capture CLI (capture.go), all keyed on this filename under the vault root.
 	g, err := graph.Open(context.Background(), graph.Config{

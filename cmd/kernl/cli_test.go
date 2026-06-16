@@ -23,10 +23,22 @@ func TestDispatchDoctorRunsPreflight(t *testing.T) {
 
 func TestDispatchServeRunsServer(t *testing.T) {
 	var ran bool
-	serveFn = func(configPath string, port int) error { _ = port; ran = true; return nil }
+	serveFn = func(configPath string, port int, noOrch bool) error { _ = port; _ = noOrch; ran = true; return nil }
 	t.Cleanup(func() { serveFn = runServe })
 	if err := Dispatch([]string{"serve"}); err != nil || !ran {
 		t.Fatalf("serve not dispatched: ran=%v err=%v", ran, err)
+	}
+}
+
+func TestDispatchServePassesNoOrchestratorFlag(t *testing.T) {
+	var got bool
+	serveFn = func(configPath string, port int, noOrch bool) error { got = noOrch; return nil }
+	t.Cleanup(func() { serveFn = runServe })
+	if err := Dispatch([]string{"serve", "--no-orchestrator"}); err != nil {
+		t.Fatalf("dispatch serve --no-orchestrator failed: %v", err)
+	}
+	if !got {
+		t.Error("--no-orchestrator should thread through to serve as true")
 	}
 }
 

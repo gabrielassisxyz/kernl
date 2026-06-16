@@ -55,8 +55,9 @@ func TestServeDispatchesAutoTick(t *testing.T) {
 	t.Cleanup(func() { sweeperFactory = origFactory })
 
 	origServe := serveFn
-	serveFn = func(configPath string, port int) error {
+	serveFn = func(configPath string, port int, noOrch bool) error {
 		_ = port
+		_ = noOrch
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		go startAutoTick(ctx, fake, 50*time.Millisecond)
