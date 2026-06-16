@@ -13,6 +13,9 @@ type Check struct {
 	OK     bool
 	Detail string
 	Fix    string
+	// Advisory checks are surfaced but never fatal — a failing advisory check
+	// does not block `serve` or fail `doctor`.
+	Advisory bool
 }
 
 type Report struct {
@@ -37,16 +40,33 @@ func (r *Report) AllOK() bool {
 	return true
 }
 
+// RequiredFailed reports whether any non-advisory check failed. This is the
+// gate that blocks `serve` and fails `doctor`; advisory failures are shown but
+// tolerated.
+func (r *Report) RequiredFailed() bool {
+	for _, c := range r.checks {
+		if !c.OK && !c.Advisory {
+			return true
+		}
+	}
+	return false
+}
+
 type Deps struct {
 	LookPath   func(string) (string, error)
 	ConfigPath string
 	GoVersion  string
+	// Orchestrator reports whether orchestration is enabled. When false (e.g.
+	// `serve --no-orchestrator`), the bd CLI is not required and its check is
+	// downgraded to advisory.
+	Orchestrator bool
 }
 
 func Run(deps Deps) *Report {
 	var checks []Check
 
-	// bd check
+	// bd check. bd backs the orchestrator's issue store, so it is required when
+	// orchestration is enabled and advisory otherwise (GUI/graph-only serve).
 	bdOK := true
 	bdDetail := ""
 	bdFix := ""
@@ -55,18 +75,20 @@ func Run(deps Deps) *Report {
 		bdDetail = "bd CLI not found in PATH"
 		bdFix = "install bd: see https://github.com/gastownhall/beads"
 	}
-	checks = append(checks, Check{Name: "bd", OK: bdOK, Detail: bdDetail, Fix: bdFix})
+	checks = append(checks, Check{Name: "bd", OK: bdOK, Detail: bdDetail, Fix: bdFix, Advisory: !deps.Orchestrator})
 
-	// opencode check
+	// opencode check. opencode is just one of several agent CLIs
+	// (claude/codex/gemini); the dispatcher fails loud at run time when a
+	// configured agent is missing, so this is advisory, never a startup gate.
 	ocOK := true
 	ocDetail := ""
 	ocFix := ""
 	if _, err := deps.LookPath("opencode"); err != nil {
 		ocOK = false
 		ocDetail = "opencode CLI not found in PATH"
-		ocFix = "install opencode: see https://github.com/anthropics/opencode"
+		ocFix = "install opencode (or another configured agent CLI): see https://github.com/anthropics/opencode"
 	}
-	checks = append(checks, Check{Name: "opencode", OK: ocOK, Detail: ocDetail, Fix: ocFix})
+	checks = append(checks, Check{Name: "opencode", OK: ocOK, Detail: ocDetail, Fix: ocFix, Advisory: true})
 
 	// Go version check
 	goDetail := ""
