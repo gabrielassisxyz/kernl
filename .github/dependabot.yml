@@ -20,7 +20,14 @@ updates:
       gomod:
         patterns: ["*"]
 
-  # npm (web/) is intentionally NOT managed here yet: web/package-lock.json
-  # drifts from package.json over optional wasm deps (@emnapi/*), which is why
-  # CI uses `npm install` instead of `npm ci`. Enable once that drift is
-  # resolved (tracked in artifacts/STATE.md).
+  # Keep web dependency updates small and reviewable. Major framework/toolchain
+  # migrations stay explicit because Nuxt/Vitest upgrades can carry runtime and
+  # test-environment behavior changes.
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    groups:
+      npm-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

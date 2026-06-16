@@ -101,10 +101,7 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
-      # `npm install`, not `npm ci`: the committed lockfile drifts from
-      # package.json over optional wasm deps (@emnapi/*) that npm ci rejects.
-      # Tracked as deferred hygiene in artifacts/STATE.md.
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
       - name: vitest
         run: npm test
       # A real `nuxt generate` here is the signal the embed placeholder hides

@@ -55,8 +55,8 @@ Delivered capability:
   secret scanning.
 - Added `bin/ci`, `bin/install-hooks`, `.gitleaks.toml`, and `.golangci.yml` so
   local checks mirror the repository gates.
-- Switched web dependency installation in CI/local scripts to `npm install` with
-  Node 24 while the lockfile reproducibility issue remains open.
+- Switched web dependency installation in CI/local scripts back to reproducible
+  `npm ci` on Node 24.
 - Added GoReleaser config, a tag-triggered release workflow, `install.sh`,
   Dockerfile, Compose file, and Docker ignore rules.
 - Hardened workflows with top-level permissions, concurrency, job timeouts,
