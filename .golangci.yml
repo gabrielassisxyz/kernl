@@ -1,9 +1,8 @@
 # golangci-lint v2 config.
 #
-# Run in CI by the `lint` job in .github/workflows/ci.yml, currently as
-# ADVISORY (continue-on-error: true) because the inherited tree carries lint
-# debt — at last count ~50 errcheck, ~49 unused, ~31 staticcheck, 2 ineffassign.
-# Burn that down, then drop `continue-on-error` so this becomes a real gate.
+# Run in CI by the `lint` job in .github/workflows/ci.yml as a REQUIRED gate.
+# The inherited lint debt has been burned down and the tree runs clean; new
+# findings fail the build. Keep it that way — don't add nolint blankets.
 #
 # Locally: `golangci-lint run ./...`
 version: "2"

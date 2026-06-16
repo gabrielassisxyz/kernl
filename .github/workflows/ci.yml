@@ -51,13 +51,11 @@ jobs:
         run: go vet ./...
 
   lint:
-    name: golangci-lint (advisory)
+    name: golangci-lint
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # Advisory until the inherited lint debt (errcheck/unused/staticcheck) is
-    # burned down. Flip `continue-on-error` to false once `.golangci.yml`
-    # runs clean. Until then it surfaces findings without blocking the merge.
-    continue-on-error: true
+    # Required gate: the inherited lint debt has been burned down and
+    # `.golangci.yml` runs clean. New lint findings fail the build.
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -69,7 +67,6 @@ jobs:
       - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7.0.1
         with:
           version: v2.12.2
-          args: --issues-exit-code=0
 
   test-go:
     name: go test
