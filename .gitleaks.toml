@@ -1,0 +1,27 @@
+# gitleaks configuration for kernl.
+#
+# Two enforcement points share this file:
+#   1. The `gitleaks` job in .github/workflows/ci.yml (scans full history on
+#      every push/PR).
+#   2. The local pre-commit hook installed by `bin/install-hooks` (scans the
+#      staged diff before each commit).
+#
+# We inherit the full default ruleset for common cloud, API, and source-control
+# credentials. A baseline `gitleaks detect` over the current tree is clean, so
+# there is no fixture to allowlist yet.
+#
+# Fail-closed: do NOT add path-based allowlists that exempt whole directories.
+# When a *deliberate* fake credential is ever added as a test fixture, give it
+# an obviously-fake shape and allowlist that exact regex below — never the path.
+
+title = "kernl secret-scan config"
+
+[extend]
+useDefault = true
+
+# No [allowlist] block yet — the baseline scan is clean. When a deliberate
+# fake fixture is introduced, add an allowlist with an explicit `regexes`
+# entry for its exact shape (gitleaks rejects an empty allowlist).
+#
+#   [allowlist]
+#   description = "Deliberate fake fixtures"
