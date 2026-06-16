@@ -7,6 +7,17 @@ on:
     branches: [master]
   pull_request:
 
+# Read-only by default; only the gitleaks job needs the token, which it
+# passes explicitly. Avoids inheriting the repo's default (often write-all).
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref so rapid PR pushes don't run
+# redundant full CI in parallel.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # The Go packages embed the built web UI via `//go:embed all:.output/public`
 # (see web/embed.go). That directory is the Nuxt `generate` output and is
 # gitignored, so a fresh checkout has nothing to embed and `go build` fails.
@@ -20,9 +31,10 @@ jobs:
   fmt-vet:
     name: gofmt + go vet
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -41,28 +53,30 @@ jobs:
   lint:
     name: golangci-lint (advisory)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Advisory until the inherited lint debt (errcheck/unused/staticcheck) is
     # burned down. Flip `continue-on-error` to false once `.golangci.yml`
     # runs clean. Until then it surfaces findings without blocking the merge.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
       - name: stub embedded web assets
         run: mkdir -p web/.output/public && printf '<!doctype html><title>kernl</title>' > web/.output/public/index.html
-      - uses: golangci/golangci-lint-action@v6
+      - uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6.5.2
         with:
           version: v2.6.1
 
   test-go:
     name: go test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -80,12 +94,13 @@ jobs:
   test-web:
     name: web test + build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "24"
           cache: npm
@@ -104,9 +119,10 @@ jobs:
   govulncheck:
     name: govulncheck (dependency CVEs)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: go.mod
           cache: true
@@ -118,12 +134,13 @@ jobs:
   gitleaks:
     name: gitleaks (secret scan)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # Full history so the scan covers every reachable commit, not just HEAD.
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml

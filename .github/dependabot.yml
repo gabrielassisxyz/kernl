@@ -1,0 +1,26 @@
+version: 2
+updates:
+  # Keeps the SHA-pinned actions in .github/workflows/* current: Dependabot
+  # bumps the pin and rewrites the trailing `# vX.Y.Z` comment. Without this,
+  # pinned actions silently rot. Grouped into a single weekly PR.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Go module updates, grouped weekly. Pairs with the govulncheck CI job.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      gomod:
+        patterns: ["*"]
+
+  # npm (web/) is intentionally NOT managed here yet: web/package-lock.json
+  # drifts from package.json over optional wasm deps (@emnapi/*), which is why
+  # CI uses `npm install` instead of `npm ci`. Enable once that drift is
+  # resolved (tracked in artifacts/STATE.md).
