@@ -1,0 +1,15 @@
+# Keep the build context small and the embed deterministic: the web stage
+# regenerates .output/public, so never ship a host-built copy or node_modules.
+.git
+web/node_modules
+web/.output
+web/.nuxt
+web/dist
+artifacts
+.beads
+.kernl
+*.db
+*.db-*
+kernl
+kernl.yaml
+.env
