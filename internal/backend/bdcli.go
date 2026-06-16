@@ -688,7 +688,7 @@ func (b *BdCliBackend) execSerializedAttempt(ctx context.Context, args []string,
 func execOnce(ctx context.Context, bdBin string, bdDB string, args []string, opts *ExecOptions) (*ExecResult, error) {
 	fullArgs := baseArgs(bdDB, args)
 
-	timeoutMs := defaultCommandTimeoutMs
+	var timeoutMs int
 	if opts != nil && opts.TimeoutMs > 0 {
 		timeoutMs = opts.TimeoutMs
 	} else {

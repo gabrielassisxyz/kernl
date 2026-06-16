@@ -105,7 +105,7 @@ func TestRoundTripGoldenFiles(t *testing.T) {
 			continue
 		}
 		// Skip "expected" files — they pair with the base name
-		if len(name) > 8 && name[len(name)-8:len(name)] == "expected"+".md" {
+		if len(name) > 8 && name[len(name)-8:] == "expected"+".md" {
 			continue
 		}
 
