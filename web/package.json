@@ -16,14 +16,14 @@
     "@codemirror/lang-markdown": "^6.5.0",
     "codemirror": "^6.0.2",
     "nuxt": "^3.17.3",
-    "vue": "^3.5.13"
+    "vue": "^3.5.38"
   },
   "devDependencies": {
     "@nuxt/test-utils": "^3.18.0",
-    "@playwright/test": "^1.52.0",
-    "@tailwindcss/vite": "^4.3.0",
-    "@vue/test-utils": "^2.4.6",
-    "daisyui": "^5.5.20",
+    "@playwright/test": "^1.61.0",
+    "@tailwindcss/vite": "^4.3.1",
+    "@vue/test-utils": "^2.4.11",
+    "daisyui": "^5.5.23",
     "happy-dom": "^17.4.7",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.8.3",
