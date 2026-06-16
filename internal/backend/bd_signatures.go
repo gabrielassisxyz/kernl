@@ -41,6 +41,7 @@ const (
 
 	outOfSyncSignature      = "Database out of sync with JSONL"
 	noDaemonFlag            = "--no-daemon"
+	bdAppendNotesFlag       = "--append-notes"
 	bdNoDBEnv               = "BD_NO_DB"
 	doltNilPanicSignature   = "panic: runtime error: invalid memory address or nil pointer dereference"
 	doltPanicStackSignature = "SetCrashOnFatalError"

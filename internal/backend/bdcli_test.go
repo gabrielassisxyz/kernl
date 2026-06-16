@@ -723,3 +723,54 @@ func TestBdCliBackendCloseOmitsReasonWhenEmpty(t *testing.T) {
 		t.Errorf("Close result state: got %q, want %q", result.State, "shipped")
 	}
 }
+
+func TestBdCliBackendMarkTerminalUsesAppendNotesForReason(t *testing.T) {
+	tmpDir := t.TempDir()
+	argsFile := filepath.Join(tmpDir, "args.txt")
+
+	scriptContent := "#!/bin/sh\n" +
+		"printf '%s\\n' \"$@\" > " + shellQuote(argsFile) + "\n" +
+		"for arg in \"$@\"; do\n" +
+		"  if [ \"$arg\" = \"--reason\" ]; then\n" +
+		"    echo 'unknown flag: --reason' >&2\n" +
+		"    exit 1\n" +
+		"  fi\n" +
+		"done\n" +
+		"exit 0\n"
+
+	script := filepath.Join(tmpDir, "bd-update-terminal.sh")
+	if err := os.WriteFile(script, []byte(scriptContent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	b := &BdCliBackend{
+		repoPath: tmpDir,
+		queues:   make(map[string]*repoQueue),
+		locksDir: filepath.Join(tmpDir, "locks"),
+		bdBin:    script,
+	}
+
+	err := b.MarkTerminal("1", "closed", "completed in prior run", tmpDir)
+	if err != nil {
+		t.Fatalf("MarkTerminal: %v", err)
+	}
+
+	argsData, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read args file: %v", err)
+	}
+	args := string(argsData)
+	if strings.Contains(args, "--reason") {
+		t.Fatalf("MarkTerminal must not use bd update --reason; args:\n%s", args)
+	}
+	if !strings.Contains(args, bdAppendNotesFlag) {
+		t.Fatalf("MarkTerminal should preserve reason with %s; args:\n%s", bdAppendNotesFlag, args)
+	}
+	if !strings.Contains(args, "completed in prior run") {
+		t.Fatalf("MarkTerminal args missing reason text:\n%s", args)
+	}
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}

@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && realagent
 
 package integration
 
@@ -11,6 +11,8 @@ import (
 )
 
 func TestPassoA_SingleBeadRealOpencode(t *testing.T) {
+	RequireOpencode(t)
+
 	h := NewHarness(t)
 	defer h.Cleanup()
 

@@ -119,6 +119,7 @@ func NewBdCliBackend(repoPath string) *BdCliBackend {
 		bdDB:     os.Getenv("BD_DB"),
 	}
 	b.checkBdVersion()
+	b.checkBdCapabilities()
 	return b
 }
 
@@ -143,6 +144,21 @@ func (b *BdCliBackend) checkBdVersion() {
 				"expected", expectedBdVersion)
 		}
 	})
+}
+
+func (b *BdCliBackend) checkBdCapabilities() {
+	out, err := exec.Command(b.bdBin, "update", "--help").Output()
+	if err != nil {
+		slog.Warn("KERNL BD CAPABILITY DRIFT: bd update --help probe failed",
+			"error", err,
+			"requiredFlag", bdAppendNotesFlag)
+		return
+	}
+	if !strings.Contains(string(out), bdAppendNotesFlag) {
+		slog.Warn("KERNL BD CAPABILITY DRIFT: bd update lacks required flag",
+			"requiredFlag", bdAppendNotesFlag,
+			"fix", "install a bd version that supports bd update --append-notes")
+	}
 }
 
 // parseBdVersionString extracts the first semver-like token (N.N.N) from the
@@ -336,7 +352,7 @@ func (b *BdCliBackend) Delete(id string, repoPath string) error {
 func (b *BdCliBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {
 	args := withRepo(repoPath, "update", id, "--status", targetState)
 	if reason != "" {
-		args = append(args, "--reason", reason)
+		args = append(args, bdAppendNotesFlag, reason)
 	}
 	_, err := b.Exec(context.Background(), args)
 	if err != nil {

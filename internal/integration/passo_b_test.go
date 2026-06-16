@@ -1,4 +1,4 @@
-//go:build integration
+//go:build integration && realagent
 
 package integration
 
@@ -9,6 +9,8 @@ import (
 )
 
 func TestPassoB_EpicParallelExecution(t *testing.T) {
+	RequireOpencode(t)
+
 	h := NewEpicHarness(t)
 	defer h.Cleanup()
 	epicID := h.SeedEpic(t, "beads-epic-diamond")
