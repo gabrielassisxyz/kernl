@@ -107,7 +107,7 @@ func TestNodesByTag(t *testing.T) {
 		t.Fatalf("expected 3 node IDs, got %d: %v", len(nodeIDs), nodeIDs)
 	}
 	// Should be ordered by node_id ASC.
-	if !(nodeIDs[0] < nodeIDs[1] && nodeIDs[1] < nodeIDs[2]) {
+	if nodeIDs[0] >= nodeIDs[1] || nodeIDs[1] >= nodeIDs[2] {
 		t.Fatalf("expected sorted node IDs, got %v", nodeIDs)
 	}
 }

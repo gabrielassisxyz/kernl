@@ -865,7 +865,7 @@ func (b *BdCliBackend) acquireRepoProcessLock(ctx context.Context, repoKey strin
 			if owner != nil {
 				ownerDetails = fmt.Sprintf(" (owner pid=%d, acquiredAt=%s)", owner.PID, owner.AcquiredAt)
 			}
-			return nil, fmt.Errorf("Timed out waiting for bd repo lock for %s after %dms%s",
+			return nil, fmt.Errorf("timed out waiting for bd repo lock for %s after %dms%s",
 				repoKey, lockWaitTimeoutMs, ownerDetails)
 		}
 
@@ -882,10 +882,7 @@ func (b *BdCliBackend) evictStaleLock(lockDir, lockFile string) bool {
 
 	info, err := os.Stat(lockDir)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return true
-		}
-		return false
+		return os.IsNotExist(err)
 	}
 
 	if time.Since(info.ModTime()) > time.Duration(defaultLockStaleMs)*time.Millisecond {

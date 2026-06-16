@@ -56,7 +56,8 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var targetID string
 
-		if targetType == "note" {
+		switch targetType {
+		case "note":
 			n := nodes.Note{
 				Title:  capture.Title,
 				Body:   capture.Body,
@@ -78,7 +79,7 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 			if err := os.WriteFile(path, []byte(md), 0644); err != nil {
 				return fmt.Errorf("write note md: %w", err)
 			}
-		} else if targetType == "bookmark" {
+		case "bookmark":
 			b := nodes.Bookmark{
 				URL:   capture.Body,
 				Title: capture.Title,

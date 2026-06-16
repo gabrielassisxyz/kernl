@@ -21,7 +21,7 @@ type AnthropicClient struct {
 // NewAnthropicClient creates a new Anthropic client.
 func NewAnthropicClient(cfg LLMProviderConfig) (*AnthropicClient, error) {
 	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("Anthropic provider requires an API key")
+		return nil, fmt.Errorf("missing API key for the Anthropic provider")
 	}
 	baseURL := strings.TrimRight(cfg.Endpoint, "/")
 	if baseURL == "" {
@@ -79,7 +79,7 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []Message, tools []
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Anthropic API error (status %d): %s", resp.StatusCode, string(respBytes))
+		return nil, fmt.Errorf("error from Anthropic API (status %d): %s", resp.StatusCode, string(respBytes))
 	}
 
 	var antResp anthropicResponse

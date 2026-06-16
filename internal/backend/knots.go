@@ -371,9 +371,10 @@ func (k *KnotsBackend) ListDependencies(id string, repoPath string, options *Dep
 	deps := make([]BeadDependency, len(edges))
 	for i, e := range edges {
 		depType := e.Kind
-		if e.Kind == "blocked_by" {
+		switch e.Kind {
+		case "blocked_by":
 			depType = "blocks"
-		} else if e.Kind == "parent_of" {
+		case "parent_of":
 			depType = "parent-child"
 		}
 		deps[i] = BeadDependency{SourceID: e.Src, TargetID: e.Dst, Type: depType}

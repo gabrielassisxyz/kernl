@@ -265,7 +265,7 @@ loop:
 		}
 	}
 
-	if !gotMove && !(gotDelete && gotCreate) {
+	if !gotMove && (!gotDelete || !gotCreate) {
 		t.Errorf("expected move_candidate or delete+create; got move=%v delete=%v create=%v", gotMove, gotDelete, gotCreate)
 	}
 }

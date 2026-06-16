@@ -18,7 +18,7 @@ type Manager struct {
 func New(d Deps) *Manager {
 	if d.Run == nil {
 		d.Run = func(dir string, args ...string) (string, error) {
-			return "", fmt.Errorf("Run not set")
+			return "", fmt.Errorf("run not set")
 		}
 	}
 	return &Manager{deps: d}

@@ -1,7 +1,6 @@
 package dispatch
 
 import (
-	"fmt"
 	"math/rand"
 	"testing"
 
@@ -321,5 +320,5 @@ func BenchmarkSelectFromWeighted(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = SelectFromPool(pool, agents)
 	}
-	_ = fmt.Sprintf("bench complete")
+	_ = "bench complete"
 }

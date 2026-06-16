@@ -186,11 +186,7 @@ func TestAutoRoutingBackend_KnotsRepo_ResolvesType(t *testing.T) {
 		return MemoryManagerKnots
 	}
 
-	_, err := arb.Get("id", "/knots-repo")
-	if err == nil || detectedType != MemoryManagerKnots {
-		if err != nil {
-		}
-	}
+	_, _ = arb.Get("id", "/knots-repo")
 	if detectedType != MemoryManagerKnots {
 		t.Errorf("expected knots detection, got %s", detectedType)
 	}
@@ -204,11 +200,7 @@ func TestAutoRoutingBackend_BeadsRepo_ResolvesType(t *testing.T) {
 		return MemoryManagerBeads
 	}
 
-	_, err := arb.Get("id", "/beads-repo")
-	if err == nil || detectedType != MemoryManagerBeads {
-		if err != nil {
-		}
-	}
+	_, _ = arb.Get("id", "/beads-repo")
 	if detectedType != MemoryManagerBeads {
 		t.Errorf("expected beads detection, got %s", detectedType)
 	}
@@ -423,9 +415,7 @@ func TestAutoRoutingBackend_DelegatesAllMethods(t *testing.T) {
 		return MemoryManagerBeads
 	}
 
-	_, err := arb.List(nil, "/repo")
-	if _, ok := err.(*BackendDispatchError); ok && err != nil {
-	}
+	_, _ = arb.List(nil, "/repo")
 	_, _ = arb.ListReady(nil, "/repo")
 	_, _ = arb.Get("id", "/repo")
 	_, _ = arb.Create(CreateBeadInput{Title: "t"}, "/repo")

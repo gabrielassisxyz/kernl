@@ -244,7 +244,7 @@ func AddRepo(repoPath string) (*RegistryRepo, error) {
 	reg, _ := LoadRegistry()
 	for _, r := range reg.Repos {
 		if r.Path == repoPath {
-			return nil, fmt.Errorf("Repository already registered: %s", repoPath)
+			return nil, fmt.Errorf("repository already registered: %s", repoPath)
 		}
 	}
 
