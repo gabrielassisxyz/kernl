@@ -73,7 +73,7 @@ git clone https://github.com/gabrielassisxyz/kernl.git
 cd kernl
 
 cd web
-npm install
+npm ci
 npm run generate
 cd ..
 
@@ -102,7 +102,7 @@ still needs host tools and credentials such as `git`, `gh`, `bd`, and agent CLIs
 Basic graph and UI usage:
 
 - Go 1.26+ when building from source
-- Node.js and npm when regenerating the embedded web UI
+- Node.js 24 and npm when regenerating the embedded web UI
 - A local `kernl.yaml`
 - An optional markdown vault directory
 
@@ -345,7 +345,7 @@ The embedded web UI has not been generated yet.
 
 ```bash
 cd web
-npm install
+npm ci
 npm run generate
 cd ..
 go test ./...
@@ -368,10 +368,15 @@ kernl --port 8081 serve
 The Docker setup is for the API and web UI. Full orchestration needs host
 credentials and tools: `git`, `gh`, `bd`, and your configured agent CLIs.
 
-### `npm ci` fails in `web/`
+### `npm ci` reports a lockfile mismatch in `web/`
 
-Use `npm install` for now. The lockfile currently drifts across optional wasm
-dependencies, so CI and local scripts intentionally use `npm install`.
+Use Node.js 24, then regenerate the lockfile deliberately:
+
+```bash
+cd web
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+npm ci
+```
 
 ## Limitations
 
