@@ -33,6 +33,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
+      - -X main.Version={{ .Version }}
+      - -X main.Commit={{ .ShortCommit }}
+      - -X main.Date={{ .Date }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
 archives:
