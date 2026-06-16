@@ -57,6 +57,9 @@ Delivered capability:
   local checks mirror the repository gates.
 - Switched web dependency installation in CI/local scripts back to reproducible
   `npm ci` on Node 24.
+- Reduced npm audit findings with conservative Nuxt 3/Vitest 3-compatible web
+  dependency updates, leaving only the Vite dev-server advisory that requires a
+  future Nuxt/Vite major-line decision.
 - Added GoReleaser config, a tag-triggered release workflow, `install.sh`,
   Dockerfile, Compose file, and Docker ignore rules.
 - Hardened workflows with top-level permissions, concurrency, job timeouts,
