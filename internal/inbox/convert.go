@@ -14,11 +14,20 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
+// ProcessRequest carries an explicit processing decision for a pending capture.
+// Target is the destination node kind; the other fields are optional refinements
+// supplied by the inbox modal (manual override) or the DA classifier.
+type ProcessRequest struct {
+	Target    string // "note" | "bookmark" | "task" | "discard" | "convert" (infer note/bookmark from body)
+	ProjectID string // task only: parent project (empty = unfiled, the "unprocessed tasks" bucket)
+	LinkTo    string // note/bookmark only: optional node to relate the result to
+	Title     string // optional title override (falls back to the capture title/body)
+}
+
 // resolveTargetType maps a UI/API action onto a concrete conversion target.
 // The single "convert" action infers note vs bookmark from the capture body
-// (a URL-looking body becomes a bookmark, everything else a note). "keep"
-// triages the capture in place with no target. "note", "bookmark", and
-// "discard" pass through unchanged for direct API/CLI callers.
+// (a URL-looking body becomes a bookmark, everything else a note). "note",
+// "bookmark", "task", and "discard" pass through unchanged.
 func resolveTargetType(action, body string) string {
 	if action == "convert" {
 		if looksLikeURL(body) {
@@ -35,23 +44,44 @@ func looksLikeURL(s string) bool {
 }
 
 // Process converts a pending capture into a note or bookmark, or discards it.
-// targetType accepts the UI actions ("convert", "keep", "discard") as well as
-// the concrete targets ("note", "bookmark").
+// It is the simple entry point for callers that only carry an action string;
+// ProcessCapture handles the structured (task / project / link) cases.
 func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bookmarks.Archiver, captureID string, targetType string) error {
+	return ProcessCapture(ctx, g, vaultRoot, archiver, captureID, ProcessRequest{Target: targetType})
+}
+
+// ProcessCapture turns a pending capture into the node described by req and
+// triages the capture. note → vault markdown + Note node; bookmark → Bookmark
+// node (archived async); task → Task node optionally filed under a project via a
+// part_of edge; discard → no target. Every created target gets a derived_from
+// edge back to the capture for provenance (and undo).
+func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bookmarks.Archiver, captureID string, req ProcessRequest) error {
 	var capture *nodes.Capture
+	var prepID string
 	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var err error
 		capture, err = nodes.GetCapture(ctx, tx, captureID)
-		return err
+		if err != nil {
+			return err
+		}
+		prepID, _ = PrepFor(ctx, tx, captureID)
+		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("get capture: %w", err)
 	}
 
-	targetType = resolveTargetType(targetType, capture.Body)
+	targetType := resolveTargetType(req.Target, capture.Body)
+
+	// Title: explicit override wins, else the capture's own title.
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = capture.Title
+	}
 
 	author := nodes.Author{Name: "inbox-convert"}
 	var targetBookmark *nodes.Bookmark
+	var deletedPrepID string // set when a discard removes the capture's prep note
 
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var targetID string
@@ -59,7 +89,7 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 		switch targetType {
 		case "note":
 			n := nodes.Note{
-				Title:  capture.Title,
+				Title:  title,
 				Body:   capture.Body,
 				Origin: "capture",
 				Tags:   []string{"capture", "converted"},
@@ -82,7 +112,7 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 		case "bookmark":
 			b := nodes.Bookmark{
 				URL:   capture.Body,
-				Title: capture.Title,
+				Title: title,
 			}
 			if b.Title == "" {
 				b.Title = "Pending"
@@ -94,6 +124,45 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 			}
 			b.ID = targetID
 			targetBookmark = &b
+		case "task":
+			tk := nodes.Task{
+				Title:       title,
+				Description: capture.Body,
+				ProjectID:   req.ProjectID,
+			}
+			if tk.Title == "" {
+				tk.Title = "Capture Task"
+			}
+			var err error
+			targetID, err = nodes.CreateTask(ctx, tx, tk, author)
+			if err != nil {
+				return fmt.Errorf("create task: %w", err)
+			}
+			// Canonical link to the project (mirrored on the task's ProjectID
+			// for cheap filtering by ListTasks). Empty ProjectID leaves the
+			// task unfiled in the "unprocessed tasks" bucket.
+			if req.ProjectID != "" {
+				if _, err := edges.Create(ctx, tx, edges.Edge{
+					Src:   targetID,
+					Dst:   req.ProjectID,
+					Label: "part_of",
+					Type:  edges.EdgeTypePartOf,
+				}, author); err != nil {
+					return fmt.Errorf("create part_of edge: %w", err)
+				}
+			}
+		}
+
+		// Optional user-chosen link from a note/bookmark to any other node.
+		if targetID != "" && req.LinkTo != "" && (targetType == "note" || targetType == "bookmark") {
+			if _, err := edges.Create(ctx, tx, edges.Edge{
+				Src:   targetID,
+				Dst:   req.LinkTo,
+				Label: "related",
+				Type:  edges.EdgeTypeRelated,
+			}, author); err != nil {
+				return fmt.Errorf("create related edge: %w", err)
+			}
 		}
 
 		if targetID != "" {
@@ -104,6 +173,28 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 			}, author)
 			if err != nil {
 				return fmt.Errorf("create edge: %w", err)
+			}
+		}
+
+		// DA briefing lifecycle: discard removes the prep; otherwise the prep
+		// follows the capture onto its derived node (surfaced 1-hop when acting).
+		if prepID != "" {
+			if targetType == "discard" {
+				if _, err := tx.Exec(`DELETE FROM note_paths WHERE uuid = ?`, prepID); err != nil {
+					return fmt.Errorf("delete prep note_paths: %w", err)
+				}
+				if err := nodes.DeleteNote(ctx, tx, prepID, author); err != nil {
+					return fmt.Errorf("delete prep note: %w", err)
+				}
+				deletedPrepID = prepID
+			} else if targetID != "" {
+				if _, err := edges.Create(ctx, tx, edges.Edge{
+					Src:   targetID,
+					Dst:   prepID,
+					Label: briefingEdgeLabel,
+				}, author); err != nil {
+					return fmt.Errorf("create briefing edge: %w", err)
+				}
 			}
 		}
 
@@ -135,6 +226,11 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 		go func(b *nodes.Bookmark) {
 			_, _ = archiver.ArchiveBookmark(context.Background(), b)
 		}(targetBookmark)
+	}
+
+	// Remove the discarded prep's markdown outside the transaction.
+	if deletedPrepID != "" {
+		removeNoteFileByID(vaultRoot, deletedPrepID)
 	}
 
 	return nil

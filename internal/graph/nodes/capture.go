@@ -21,6 +21,9 @@ type Capture struct {
 	CapturedFrom    string
 	Tags            []string
 	SuggestedAction string
+	// SuggestedProjectID is set by the classifier when it suggests filing the
+	// capture as a task under a specific project; empty otherwise.
+	SuggestedProjectID string
 }
 
 // Meta returns the common metadata for this node.
@@ -31,9 +34,10 @@ func (c Capture) Meta() *Meta {
 // NodeAttrs marshals type-specific fields for the nodes.attrs column.
 func (c Capture) NodeAttrs() []byte {
 	attrs := map[string]any{
-		"body":             c.Body,
-		"captured_from":    c.CapturedFrom,
-		"suggested_action": c.SuggestedAction,
+		"body":                 c.Body,
+		"captured_from":        c.CapturedFrom,
+		"suggested_action":     c.SuggestedAction,
+		"suggested_project_id": c.SuggestedProjectID,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -76,9 +80,10 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	}
 
 	var attrs struct {
-		Body            string `json:"body"`
-		CapturedFrom    string `json:"captured_from"`
-		SuggestedAction string `json:"suggested_action"`
+		Body               string `json:"body"`
+		CapturedFrom       string `json:"captured_from"`
+		SuggestedAction    string `json:"suggested_action"`
+		SuggestedProjectID string `json:"suggested_project_id"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -92,14 +97,15 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	}
 
 	return &Capture{
-		ID:              id,
-		CreatedAt:       tryParseTime(createdAt.String),
-		UpdatedAt:       tryParseTime(updatedAt.String),
-		Title:           title.String,
-		Body:            attrs.Body,
-		CapturedFrom:    attrs.CapturedFrom,
-		Tags:            tags,
-		SuggestedAction: attrs.SuggestedAction,
+		ID:                 id,
+		CreatedAt:          tryParseTime(createdAt.String),
+		UpdatedAt:          tryParseTime(updatedAt.String),
+		Title:              title.String,
+		Body:               attrs.Body,
+		CapturedFrom:       attrs.CapturedFrom,
+		Tags:               tags,
+		SuggestedAction:    attrs.SuggestedAction,
+		SuggestedProjectID: attrs.SuggestedProjectID,
 	}, nil
 }
 
@@ -155,9 +161,10 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 		}
 
 		var attrs struct {
-			Body            string `json:"body"`
-			CapturedFrom    string `json:"captured_from"`
-			SuggestedAction string `json:"suggested_action"`
+			Body               string `json:"body"`
+			CapturedFrom       string `json:"captured_from"`
+			SuggestedAction    string `json:"suggested_action"`
+			SuggestedProjectID string `json:"suggested_project_id"`
 		}
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -171,14 +178,15 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 		}
 
 		out = append(out, &Capture{
-			ID:              id,
-			CreatedAt:       tryParseTime(createdAt.String),
-			UpdatedAt:       tryParseTime(updatedAt.String),
-			Title:           title.String,
-			Body:            attrs.Body,
-			CapturedFrom:    attrs.CapturedFrom,
-			Tags:            tags,
-			SuggestedAction: attrs.SuggestedAction,
+			ID:                 id,
+			CreatedAt:          tryParseTime(createdAt.String),
+			UpdatedAt:          tryParseTime(updatedAt.String),
+			Title:              title.String,
+			Body:               attrs.Body,
+			CapturedFrom:       attrs.CapturedFrom,
+			Tags:               tags,
+			SuggestedAction:    attrs.SuggestedAction,
+			SuggestedProjectID: attrs.SuggestedProjectID,
 		})
 	}
 	return out, rows.Err()

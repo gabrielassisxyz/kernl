@@ -20,9 +20,15 @@
             >
               {{ task.title }}
             </h2>
-            <div v-if="projectTitle" class="flex items-center gap-tight mt-tight font-mono-data text-mono-data text-text-dim">
-              <span class="material-symbols-outlined !text-[12px]">folder_open</span>
-              {{ projectTitle }}
+            <div class="flex items-center gap-component mt-tight font-mono-data text-mono-data text-text-dim">
+              <span v-if="projectTitle" class="flex items-center gap-tight">
+                <span class="material-symbols-outlined !text-[12px]">folder_open</span>
+                {{ projectTitle }}
+              </span>
+              <span v-if="briefing" class="flex items-center gap-tight text-da-accent">
+                <span class="material-symbols-outlined !text-[12px]">auto_awesome</span>
+                DA brief
+              </span>
             </div>
           </div>
           <button
@@ -36,6 +42,15 @@
 
         <!-- Body -->
         <div class="flex-1 overflow-y-auto px-section py-component flex flex-col gap-section">
+          <!-- DA briefing prepared from the originating capture -->
+          <section v-if="briefing" class="rounded-lg border border-da-accent/30 bg-da-accent/[0.04] px-component py-base">
+            <div class="flex items-center gap-tight mb-base">
+              <span class="material-symbols-outlined !text-[14px] text-da-accent">auto_awesome</span>
+              <h3 class="font-label-caps text-label-caps text-da-accent uppercase">DA Briefing</h3>
+            </div>
+            <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ briefing.body }}</p>
+          </section>
+
           <section>
             <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Status</h3>
             <select
@@ -64,13 +79,25 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Task, TaskStatus } from '~/composables/useTasks'
 import { TASK_STATUSES } from '~/composables/useTasks'
 import { formatTimestamp } from '~/utils/time'
 
 const props = defineProps<{ task: Task | null; projectTitle?: string }>()
 defineEmits<{ (e: 'close'): void; (e: 'set-status', id: string, status: string): void }>()
+
+// DA briefing surfaced for this task (via its briefing edge to the prep note).
+const briefing = ref<{ id: string; title: string; body: string } | null>(null)
+watch(() => props.task?.id, async (id) => {
+  briefing.value = null
+  if (!id) return
+  try {
+    briefing.value = await $fetch<{ id: string; title: string; body: string }>(`/api/nodes/${id}/briefing`)
+  } catch {
+    briefing.value = null // 404 = no briefing
+  }
+}, { immediate: true })
 
 const STATUS_DOT: Record<TaskStatus, string> = {
   todo: 'bg-text-dim',

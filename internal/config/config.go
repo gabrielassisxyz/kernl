@@ -108,6 +108,16 @@ type LLMConfig struct {
 // IsSet reports whether the LLM is configured (provider is non-empty).
 func (l LLMConfig) IsSet() bool { return l.Provider != "" }
 
+// InboxConfig holds settings for the inbox DA pre-processing.
+type InboxConfig struct {
+	// AutoPrep lets the classifier proactively generate a primer for captures it
+	// reads as questions. The manual prep trigger works regardless.
+	AutoPrep bool `yaml:"auto_prep,omitempty"`
+	// DASubdir is the folder under the vault root where DA-authored notes (preps)
+	// are materialized as markdown. Default: "DA".
+	DASubdir string `yaml:"da_subdir,omitempty"`
+}
+
 type Config struct {
 	Settings     Settings           `yaml:"settings"`
 	Registry     RegistryConfig     `yaml:"registry"`
@@ -116,6 +126,7 @@ type Config struct {
 	Sweep        SweepConfig        `yaml:"sweep"`
 	Vault        VaultConfig        `yaml:"vault,omitempty"`
 	LLM          LLMConfig          `yaml:"llm,omitempty"`
+	Inbox        InboxConfig        `yaml:"inbox,omitempty"`
 }
 
 func Load(path string) (*Config, error) {
@@ -131,6 +142,10 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
+	}
+
+	if cfg.Inbox.DASubdir == "" {
+		cfg.Inbox.DASubdir = "DA"
 	}
 
 	if cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes == 0 {
