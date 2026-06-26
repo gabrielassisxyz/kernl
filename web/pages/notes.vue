@@ -1,28 +1,28 @@
 <template>
-  <div class="flex h-screen bg-[#0F1217] font-sans">
-    <div class="w-64 border-r border-[#242935] flex flex-col bg-[#141821]">
-      <div class="h-12 border-b border-[#242935] flex items-center justify-between px-4 shrink-0">
-        <h1 class="font-medium text-[#D6DBE3] text-[14px]">Notes Vault</h1>
+  <div class="flex h-screen bg-bg-base font-sans">
+    <div class="w-64 border-r border-border-default flex flex-col bg-bg-elevated">
+      <div class="h-12 border-b border-border-default flex items-center justify-between px-4 shrink-0">
+        <h1 class="font-medium text-text-primary text-[14px]">Notes Vault</h1>
         <button
           @click="openNewNote"
           title="New note"
-          class="flex items-center justify-center w-6 h-6 rounded text-[#9098A7] hover:text-[#D6DBE3] hover:bg-[#1D222D] transition-colors"
+          class="flex items-center justify-center w-6 h-6 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
         >
           <span class="material-symbols-outlined text-[18px]">add</span>
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto bg-[#0F1217]">
+      <div class="flex-1 overflow-y-auto bg-bg-base">
         <TagHierarchy @select="selectFile" />
         <NoteList @select="selectFile" ref="noteListRef" />
       </div>
     </div>
-    <div class="flex-1 relative flex flex-col bg-[#0F1217]">
-      <div class="h-12 border-b border-[#242935] flex items-center px-4 shrink-0">
-        <span v-if="selectedFile" class="font-mono text-[#9098A7] text-[12px]">{{ selectedFile }}</span>
+    <div class="flex-1 relative flex flex-col bg-bg-base">
+      <div class="h-12 border-b border-border-default flex items-center px-4 shrink-0">
+        <span v-if="selectedFile" class="font-mono text-text-muted text-[12px]">{{ selectedFile }}</span>
       </div>
       <div class="flex-1 overflow-hidden relative">
         <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" />
-        <div v-else class="absolute inset-0 flex items-center justify-center text-[#666D7C] text-[13px]">
+        <div v-else class="absolute inset-0 flex items-center justify-center text-text-faint text-[13px]">
           Select a file from tags or create a new note
         </div>
       </div>
@@ -36,32 +36,32 @@
         @click.self="closeNewNote"
         @keydown.esc="closeNewNote"
       >
-        <div class="modal-card w-[340px] bg-[#181C26] border border-[#242935] rounded-lg overflow-hidden shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75)]">
+        <div class="modal-card w-[340px] bg-surface-overlay border border-border-default rounded-lg overflow-hidden shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75)]">
           <div class="px-5 pt-4 pb-3">
-            <span class="block text-[11px] uppercase tracking-[0.14em] text-[#666D7C] mb-3">New note</span>
+            <span class="block text-[11px] uppercase tracking-[0.14em] text-text-faint mb-3">New note</span>
             <input
               ref="titleInput"
               v-model="newTitle"
               @keydown.enter="confirmNewNote"
               @keydown.esc="closeNewNote"
               placeholder="Untitled note"
-              class="w-full bg-[#0F1217] border border-[#242935] rounded px-3 py-2 text-[14px] text-[#D6DBE3] placeholder-[#666D7C] focus:outline-none focus:border-[#6B7BB0] transition-colors"
+              class="w-full bg-bg-base border border-border-default rounded px-3 py-2 text-[14px] text-text-primary placeholder-text-faint focus:outline-none focus:border-da-accent transition-colors"
             />
-            <p class="mt-2 h-4 text-[11px] font-mono text-[#666D7C] truncate">
-              <span v-if="slugPreview">will create <span class="text-[#9098A7]">{{ slugPreview }}.md</span></span>
+            <p class="mt-2 h-4 text-[11px] font-mono text-text-faint truncate">
+              <span v-if="slugPreview">will create <span class="text-text-muted">{{ slugPreview }}.md</span></span>
             </p>
           </div>
-          <div class="flex items-center justify-between px-5 py-3 border-t border-[#242935] bg-[#141821]">
-            <span class="text-[10px] font-mono text-[#666D7C] tracking-wide">↵ create · esc cancel</span>
+          <div class="flex items-center justify-between px-5 py-3 border-t border-border-default bg-bg-elevated">
+            <span class="text-[10px] font-mono text-text-faint tracking-wide">↵ create · esc cancel</span>
             <div class="flex items-center gap-2">
               <button
                 @click="closeNewNote"
-                class="text-[12px] px-3 py-1 rounded text-[#9098A7] hover:text-[#D6DBE3] hover:bg-[#1D222D] transition-colors"
+                class="text-[12px] px-3 py-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
               >Cancel</button>
               <button
                 @click="confirmNewNote"
                 :disabled="!slugPreview || creating"
-                class="text-[12px] px-3 py-1 rounded bg-[#6B7BB0] text-[#F0F4F8] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c8bc0] transition-colors"
+                class="text-[12px] px-3 py-1 rounded bg-da-accent text-on-surface disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-container transition-colors"
               >{{ creating ? 'Creating…' : 'Create' }}</button>
             </div>
           </div>
