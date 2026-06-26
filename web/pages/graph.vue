@@ -59,12 +59,12 @@
       >
         <g :transform="`translate(${panX},${panY}) scale(${scale})`">
           <!-- edges -->
-          <g :stroke-width="0.8 / scale" fill="none">
+          <g :stroke-width="1.6 / scale" fill="none">
             <line
               v-for="l in displayLinks"
               :key="l.id"
               :x1="l.s.x" :y1="l.s.y" :x2="l.t.x" :y2="l.t.y"
-              :stroke="l.active ? colorFor(l.s.type) : '#2A3140'"
+              :stroke="l.active ? colorFor(l.s.type) : '#454A52'"
               :stroke-opacity="dim(l.active, l.faded)"
               :style="{ transition: 'stroke-opacity 120ms' }"
             />
@@ -286,7 +286,10 @@ const displayLinks = computed(() => {
     })
 })
 
-const dim = (active, faded) => (faded ? 0.08 : active ? 1 : 0.5)
+// Connection legibility: keep edges readable at rest and only de-emphasize
+// (never near-hide) non-neighbours when a node is focused, so the user can still
+// trace the wider structure. (graph canary, U1)
+const dim = (active, faded) => (faded ? 0.22 : active ? 1 : 0.85)
 
 const visibleNodeCount = computed(() => simNodes.value.filter((n) => !hiddenTypes.has(n.type)).length)
 const visibleLinkCount = computed(() => displayLinks.value.length)
