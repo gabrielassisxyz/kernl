@@ -1,73 +1,110 @@
 <template>
   <div
-    class="group flex items-center p-component rounded-lg border bg-surface hover:bg-surface-hover transition-colors duration-150 cursor-pointer relative overflow-hidden"
+    class="group flex items-center gap-component p-component rounded-lg border bg-surface hover:bg-surface-hover transition-colors cursor-pointer relative"
     :class="[
-      item.flagged ? 'border-status-gate/40 bg-status-gate/[0.04]' : 'border-border-hairline',
-      isSelected ? 'ring-1 ring-primary/40 border-primary/40' : 'hover:border-border-default'
+      selected ? 'border-primary/40 ring-1 ring-primary/30' : 'border-border-hairline hover:border-border-default',
+      isCursor ? 'bg-surface-hover' : ''
     ]"
     @click="$emit('select')"
   >
-    <div v-if="item.flagged" class="absolute left-0 top-0 bottom-0 w-[3px] bg-status-gate"></div>
+    <!-- select checkbox -->
+    <button
+      class="shrink-0 w-4 h-4 rounded-sm border flex items-center justify-center transition-all"
+      :class="[
+        selected ? 'bg-primary border-primary opacity-100' : 'border-border-default opacity-0 group-hover:opacity-100',
+        isCursor ? 'opacity-100' : ''
+      ]"
+      @click.stop="$emit('toggleSelect')"
+    >
+      <span v-if="selected" class="material-symbols-outlined !text-[12px] text-on-primary">check</span>
+    </button>
 
-    <div class="flex flex-col flex-1 min-w-0 pr-break" :class="{ 'pl-tight': item.flagged }">
+    <!-- body -->
+    <div class="flex flex-col flex-1 min-w-0">
       <div class="flex items-center gap-base mb-tight">
-        <span
-          v-if="item.flagged"
-          class="font-mono-data text-[10px] tracking-widest px-tight text-status-gate bg-status-gate/15 border border-status-gate/40"
-        >
-          DA
-        </span>
-        <span
-          class="font-mono-data text-[10px] tracking-widest px-tight text-text-faint border border-border-hairline"
-        >
-          {{ item.type || 'ITEM' }}
-        </span>
+        <span class="font-mono-data text-[10px] tracking-widest px-tight text-text-faint border border-border-hairline">{{ item.type || 'ITEM' }}</span>
         <h3 class="font-headline text-text-primary truncate">{{ item.title }}</h3>
       </div>
-
-      <template v-if="showSubtitle">
-        <div v-if="item.type === 'VOICE'" class="flex items-center gap-tight">
-          <span class="material-symbols-outlined text-[14px] text-primary">equalizer</span>
-          <p class="font-body text-text-muted truncate">{{ item.subtitle }}</p>
-        </div>
-        <p v-else-if="item.type === 'SNIPPET'" class="font-body text-text-muted truncate font-mono-data text-[12px]">{{ item.subtitle }}</p>
-        <p v-else class="font-body text-text-muted truncate">{{ item.subtitle }}</p>
-      </template>
+      <p v-if="showSubtitle" class="font-body text-text-muted truncate text-[12px]">{{ item.subtitle }}</p>
     </div>
-    
-    <div class="opacity-0 group-hover:opacity-100 flex items-center gap-section transition-opacity duration-200 bg-surface-hover pl-section">
-      <button @click.stop="$emit('action', 'keep')" class="font-mono-data text-text-muted hover:text-primary transition-colors">Keep</button>
-      <button @click.stop="$emit('action', 'convert')" class="font-mono-data text-text-muted hover:text-primary transition-colors">Convert</button>
-      <button @click.stop="$emit('action', 'discard')" class="font-mono-data text-text-muted hover:text-status-failed transition-colors">Discard</button>
+
+    <!-- DA suggestion chip -->
+    <div class="shrink-0 flex items-center">
+      <span v-if="!suggestion" class="flex items-center gap-tight font-mono-data text-[11px] text-text-dim">
+        <span class="material-symbols-outlined !text-[13px] animate-spin">progress_activity</span>
+        DA classifying…
+      </span>
+      <span
+        v-else
+        class="flex items-center gap-tight px-base py-0.5 rounded border font-mono-data text-[11px]"
+        :class="TARGET_META[suggestion.target].chip"
+      >
+        <span class="material-symbols-outlined !text-[13px]">{{ TARGET_META[suggestion.target].icon }}</span>
+        {{ chipLabel }}
+      </span>
+    </div>
+
+    <!-- row actions (always visible). Manual processing never depends on a DA suggestion. -->
+    <div class="shrink-0 flex items-center gap-base font-mono-data text-[11px] pl-base">
+      <!-- DA briefing: peek when present, generate on demand otherwise -->
+      <button v-if="item.hasPrep" class="px-base py-0.5 rounded border border-da-accent/40 text-da-accent hover:bg-da-accent/10 transition-colors" @click.stop="$emit('peek')">◆ Brief</button>
+      <button v-else class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-da-accent hover:border-da-accent/40 transition-colors disabled:opacity-50" :disabled="prepping" @click.stop="$emit('prep')">{{ prepping ? '…' : 'Prep' }}</button>
+      <div class="w-[1px] h-3 bg-border-hairline"></div>
+      <template v-if="suggestion">
+        <button class="px-base py-0.5 rounded border border-status-passed/40 text-status-passed hover:bg-status-passed/10 transition-colors" @click.stop="$emit('accept')">Accept</button>
+        <button class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-text-primary transition-colors" @click.stop="$emit('edit')">Edit</button>
+      </template>
+      <button v-else class="px-base py-0.5 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors" @click.stop="$emit('edit')">Process…</button>
+      <button class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-status-failed hover:border-status-failed/40 transition-colors" @click.stop="$emit('discard')">Discard</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { TARGET_META, type Target } from '~/utils/inboxTargets'
+
 export interface InboxItemData {
   id: string
   type: string
   title: string
   subtitle: string
+  suggestedAction?: string
+  suggestedProjectId?: string
+  hasPrep?: boolean
   flagged?: boolean
 }
 
-import { computed } from 'vue'
-
 const props = defineProps<{
   item: InboxItemData
-  isSelected?: boolean
+  /** normalized DA suggestion (target + resolved project title), or null while unclassified */
+  suggestion: { target: Target; projectTitle: string } | null
+  selected?: boolean
+  isCursor?: boolean
+  prepping?: boolean
 }>()
 
 defineEmits<{
-  (e: 'action', action: 'keep' | 'convert' | 'discard'): void
   (e: 'select'): void
+  (e: 'toggleSelect'): void
+  (e: 'accept'): void
+  (e: 'edit'): void
+  (e: 'discard'): void
+  (e: 'prep'): void
+  (e: 'peek'): void
 }>()
 
-// Captures often carry subtitle === title (body mirrors the one-liner); don't render the dupe.
+const chipLabel = computed(() => {
+  const s = props.suggestion!
+  const base = TARGET_META[s.target].label
+  if (s.target === 'task') return s.projectTitle ? `Task · ${s.projectTitle}` : 'Task · Unprocessed'
+  if (s.target === 'note' && s.projectTitle) return `Note · ${s.projectTitle}`
+  return base
+})
+
+// Captures often carry subtitle === title (body mirrors the one-liner); skip the dupe.
 const showSubtitle = computed(() => {
   const sub = (props.item.subtitle || '').trim()
-  const title = (props.item.title || '').trim()
-  return sub.length > 0 && sub !== title
+  return sub.length > 0 && sub !== (props.item.title || '').trim()
 })
 </script>

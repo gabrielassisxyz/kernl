@@ -48,7 +48,7 @@ func TestClassifier(t *testing.T) {
 	}
 
 	llm := &mockLLM{content: "bookmark"}
-	classifier := NewClassifier(g, llm)
+	classifier := NewClassifier(g, llm, ClassifierOptions{})
 
 	err = classifier.processPending(context.Background())
 	if err != nil {
@@ -60,12 +60,37 @@ func TestClassifier(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if cap.SuggestedAction != "convert_to_bookmark" {
-			t.Errorf("expected convert_to_bookmark, got %q", cap.SuggestedAction)
+		if cap.SuggestedAction != "bookmark" {
+			t.Errorf("expected bookmark, got %q", cap.SuggestedAction)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestParseClassification(t *testing.T) {
+	projects := []*nodes.Project{{ID: "p-web", Title: "Web UI"}, {ID: "p-core", Title: "Core"}}
+	cases := []struct {
+		name        string
+		raw         string
+		wantTarget  string
+		wantProject string
+	}{
+		{"json task with valid project", `{"target":"task","project_id":"p-web"}`, "task", "p-web"},
+		{"json task hallucinated project dropped", `{"target":"task","project_id":"p-ghost"}`, "task", ""},
+		{"json note ignores project", `{"target":"note","project_id":"p-web"}`, "note", ""},
+		{"json with surrounding prose", "Sure!\n{\"target\": \"bookmark\"}\nDone.", "bookmark", ""},
+		{"no json falls back to keyword", "this should be a discard", "discard", ""},
+		{"garbage falls back to note", "??!!", "note", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotTarget, gotProject := parseClassification(tc.raw, projects)
+			if gotTarget != tc.wantTarget || gotProject != tc.wantProject {
+				t.Errorf("parseClassification(%q) = (%q, %q), want (%q, %q)", tc.raw, gotTarget, gotProject, tc.wantTarget, tc.wantProject)
+			}
+		})
 	}
 }

@@ -5,22 +5,8 @@
       <h1 class="font-headline text-display text-text-primary font-medium tracking-tight">{{ greeting }}</h1>
     </header>
 
-    <!-- Quick Capture — full-width input row -->
-    <div class="mb-section bg-surface-container-low border border-border-hairline rounded h-12 px-base flex items-center gap-component focus-within:border-primary transition-colors">
-      <input
-        v-model="captureInput"
-        @keyup.enter="submitCapture"
-        type="text"
-        placeholder="capture a thought…"
-        class="w-full bg-transparent border-none p-0 focus:ring-0 font-body text-body text-text-primary placeholder:text-text-faint outline-none custom-caret"
-      >
-      <span
-        class="flex items-center gap-1 font-mono-data text-mono-data text-text-faint transition-opacity duration-300 shrink-0"
-        :class="captured ? 'opacity-100' : 'opacity-0'"
-      >
-        <span class="material-symbols-outlined !text-[14px]">check</span>captured
-      </span>
-    </div>
+    <!-- Quick Capture — terminal-style thought capture -->
+    <CaptureThought />
 
     <!-- Bento Grid Layout -->
     <div class="grid grid-cols-2 gap-section pb-margin">
@@ -138,24 +124,5 @@ const fmtTime = (s) => {
   if (!s) return ''
   const d = new Date(s)
   return isNaN(d.getTime()) ? '' : d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-// Quick Capture — writes a real Capture into the inbox (same as `kernl capture`).
-const captureInput = ref('')
-const captured = ref(false)
-let captureTimer
-
-const submitCapture = async () => {
-  const body = captureInput.value.trim()
-  if (!body) return
-  captureInput.value = ''
-  try {
-    await $fetch('/api/inbox', { method: 'POST', body: { body } })
-    captured.value = true
-    clearTimeout(captureTimer)
-    captureTimer = setTimeout(() => { captured.value = false }, 1500)
-  } catch (e) {
-    // swallow; keep the input quiet on failure
-  }
 }
 </script>

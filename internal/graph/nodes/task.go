@@ -131,6 +131,11 @@ func SetTaskStatus(ctx context.Context, tx *graph.WriteTx, id, status string, au
 	return nil
 }
 
+// DeleteTask removes a task, preserving a tombstone revision.
+func DeleteTask(ctx context.Context, tx *graph.WriteTx, id string, author Author) error {
+	return deleteNode(ctx, tx, id, author)
+}
+
 func scanTask(id string, title, attrsRaw, createdAt, updatedAt sql.NullString) (*Task, error) {
 	var attrs struct {
 		Description string `json:"description"`

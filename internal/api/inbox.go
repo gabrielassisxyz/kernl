@@ -8,6 +8,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
+	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
@@ -19,6 +20,24 @@ func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
 	})
 	mux.HandleFunc("POST /api/inbox/{id}/convert", func(w http.ResponseWriter, r *http.Request) {
 		convertCaptureHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/{id}/process", func(w http.ResponseWriter, r *http.Request) {
+		processCaptureHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/{id}/reopen", func(w http.ResponseWriter, r *http.Request) {
+		reopenCaptureHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/{id}/prep", func(w http.ResponseWriter, r *http.Request) {
+		prepCaptureHandler(w, r, a)
+	})
+	mux.HandleFunc("GET /api/inbox/{id}/prep", func(w http.ResponseWriter, r *http.Request) {
+		getPrepHandler(w, r, a)
+	})
+	mux.HandleFunc("GET /api/nodes/{id}/briefing", func(w http.ResponseWriter, r *http.Request) {
+		getBriefingHandler(w, r, a)
+	})
+	mux.HandleFunc("GET /api/inbox/processed", func(w http.ResponseWriter, r *http.Request) {
+		getProcessedHandler(w, r, a)
 	})
 	mux.HandleFunc("GET /api/inbox/rollups", func(w http.ResponseWriter, r *http.Request) {
 		getRollupsHandler(w, r, a)
@@ -69,12 +88,14 @@ func createCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 // by web/pages/inbox.vue (InboxItemData). The raw nodes.Capture struct carries
 // PascalCase fields and no subtitle, so it is mapped explicitly here.
 type inboxItemDTO struct {
-	ID              string `json:"id"`
-	Type            string `json:"type"`
-	Title           string `json:"title"`
-	Subtitle        string `json:"subtitle"`
-	SuggestedAction string `json:"suggestedAction"`
-	Flagged         bool   `json:"flagged"`
+	ID                 string `json:"id"`
+	Type               string `json:"type"`
+	Title              string `json:"title"`
+	Subtitle           string `json:"subtitle"`
+	SuggestedAction    string `json:"suggestedAction"`
+	SuggestedProjectID string `json:"suggestedProjectId"`
+	HasPrep            bool   `json:"hasPrep"`
+	Flagged            bool   `json:"flagged"`
 }
 
 // captureTitle derives a display title for a capture: its explicit Title when
@@ -99,13 +120,22 @@ func captureTitle(c *nodes.Capture) string {
 func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	ctx := r.Context()
 	var pending []*nodes.Capture
+	prepSet := map[string]bool{}
 
 	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var err error
 		pending, err = nodes.ListCaptures(ctx, tx, nodes.CaptureFilter{
 			Tags: []string{"pending"},
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		for _, c := range pending {
+			if prepID, err := inbox.PrepFor(ctx, tx, c.ID); err == nil && prepID != "" {
+				prepSet[c.ID] = true
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -119,12 +149,14 @@ func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.Ap
 			typ = "CAPTURE"
 		}
 		items = append(items, inboxItemDTO{
-			ID:              c.ID,
-			Type:            typ,
-			Title:           captureTitle(c),
-			Subtitle:        c.Body,
-			SuggestedAction: c.SuggestedAction,
-			Flagged:         c.SuggestedAction != "",
+			ID:                 c.ID,
+			Type:               typ,
+			Title:              captureTitle(c),
+			Subtitle:           c.Body,
+			SuggestedAction:    c.SuggestedAction,
+			SuggestedProjectID: c.SuggestedProjectID,
+			HasPrep:            prepSet[c.ID],
+			Flagged:            c.SuggestedAction != "",
 		})
 	}
 
@@ -161,6 +193,171 @@ func convertCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// processCaptureHandler is the structured successor to convertCaptureHandler:
+// it accepts an explicit target plus optional project/link/title so the inbox
+// modal can file a capture as a task under a project, link a note/bookmark to
+// another node, or override the title — none of which the single {action} field
+// can express.
+func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Target    string `json:"target"`    // note | bookmark | task | discard | convert
+		ProjectID string `json:"projectId"` // task only
+		LinkTo    string `json:"linkTo"`    // note/bookmark only
+		Title     string `json:"title"`     // optional override
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Target == "" {
+		http.Error(w, "target is required", http.StatusBadRequest)
+		return
+	}
+
+	vaultRoot := a.Config.Vault.Root
+	bookmarksDir := filepath.Join(vaultRoot, ".kernl", "bookmarks")
+	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
+
+	err := inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
+		Target:    req.Target,
+		ProjectID: req.ProjectID,
+		LinkTo:    req.LinkTo,
+		Title:     req.Title,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// reopenCaptureHandler reverses a process: removes the derived node and returns
+// the capture to the pending queue (the inbox undo).
+func reopenCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if err := inbox.Reopen(r.Context(), a.Graph, a.Config.Vault.Root, id); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// prepCaptureHandler manually triggers a DA briefing for a capture and returns
+// the prep note. Idempotent: an already-prepped capture returns its note.
+func prepCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if !a.Config.LLM.IsSet() {
+		writeError(w, http.StatusServiceUnavailable, "no llm provider configured")
+		return
+	}
+	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "llm: "+err.Error())
+		return
+	}
+	noteID, err := inbox.Prep(r.Context(), a.Graph, llm, a.Config.Vault.Root, a.Config.Inbox.DASubdir, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writePrepNote(w, r, a, noteID)
+}
+
+// getPrepHandler returns a capture's existing prep note, or 404 if none.
+func getPrepHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	var noteID string
+	err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
+		var e error
+		noteID, e = inbox.PrepFor(r.Context(), tx, id)
+		return e
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if noteID == "" {
+		http.Error(w, "no prep", http.StatusNotFound)
+		return
+	}
+	writePrepNote(w, r, a, noteID)
+}
+
+// getBriefingHandler returns the DA briefing surfaced for a processed node
+// (task/note/bookmark), or 404 if none.
+func getBriefingHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	var noteID string
+	err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
+		var e error
+		noteID, e = inbox.BriefingFor(r.Context(), tx, id)
+		return e
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if noteID == "" {
+		http.Error(w, "no briefing", http.StatusNotFound)
+		return
+	}
+	writePrepNote(w, r, a, noteID)
+}
+
+// writePrepNote responds with the prep note's id, title, and body.
+func writePrepNote(w http.ResponseWriter, r *http.Request, a *app.App, noteID string) {
+	var note *nodes.Note
+	err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
+		var e error
+		note, e = nodes.GetNote(r.Context(), tx, noteID)
+		return e
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"id": note.ID, "title": note.Title, "body": note.Body})
+}
+
+func getProcessedHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	items, err := inbox.ListProcessed(r.Context(), a.Graph)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if items == nil {
+		items = []inbox.ProcessedItem{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
 }
 
 func getRollupsHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
