@@ -3,22 +3,22 @@
     <div class="flex items-start justify-between gap-break">
       <!-- Content -->
       <div class="flex-1 min-w-0">
-        <p class="font-body text-text-primary text-[13px] leading-relaxed">{{ claim.Statement || claim.statement || claim.Title || claim.title }}</p>
+        <p class="font-body text-text-primary text-body leading-relaxed">{{ claim.Statement || claim.statement || claim.Title || claim.title }}</p>
       </div>
       
       <!-- Actions -->
-      <div class="opacity-0 group-hover:opacity-100 flex items-center transition-opacity duration-200 shrink-0">
-        <button @click="isRefuting = true" v-if="!isRefuting" class="font-mono-data text-[12px] text-text-muted hover:text-status-failed transition-colors px-2 py-1 rounded bg-transparent hover:bg-surface-container-low border border-transparent hover:border-border-hairline">
+      <div class="flex items-center shrink-0">
+        <button @click="isRefuting = true" v-if="!isRefuting" class="font-mono-data text-mono-data text-text-muted hover:text-status-failed-text transition-colors px-2 py-1 rounded bg-transparent hover:bg-surface-container-low border border-transparent hover:border-border-hairline outline-none focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:border-primary/70">
           Refute
         </button>
       </div>
     </div>
 
-    <!-- Provenance (Hover/Expand) -->
-    <div class="mt-component pt-component border-t border-border-hairline opacity-0 h-0 overflow-hidden group-hover:opacity-100 group-hover:h-auto transition-all duration-200">
-      <div class="flex items-center gap-component text-[11px] font-mono-data text-text-faint">
-        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">source</span> {{ claim.Source || claim.source || 'Unknown' }}</span>
-        <span v-if="claim.Confidence || claim.confidence != null" class="flex items-center gap-1"><span class="material-symbols-outlined text-[14px]">analytics</span> {{(claim.Confidence || claim.confidence) * 100}}%</span>
+    <!-- Provenance -->
+    <div class="mt-component pt-component border-t border-border-hairline">
+      <div class="flex items-center gap-component text-mono-data font-mono-data text-text-faint">
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-body">source</span> {{ claim.Source || claim.source || 'Unknown' }}</span>
+        <span v-if="claim.Confidence || claim.confidence != null" class="flex items-center gap-1"><span class="material-symbols-outlined text-body">analytics</span> {{(claim.Confidence || claim.confidence) * 100}}%</span>
         <span>{{ claim.ID || claim.id }}</span>
         <span v-if="claim.CreatedAt || claim.createdAt">{{ formatDate(claim.CreatedAt || claim.createdAt) }}</span>
       </div>
@@ -26,18 +26,17 @@
 
     <!-- Refute Inline Form -->
     <div v-if="isRefuting" class="mt-component pt-component border-t border-border-hairline flex flex-col gap-tight">
-      <input 
+      <UiInput
         v-model="refuteReason" 
-        type="text" 
         placeholder="Reason for refutation..." 
-        class="w-full bg-surface-container-low border border-border-hairline rounded px-3 py-2 text-[13px] font-body text-text-primary focus:outline-none focus:border-primary transition-colors custom-caret"
+        classes="h-9 w-full rounded border border-border-hairline bg-surface-container-low px-component font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50 custom-caret"
         @keyup.enter="submitRefute"
         @keyup.escape="cancelRefute"
         autofocus
       />
       <div class="flex items-center justify-end gap-2 mt-2">
-        <button @click="cancelRefute" class="font-mono-data text-[11px] text-text-muted hover:text-text-primary px-2 py-1 transition-colors">Cancel</button>
-        <button @click="submitRefute" :disabled="!refuteReason.trim()" class="font-mono-data text-[11px] bg-status-failed text-[#F2F2EF] px-3 py-1 rounded hover:opacity-90 disabled:opacity-50 transition-colors">Submit</button>
+        <UiButton variant="ghost" size="xs" @click="cancelRefute">Cancel</UiButton>
+        <UiButton variant="danger" size="xs" :disabled="!refuteReason.trim()" @click="submitRefute">Submit</UiButton>
       </div>
     </div>
   </div>
@@ -45,6 +44,8 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import UiButton from '~/components/ui/UiButton.vue'
+import UiInput from '~/components/ui/UiInput.vue'
 
 const props = defineProps<{
   claim: any

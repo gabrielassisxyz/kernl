@@ -6,8 +6,8 @@
         <span class="font-mono-data text-text-faint pt-1">{{ totalCount }} items · {{ flaggedCount }} flagged by DA</span>
       </div>
       <div class="flex items-center gap-base">
-        <span class="font-mono-data text-text-dim px-base border border-border-hairline rounded bg-surface-container-low">⌘ K Search</span>
-        <button class="material-symbols-outlined text-text-muted hover:text-text-primary transition-colors">filter_list</button>
+        <span class="font-mono-data text-text-faint px-base border border-border-hairline rounded bg-surface-container-low">⌘ K Search</span>
+        <button class="material-symbols-outlined text-text-muted hover:text-text-primary transition-colors" aria-label="Filter list">filter_list</button>
       </div>
     </div>
   </header>

@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-screen bg-bg-base font-sans">
+  <div class="flex h-full bg-bg-base font-sans">
     <div class="w-64 border-r border-border-default flex flex-col bg-bg-elevated">
       <div class="h-12 border-b border-border-default flex items-center justify-between px-4 shrink-0">
         <h1 class="font-medium text-text-primary text-[14px]">Notes Vault</h1>
@@ -18,56 +18,41 @@
     </div>
     <div class="flex-1 relative flex flex-col bg-bg-base">
       <div class="h-12 border-b border-border-default flex items-center px-4 shrink-0">
-        <span v-if="selectedFile" class="font-mono text-text-muted text-[12px]">{{ selectedFile }}</span>
+        <div v-if="selectedFile" class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-[16px] text-text-faint">description</span>
+          <span class="font-body text-text-primary text-[14px] font-medium">{{ selectedFile.replace(/\.md$/, '') }}</span>
+          <span class="font-mono-data text-text-faint text-[10px] bg-surface-container border border-border-hairline px-1.5 py-0.5 rounded">{{ selectedFile }}</span>
+        </div>
       </div>
       <div class="flex-1 overflow-hidden relative">
-        <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" />
+        <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" @open-wikilink="openWikilink" />
         <div v-else class="absolute inset-0 flex items-center justify-center text-text-faint text-[13px]">
           Select a file from tags or create a new note
         </div>
       </div>
     </div>
 
-    <!-- New Note modal -->
-    <Transition name="modal">
-      <div
-        v-if="showNewNote"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-        @click.self="closeNewNote"
-        @keydown.esc="closeNewNote"
-      >
-        <div class="modal-card w-[340px] bg-surface-overlay border border-border-default rounded-lg overflow-hidden shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75)]">
-          <div class="px-5 pt-4 pb-3">
-            <span class="block text-[11px] uppercase tracking-[0.14em] text-text-faint mb-3">New note</span>
-            <input
-              ref="titleInput"
-              v-model="newTitle"
-              @keydown.enter="confirmNewNote"
-              @keydown.esc="closeNewNote"
-              placeholder="Untitled note"
-              class="w-full bg-bg-base border border-border-default rounded px-3 py-2 text-[14px] text-text-primary placeholder-text-faint focus:outline-none focus:border-da-accent transition-colors"
-            />
-            <p class="mt-2 h-4 text-[11px] font-mono text-text-faint truncate">
-              <span v-if="slugPreview">will create <span class="text-text-muted">{{ slugPreview }}.md</span></span>
-            </p>
-          </div>
-          <div class="flex items-center justify-between px-5 py-3 border-t border-border-default bg-bg-elevated">
-            <span class="text-[10px] font-mono text-text-faint tracking-wide">↵ create · esc cancel</span>
-            <div class="flex items-center gap-2">
-              <button
-                @click="closeNewNote"
-                class="text-[12px] px-3 py-1 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
-              >Cancel</button>
-              <button
-                @click="confirmNewNote"
-                :disabled="!slugPreview || creating"
-                class="text-[12px] px-3 py-1 rounded bg-da-accent text-on-surface disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-container transition-colors"
-              >{{ creating ? 'Creating…' : 'Create' }}</button>
-            </div>
+    <UiModal :open="showNewNote" title="New note" size="sm" @close="closeNewNote">
+      <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
+        <UiInput
+          ref="titleInput"
+          v-model="newTitle"
+          placeholder="Untitled note"
+          @keydown.enter="confirmNewNote"
+          @keydown.esc="closeNewNote"
+        />
+      </UiField>
+
+      <template #footer>
+        <div class="flex items-center justify-between gap-component">
+          <span class="font-mono-data text-mono-data text-text-muted">Enter creates · Esc cancels</span>
+          <div class="flex items-center gap-base">
+            <UiButton variant="ghost" @click="closeNewNote">Cancel</UiButton>
+            <UiButton variant="primary" :loading="creating" :disabled="!slugPreview" @click="confirmNewNote">Create note</UiButton>
           </div>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -76,6 +61,10 @@ import { ref, computed, nextTick } from 'vue'
 import MarkdownEditor from '~/components/notes/MarkdownEditor.vue'
 import TagHierarchy from '~/components/notes/TagHierarchy.vue'
 import NoteList from '~/components/notes/NoteList.vue'
+import UiButton from '~/components/ui/UiButton.vue'
+import UiField from '~/components/ui/UiField.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+import UiModal from '~/components/ui/UiModal.vue'
 
 const selectedFile = ref(null)
 const noteListRef = ref(null)
@@ -87,6 +76,20 @@ const creating = ref(false)
 
 const selectFile = (path) => {
   selectedFile.value = path
+}
+
+// Resolve a ctrl/cmd-clicked wikilink target to an actual vault file and
+// select it the same way clicking a note in the list does.
+const openWikilink = async (target) => {
+  const slug = target.endsWith('.md') ? target : `${target}.md`
+  try {
+    const res = await fetch('/api/vault/list')
+    if (res.ok) {
+      const { files } = await res.json()
+      const match = (files || []).find((f) => f === slug || f.endsWith(`/${slug}`))
+      if (match) selectFile(match)
+    }
+  } catch (e) { /* best-effort wikilink navigation */ }
 }
 
 const slugify = (title) => title
@@ -148,23 +151,3 @@ const confirmNewNote = async () => {
   }
 }
 </script>
-
-<style scoped>
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.18s ease;
-}
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-.modal-enter-active .modal-card,
-.modal-leave-active .modal-card {
-  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
-}
-.modal-enter-from .modal-card,
-.modal-leave-to .modal-card {
-  transform: translateY(6px) scale(0.98);
-  opacity: 0;
-}
-</style>

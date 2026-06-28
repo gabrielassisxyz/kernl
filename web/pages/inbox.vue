@@ -1,13 +1,11 @@
 <template>
-  <!-- Header Strip -->
   <InboxHeader :totalCount="items.length" :flaggedCount="flaggedCount" />
 
-  <!-- Tabs + Quick Capture -->
   <div class="px-section pt-base flex items-center justify-between">
     <div class="flex items-center gap-tight font-mono-data text-[11px] border border-border-hairline rounded overflow-hidden">
       <button
         v-for="t in tabs" :key="t.key"
-        class="px-component py-1 transition-colors"
+        class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
         :class="tab === t.key ? 'bg-surface-hover text-text-primary' : 'text-text-muted hover:text-text-primary'"
         @click="tab = t.key"
       >{{ t.label }} <span class="text-text-faint">{{ t.count }}</span></button>
@@ -18,8 +16,7 @@
     <CaptureThought @submit="() => refresh()" />
   </div>
 
-  <!-- ===== Unprocessed queue ===== -->
-  <section v-if="tab === 'unprocessed'" class="flex-1 overflow-y-auto hide-scrollbar relative">
+  <section v-if="tab === 'unprocessed'" class="flex-1 overflow-y-auto relative">
     <div class="flex flex-col gap-base px-section py-base pb-[120px]">
       <template v-for="(item, index) in items" :key="item.id">
         <InboxItem
@@ -36,73 +33,87 @@
           @prep="triggerPrep(item)"
           @peek="togglePeek(item)"
         />
-        <div v-if="peekId === item.id" class="mx-component -mt-tight mb-tight px-component py-base rounded-b-lg border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
+        <div v-if="peekId === item.id" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
           <div class="flex items-center gap-tight mb-tight">
-            <span class="font-mono-data text-[10px] tracking-widest text-da-accent">DA BRIEFING</span>
-            <button class="ml-auto font-mono-data text-[10px] text-text-muted hover:text-text-primary" @click="peekId = null">close</button>
+            <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
+            <button class="ml-auto font-mono-data text-[10px] text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
           </div>
           <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
         </div>
       </template>
 
-      <div v-if="!pending && items.length === 0" class="flex flex-col items-center justify-center py-break text-text-muted">
-        <span class="material-symbols-outlined text-[32px] mb-component">inbox</span>
-        <p class="font-body">Inbox is empty</p>
-      </div>
+      <UiErrorState
+        v-if="error"
+        title="Could not load inbox."
+        message="Check that the Kernl API is running, then retry."
+        :detail="error?.message ?? null"
+        @retry="refresh"
+      />
+      <UiEmptyState
+        v-if="!error && !pending && items.length === 0"
+        icon="inbox"
+        title="Inbox is empty."
+        body="Captured thoughts and incoming material appear here before you turn them into notes, tasks, or bookmarks."
+      />
     </div>
 
     <!-- batch bar -->
     <div
       v-if="selected.size > 0"
-      class="absolute bottom-section left-1/2 -translate-x-1/2 flex items-center gap-component bg-surface-container-high border border-primary/40 px-section py-base rounded shadow-2xl"
+      class="absolute bottom-section left-1/2 -translate-x-1/2 flex items-center gap-component bg-surface-container-high border border-primary/40 px-section py-base rounded"
     >
       <span class="font-mono-data text-[11px] text-text-primary">{{ selected.size }} selected</span>
       <div class="w-[1px] h-4 bg-border-hairline"></div>
-      <button class="font-mono-data text-[11px] text-status-passed hover:underline" @click="acceptSelected">Process all (accept DA)</button>
-      <button class="font-mono-data text-[11px] text-status-failed hover:underline" @click="discardSelected">Discard all</button>
-      <button class="font-mono-data text-[11px] text-text-muted hover:text-text-primary" @click="selected.clear()">Clear</button>
+      <button class="font-mono-data text-[11px] text-status-passed hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="acceptSelected">Process all (accept DA)</button>
+      <button class="font-mono-data text-[11px] text-status-failed-text hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="discardSelected">Discard all</button>
+      <button class="font-mono-data text-[11px] text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="selected.clear()">Clear</button>
     </div>
 
     <InboxHint v-else-if="items.length > 0" />
   </section>
 
-  <!-- ===== Processed history ===== -->
-  <section v-else class="flex-1 overflow-y-auto hide-scrollbar">
+  <section v-else class="flex-1 overflow-y-auto">
     <div class="flex flex-col gap-base px-section py-base">
       <div
         v-for="p in processed"
         :key="p.captureId"
-        class="flex items-center gap-component p-component rounded-lg border border-border-hairline bg-surface/60"
+        class="flex items-center gap-component p-component border-b border-border-hairline"
       >
         <span class="material-symbols-outlined !text-[16px] shrink-0" :class="becameText(p.became)">{{ becameIcon(p.became) }}</span>
         <div class="flex flex-col flex-1 min-w-0">
           <div class="flex items-center gap-base">
-            <span class="font-mono-data text-[10px] tracking-widest" :class="becameText(p.became)">{{ becameLabel(p) }}</span>
+            <span class="font-mono-data text-mono-data" :class="becameText(p.became)">{{ becameLabel(p) }}</span>
           </div>
           <h3 class="font-headline text-text-primary truncate" :class="p.became === 'discard' ? 'line-through text-text-muted' : ''">{{ p.title }}</h3>
         </div>
-        <button class="shrink-0 font-mono-data text-[11px] text-text-muted hover:text-primary transition-colors" @click="reopenCapture(p.captureId)">↩ Undo</button>
+        <button class="shrink-0 font-mono-data text-[11px] text-text-muted hover:text-primary transition-colors rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="reopenCapture(p.captureId)">↩ Undo</button>
       </div>
 
-      <div v-if="processed.length === 0" class="flex flex-col items-center justify-center py-break text-text-muted">
-        <span class="material-symbols-outlined text-[32px] mb-component">history</span>
-        <p class="font-body">Nothing processed yet</p>
-      </div>
+      <UiErrorState
+        v-if="processedError"
+        title="Could not load processed items."
+        message="Check that the Kernl API is running, then retry."
+        :detail="processedError?.message ?? null"
+        @retry="refreshProcessed"
+      />
+      <UiEmptyState
+        v-if="!processedError && processed.length === 0"
+        icon="history"
+        title="Nothing processed yet."
+        body="Processed captures appear here with a short undo window."
+      />
     </div>
   </section>
 
   <!-- override modal -->
   <ProcessModal :item="modalItem" :projects="projects" :busy="busy" @close="modalItem = null" @confirm="confirmModal" />
 
-  <!-- undo toast -->
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="toast" class="fixed bottom-section left-section z-[70] flex items-center gap-component bg-surface-container-high border border-border-hairline px-component py-base rounded shadow-2xl">
-        <span class="font-body text-body text-text-primary truncate max-w-[40ch]">{{ toast }}</span>
-        <button v-if="undoStack.length > 0" class="font-mono-data text-[11px] text-primary hover:underline shrink-0" @click="undo">↩ Undo (U)</button>
-      </div>
-    </Transition>
-  </Teleport>
+  <UiToast
+    :message="toast"
+    :action-label="undoStack.length > 0 ? 'Undo (U)' : ''"
+    icon="history"
+    @action="undo"
+  />
 </template>
 
 <script setup lang="ts">
@@ -115,6 +126,9 @@ import ProcessModal from '~/components/inbox/ProcessModal.vue'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
 import { useProjects } from '~/composables/useProjects'
 import { TARGET_META, normalizeTarget, type Target } from '~/utils/inboxTargets'
+import UiEmptyState from '~/components/ui/UiEmptyState.vue'
+import UiErrorState from '~/components/ui/UiErrorState.vue'
+import UiToast from '~/components/ui/UiToast.vue'
 
 interface ProcessedRow {
   captureId: string
@@ -128,8 +142,8 @@ interface ProcessedRow {
 
 interface ProcessPayload { target: Target; projectId: string; linkTo: string; title: string }
 
-const { data, pending, refresh } = useFetch<InboxItemData[]>('/api/inbox/pending', { server: false, default: () => [] })
-const { data: processedData, refresh: refreshProcessed } = useFetch<ProcessedRow[]>('/api/inbox/processed', { server: false, default: () => [] })
+const { data, pending, refresh, error } = useFetch<InboxItemData[]>('/api/inbox/pending', { server: false, default: () => [] })
+const { data: processedData, refresh: refreshProcessed, error: processedError } = useFetch<ProcessedRow[]>('/api/inbox/processed', { server: false, default: () => [] })
 const { projects, load: loadProjects } = useProjects()
 
 const items = computed(() => data.value || [])
@@ -298,8 +312,3 @@ onMounted(() => {
 })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
-
-<style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 140ms ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-</style>

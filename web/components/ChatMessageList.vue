@@ -1,24 +1,24 @@
 <template>
   <div class="overflow-y-auto p-4 space-y-2" ref="scrollContainer">
-    <div v-if="!messages.length && !error" class="text-[#475569] italic p-4">
+    <div v-if="!messages.length && !error" class="p-component font-body text-body text-text-muted">
       Start a conversation.
     </div>
     <div
       v-for="(msg, idx) in messages"
       :key="idx"
-      class="px-3 py-1.5 rounded text-sm leading-relaxed whitespace-pre-wrap break-words"
+      class="px-base py-1.5 rounded text-body leading-relaxed whitespace-pre-wrap break-words"
       :class="msg.role === 'user'
-        ? 'bg-[#1d4ed8]/20 text-[#93c5fd] self-end ml-8'
+        ? 'bg-da-accent/10 text-primary self-end ml-8'
         : msg.role === 'error'
-          ? 'bg-[#7f1d1d]/30 text-[#fca5a5]'
-          : 'bg-[#334155]/50 text-[#e2e8f0] mr-8'"
+          ? 'bg-status-failed/10 text-status-failed-text'
+          : 'bg-surface-container text-text-primary mr-8'"
     >
       {{ msg.content }}
     </div>
-    <div v-if="error" class="px-3 py-1.5 rounded text-sm bg-[#7f1d1d]/30 text-[#fca5a5]">
+    <div v-if="error" class="px-base py-1.5 rounded text-body bg-status-failed/10 text-status-failed-text">
       {{ error }}
     </div>
-    <div v-if="isStreaming" class="text-[#38bdf8] text-sm animate-pulse px-3 py-1">
+    <div v-if="isStreaming" class="text-primary text-body animate-pulse px-base py-1">
       Thinking...
     </div>
   </div>

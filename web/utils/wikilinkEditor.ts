@@ -193,16 +193,16 @@ export function wikilinkPills(onPillClick?: (target: string) => void) {
 // Theme: pills + completion menu chip, matching the editor's dark IBM-Plex look.
 export const wikilinkTheme = EditorView.theme({
   '.cm-wl-pill': {
-    backgroundColor: 'rgba(107, 123, 176, 0.10)',
+    backgroundColor: 'color-mix(in srgb, var(--color-da-accent) 10%, transparent)',
     borderRadius: '4px',
     padding: '0 3px',
-    boxShadow: 'inset 0 0 0 1px rgba(107, 123, 176, 0.22)',
+    boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 22%, transparent)',
     transition: 'background-color 120ms ease, box-shadow 120ms ease',
   },
   // Brighten on hover so the link reads as interactive (ctrl/cmd-click navigates).
   '.cm-wl-pill:hover': {
-    backgroundColor: 'rgba(107, 123, 176, 0.18)',
-    boxShadow: 'inset 0 0 0 1px rgba(107, 123, 176, 0.40)',
+    backgroundColor: 'color-mix(in srgb, var(--color-da-accent) 18%, transparent)',
+    boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 40%, transparent)',
   },
   '.cm-wl-dot': {
     display: 'inline-block',
@@ -210,22 +210,22 @@ export const wikilinkTheme = EditorView.theme({
     height: '5px',
     marginRight: '4px',
     borderRadius: '50%',
-    backgroundColor: '#6B7BB0',
-    boxShadow: '0 0 0 2px rgba(107, 123, 176, 0.15)',
+    backgroundColor: 'var(--color-da-accent)',
+    boxShadow: '0 0 0 2px color-mix(in srgb, var(--color-da-accent) 15%, transparent)',
     transform: 'translateY(-1px)',
     verticalAlign: 'middle',
   },
   '.cm-wl-dim': {
-    color: '#4A5160',
+    color: 'var(--color-text-dim)',
     opacity: '0.55',
     transition: 'color 120ms ease, opacity 120ms ease',
   },
   '.cm-wl-alias': {
-    color: '#A9B6E6',
+    color: 'var(--color-primary-fixed-dim)',
     transition: 'color 120ms ease',
   },
   '.cm-wl-pill:hover .cm-wl-alias': {
-    color: '#C2CCF0',
+    color: 'var(--color-primary-fixed)',
   },
   // De-emphasised uuid/brackets fade up slightly on hover so the full target is
   // legible when the user is about to navigate, without ever fully shouting.
@@ -235,10 +235,9 @@ export const wikilinkTheme = EditorView.theme({
 
   // --- Completion popup, themed to the dark IBM-Plex editor ---
   '.cm-tooltip.cm-tooltip-autocomplete': {
-    border: '1px solid #242935',
+    border: '1px solid var(--color-border-default)',
     borderRadius: '6px',
-    backgroundColor: '#181C26',
-    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.45)',
+    backgroundColor: 'var(--color-surface-overlay)',
     overflow: 'hidden',
   },
   '.cm-tooltip-autocomplete > ul': {
@@ -251,12 +250,12 @@ export const wikilinkTheme = EditorView.theme({
     justifyContent: 'space-between',
     gap: '12px',
     padding: '5px 10px',
-    color: '#D6DBE3',
+    color: 'var(--color-text-primary)',
     lineHeight: '1.4',
   },
   '.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-    backgroundColor: '#1D222D',
-    color: '#F0F4F8',
+    backgroundColor: 'var(--color-surface-hover)',
+    color: 'var(--color-on-surface)',
   },
   // The node title.
   '.cm-tooltip-autocomplete .cm-completionLabel': {
@@ -272,7 +271,7 @@ export const wikilinkTheme = EditorView.theme({
     fontSize: '10px',
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
-    color: '#666D7C',
+    color: 'var(--color-text-muted)',
   },
 
   // Completion type chip (rendered in the info panel).
@@ -281,7 +280,7 @@ export const wikilinkTheme = EditorView.theme({
     alignItems: 'center',
     gap: '6px',
     fontSize: '12px',
-    color: '#9098A7',
+    color: 'var(--color-text-muted)',
   },
   '.cm-wl-info-icon': {
     fontSize: '16px',

@@ -1,33 +1,19 @@
 <template>
-  <div class="border-t border-[#334155] bg-[#450a0a]/50 p-3 flex items-center justify-between gap-2 flex-wrap">
-    <span class="text-sm text-[#fca5a5]">
+  <div class="border-t border-border-hairline bg-status-failed/10 p-component flex items-center justify-between gap-base flex-wrap">
+    <span class="font-body text-body text-status-failed-text">
       Agent wants to read: {{ permission.node_path || permission.node_id }}
     </span>
-    <div class="flex gap-2">
-      <button
-        class="bg-[#16a34a] text-white px-3 py-1 rounded font-mono text-xs hover:bg-[#22c55e] transition-colors"
-        @click="$emit('approve')"
-      >
-        Permitir
-      </button>
-      <button
-        class="bg-[#dc2626] text-white px-3 py-1 rounded font-mono text-xs hover:bg-[#ef4444] transition-colors"
-        @click="$emit('deny')"
-      >
-        Negar
-      </button>
-      <button
-        class="bg-[#ca8a04] text-white px-3 py-1 rounded font-mono text-xs hover:bg-[#eab308] transition-colors"
-        @click="$emit('deny-feedback')"
-      >
-        Nao e relevante
-      </button>
+    <div class="flex gap-base">
+      <UiButton variant="success" size="sm" @click="$emit('approve')">Allow</UiButton>
+      <UiButton variant="danger" size="sm" @click="$emit('deny')">Deny</UiButton>
+      <UiButton variant="secondary" size="sm" @click="$emit('deny-feedback')">Not relevant</UiButton>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { PermissionEvent } from '~/composables/useChatSession';
+import UiButton from '~/components/ui/UiButton.vue'
 
 defineProps<{
   permission: PermissionEvent;

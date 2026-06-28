@@ -1,10 +1,8 @@
 <template>
   <button
     type="button"
-    class="group relative w-full text-left rounded-lg border bg-surface px-component py-base flex flex-col gap-base transition-colors duration-150 cursor-pointer overflow-hidden outline-none focus-visible:border-primary"
-    :class="bead.requiresHumanAction
-      ? 'border-status-gate/40 hover:border-status-gate/60 hover:bg-surface-hover'
-      : 'border-border-hairline hover:border-border-default hover:bg-surface-hover'"
+    class="group relative w-full text-left rounded bg-transparent px-component py-base flex flex-col gap-base transition-colors duration-150 cursor-pointer overflow-hidden outline-none focus-visible:bg-surface-hover hover:bg-surface-hover"
+    :class="bead.requiresHumanAction ? 'bg-status-gate/10 hover:bg-status-gate/20' : ''"
     @click="$emit('open', bead)"
   >
     <!-- amber gate left-edge mark -->
@@ -18,7 +16,7 @@
       {{ bead.title }}
     </h3>
 
-    <div class="flex items-center gap-tight font-mono-data text-[11px]"
+    <div class="flex items-center gap-tight font-mono-data text-mono-data"
          :class="{ 'pl-tight': bead.requiresHumanAction }">
       <span
         class="w-1.5 h-1.5 rounded-full shrink-0"

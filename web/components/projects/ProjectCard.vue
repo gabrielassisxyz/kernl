@@ -33,10 +33,10 @@
     <!-- Task progress meter -->
     <div class="mt-component">
       <div class="flex items-center justify-between mb-tight">
-        <span class="font-mono-data text-[11px] text-text-faint tracking-tight">
+        <span class="font-mono-data text-mono-data text-text-faint tracking-tight">
           {{ project.doneCount }}/{{ project.taskCount }} tasks
         </span>
-        <span class="font-mono-data text-[11px] tracking-tight" :class="percentTone">
+        <span class="font-mono-data text-mono-data tracking-tight" :class="percentTone">
           {{ project.taskCount > 0 ? pct + '%' : '—' }}
         </span>
       </div>
@@ -51,10 +51,10 @@
 
     <!-- Footer: status + updatedAt -->
     <div class="mt-component flex items-center justify-between border-t border-border-hairline pt-base">
-      <span class="font-mono-data text-[10px] uppercase tracking-widest text-text-faint">
+      <span class="font-mono-data text-mono-data uppercase tracking-widest text-text-faint">
         {{ statusLabel }}
       </span>
-      <span class="font-mono-data text-[10px] text-text-dim">
+      <span class="font-mono-data text-mono-data text-text-faint">
         {{ updated }}
       </span>
     </div>

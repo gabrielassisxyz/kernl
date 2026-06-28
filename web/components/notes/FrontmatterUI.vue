@@ -1,10 +1,10 @@
 <template>
-  <div class="bg-[#141821] p-4 border-b border-[#1B2029]">
-    <h3 class="text-[11.5px] uppercase font-semibold tracking-[0.12em] text-[#666D7C] mb-3">Properties</h3>
-    <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-[13px]">
+  <div class="bg-bg-elevated p-component border-b border-border-hairline">
+    <h3 class="font-label-caps text-label-caps text-text-muted mb-base">Properties</h3>
+    <div class="grid grid-cols-2 gap-x-6 gap-y-2 text-body">
       <div v-for="(val, key) in displayData" :key="key" class="flex gap-4">
-        <span class="text-[#9098A7] w-24 shrink-0 font-medium">{{ key }}</span>
-        <span class="text-[#D6DBE3] truncate">{{ val }}</span>
+        <span class="text-text-muted w-24 shrink-0 font-medium">{{ key }}</span>
+        <span class="text-text-primary truncate">{{ val }}</span>
       </div>
     </div>
   </div>

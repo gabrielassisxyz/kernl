@@ -1,24 +1,26 @@
 <template>
-  <div class="border-t border-[#334155] p-3 flex items-center gap-2">
-    <input
+  <div class="border-t border-border-hairline p-component flex items-center gap-base">
+    <UiInput
       v-model="text"
-      type="text"
       placeholder="Type a message..."
       :disabled="disabled"
-      class="flex-1 bg-[#0f172a] border border-[#334155] text-[#e2e8f0] p-2 rounded font-mono text-sm focus:outline-none focus:border-[#3b82f6] disabled:opacity-50"
+      classes="h-9 flex-1 rounded border border-border-hairline bg-bg-base px-component font-mono-data text-mono-data text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50"
       @keydown.enter="emitSend"
     />
-    <button
+    <UiButton
       :disabled="disabled || !text.trim()"
-      class="bg-[#1d4ed8] text-white px-4 py-2 rounded font-mono text-sm hover:bg-[#2563eb] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      variant="primary"
       @click="emitSend"
     >
       Send
-    </button>
+    </UiButton>
   </div>
 </template>
 
 <script setup lang="ts">
+import UiButton from '~/components/ui/UiButton.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+
 defineProps<{
   disabled: boolean;
 }>();

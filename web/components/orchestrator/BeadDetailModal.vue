@@ -1,108 +1,85 @@
 <template>
-  <Teleport to="body">
-    <Transition name="modal">
-      <div
-        v-if="bead"
-        class="fixed inset-0 z-[60] flex items-center justify-center p-section bg-black/50"
-        @click.self="$emit('close')"
-        @keydown.esc="$emit('close')"
-      >
-        <div
-          class="w-full max-w-5xl h-[80vh] flex flex-col rounded-lg border border-border-hairline bg-surface overflow-hidden"
-        >
-          <!-- header -->
-          <header class="flex items-start justify-between gap-section px-section py-component border-b border-border-hairline shrink-0">
-            <div class="min-w-0">
-              <div class="flex items-center gap-tight font-mono-data text-[11px] mb-tight">
-                <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="[dotClass, isRunning ? 'animate-pulse' : '']"></span>
-                <span class="text-text-faint">{{ bead.id }}</span>
-                <span class="text-text-dim">·</span>
-                <span class="text-text-faint">{{ prettyState(bead.state) }}</span>
-                <span
-                  v-if="bead.requiresHumanAction"
-                  class="ml-tight px-tight font-mono-data text-[10px] tracking-widest text-status-gate bg-status-gate/15 border border-status-gate/40"
-                >GATE</span>
-              </div>
-              <h2 class="font-headline text-headline text-text-primary truncate">{{ bead.title }}</h2>
-            </div>
-            <button
-              class="material-symbols-outlined text-text-muted hover:text-text-primary transition-colors !text-[20px] shrink-0"
-              @click="$emit('close')"
-            >close</button>
-          </header>
-
-          <!-- body: two panes -->
-          <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-0 divide-y lg:divide-y-0 lg:divide-x divide-border-hairline">
-            <!-- left: detail -->
-            <div class="overflow-y-auto hide-scrollbar px-section py-component flex flex-col gap-section">
-              <section v-if="bead.description">
-                <h3 class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase mb-base">Description</h3>
-                <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ bead.description }}</p>
-              </section>
-              <section v-if="bead.acceptance">
-                <h3 class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase mb-base">Acceptance</h3>
-                <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ bead.acceptance }}</p>
-              </section>
-              <section v-if="bead.notes">
-                <h3 class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase mb-base">Notes</h3>
-                <p class="font-body text-body text-text-muted whitespace-pre-wrap">{{ bead.notes }}</p>
-              </section>
-              <p
-                v-if="!bead.description && !bead.acceptance && !bead.notes"
-                class="font-body text-body text-text-faint"
-              >No detail recorded for this bead.</p>
-            </div>
-
-            <!-- right: live agent log -->
-            <div class="flex flex-col min-h-[200px] lg:min-h-0 bg-surface-container-low/40">
-              <header class="flex items-center justify-between px-section py-base border-b border-border-hairline shrink-0">
-                <h3 class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase">Agent Log</h3>
-              </header>
-              <div class="flex-1 min-h-0 px-section">
-                <AgentLogPane :epic-id="epicId" :bead-id="bead.id" />
-              </div>
-            </div>
+  <UiModal :open="!!bead" size="xl" @close="$emit('close')">
+    <template #header>
+      <div v-if="bead" class="flex items-start justify-between gap-section">
+        <div class="min-w-0">
+          <div class="flex items-center gap-tight font-mono-data text-mono-data mb-tight">
+            <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="[dotClass, isRunning ? 'animate-pulse' : '']"></span>
+            <span class="text-text-muted">{{ bead.id }}</span>
+            <span class="text-text-dim">·</span>
+            <span class="text-text-muted">{{ prettyState(bead.state) }}</span>
+            <span
+              v-if="bead.requiresHumanAction"
+              class="ml-tight px-tight font-mono-data text-mono-data text-status-gate bg-status-gate/15 border border-status-gate/40"
+            >GATE</span>
           </div>
+          <h2 class="font-headline text-headline text-text-primary truncate">{{ bead.title }}</h2>
+        </div>
+        <UiIconButton icon="close" label="Close bead detail" @click="$emit('close')" />
+      </div>
+    </template>
 
-          <!-- footer: actions -->
-          <footer class="shrink-0 border-t border-border-hairline px-section py-base flex items-center justify-between gap-section">
-            <!-- gate actions (amber) -->
-            <div class="flex items-center gap-base">
-              <template v-if="bead.requiresHumanAction">
-                <button
-                  class="px-component py-1.5 rounded font-body text-body bg-status-gate/15 text-status-gate border border-status-gate/40 hover:bg-status-gate/25 transition-colors disabled:opacity-50"
-                  :disabled="busy"
-                  @click="gate('approve')"
-                >Approve</button>
-                <button
-                  class="px-component py-1.5 rounded font-body text-body text-text-muted border border-border-hairline hover:text-status-failed hover:border-status-failed/40 transition-colors disabled:opacity-50"
-                  :disabled="busy"
-                  @click="gate('reject')"
-                >Reject</button>
-              </template>
-              <span v-else class="font-mono-data text-[11px] text-text-dim">no gate pending</span>
-            </div>
+    <div v-if="bead" class="-mx-section -my-section grid h-[64vh] min-h-0 grid-cols-1 divide-y divide-border-hairline lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+      <div class="overflow-y-auto px-section py-component flex flex-col gap-section">
+        <section v-if="bead.description">
+          <h3 class="font-label-caps text-label-caps text-text-muted mb-base">Description</h3>
+          <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ bead.description }}</p>
+        </section>
+        <section v-if="bead.acceptance">
+          <h3 class="font-label-caps text-label-caps text-text-muted mb-base">Acceptance</h3>
+          <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ bead.acceptance }}</p>
+        </section>
+        <section v-if="bead.notes">
+          <h3 class="font-label-caps text-label-caps text-text-muted mb-base">Notes</h3>
+          <p class="font-body text-body text-text-muted whitespace-pre-wrap">{{ bead.notes }}</p>
+        </section>
+        <p
+          v-if="!bead.description && !bead.acceptance && !bead.notes"
+          class="font-body text-body text-text-muted"
+        >No detail recorded for this bead.</p>
+      </div>
 
-            <!-- bead actions (ghost) -->
-            <div class="flex items-center gap-section font-mono-data text-[11px]">
-              <button class="text-text-muted hover:text-text-primary transition-colors disabled:opacity-50" :disabled="busy" @click="act('rollback')">rollback</button>
-              <button class="text-text-muted hover:text-text-primary transition-colors disabled:opacity-50" :disabled="busy" @click="act('refine-scope')">refine-scope</button>
-              <button class="text-text-muted hover:text-status-failed transition-colors disabled:opacity-50" :disabled="busy" @click="act('mark-terminal')">mark-terminal</button>
-            </div>
-          </footer>
-
-          <p v-if="actionMsg" class="shrink-0 px-section pb-base font-mono-data text-[11px]" :class="actionErr ? 'text-status-failed' : 'text-status-passed'">{{ actionMsg }}</p>
+      <div class="flex flex-col min-h-[200px] lg:min-h-0 bg-surface-container-low/40">
+        <header class="flex items-center justify-between px-section py-base border-b border-border-hairline shrink-0">
+          <h3 class="font-label-caps text-label-caps text-text-muted">Agent Log</h3>
+        </header>
+        <div class="flex-1 min-h-0 px-section">
+          <AgentLogPane :epic-id="epicId" :bead-id="bead.id" />
         </div>
       </div>
-    </Transition>
-  </Teleport>
+    </div>
+
+    <template #footer>
+      <div v-if="bead" class="flex flex-col gap-base">
+        <div class="flex items-center justify-between gap-section">
+          <div class="flex items-center gap-base">
+            <template v-if="bead.requiresHumanAction">
+              <UiButton variant="accent" :disabled="busy" @click="gate('approve')">Approve</UiButton>
+              <UiButton variant="danger" :disabled="busy" @click="gate('reject')">Reject</UiButton>
+            </template>
+            <span v-else class="font-mono-data text-mono-data text-text-faint">no gate pending</span>
+          </div>
+
+          <div class="flex items-center gap-base">
+            <UiButton variant="ghost" size="xs" :disabled="busy" @click="act('rollback')">rollback</UiButton>
+            <UiButton variant="ghost" size="xs" :disabled="busy" @click="act('refine-scope')">refine-scope</UiButton>
+            <UiButton variant="danger" size="xs" :disabled="busy" @click="act('mark-terminal')">mark-terminal</UiButton>
+          </div>
+        </div>
+        <p v-if="actionMsg" class="font-mono-data text-mono-data" :class="actionErr ? 'text-status-failed-text' : 'text-status-passed'">{{ actionMsg }}</p>
+      </div>
+    </template>
+  </UiModal>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Bead } from '~/composables/useBeads'
 import { statusTone, statusDotClass, prettyState } from '~/utils/workflow'
 import AgentLogPane from '~/components/orchestrator/AgentLogPane.vue'
+import UiButton from '~/components/ui/UiButton.vue'
+import UiIconButton from '~/components/ui/UiIconButton.vue'
+import UiModal from '~/components/ui/UiModal.vue'
 
 const props = defineProps<{
   bead: Bead | null
@@ -168,20 +145,4 @@ async function act(kind: 'rollback' | 'mark-terminal' | 'refine-scope') {
   }
 }
 
-function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && props.bead) emit('close')
-}
-onMounted(() => window.addEventListener('keydown', onKey))
-onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
-
-<style scoped>
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 160ms ease;
-}
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-</style>

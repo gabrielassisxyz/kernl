@@ -14,8 +14,8 @@
     </div>
 
     <div v-if="projectTitle" class="pl-component">
-      <span class="inline-flex items-center gap-tight font-mono-data text-[10px] text-text-dim">
-        <span class="material-symbols-outlined !text-[12px]">folder_open</span>
+      <span class="inline-flex items-center gap-tight font-mono-data text-mono-data text-text-faint">
+        <span class="material-symbols-outlined !text-mono-data">folder_open</span>
         {{ projectTitle }}
       </span>
     </div>

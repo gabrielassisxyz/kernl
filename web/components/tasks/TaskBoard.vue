@@ -23,7 +23,7 @@
           />
           <div
             v-if="grouped[col.id].length === 0"
-            class="flex items-center justify-center py-section text-text-dim font-body text-body select-none"
+            class="flex items-center justify-center py-section text-text-faint font-body text-body select-none"
           >
             —
           </div>

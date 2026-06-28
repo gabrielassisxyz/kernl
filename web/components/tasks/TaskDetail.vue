@@ -7,37 +7,37 @@
   >
     <div v-if="task" class="absolute inset-0 z-40 bg-black/40" @click="$emit('close')">
       <aside
+        ref="panelRef"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="titleId"
         class="absolute top-0 right-0 h-full w-full max-w-[440px] bg-surface border-l border-border-hairline flex flex-col"
         @click.stop
+        @keydown="onPanelKeydown"
       >
         <!-- Header -->
         <header class="px-section py-component border-b border-border-hairline flex items-start gap-component">
           <span class="mt-[7px] w-1.5 h-1.5 rounded-full shrink-0" :class="dotClass"></span>
           <div class="flex-1 min-w-0">
             <h2
+              :id="titleId"
               class="font-headline text-text-primary leading-snug"
               :class="{ 'line-through text-text-muted': task.status === 'done' }"
             >
               {{ task.title }}
             </h2>
-            <div class="flex items-center gap-component mt-tight font-mono-data text-mono-data text-text-dim">
+            <div class="flex items-center gap-component mt-tight font-mono-data text-mono-data text-text-faint">
               <span v-if="projectTitle" class="flex items-center gap-tight">
-                <span class="material-symbols-outlined !text-[12px]">folder_open</span>
+                <span class="material-symbols-outlined !text-mono-data">folder_open</span>
                 {{ projectTitle }}
               </span>
-              <span v-if="briefing" class="flex items-center gap-tight text-da-accent">
-                <span class="material-symbols-outlined !text-[12px]">auto_awesome</span>
+              <span v-if="briefing" class="flex items-center gap-tight text-da-accent-text">
+                <span class="material-symbols-outlined !text-mono-data">auto_awesome</span>
                 DA brief
               </span>
             </div>
           </div>
-          <button
-            class="text-text-muted hover:text-text-primary transition-colors duration-150 shrink-0 cursor-pointer"
-            title="Close"
-            @click="$emit('close')"
-          >
-            <span class="material-symbols-outlined !text-[20px]">close</span>
-          </button>
+          <UiIconButton icon="close" label="Close task detail" @click="$emit('close')" />
         </header>
 
         <!-- Body -->
@@ -45,28 +45,28 @@
           <!-- DA briefing prepared from the originating capture -->
           <section v-if="briefing" class="rounded-lg border border-da-accent/30 bg-da-accent/[0.04] px-component py-base">
             <div class="flex items-center gap-tight mb-base">
-              <span class="material-symbols-outlined !text-[14px] text-da-accent">auto_awesome</span>
-              <h3 class="font-label-caps text-label-caps text-da-accent uppercase">DA Briefing</h3>
+              <span class="material-symbols-outlined !text-body text-da-accent-text">auto_awesome</span>
+              <h3 class="font-label-caps text-label-caps text-da-accent-text uppercase">DA Briefing</h3>
             </div>
             <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ briefing.body }}</p>
           </section>
 
           <section>
             <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Status</h3>
-            <select
-              :value="task.status"
-              class="bg-bg-base border border-border-hairline rounded-md px-component py-base font-body text-body text-text-primary focus:outline-none focus:border-primary/60"
+            <UiSelect
+              :model-value="task.status"
+              classes="h-9 rounded border border-border-hairline bg-bg-base px-component font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70"
               @change="$emit('set-status', task!.id, ($event.target as HTMLSelectElement).value)"
             >
               <option v-for="s in TASK_STATUSES" :key="s.id" :value="s.id">{{ s.label }}</option>
-            </select>
+            </UiSelect>
           </section>
 
           <section v-if="task.description">
             <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Description</h3>
             <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ task.description }}</p>
           </section>
-          <p v-else class="font-body text-body text-text-dim">No description.</p>
+          <p v-else class="font-body text-body text-text-faint">No description.</p>
         </div>
 
         <!-- Footer meta -->
@@ -79,13 +79,60 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import type { Task, TaskStatus } from '~/composables/useTasks'
 import { TASK_STATUSES } from '~/composables/useTasks'
 import { formatTimestamp } from '~/utils/time'
+import UiIconButton from '~/components/ui/UiIconButton.vue'
+import UiSelect from '~/components/ui/UiSelect.vue'
 
 const props = defineProps<{ task: Task | null; projectTitle?: string }>()
-defineEmits<{ (e: 'close'): void; (e: 'set-status', id: string, status: string): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'set-status', id: string, status: string): void }>()
+
+// --- Dialog semantics & focus management ---
+const panelRef = ref<HTMLElement | null>(null)
+const titleId = 'task-detail-title'
+// Selector covers all standard interactive elements; excludes disabled ones.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+let previousFocus: HTMLElement | null = null
+
+function getFocusableEls(): HTMLElement[] {
+  if (!panelRef.value) return []
+  return Array.from(panelRef.value.querySelectorAll<HTMLElement>(FOCUSABLE))
+}
+
+function onPanelKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') {
+    // Stop propagation so the parent's window-level handler doesn't also fire.
+    e.stopPropagation()
+    emit('close')
+    return
+  }
+  if (e.key === 'Tab') {
+    const focusable = getFocusableEls()
+    if (!focusable.length) { e.preventDefault(); return }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey) {
+      if (document.activeElement === first) { e.preventDefault(); last.focus() }
+    } else {
+      if (document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+  }
+}
+
+// On open: save current focus and move into the panel.
+// On close: restore focus to the element that triggered the drawer.
+watch(() => props.task, async (newTask, oldTask) => {
+  if (newTask && !oldTask) {
+    previousFocus = document.activeElement as HTMLElement | null
+    await nextTick()
+    getFocusableEls()[0]?.focus()
+  } else if (!newTask && oldTask) {
+    previousFocus?.focus()
+    previousFocus = null
+  }
+})
 
 // DA briefing surfaced for this task (via its briefing edge to the prep note).
 const briefing = ref<{ id: string; title: string; body: string } | null>(null)

@@ -57,13 +57,17 @@
   --color-on-background: #e4e2e6;
   --color-status-running: #8089A0;
   --color-status-active: #4FA89C;
-  --color-text-faint: #666D7C;
+  --color-text-faint: #8A93A6;
   --color-on-tertiary-fixed: #251a00;
   --color-outline-variant: #45464f;
   --color-border-default: #242935;
   --color-status-gate: #C99A4A;
   --color-secondary: #c3c6d4;
   --color-da-accent: #6B7BB0;
+  /* Brighter text-only variants of accent/failed: the base tokens stay reserved
+     for fills/tints/borders (which fail WCAG AA only when used as small text). */
+  --color-da-accent-text: #8E9ED2;
+  --color-status-failed-text: #D98279;
 
   --radius: 0px;
   --radius-lg: 2px;
@@ -78,32 +82,57 @@
   --spacing-margin: 32px;
   --spacing-component: 16px;
 
-  --font-mono-data: "IBM Plex Mono", monospace;
-  --font-headline: "IBM Plex Sans", sans-serif;
-  --font-body: "IBM Plex Sans", sans-serif;
-  --font-label-caps: "IBM Plex Sans", sans-serif;
-  --font-display: "IBM Plex Sans", sans-serif;
+  --font-mono-data: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-headline: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-label-caps: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-display: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
   --text-mono-data: 12px;
   --text-mono-data--line-height: 16px;
-  --text-mono-data--font-weight: 450;
+  --text-mono-data--font-weight: 500;
   
-  --text-headline: 18px;
+  --text-headline: 16px;
   --text-headline--line-height: 24px;
   --text-headline--letter-spacing: -0.01em;
-  --text-headline--font-weight: 500;
+  --text-headline--font-weight: 600;
   
   --text-body: 13px;
   --text-body--line-height: 20px;
   --text-body--font-weight: 400;
   
-  --text-label-caps: 11.5px;
+  --text-label-caps: 12px;
   --text-label-caps--line-height: 16px;
-  --text-label-caps--letter-spacing: 0.12em;
+  --text-label-caps--letter-spacing: 0em;
   --text-label-caps--font-weight: 600;
 
-  --text-display: 24px;
-  --text-display--line-height: 32px;
+  --text-display: 20px;
+  --text-display--line-height: 28px;
   --text-display--letter-spacing: -0.02em;
   --text-display--font-weight: 600;
+}
+
+@utility z-dropdown {
+  z-index: 50;
+}
+
+@utility z-modal {
+  z-index: 60;
+}
+
+@utility z-toast {
+  z-index: 70;
+}
+
+@utility z-tooltip {
+  z-index: 80;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

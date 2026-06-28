@@ -1,69 +1,67 @@
 <template>
-  <div class="max-w-2xl">
-    <h2 class="text-lg text-[#64748b] uppercase tracking-wider mb-4">Persona Editor</h2>
-    <form @submit.prevent="save" class="flex flex-col gap-4">
-      <label class="flex flex-col gap-1 text-sm text-[#94a3b8]">
-        Display Name
-        <input
-          v-model="displayName"
-          type="text"
-          class="bg-[#1e293b] border border-[#334155] text-[#e2e8f0] p-2 rounded font-mono text-sm"
-        />
-      </label>
-      <label class="flex flex-col gap-1 text-sm text-[#94a3b8]">
-        System Prompt
-        <textarea
+  <div class="px-margin pt-margin pb-margin max-w-3xl">
+    <header class="mb-section">
+      <h1 class="font-headline text-display text-text-primary">DA identity</h1>
+      <p class="mt-tight font-body text-body text-text-muted">Edit the local assistant persona used by the workspace.</p>
+    </header>
+
+    <form @submit.prevent="save" class="flex flex-col gap-component">
+      <UiField label="Display name">
+        <UiInput v-model="displayName" />
+      </UiField>
+      <UiField label="System prompt">
+        <UiTextarea
           v-model="systemPrompt"
           rows="10"
-          class="bg-[#1e293b] border border-[#334155] text-[#e2e8f0] p-2 rounded font-mono text-sm resize-y"
-        ></textarea>
-      </label>
-      <div class="flex items-center gap-3">
-        <button
-          type="submit"
-          class="bg-[#1d4ed8] text-white px-4 py-2 rounded font-mono text-sm hover:bg-[#2563eb] transition-colors"
-        >
-          Save
-        </button>
-        <span v-if="statusText" class="text-sm" :class="statusClass">{{ statusText }}</span>
+          classes="w-full rounded border border-border-hairline bg-bg-base px-component py-base font-mono-data text-mono-data text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+        />
+      </UiField>
+      <div class="flex items-center gap-component">
+        <UiButton type="submit" variant="primary">Save</UiButton>
+        <span v-if="statusText" class="font-body text-body" :class="statusClass">{{ statusText }}</span>
       </div>
     </form>
   </div>
 </template>
 
 <script setup lang="ts">
-const displayName = ref('');
-const systemPrompt = ref('');
-const statusText = ref('');
-const statusClass = ref('text-[#6ee7b7]');
+import UiButton from '~/components/ui/UiButton.vue'
+import UiField from '~/components/ui/UiField.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+import UiTextarea from '~/components/ui/UiTextarea.vue'
+
+const displayName = ref('')
+const systemPrompt = ref('')
+const statusText = ref('')
+const statusClass = ref('text-status-passed')
 
 async function load() {
-  const res = await fetch('/api/da/identity');
-  const data = await res.json();
-  displayName.value = data.display_name || '';
-  systemPrompt.value = data.system_prompt || '';
+  const res = await fetch('/api/da/identity')
+  const data = await res.json()
+  displayName.value = data.display_name || ''
+  systemPrompt.value = data.system_prompt || ''
 }
 
 async function save() {
-  const body = { display_name: displayName.value, system_prompt: systemPrompt.value };
+  const body = { display_name: displayName.value, system_prompt: systemPrompt.value }
   const res = await fetch('/api/da/identity', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  })
   if (res.status === 204) {
-    statusText.value = 'Saved.';
-    statusClass.value = 'text-[#6ee7b7]';
+    statusText.value = 'Saved.'
+    statusClass.value = 'text-status-passed'
     setTimeout(() => {
-      statusText.value = '';
-    }, 2000);
+      statusText.value = ''
+    }, 2000)
   } else {
-    statusText.value = 'Error saving.';
-    statusClass.value = 'text-[#fca5a5]';
+    statusText.value = 'Error saving.'
+    statusClass.value = 'text-status-failed-text'
   }
 }
 
 onMounted(() => {
-  load();
-});
+  load()
+})
 </script>

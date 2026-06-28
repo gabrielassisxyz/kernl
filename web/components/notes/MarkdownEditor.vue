@@ -1,32 +1,55 @@
 <template>
-  <div class="notes-editor-pane flex flex-col h-full bg-[#0F1217] text-[#D6DBE3]">
+  <div class="notes-editor-pane flex flex-col h-full bg-bg-base text-text-primary">
     <FrontmatterUI v-if="frontmatter" :data="frontmatter" />
-    <div class="flex items-center gap-2 px-3 py-2 border-b border-[#242935] shrink-0">
-      <input
+    <div class="flex items-center gap-base px-component py-base border-b border-border-default shrink-0">
+      <UiInput
         v-model="instruction"
         @keydown.enter="requestSuggestion"
-        placeholder="Ask the DA to edit this note (e.g. summarize, fix grammar)…"
-        class="flex-1 bg-[#141821] border border-[#242935] rounded px-2 py-1 text-[12px] text-[#D6DBE3] placeholder-[#666D7C] focus:outline-none focus:border-[#6B7BB0]"
+        placeholder="How should the AI edit this note? (e.g. summarize, fix grammar)…"
+        classes="h-8 flex-1 rounded border border-border-default bg-bg-elevated px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-da-accent disabled:cursor-not-allowed disabled:opacity-50"
       />
-      <button
+      <UiButton
         @click="requestSuggestion"
         :disabled="suggesting || !instruction.trim()"
-        class="text-[12px] px-3 py-1 rounded bg-[#6B7BB0] text-[#F0F4F8] disabled:opacity-40"
-      >{{ suggesting ? 'Asking…' : 'Suggest' }}</button>
+        :loading="suggesting"
+        variant="accent"
+        size="sm"
+      >Suggest</UiButton>
     </div>
     <div class="flex-1 relative">
       <div ref="editorContainer" class="h-full w-full"></div>
       
-      <div v-if="conflict" class="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
-        <div class="bg-[#181C26] border border-[#242935] p-6 rounded-md shadow-lg max-w-sm">
-          <h3 class="text-xl font-bold mb-4 text-[#D6DBE3]">File Changed on Disk</h3>
-          <p class="mb-6 text-[#9098A7] text-sm">The file was modified externally. What do you want to do?</p>
-          <div class="flex gap-4">
-            <button class="px-4 py-2 bg-[#6B7BB0] text-[#F0F4F8] rounded text-sm font-medium" @click="resolveConflict('keep')">Keep Editor</button>
-            <button class="px-4 py-2 bg-[#1D222D] border border-[#242935] text-[#D6DBE3] rounded text-sm font-medium" @click="resolveConflict('reload')">Reload Disk</button>
+      <UiModal
+        :open="conflict"
+        title="Save Conflict"
+        size="sm"
+        @close="conflict = false"
+      >
+        <p class="font-body text-body text-text-muted">
+          This note was modified outside the editor while you were working. If you overwrite the file, you'll erase those outside changes. If you discard your edits, you'll lose the work you just did here.
+        </p>
+
+        <template #footer>
+          <div class="flex justify-end gap-base">
+            <UiButton variant="secondary" @click="resolveConflict('reload')">Discard my edits</UiButton>
+            <UiButton variant="primary" @click="resolveConflict('keep')">Overwrite file</UiButton>
           </div>
-        </div>
-      </div>
+        </template>
+      </UiModal>
+      
+      <UiToast 
+        v-if="saveError" 
+        message="We couldn't save your changes." 
+        actionLabel="Retry" 
+        @action="saveFile" 
+      />
+      
+      <UiToast 
+        v-if="suggestError" 
+        :message="suggestError" 
+        actionLabel="Dismiss" 
+        @action="suggestError = ''" 
+      />
       
       <DiffSuggest 
         v-if="activeHunks.length > 0" 
@@ -46,6 +69,10 @@ import { markdown } from '@codemirror/lang-markdown'
 import { wikilinkExtensions } from '~/utils/wikilinkEditor'
 import FrontmatterUI from './FrontmatterUI.vue'
 import DiffSuggest from './DiffSuggest.vue'
+import UiButton from '~/components/ui/UiButton.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+import UiModal from '~/components/ui/UiModal.vue'
+import UiToast from '~/components/ui/UiToast.vue'
 
 // "DA wrote here": regions written by an accepted DA suggestion are marked for
 // the session so the user can see what the DA authored. Session-scoped (the
@@ -86,6 +113,8 @@ const lastModified = ref('')
 const activeHunks = ref([])
 const instruction = ref('')
 const suggesting = ref(false)
+const saveError = ref(false)
+const suggestError = ref('')
 let saveTimer = null
 
 const extractFrontmatter = (text) => {
@@ -154,8 +183,16 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  // Flush any pending autosave before tearing down. A plain clearTimeout would
+  // silently discard edits made within the 5s debounce window. saveFile() must
+  // run before view.destroy() so view.state.doc still holds the outgoing content.
+  // props.path is still the outgoing file's path here (new instance not yet mounted).
+  if (saveTimer && isDirty.value && view) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+    saveFile() // fire-and-forget; saves outgoing path + content, not the new file
+  }
   if (view) view.destroy()
-  if (saveTimer) clearTimeout(saveTimer)
 })
 
 const scheduleSave = () => {
@@ -170,24 +207,31 @@ const saveFile = async () => {
   
   const content = view.state.doc.toString()
   
-  const res = await fetch(`/api/notes/save?path=${encodeURIComponent(props.path)}`, {
-    method: 'POST',
-    headers: {
-      'If-Match': lastModified.value,
-      'Content-Type': 'text/plain'
-    },
-    body: content
-  })
-  
-  if (res.status === 409) {
-    conflict.value = true
-    return
-  }
-  
-  if (res.ok) {
-    const data = await res.json()
-    lastModified.value = data.last_modified
-    isDirty.value = false
+  try {
+    const res = await fetch(`/api/notes/save?path=${encodeURIComponent(props.path)}`, {
+      method: 'POST',
+      headers: {
+        'If-Match': lastModified.value,
+        'Content-Type': 'text/plain'
+      },
+      body: content
+    })
+    
+    if (res.status === 409) {
+      conflict.value = true
+      return
+    }
+    
+    if (res.ok) {
+      const data = await res.json()
+      lastModified.value = data.last_modified
+      isDirty.value = false
+      saveError.value = false
+    } else {
+      saveError.value = true
+    }
+  } catch (e) {
+    saveError.value = true
   }
 }
 
@@ -207,6 +251,7 @@ const requestSuggestion = async () => {
   // keep hunk offsets aligned with the editor buffer.
   if (isDirty.value) await saveFile()
   suggesting.value = true
+  suggestError.value = ''
   try {
     const res = await fetch('/api/notes/suggest', {
       method: 'POST',
@@ -218,10 +263,12 @@ const requestSuggestion = async () => {
       activeHunks.value = data.hunks || []
       instruction.value = ''
     } else if (res.status === 503) {
-      console.warn('DA suggest unavailable: no LLM provider configured')
+      suggestError.value = "AI provider not configured. Add an LLM provider in settings."
+    } else {
+      suggestError.value = "We couldn't generate a suggestion. Please try again."
     }
   } catch (e) {
-    console.error('suggest failed', e)
+    suggestError.value = "We couldn't generate a suggestion. Please check your connection and try again."
   } finally {
     suggesting.value = false
   }
@@ -247,30 +294,30 @@ const rejectHunk = (hunk) => {
 .cm-editor {
   height: 100%;
   background-color: transparent !important;
-  color: #D6DBE3 !important;
+  color: var(--color-text-primary) !important;
 }
 .cm-gutters {
-  background-color: #141821 !important;
-  color: #666D7C !important;
-  border-right: 1px solid #1B2029 !important;
+  background-color: var(--color-bg-elevated) !important;
+  color: var(--color-text-muted) !important;
+  border-right: 1px solid var(--color-border-hairline) !important;
 }
 .cm-activeLineGutter {
-  background-color: #1D222D !important;
-  color: #D6DBE3 !important;
+  background-color: var(--color-surface-hover) !important;
+  color: var(--color-text-primary) !important;
 }
 .cm-activeLine {
-  background-color: #1D222D !important;
+  background-color: var(--color-surface-hover) !important;
 }
 .cm-editor .cm-content {
-  caret-color: #FFFFFF !important;
+  caret-color: var(--color-on-surface) !important;
 }
 .cm-cursor,
 .cm-cursor-primary {
-  border-left-color: #FFFFFF !important;
+  border-left-color: var(--color-on-surface) !important;
 }
 .da-authored {
-  background-color: rgba(107, 123, 176, 0.12);
-  border-bottom: 1px dotted #6B7BB0;
+  background-color: color-mix(in srgb, var(--color-da-accent) 12%, transparent);
+  border-bottom: 1px dotted var(--color-da-accent);
   cursor: help;
 }
 </style>

@@ -16,46 +16,46 @@
       ]"
       @click.stop="$emit('toggleSelect')"
     >
-      <span v-if="selected" class="material-symbols-outlined !text-[12px] text-on-primary">check</span>
+      <span v-if="selected" class="material-symbols-outlined !text-mono-data text-on-primary">check</span>
     </button>
 
     <!-- body -->
     <div class="flex flex-col flex-1 min-w-0">
       <div class="flex items-center gap-base mb-tight">
-        <span class="font-mono-data text-[10px] tracking-widest px-tight text-text-faint border border-border-hairline">{{ item.type || 'ITEM' }}</span>
+        <span class="font-mono-data text-mono-data tracking-widest px-tight text-text-faint border border-border-hairline">{{ item.type || 'ITEM' }}</span>
         <h3 class="font-headline text-text-primary truncate">{{ item.title }}</h3>
       </div>
-      <p v-if="showSubtitle" class="font-body text-text-muted truncate text-[12px]">{{ item.subtitle }}</p>
+      <p v-if="showSubtitle" class="font-body text-text-muted truncate text-mono-data">{{ item.subtitle }}</p>
     </div>
 
     <!-- DA suggestion chip -->
     <div class="shrink-0 flex items-center">
-      <span v-if="!suggestion" class="flex items-center gap-tight font-mono-data text-[11px] text-text-dim">
-        <span class="material-symbols-outlined !text-[13px] animate-spin">progress_activity</span>
+      <span v-if="!suggestion" class="flex items-center gap-tight font-mono-data text-mono-data text-text-faint">
+        <span class="material-symbols-outlined !text-body animate-spin">progress_activity</span>
         DA classifying…
       </span>
       <span
         v-else
-        class="flex items-center gap-tight px-base py-0.5 rounded border font-mono-data text-[11px]"
+        class="flex items-center gap-tight px-base py-0.5 rounded border font-mono-data text-mono-data"
         :class="TARGET_META[suggestion.target].chip"
       >
-        <span class="material-symbols-outlined !text-[13px]">{{ TARGET_META[suggestion.target].icon }}</span>
+        <span class="material-symbols-outlined !text-body">{{ TARGET_META[suggestion.target].icon }}</span>
         {{ chipLabel }}
       </span>
     </div>
 
     <!-- row actions (always visible). Manual processing never depends on a DA suggestion. -->
-    <div class="shrink-0 flex items-center gap-base font-mono-data text-[11px] pl-base">
+    <div class="shrink-0 flex items-center gap-base font-mono-data text-mono-data pl-base">
       <!-- DA briefing: peek when present, generate on demand otherwise -->
-      <button v-if="item.hasPrep" class="px-base py-0.5 rounded border border-da-accent/40 text-da-accent hover:bg-da-accent/10 transition-colors" @click.stop="$emit('peek')">◆ Brief</button>
-      <button v-else class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-da-accent hover:border-da-accent/40 transition-colors disabled:opacity-50" :disabled="prepping" @click.stop="$emit('prep')">{{ prepping ? '…' : 'Prep' }}</button>
+      <button v-if="item.hasPrep" class="px-base py-0.5 rounded border border-da-accent/40 text-da-accent-text hover:bg-da-accent/10 transition-colors" @click.stop="$emit('peek')">◆ Brief</button>
+      <button v-else class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-da-accent-text hover:border-da-accent/40 transition-colors disabled:opacity-50" :disabled="prepping" @click.stop="$emit('prep')">{{ prepping ? '…' : 'Prep' }}</button>
       <div class="w-[1px] h-3 bg-border-hairline"></div>
       <template v-if="suggestion">
         <button class="px-base py-0.5 rounded border border-status-passed/40 text-status-passed hover:bg-status-passed/10 transition-colors" @click.stop="$emit('accept')">Accept</button>
         <button class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-text-primary transition-colors" @click.stop="$emit('edit')">Edit</button>
       </template>
       <button v-else class="px-base py-0.5 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors" @click.stop="$emit('edit')">Process…</button>
-      <button class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-status-failed hover:border-status-failed/40 transition-colors" @click.stop="$emit('discard')">Discard</button>
+      <button class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-status-failed-text hover:border-status-failed/40 transition-colors" @click.stop="$emit('discard')">Discard</button>
     </div>
   </div>
 </template>
