@@ -102,14 +102,9 @@
           <span class="font-mono-data text-mono-data text-status-passed uppercase">system_online</span>
         </div>
         <div class="h-3 w-px bg-border-hairline mx-tight"></div>
-        <span class="font-mono-data text-mono-data">~/vault</span>
+        <span class="font-mono-data text-mono-data">{{ vaultLabel }}</span>
       </div>
-      
-      <div class="flex-grow flex items-center justify-center font-mono-data text-mono-data gap-section">
-        <span class="hover:bg-surface-hover px-2 transition-colors cursor-default">UTF-8</span>
-        <span class="hover:bg-surface-hover px-2 transition-colors cursor-default">system_ready</span>
-      </div>
-      
+
       <div class="flex items-center gap-component pl-component">
         <div class="flex items-center gap-tight">
           <span class="material-symbols-outlined text-[14px]">sync</span>
@@ -130,6 +125,19 @@ const daRelevantRoutes = new Set(['/chat', '/config/da'])
 const daOpen = ref(daRelevantRoutes.has(route.path))
 const currentTime = ref(new Date().toISOString().slice(0, 19).replace('T', ' '))
 const userPreference = ref(false)
+const vaultLabel = ref('~/vault')
+
+const loadVaultLabel = async () => {
+  try {
+    const res = await fetch('/api/health')
+    if (!res.ok) return
+    const data = await res.json()
+    const label = data.vaultLabel || data.vaultRoot
+    if (label) vaultLabel.value = label
+  } catch {
+    // Leave the placeholder if the server is unreachable.
+  }
+}
 
 const closeDa = () => {
   daOpen.value = false
@@ -190,6 +198,7 @@ onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   updateTime()
   timer = setInterval(updateTime, 1000)
+  loadVaultLabel()
 })
 
 watch(() => route.path, (path) => {
