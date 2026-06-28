@@ -19,12 +19,19 @@ skip()    { printf '    \033[33mskip:\033[0m %s\n' "$1"; }
 ok()      { printf '    \033[32mok\033[0m\n'; }
 bad()     { printf '    \033[31mFAIL\033[0m\n'; fail=1; }
 
+section "web dependencies (npm ci)"
+if command -v npm >/dev/null 2>&1; then
+    (cd web && npm ci --no-audit --no-fund) && ok || bad
+else
+    skip "npm not found"
+fi
+
 # The Go packages embed web/.output/public (see web/embed.go). Make sure it
 # exists so the Go toolchain can compile; build it for real if it's missing.
 section "web assets (embed prerequisite)"
 if [ ! -e web/.output/public ]; then
     if command -v npm >/dev/null 2>&1; then
-        (cd web && npm ci --no-audit --no-fund --silent && npm run generate) && ok || bad
+        (cd web && npm run generate) && ok || bad
     else
         mkdir -p web/.output/public
         printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html

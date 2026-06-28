@@ -1,77 +1,75 @@
 <template>
   <div class="px-margin pt-margin">
-    <!-- Header -->
     <header class="mb-break">
       <h1 class="font-headline text-display text-text-primary font-medium tracking-tight">{{ greeting }}</h1>
     </header>
 
-    <!-- Quick Capture — terminal-style thought capture -->
     <CaptureThought />
 
-    <!-- Bento Grid Layout -->
-    <div class="grid grid-cols-2 gap-section pb-margin">
-
-      <!-- Pane 1: Today's Tasks -->
-      <section class="bg-surface border border-border-hairline rounded-lg h-[340px] flex flex-col">
-        <div class="px-component py-base border-b border-border-hairline flex items-center justify-between">
-          <h2 class="font-label-caps text-label-caps text-text-muted">TODAY'S TASKS</h2>
-          <span class="material-symbols-outlined text-text-faint text-sm">more_vert</span>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-section md:gap-break pb-section md:pb-break mt-section md:mt-break">
+      <section class="flex flex-col">
+        <div class="pb-base mb-base border-b border-border-hairline flex items-center justify-between">
+          <h2 class="font-label-caps text-label-caps text-text-primary">Today's tasks</h2>
+          <span class="font-body text-body text-text-muted">{{ tasks.length }} open</span>
         </div>
-        <div class="flex-grow overflow-y-auto p-base flex flex-col gap-tight">
-          <div v-if="tasks.length === 0" class="flex-grow flex items-center justify-center text-text-faint font-body text-body">No open tasks</div>
+        <div class="flex flex-col">
+          <div v-if="tasks.length === 0" class="py-section font-body text-body">
+            <p class="text-text-faint">No open tasks.</p>
+            <p class="text-text-muted mt-1 leading-relaxed">Create beads to track actionable work and assign them to agents or yourself.</p>
+          </div>
           <div
             v-for="t in tasks"
             :key="t.id"
-            class="flex items-center py-2 px-base gap-component transition-colors"
-            :class="needsAttention(t) ? 'bg-surface-container-low border-l-2 border-status-gate' : 'hover:bg-surface-hover group'"
+            class="flex items-center py-2 gap-component transition-colors group cursor-pointer"
           >
-            <span class="font-mono-data text-mono-data" :class="needsAttention(t) ? 'text-status-gate' : 'text-text-faint group-hover:text-text-muted'">{{ t.id }}</span>
-            <span class="font-body text-body text-text-primary">{{ t.title }}</span>
+            <span class="w-[6px] h-[6px] rounded-full flex-shrink-0" :class="needsAttention(t) ? 'bg-status-gate' : 'bg-status-running'"></span>
+            <span class="font-mono-data text-mono-data w-12" :class="needsAttention(t) ? 'text-status-gate' : 'text-text-faint group-hover:text-text-muted'">{{ t.id }}</span>
+            <span class="font-body text-body text-text-primary truncate">{{ t.title }}</span>
           </div>
         </div>
       </section>
 
-      <!-- Pane 2: Active Projects -->
-      <section class="bg-surface border border-border-hairline rounded-lg h-[340px] flex flex-col">
-        <div class="px-component py-base border-b border-border-hairline flex items-center justify-between">
-          <h2 class="font-label-caps text-label-caps text-text-muted">ACTIVE PROJECTS</h2>
-          <span class="material-symbols-outlined text-text-faint text-sm">filter_list</span>
+      <section class="flex flex-col">
+        <div class="pb-base mb-base border-b border-border-hairline flex items-center justify-between">
+          <h2 class="font-label-caps text-label-caps text-text-primary">Active projects</h2>
+          <span class="font-body text-body text-text-muted">{{ projects.length }} active</span>
         </div>
-        <div class="flex-grow p-component flex flex-col gap-base overflow-y-auto">
-          <div v-if="projects.length === 0" class="flex-grow flex items-center justify-center text-text-faint font-body text-body">No active projects</div>
+        <div class="flex flex-col">
+          <div v-if="projects.length === 0" class="py-section font-body text-body">
+            <p class="text-text-faint">No active projects.</p>
+            <p class="text-text-muted mt-1 leading-relaxed">Group epic beads to coordinate multi-step goals and complex graph updates.</p>
+          </div>
           <div
             v-for="p in projects"
             :key="p.id"
-            class="flex items-center justify-between py-base border-b border-border-hairline last:border-0"
+            class="flex items-center justify-between py-2 pl-[3px] gap-component group cursor-pointer"
           >
-            <div class="flex items-center gap-component">
-              <span class="w-1.5 h-1.5 rounded-full" :class="needsAttention(p) ? 'bg-status-gate animate-pulse' : 'bg-status-running'"></span>
-              <span class="font-body text-body text-text-primary">{{ p.title }}</span>
+            <div class="flex items-center gap-component min-w-0">
+              <span class="w-[6px] h-[6px] rounded-full flex-shrink-0" :class="needsAttention(p) ? 'bg-status-gate animate-pulse' : 'bg-status-running'"></span>
+              <span class="font-body text-body text-text-primary truncate">{{ p.title }}</span>
             </div>
-            <span class="font-label-caps text-[10px] py-0.5 px-2 rounded bg-surface-container-high" :class="statePill(p.state).classes">{{ statePill(p.state).label }}</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Pane 3: What Shipped -->
-      <section class="col-span-2 bg-surface border border-border-hairline rounded-lg h-[300px] flex flex-col">
-        <div class="px-component py-base border-b border-border-hairline">
-          <h2 class="font-label-caps text-label-caps text-text-muted">WHAT SHIPPED</h2>
-        </div>
-        <div class="flex-grow p-component overflow-y-auto">
-          <div v-if="shipped.length === 0" class="h-full flex items-center justify-center text-text-faint font-body text-body">Nothing shipped yet</div>
-          <div v-else class="flex flex-col gap-base border-l border-border-hairline ml-base pl-base">
-            <div v-for="s in shipped" :key="s.id" class="relative">
-              <div class="absolute -left-[21px] top-1 w-2.5 h-2.5 bg-status-passed rounded-full border-2 border-surface"></div>
-              <span class="font-mono-data text-mono-data text-text-muted block">{{ fmtTime(s.closedAt || s.updatedAt) }}</span>
-              <span class="font-mono-data text-mono-data text-status-passed">[{{ s.id }}]</span>
-              <span class="font-body text-body text-text-primary">{{ s.title }}</span>
-            </div>
+            <span class="font-label-caps text-label-caps transition-colors whitespace-nowrap" :class="statePill(p.state).classes">{{ statePill(p.state).label }}</span>
           </div>
         </div>
       </section>
 
     </div>
+
+    <section class="pb-margin">
+      <div class="pb-base mb-base border-b border-border-hairline">
+        <h2 class="font-label-caps text-label-caps text-text-primary">What shipped</h2>
+      </div>
+      <div class="flex flex-col">
+        <div v-if="shipped.length === 0" class="py-section text-text-faint font-body text-body">Nothing shipped yet</div>
+        <div v-else class="flex flex-col">
+          <div v-for="s in shipped" :key="s.id" class="flex items-center py-1.5 gap-component group cursor-pointer hover:bg-surface-hover px-2 -mx-2 rounded transition-colors">
+            <span class="font-mono-data text-mono-data text-text-muted w-[100px] flex-shrink-0">{{ fmtTime(s.closedAt || s.updatedAt) }}</span>
+            <span class="font-mono-data text-mono-data text-status-passed w-12 flex-shrink-0">{{ s.id }}</span>
+            <span class="font-body text-body text-text-primary truncate">{{ s.title }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -88,7 +86,7 @@ const needsAttention = (b) => /review|gate|await|block/i.test(b.state || '')
 // Short, colored status pill for Active Projects.
 const statePill = (s) => {
   const v = (s || '').toLowerCase()
-  if (/block/.test(v)) return { label: 'BLOCKED', classes: 'text-status-failed' }
+  if (/block/.test(v)) return { label: 'BLOCKED', classes: 'text-status-failed-text' }
   if (/review|await/.test(v)) return { label: 'REVIEW', classes: 'text-status-gate' }
   if (/flight|progress|running|active/.test(v)) return { label: 'IN-FLIGHT', classes: 'text-status-active' }
   if (/ready/.test(v)) return { label: 'READY', classes: 'text-status-active' }

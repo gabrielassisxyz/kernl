@@ -1,73 +1,58 @@
 <template>
-  <div class="flex h-screen bg-[#0F1217] font-sans">
-    <div class="w-64 border-r border-[#242935] flex flex-col bg-[#141821]">
-      <div class="h-12 border-b border-[#242935] flex items-center justify-between px-4 shrink-0">
-        <h1 class="font-medium text-[#D6DBE3] text-[14px]">Notes Vault</h1>
+  <div class="flex h-full bg-bg-base font-sans">
+    <div class="w-64 border-r border-border-default flex flex-col bg-bg-elevated">
+      <div class="h-12 border-b border-border-default flex items-center justify-between px-4 shrink-0">
+        <h1 class="font-headline text-headline text-text-primary">Notes Vault</h1>
         <button
           @click="openNewNote"
           title="New note"
-          class="flex items-center justify-center w-6 h-6 rounded text-[#9098A7] hover:text-[#D6DBE3] hover:bg-[#1D222D] transition-colors"
+          class="flex items-center justify-center w-6 h-6 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
         >
           <span class="material-symbols-outlined text-[18px]">add</span>
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto bg-[#0F1217]">
+      <div class="flex-1 overflow-y-auto bg-bg-base">
         <TagHierarchy @select="selectFile" />
         <NoteList @select="selectFile" ref="noteListRef" />
       </div>
     </div>
-    <div class="flex-1 relative flex flex-col bg-[#0F1217]">
-      <div class="h-12 border-b border-[#242935] flex items-center px-4 shrink-0">
-        <span v-if="selectedFile" class="font-mono text-[#9098A7] text-[12px]">{{ selectedFile }}</span>
+    <div class="flex-1 relative flex flex-col bg-bg-base">
+      <div class="h-12 border-b border-border-default flex items-center px-4 shrink-0">
+        <div v-if="selectedFile" class="flex items-center gap-2">
+          <span class="material-symbols-outlined text-[16px] text-text-faint">description</span>
+          <span class="font-body text-body text-text-primary font-medium">{{ selectedFile.replace(/\.md$/, '') }}</span>
+          <span class="font-mono-data text-mono-data text-text-faint bg-surface-container border border-border-hairline px-1.5 py-0.5 rounded">{{ selectedFile }}</span>
+        </div>
       </div>
       <div class="flex-1 overflow-hidden relative">
-        <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" />
-        <div v-else class="absolute inset-0 flex items-center justify-center text-[#666D7C] text-[13px]">
+        <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" @open-wikilink="openWikilink" />
+        <div v-else class="absolute inset-0 flex items-center justify-center text-text-faint text-body">
           Select a file from tags or create a new note
         </div>
       </div>
     </div>
 
-    <!-- New Note modal -->
-    <Transition name="modal">
-      <div
-        v-if="showNewNote"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-        @click.self="closeNewNote"
-        @keydown.esc="closeNewNote"
-      >
-        <div class="modal-card w-[340px] bg-[#181C26] border border-[#242935] rounded-lg overflow-hidden shadow-[0_24px_64px_-16px_rgba(0,0,0,0.75)]">
-          <div class="px-5 pt-4 pb-3">
-            <span class="block text-[11px] uppercase tracking-[0.14em] text-[#666D7C] mb-3">New note</span>
-            <input
-              ref="titleInput"
-              v-model="newTitle"
-              @keydown.enter="confirmNewNote"
-              @keydown.esc="closeNewNote"
-              placeholder="Untitled note"
-              class="w-full bg-[#0F1217] border border-[#242935] rounded px-3 py-2 text-[14px] text-[#D6DBE3] placeholder-[#666D7C] focus:outline-none focus:border-[#6B7BB0] transition-colors"
-            />
-            <p class="mt-2 h-4 text-[11px] font-mono text-[#666D7C] truncate">
-              <span v-if="slugPreview">will create <span class="text-[#9098A7]">{{ slugPreview }}.md</span></span>
-            </p>
-          </div>
-          <div class="flex items-center justify-between px-5 py-3 border-t border-[#242935] bg-[#141821]">
-            <span class="text-[10px] font-mono text-[#666D7C] tracking-wide">↵ create · esc cancel</span>
-            <div class="flex items-center gap-2">
-              <button
-                @click="closeNewNote"
-                class="text-[12px] px-3 py-1 rounded text-[#9098A7] hover:text-[#D6DBE3] hover:bg-[#1D222D] transition-colors"
-              >Cancel</button>
-              <button
-                @click="confirmNewNote"
-                :disabled="!slugPreview || creating"
-                class="text-[12px] px-3 py-1 rounded bg-[#6B7BB0] text-[#F0F4F8] disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7c8bc0] transition-colors"
-              >{{ creating ? 'Creating…' : 'Create' }}</button>
-            </div>
+    <UiModal :open="showNewNote" title="New note" size="sm" @close="closeNewNote">
+      <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
+        <UiInput
+          ref="titleInput"
+          v-model="newTitle"
+          placeholder="Untitled note"
+          @keydown.enter="confirmNewNote"
+          @keydown.esc="closeNewNote"
+        />
+      </UiField>
+
+      <template #footer>
+        <div class="flex items-center justify-between gap-component">
+          <span class="font-mono-data text-mono-data text-text-muted">Enter creates · Esc cancels</span>
+          <div class="flex items-center gap-base">
+            <UiButton variant="ghost" @click="closeNewNote">Cancel</UiButton>
+            <UiButton variant="primary" :loading="creating" :disabled="!slugPreview" @click="confirmNewNote">Create note</UiButton>
           </div>
         </div>
-      </div>
-    </Transition>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -76,6 +61,10 @@ import { ref, computed, nextTick } from 'vue'
 import MarkdownEditor from '~/components/notes/MarkdownEditor.vue'
 import TagHierarchy from '~/components/notes/TagHierarchy.vue'
 import NoteList from '~/components/notes/NoteList.vue'
+import UiButton from '~/components/ui/UiButton.vue'
+import UiField from '~/components/ui/UiField.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+import UiModal from '~/components/ui/UiModal.vue'
 
 const selectedFile = ref(null)
 const noteListRef = ref(null)
@@ -87,6 +76,20 @@ const creating = ref(false)
 
 const selectFile = (path) => {
   selectedFile.value = path
+}
+
+// Resolve a ctrl/cmd-clicked wikilink target to an actual vault file and
+// select it the same way clicking a note in the list does.
+const openWikilink = async (target) => {
+  const slug = target.endsWith('.md') ? target : `${target}.md`
+  try {
+    const res = await fetch('/api/vault/list')
+    if (res.ok) {
+      const { files } = await res.json()
+      const match = (files || []).find((f) => f === slug || f.endsWith(`/${slug}`))
+      if (match) selectFile(match)
+    }
+  } catch (e) { /* best-effort wikilink navigation */ }
 }
 
 const slugify = (title) => title
@@ -148,23 +151,3 @@ const confirmNewNote = async () => {
   }
 }
 </script>
-
-<style scoped>
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.18s ease;
-}
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-.modal-enter-active .modal-card,
-.modal-leave-active .modal-card {
-  transition: transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
-}
-.modal-enter-from .modal-card,
-.modal-leave-to .modal-card {
-  transform: translateY(6px) scale(0.98);
-  opacity: 0;
-}
-</style>

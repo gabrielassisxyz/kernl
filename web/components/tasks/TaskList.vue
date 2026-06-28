@@ -29,7 +29,7 @@
           <td class="py-base pr-section font-mono-data text-mono-data text-text-faint whitespace-nowrap">
             {{ projectTitles[task.projectId] || '—' }}
           </td>
-          <td class="py-base pr-section font-mono-data text-mono-data text-text-dim whitespace-nowrap">{{ statusLabel(task) }}</td>
+          <td class="py-base pr-section font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ statusLabel(task) }}</td>
           <td class="py-base font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ formatTimestamp(task.updatedAt) }}</td>
         </tr>
       </tbody>

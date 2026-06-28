@@ -1,7 +1,7 @@
 // Single source of truth for graph node types: color, human label, Material
 // Symbols icon, and a short prefix the editor autocomplete keys off. Plain TS
 // (no Vue/Nuxt imports) so the graph view, the editor, and unit tests can all
-// share it. Colors are a cohesive muted jewel-tone palette over the dark base.
+// share it. Colors point at the live design-token source in tailwind.css.
 
 export interface NodeTypeMeta {
   type: string
@@ -11,21 +11,23 @@ export interface NodeTypeMeta {
   prefix: string
 }
 
-const FALLBACK_COLOR = '#9098A7'
+const tokenColor = (token: string): string => `var(--color-${token})`
+
+const FALLBACK_COLOR = tokenColor('text-muted')
 const FALLBACK_ICON = 'circle'
 
 export const NODE_TYPES: NodeTypeMeta[] = [
-  { type: 'note', label: 'note', color: '#7B8FE0', icon: 'description', prefix: 'n' },
-  { type: 'bookmark', label: 'bookmark', color: '#E5C270', icon: 'bookmark', prefix: 'b' },
-  { type: 'bookmark_list', label: 'bookmark list', color: '#D49A6A', icon: 'bookmarks', prefix: 'l' },
-  { type: 'task', label: 'task', color: '#6D9A78', icon: 'checklist', prefix: 't' },
-  { type: 'project', label: 'project', color: '#C2675C', icon: 'folder_open', prefix: 'p' },
-  { type: 'memory_claim', label: 'memory claim', color: '#B58BD4', icon: 'neurology', prefix: 'm' },
-  { type: 'chat_session', label: 'chat session', color: '#5FA8C4', icon: 'forum', prefix: 'c' },
-  { type: 'ingest_item', label: 'ingest item', color: '#8089A0', icon: 'input', prefix: 'i' },
-  { type: 'capture', label: 'capture', color: '#D98E73', icon: 'bolt', prefix: 'x' },
-  { type: 'memory_refutation', label: 'memory refutation', color: '#C76B7A', icon: 'cancel', prefix: 'r' },
-  { type: 'decision', label: 'decision', color: '#5FB39A', icon: 'fork_right', prefix: 'd' },
+  { type: 'note', label: 'note', color: tokenColor('node-note'), icon: 'description', prefix: 'n' },
+  { type: 'bookmark', label: 'bookmark', color: tokenColor('tertiary'), icon: 'bookmark', prefix: 'b' },
+  { type: 'bookmark_list', label: 'bookmark list', color: tokenColor('node-bookmark-list'), icon: 'bookmarks', prefix: 'l' },
+  { type: 'task', label: 'task', color: tokenColor('status-passed'), icon: 'checklist', prefix: 't' },
+  { type: 'project', label: 'project', color: tokenColor('status-failed'), icon: 'folder_open', prefix: 'p' },
+  { type: 'memory_claim', label: 'memory claim', color: tokenColor('node-memory-claim'), icon: 'neurology', prefix: 'm' },
+  { type: 'chat_session', label: 'chat session', color: tokenColor('node-chat-session'), icon: 'forum', prefix: 'c' },
+  { type: 'ingest_item', label: 'ingest item', color: tokenColor('status-running'), icon: 'input', prefix: 'i' },
+  { type: 'capture', label: 'capture', color: tokenColor('node-capture'), icon: 'bolt', prefix: 'x' },
+  { type: 'memory_refutation', label: 'memory refutation', color: tokenColor('node-memory-refutation'), icon: 'cancel', prefix: 'r' },
+  { type: 'decision', label: 'decision', color: tokenColor('node-decision'), icon: 'fork_right', prefix: 'd' },
 ]
 
 const BY_TYPE = new Map(NODE_TYPES.map((m) => [m.type, m]))

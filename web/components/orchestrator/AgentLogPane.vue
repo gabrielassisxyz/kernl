@@ -1,8 +1,8 @@
 <template>
-  <div ref="scrollEl" class="flex-1 overflow-y-auto hide-scrollbar font-mono-data text-mono-data leading-relaxed" @scroll="onScroll">
+  <div ref="scrollEl" class="flex-1 overflow-y-auto font-mono-data text-mono-data leading-relaxed" @scroll.passive="onScroll">
     <!-- No session -->
     <div v-if="status === 'idle'" class="h-full flex flex-col items-center justify-center text-text-faint gap-tight">
-      <span class="material-symbols-outlined !text-[24px]">terminal</span>
+      <span class="material-symbols-outlined !text-display">terminal</span>
       <p class="font-body text-body">No active session</p>
     </div>
 
@@ -22,10 +22,10 @@
             class="flex items-center gap-tight text-status-gate text-left hover:text-status-gate/80 transition-colors"
             @click="b.collapsed = !b.collapsed"
           >
-            <span class="material-symbols-outlined !text-[14px]">{{ b.collapsed ? 'chevron_right' : 'expand_more' }}</span>
-            <span class="font-label-caps text-[10px] tracking-widest">Thinking</span>
+            <span class="material-symbols-outlined !text-body">{{ b.collapsed ? 'chevron_right' : 'expand_more' }}</span>
+            <span class="font-label-caps text-mono-data tracking-widest">Thinking</span>
           </button>
-          <p v-if="!b.collapsed" class="pl-[1em] mt-tight text-[11px] italic text-text-muted whitespace-pre-wrap">{{ b.text }}</p>
+          <p v-if="!b.collapsed" class="pl-[1em] mt-tight text-mono-data italic text-text-muted whitespace-pre-wrap">{{ b.text }}</p>
         </div>
 
         <!-- Plain text -->
@@ -38,7 +38,7 @@
             <span class="text-primary">{{ b.name }}</span>
           </div>
           <pre v-if="b.input" class="m-0 font-mono-data pl-[1em] text-text-muted whitespace-pre-wrap break-all">{{ truncate(b.input, b.expanded) }}</pre>
-          <pre v-if="b.result" class="m-0 font-mono-data pl-[1em] whitespace-pre-wrap break-all" :class="b.error ? 'text-status-failed' : 'text-status-passed'">↳ {{ truncate(b.result, b.expanded) }}</pre>
+          <pre v-if="b.result" class="m-0 font-mono-data pl-[1em] whitespace-pre-wrap break-all" :class="b.error ? 'text-status-failed-text' : 'text-status-passed'">↳ {{ truncate(b.result, b.expanded) }}</pre>
           <button
             v-if="isTruncated(b)"
             class="self-start pl-[1em] text-text-faint hover:text-text-muted transition-colors"
@@ -47,7 +47,7 @@
         </div>
 
         <!-- Stderr -->
-        <p v-else-if="b.kind === 'stderr'" class="text-status-failed whitespace-pre-wrap">[stderr] {{ b.text }}</p>
+        <p v-else-if="b.kind === 'stderr'" class="text-status-failed-text whitespace-pre-wrap">[stderr] {{ b.text }}</p>
       </template>
     </div>
   </div>
@@ -81,9 +81,11 @@ function onScroll() {
   stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40
 }
 
+let rafScroll = 0
 function scrollToBottom() {
   if (!stick) return
-  nextTick(() => {
+  cancelAnimationFrame(rafScroll)
+  rafScroll = requestAnimationFrame(() => {
     const el = scrollEl.value
     if (el) el.scrollTop = el.scrollHeight
   })
@@ -110,7 +112,7 @@ function toolMark(b: Extract<Block, { kind: 'tool' }>): string {
 }
 function toolMarkClass(b: Extract<Block, { kind: 'tool' }>): string {
   if (!b.result) return 'text-primary'
-  return b.error ? 'text-status-failed' : 'text-status-passed'
+  return b.error ? 'text-status-failed-text' : 'text-status-passed'
 }
 
 // ── block append / merge helpers ────────────────────────────────────────────

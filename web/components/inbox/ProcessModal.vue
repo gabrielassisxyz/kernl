@@ -1,59 +1,50 @@
 <template>
-  <Teleport to="body">
-    <Transition name="fade">
-      <div v-if="item" class="fixed inset-0 z-[60] flex items-center justify-center p-section bg-black/50" @click.self="$emit('close')">
-        <div class="w-full max-w-lg flex flex-col rounded-lg border border-border-hairline bg-surface overflow-hidden">
-          <header class="px-section py-component border-b border-border-hairline">
-            <div class="font-mono-data text-[11px] text-text-faint mb-tight">PROCESS CAPTURE</div>
-            <h2 class="font-headline text-headline text-text-primary">{{ item.title }}</h2>
-          </header>
-
-          <div class="px-section py-component flex flex-col gap-section">
-            <!-- target -->
-            <div>
-              <div class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase mb-base">Convert to</div>
-              <div class="flex gap-tight">
-                <button
-                  v-for="t in TARGETS" :key="t"
-                  class="flex-1 flex items-center justify-center gap-tight px-base py-1.5 rounded border font-mono-data text-[11px] transition-colors"
-                  :class="draft.target === t ? TARGET_META[t].chip + ' font-medium' : 'border-border-hairline text-text-muted hover:text-text-primary'"
-                  @click="draft.target = t"
-                >
-                  <span class="material-symbols-outlined !text-[13px]">{{ TARGET_META[t].icon }}</span>{{ TARGET_META[t].label }}
-                </button>
-              </div>
-            </div>
-
-            <!-- project (task) / link-to (note, bookmark) -->
-            <div v-if="draft.target !== 'discard'">
-              <div class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase mb-base">
-                {{ draft.target === 'task' ? 'Project' : 'Link to (optional)' }}
-              </div>
-              <select v-model="draft.projectId" class="w-full bg-surface-container-low border border-border-hairline rounded px-base py-1.5 font-body text-body text-text-primary">
-                <option value="">{{ draft.target === 'task' ? '— Unprocessed tasks (no project) —' : '— Nothing —' }}</option>
-                <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.title }}</option>
-              </select>
-            </div>
-
-            <!-- title -->
-            <div v-if="draft.target !== 'discard'">
-              <div class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase mb-base">Title</div>
-              <input v-model="draft.title" class="w-full bg-surface-container-low border border-border-hairline rounded px-base py-1.5 font-body text-body text-text-primary" />
-            </div>
-          </div>
-
-          <footer class="px-section py-base border-t border-border-hairline flex items-center justify-end gap-base">
-            <button class="px-component py-1.5 font-body text-body text-text-muted hover:text-text-primary transition-colors" @click="$emit('close')">Cancel</button>
-            <button
-              class="px-component py-1.5 rounded font-body text-body bg-primary/15 text-primary border border-primary/40 hover:bg-primary/25 transition-colors disabled:opacity-50"
-              :disabled="busy"
-              @click="confirm"
-            >Process</button>
-          </footer>
+  <UiModal
+    :open="!!item"
+    :title="item?.title || ''"
+    kicker="PROCESS CAPTURE"
+    size="lg"
+    @close="$emit('close')"
+  >
+    <div class="flex flex-col gap-section">
+      <UiField label="Convert to">
+        <div class="flex gap-tight">
+          <UiButton
+            v-for="t in TARGETS"
+            :key="t"
+            class="flex-1"
+            size="sm"
+            :variant="draft.target === t ? targetVariant(t) : 'secondary'"
+            :icon="TARGET_META[t].icon"
+            @click="draft.target = t"
+          >
+            {{ TARGET_META[t].label }}
+          </UiButton>
         </div>
+      </UiField>
+
+      <UiField
+        v-if="draft.target !== 'discard'"
+        :label="draft.target === 'task' ? 'Project' : 'Link to (optional)'"
+      >
+        <UiSelect v-model="draft.projectId" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50">
+          <option value="">{{ draft.target === 'task' ? 'Unprocessed tasks (no project)' : 'Nothing' }}</option>
+          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.title }}</option>
+        </UiSelect>
+      </UiField>
+
+      <UiField v-if="draft.target !== 'discard'" label="Title">
+        <UiInput v-model="draft.title" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50" />
+      </UiField>
+    </div>
+
+    <template #footer>
+      <div class="flex items-center justify-end gap-base">
+        <UiButton variant="ghost" @click="$emit('close')">Cancel</UiButton>
+        <UiButton variant="primary" :loading="busy" @click="confirm">Process</UiButton>
       </div>
-    </Transition>
-  </Teleport>
+    </template>
+  </UiModal>
 </template>
 
 <script setup lang="ts">
@@ -61,6 +52,12 @@ import { reactive, watch } from 'vue'
 import type { Project } from '~/composables/useProjects'
 import { TARGETS, TARGET_META, normalizeTarget, type Target } from '~/utils/inboxTargets'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
+import UiButton from '~/components/ui/UiButton.vue'
+import UiField from '~/components/ui/UiField.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+import UiModal from '~/components/ui/UiModal.vue'
+import UiSelect from '~/components/ui/UiSelect.vue'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'accent'
 
 const props = defineProps<{
   item: InboxItemData | null
@@ -74,6 +71,12 @@ const emit = defineEmits<{
 }>()
 
 const draft = reactive<{ target: Target; projectId: string; title: string }>({ target: 'note', projectId: '', title: '' })
+
+function targetVariant(target: Target): ButtonVariant {
+  if (target === 'discard') return 'danger'
+  if (target === 'task') return 'success'
+  return 'accent'
+}
 
 // Re-seed the draft from the DA suggestion (or a neutral default) each time a
 // new capture opens the modal.
@@ -96,8 +99,3 @@ function confirm() {
   })
 }
 </script>
-
-<style scoped>
-.fade-enter-active, .fade-leave-active { transition: opacity 140ms ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
-</style>

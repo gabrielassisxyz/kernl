@@ -2,15 +2,15 @@
   <section class="flex flex-col min-w-[240px] flex-1 rounded-lg border border-border-hairline bg-surface-container-low/40">
     <!-- column header -->
     <header class="flex items-center justify-between px-component py-base border-b border-border-hairline bg-surface-container-low/40">
-      <h2 class="font-label-caps text-[10px] tracking-widest text-text-muted uppercase">{{ column.label }}</h2>
-      <span class="font-mono-data text-[11px] text-text-faint">{{ beads.length }}</span>
+      <h2 class="font-label-caps text-mono-data tracking-widest text-text-muted uppercase">{{ column.label }}</h2>
+      <span class="font-mono-data text-mono-data text-text-faint">{{ beads.length }}</span>
     </header>
 
     <!-- cards -->
     <TransitionGroup
       tag="div"
       name="card"
-      class="flex flex-col gap-base p-base overflow-y-auto hide-scrollbar flex-1"
+      class="flex flex-col gap-base p-base overflow-y-auto flex-1"
     >
       <BeadCard
         v-for="bead in beads"
@@ -21,7 +21,7 @@
       <div
         v-if="beads.length === 0"
         key="__empty"
-        class="flex items-center justify-center py-section text-text-dim font-mono-data text-[11px]"
+        class="flex items-center justify-center py-section text-text-faint font-mono-data text-mono-data"
       >
         empty
       </div>

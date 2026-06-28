@@ -1,17 +1,17 @@
 <template>
-  <div class="tag-hierarchy p-4 bg-[#0F1217] text-[13px]">
-    <h3 class="text-[11.5px] uppercase font-semibold tracking-[0.12em] text-[#666D7C] mb-4">Tags</h3>
-    <div v-if="loading" class="text-[#9098A7]">Loading...</div>
+  <div class="tag-hierarchy p-component bg-bg-base text-body">
+    <h3 class="font-label-caps text-label-caps text-text-muted mb-component">Tags</h3>
+    <div v-if="loading" class="font-body text-body text-text-muted">Loading...</div>
     <div v-else>
       <div v-for="(node, name) in tree" :key="name" class="mb-2">
-        <div class="flex items-center gap-2 cursor-pointer text-[#D6DBE3] hover:bg-[#1D222D] px-2 py-1.5 rounded-[4px]" @click="toggle(name)">
-          <span class="text-[#666D7C] font-mono text-[10px] w-3 flex justify-center">{{ expanded[name] ? '▼' : '▶' }}</span>
+        <button class="w-full flex items-center gap-2 cursor-pointer text-text-primary hover:bg-surface-hover focus-visible:bg-surface-hover focus:outline-none focus-visible:ring-1 focus-visible:ring-da-accent px-base py-1.5 rounded" @click="toggle(name)" :aria-expanded="expanded[name]" :aria-controls="`tag-group-${name}`">
+          <span class="text-text-muted font-mono-data text-mono-data w-3 flex justify-center">{{ expanded[name] ? '▼' : '▶' }}</span>
           <span class="font-medium">#{{ name }}</span>
-        </div>
-        <div v-if="expanded[name]" class="ml-4 pl-3 border-l border-[#1B2029] mt-1 flex flex-col gap-1">
-          <div v-for="file in node.files" :key="file" class="py-1 px-2 text-[#9098A7] hover:text-[#D6DBE3] hover:bg-[#141821] rounded-[4px] cursor-pointer truncate font-mono" @click="$emit('select', file)">
+        </button>
+        <div v-if="expanded[name]" :id="`tag-group-${name}`" class="ml-component pl-component border-l border-border-hairline mt-1 flex flex-col gap-1">
+          <button v-for="file in node.files" :key="file" class="w-full text-left py-1 px-base text-text-muted hover:text-text-primary hover:bg-bg-elevated focus-visible:bg-bg-elevated focus:outline-none focus-visible:ring-1 focus-visible:ring-da-accent rounded cursor-pointer truncate font-mono-data" @click="$emit('select', file)">
             {{ file }}
-          </div>
+          </button>
         </div>
       </div>
     </div>

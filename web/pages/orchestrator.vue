@@ -1,25 +1,22 @@
 <template>
   <div class="flex flex-col h-full min-h-0">
-    <!-- Surface header -->
     <header class="shrink-0 px-margin pt-margin pb-section">
       <div class="flex items-center justify-between gap-section flex-wrap">
         <div class="flex items-center gap-section min-w-0">
           <h1 class="font-headline text-display text-text-primary font-medium tracking-tight">Orchestrator</h1>
 
-          <!-- epic selector -->
           <div v-if="epics.length" class="relative max-w-[420px]">
-            <select
+            <UiSelect
               v-model="selectedEpicId"
-              class="appearance-none w-full truncate bg-surface-container-low border border-border-hairline rounded h-9 pl-component pr-8 font-mono-data text-mono-data text-text-primary hover:border-border-default focus:border-primary outline-none cursor-pointer transition-colors"
+              classes="appearance-none h-9 w-full truncate rounded border border-border-hairline bg-surface-container-low pl-component pr-8 font-mono-data text-mono-data text-text-primary outline-none transition-colors hover:border-border-default focus:border-primary/70"
             >
               <option v-for="e in epics" :key="e.id" :value="e.id">{{ e.id }} · {{ e.title }}</option>
-            </select>
+            </UiSelect>
             <span class="material-symbols-outlined absolute right-1.5 top-1/2 -translate-y-1/2 text-text-faint !text-[18px] pointer-events-none">expand_more</span>
           </div>
         </div>
 
-        <!-- live indicator -->
-        <div v-if="selectedEpicId" class="flex items-center gap-tight font-mono-data text-[11px]" :class="live ? 'text-status-passed' : 'text-text-dim'">
+        <div v-if="selectedEpicId" class="flex items-center gap-tight font-mono-data text-mono-data" :class="live ? 'text-status-passed' : 'text-text-faint'">
           <span class="w-1.5 h-1.5 rounded-full" :class="live ? 'bg-status-passed animate-pulse' : 'bg-text-dim'"></span>
           {{ live ? 'live' : 'offline' }}
         </div>
@@ -28,19 +25,28 @@
       <p class="mt-base font-body text-body text-text-muted">{{ summary }}</p>
     </header>
 
-    <!-- Loading -->
     <div v-if="loading && beads.length === 0" class="flex-1 px-margin pb-margin grid grid-cols-5 gap-section min-h-0">
-      <div v-for="n in 5" :key="n" class="rounded-lg border border-border-hairline bg-surface animate-pulse"></div>
+      <UiSkeleton v-for="n in 5" :key="n" classes="h-full min-h-[240px]" text="Loading pipeline..." />
     </div>
 
-    <!-- Empty -->
-    <div v-else-if="epics.length === 0" class="flex-1 flex flex-col items-center justify-center text-text-muted">
-      <span class="material-symbols-outlined text-[32px] mb-component text-text-faint">account_tree</span>
-      <p class="font-body text-body">{{ error ? 'Could not load the pipeline' : 'No epics to orchestrate' }}</p>
-      <p v-if="!error" class="mt-tight font-body text-body text-text-faint">Epics from the bead graph appear here.</p>
-    </div>
+    <UiErrorState
+      v-else-if="error"
+      fill
+      title="Could not load the pipeline."
+      message="Check the bead graph and retry the orchestrator load."
+      :detail="error"
+      retry-label="Retry"
+      @retry="load"
+    />
 
-    <!-- Kanban -->
+    <UiEmptyState
+      v-else-if="epics.length === 0"
+      fill
+      icon="account_tree"
+      title="No epics to orchestrate."
+      body="Epics from the bead graph appear here when they are ready for execution."
+    />
+
     <div v-else class="flex-1 min-h-0 px-margin pb-margin flex gap-section overflow-x-auto">
       <StageColumn
         v-for="col in ORCHESTRATOR_COLUMNS"
@@ -51,7 +57,6 @@
       />
     </div>
 
-    <!-- Detail modal -->
     <BeadDetailModal
       :bead="selectedBead"
       :epic-id="selectedEpicId"
@@ -68,6 +73,10 @@ import { useBeads, type Bead } from '~/composables/useBeads'
 import { ORCHESTRATOR_COLUMNS, stageBucket, type StageBucket } from '~/utils/workflow'
 import StageColumn from '~/components/orchestrator/StageColumn.vue'
 import BeadDetailModal from '~/components/orchestrator/BeadDetailModal.vue'
+import UiEmptyState from '~/components/ui/UiEmptyState.vue'
+import UiErrorState from '~/components/ui/UiErrorState.vue'
+import UiSelect from '~/components/ui/UiSelect.vue'
+import UiSkeleton from '~/components/ui/UiSkeleton.vue'
 
 const route = useRoute()
 const { beads, loading, error, load, epics, childrenOf } = useBeads()

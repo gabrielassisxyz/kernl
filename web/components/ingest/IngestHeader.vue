@@ -9,8 +9,8 @@
         <button @click="$emit('trigger')" class="font-mono-data text-text-primary px-base border border-border-hairline rounded bg-surface-container-low hover:bg-surface-hover transition-colors">
           Trigger Ingest
         </button>
-        <span class="font-mono-data text-text-dim px-base border border-border-hairline rounded bg-surface-container-low">⌘ K Search</span>
-        <button class="material-symbols-outlined text-text-muted hover:text-text-primary transition-colors">filter_list</button>
+        <span class="font-mono-data text-text-faint px-base border border-border-hairline rounded bg-surface-container-low">⌘ K Search</span>
+        <button class="material-symbols-outlined text-text-muted hover:text-text-primary transition-colors" aria-label="Filter list">filter_list</button>
       </div>
     </div>
   </header>
