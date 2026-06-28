@@ -13,6 +13,8 @@
 #                backstop; the agent's "show me git diff --cached" habit is the
 #                probabilistic one. If gitleaks is not installed the hook warns
 #                and lets the commit through (CI still scans full history).
+#                Also runs `npm ci --dry-run` in web/ so package-lock drift is
+#                caught before the GitHub Actions `npm ci` step.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -42,6 +44,18 @@ if ! gitleaks protect --staged --no-banner --redact --config "$REPO_ROOT/.gitlea
     echo "pre-commit: gitleaks found a secret in the staged changes. Commit aborted." >&2
     echo "            Remove the secret and re-stage. If it is a deliberate fake fixture," >&2
     echo "            allowlist its exact shape in .gitleaks.toml (never the path)." >&2
+    exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+    echo "pre-commit: npm not installed — skipping web lockfile check." >&2
+    exit 0
+fi
+
+if ! (cd "$REPO_ROOT/web" && npm ci --dry-run --no-audit --no-fund >/dev/null); then
+    echo >&2
+    echo "pre-commit: npm ci dry-run failed. package.json and package-lock.json are out of sync." >&2
+    echo "            Run: cd web && npm install && npm ci --no-audit --no-fund" >&2
     exit 1
 fi
 HOOK
