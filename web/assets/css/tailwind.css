@@ -64,6 +64,13 @@
   --color-status-gate: #C99A4A;
   --color-secondary: #c3c6d4;
   --color-da-accent: #6B7BB0;
+  --color-node-note: #7B8FE0;
+  --color-node-bookmark-list: #D49A6A;
+  --color-node-memory-claim: #B58BD4;
+  --color-node-chat-session: #5FA8C4;
+  --color-node-capture: #D98E73;
+  --color-node-memory-refutation: #C76B7A;
+  --color-node-decision: #5FB39A;
   /* Brighter text-only variants of accent/failed: the base tokens stay reserved
      for fills/tints/borders (which fail WCAG AA only when used as small text). */
   --color-da-accent-text: #8E9ED2;

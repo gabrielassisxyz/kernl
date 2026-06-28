@@ -59,7 +59,7 @@
               :key="l.id"
               :ref="el => setLinkRef(el, l.id)"
               :x1="l.s.x" :y1="l.s.y" :x2="l.t.x" :y2="l.t.y"
-              :stroke="l.active ? colorFor(l.s.type) : '#454A52'"
+              :stroke="l.active ? colorFor(l.s.type) : 'var(--color-outline-variant)'"
               :stroke-opacity="dim(l.active, l.faded)"
               :style="{ transition: 'stroke-opacity 120ms' }"
             />
@@ -93,10 +93,10 @@
               <circle
                 :r="n.r"
                 :fill="colorFor(n.type)"
-                :stroke="selectedId === n.id ? '#fff' : '#0F1217'"
+                :stroke="selectedId === n.id ? 'var(--color-on-surface)' : 'var(--color-bg-base)'"
                 :stroke-width="(selectedId === n.id ? 2.5 : 1) / scale"
               />
-              <circle :cx="-n.r * 0.32" :cy="-n.r * 0.32" :r="n.r * 0.42" fill="#fff" :opacity="0.35" />
+              <circle :cx="-n.r * 0.32" :cy="-n.r * 0.32" :r="n.r * 0.42" fill="var(--color-on-surface)" :opacity="0.35" />
             </g>
           </g>
         </g>
