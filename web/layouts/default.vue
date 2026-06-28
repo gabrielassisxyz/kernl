@@ -3,7 +3,7 @@
     <!-- Top Layout Wrapper -->
     <div class="flex flex-1 overflow-hidden">
       <!-- Left SideNav (Icon Rail) -->
-      <nav class="w-rail-width h-full bg-surface border-r border-border-hairline flex flex-col items-center py-base z-50 flex-shrink-0">
+      <nav class="w-rail-width h-full bg-surface border-r border-border-hairline flex flex-col items-center py-base z-dropdown flex-shrink-0">
         <!-- Logo -->
         <NuxtLink to="/" class="mb-break flex flex-col items-center gap-1 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded p-1 group">
           <div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center group-active:scale-95 transition-transform">
@@ -83,7 +83,7 @@
       <button
         v-if="!daOpen"
         @click="openDa"
-        class="absolute top-1/2 right-0 -translate-y-1/2 w-6 flex flex-col items-center justify-center gap-1.5 py-3 bg-surface border-y border-l border-border-hairline rounded-l text-text-muted hover:text-text-primary outline-none focus-visible:border-primary/70 focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-x-95 origin-right transition-[color,transform,border-color] duration-150 cursor-pointer z-40 group"
+        class="absolute top-1/2 right-0 -translate-y-1/2 w-6 flex flex-col items-center justify-center gap-1.5 py-3 bg-surface border-y border-l border-border-hairline rounded-l text-text-muted hover:text-text-primary outline-none focus-visible:border-primary/70 focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-x-95 origin-right transition-[color,transform,border-color] duration-150 cursor-pointer z-dropdown group"
         aria-label="Open DA (⌘.)"
       >
         <span class="material-symbols-outlined !text-[18px]">smart_toy</span>
@@ -95,7 +95,7 @@
     </div>
 
     <!-- Shell: Footer Status Bar -->
-    <footer class="h-[26px] bg-surface-container-low text-text-muted border-t border-border-hairline flex items-center justify-between px-base z-50 divide-x divide-border-hairline shrink-0">
+    <footer class="h-[26px] bg-surface-container-low text-text-muted border-t border-border-hairline flex items-center justify-between px-base z-dropdown divide-x divide-border-hairline shrink-0">
       <div class="flex items-center gap-component pr-component">
         <div class="flex items-center gap-tight">
           <span class="w-2 h-2 rounded-full bg-status-passed"></span>

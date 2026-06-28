@@ -1,5 +1,5 @@
 <template>
-  <div class="absolute top-component right-component z-40 flex max-h-[70vh] w-80 flex-col overflow-hidden rounded border border-border-default bg-surface-overlay">
+  <div class="absolute top-component right-component z-modal flex max-h-[70vh] w-80 flex-col overflow-hidden rounded border border-border-default bg-surface-overlay">
     <div class="bg-bg-elevated border-b border-border-hairline px-4 py-2 text-label-caps uppercase font-semibold tracking-[0.12em] text-text-muted flex justify-between items-center">
       <span>DA Suggestion</span>
       <span class="bg-surface-hover text-da-accent-text font-mono px-1.5 py-0.5 rounded-sm">{{ hunks.length }}</span>

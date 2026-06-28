@@ -5,7 +5,7 @@
     leave-active-class="transition-opacity duration-150"
     leave-to-class="opacity-0"
   >
-    <div v-if="task" class="absolute inset-0 z-40 bg-black/40" @click="$emit('close')">
+    <div v-if="task" class="absolute inset-0 z-modal bg-black/40" @click="$emit('close')">
       <aside
         ref="panelRef"
         role="dialog"

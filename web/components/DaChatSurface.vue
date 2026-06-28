@@ -1,6 +1,6 @@
 <template>
   <aside 
-    class="z-40 flex flex-col overflow-hidden border-border-hairline bg-surface transition-all duration-200 ease-out flex-shrink-0 fixed lg:static top-0 right-0 bottom-[26px] lg:bottom-auto lg:h-full max-w-[calc(100vw-60px)]"
+    class="z-modal flex flex-col overflow-hidden border-border-hairline bg-surface transition-all duration-200 ease-out flex-shrink-0 fixed lg:static top-0 right-0 bottom-[26px] lg:bottom-auto lg:h-full max-w-[calc(100vw-60px)]"
     :class="isOpen
       ? 'translate-x-0 opacity-100 w-[400px] border-l'
       : 'pointer-events-none translate-x-full opacity-0 lg:translate-x-0 lg:opacity-100 w-[400px] lg:w-0 border-l lg:border-l-0'"

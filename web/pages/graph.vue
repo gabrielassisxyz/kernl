@@ -3,7 +3,7 @@
     <div class="flex-1 min-w-0 relative" ref="wrapRef">
       <div class="pointer-events-none absolute inset-0 graph-grid opacity-[0.35]"></div>
 
-      <header class="absolute top-0 left-0 right-0 z-20 flex items-center gap-section px-margin py-component pointer-events-none">
+      <header class="absolute top-0 left-0 right-0 z-dropdown flex items-center gap-section px-margin py-component pointer-events-none">
         <div class="flex flex-col gap-1 pointer-events-auto">
           <h1 class="font-display text-display tracking-tight leading-none">Constellation</h1>
           <p class="font-mono-data text-mono-data text-text-muted">
@@ -31,7 +31,7 @@
         </div>
       </header>
 
-      <div class="absolute bottom-0 left-0 z-20 px-margin py-component flex flex-wrap items-center gap-x-component gap-y-tight max-w-[70%]">
+      <div class="absolute bottom-0 left-0 z-dropdown px-margin py-component flex flex-wrap items-center gap-x-component gap-y-tight max-w-[70%]">
         <button
           v-for="t in legend"
           :key="t.type"
@@ -104,7 +104,7 @@
 
       <div
         v-if="hoverNode && !dragNode"
-        class="pointer-events-none absolute z-30 max-w-xs"
+        class="pointer-events-none absolute z-tooltip max-w-xs"
         :style="{ left: tip.x + 'px', top: tip.y + 'px' }"
       >
         <div class="-translate-x-1/2 -translate-y-[calc(100%+14px)] bg-surface border border-border-default rounded px-3 py-2">
@@ -132,7 +132,7 @@
     <Transition name="panel">
       <aside
         v-if="selectedNode"
-        class="w-full max-w-[340px] shrink-0 h-full border-l border-border-hairline bg-surface flex flex-col z-30"
+        class="w-full max-w-[340px] shrink-0 h-full border-l border-border-hairline bg-surface flex flex-col z-dropdown"
       >
         <div class="flex items-start gap-component px-component py-component border-b border-border-hairline">
           <span class="mt-1 w-3 h-3 rounded-full shrink-0" :style="{ background: colorFor(selectedNode.type) }"></span>
