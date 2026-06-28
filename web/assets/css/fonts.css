@@ -1,0 +1,37 @@
+/*
+ * Material Symbols Outlined — self-hosted subset.
+ * Subset icon names (46 glyphs used in this project):
+ *   account_circle, account_tree, add, analytics, arrow_forward, arrow_upward,
+ *   auto_awesome, bookmark, check, check_circle, checklist, close, cloud_off,
+ *   dashboard, delete, description, edit_note, expand_more, filter_list,
+ *   fit_screen, folder_open, help, history, hourglass_empty, hub, inbox,
+ *   input, link_off, memory, neurology, open_in_new, play_arrow, policy,
+ *   progress_activity, queue, refresh, search, settings, smart_toy, source,
+ *   swap_vert, sync, task_alt, terminal, view_kanban, view_list
+ *
+ * Font file: web/public/fonts/material-symbols-outlined.woff2 (16 KB)
+ * Generated via Google Fonts CSS2 API with &icon_names= subsetting.
+ */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url('/fonts/material-symbols-outlined.woff2') format('woff2');
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
