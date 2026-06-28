@@ -102,6 +102,18 @@ typography:
     fontSize: "12px"
     fontWeight: 500
     lineHeight: "16px"
+  rail-label:
+    fontFamily: "\"IBM Plex Sans\", system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"
+    fontSize: "10px"
+    fontWeight: 400
+    lineHeight: "12px"
+    letterSpacing: "0em"
+  symbol:
+    fontFamily: "\"Material Symbols Outlined\""
+    fontSize: "24px"
+    fontWeight: 300
+    lineHeight: "1"
+    fontVariation: "'FILL' 0, 'wght' 300, 'GRAD' -25, 'opsz' 24"
 rounded:
   none: "0px"
   sm: "2px"
@@ -147,6 +159,13 @@ components:
     typography: "{typography.body}"
     rounded: "{rounded.none}"
     padding: "8px 16px"
+  navigation-rail-item:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.rail-label}"
+    rounded: "{rounded.none}"
+    width: "{spacing.rail-width}"
+    height: "40px"
 ---
 
 # Design System: Kernl
@@ -165,7 +184,7 @@ Kernl explicitly rejects Jira's bureaucracy, Notion's soft document-first whites
 - Dense dark workspace with a near-black base and tonal surface layering.
 - Small radii, crisp borders, and minimal elevation.
 - One quiet blue-violet DA/accent vocabulary for primary intent and assistant context.
-- Keyboard-friendly icon rail, persistent status bar, and compact workflow panes.
+- Keyboard-friendly thin icon rail with restrained micro-labels, persistent status bar, and compact workflow panes.
 - Shared UI primitives in `web/components/ui/` for buttons, modals, fields, states, and toasts.
 
 ## Colors
@@ -203,6 +222,7 @@ The palette is near-black and cool-neutral, with a single blue-violet assistant/
 **Display Font:** IBM Plex Sans with system UI fallback.
 **Body Font:** IBM Plex Sans with system UI fallback.
 **Label/Mono Font:** IBM Plex Sans for labels; IBM Plex Mono with `ui-monospace` fallback for metadata, IDs, timestamps, counts, and command-like hints.
+**Icon Font:** Material Symbols Outlined, self-hosted as a subset and rendered with low optical weight.
 
 **Character:** The type is product-native and unobtrusive. It should feel like a serious desktop tool: compact, readable, and stable under dense information rather than expressive or editorial.
 
@@ -213,13 +233,17 @@ The palette is near-black and cool-neutral, with a single blue-violet assistant/
 - **Title** (600, 13px-16px, 20px-24px): Dense item titles where `headline` would be too loud.
 - **Body** (400, 13px, 20px): Main UI copy, state descriptions, row text, and compact prose. Keep long explanatory prose near 65-75ch.
 - **Label** (600, 12px, 16px, 0em): Form labels, panel labels, and workflow section labels. Use uppercase only where the surrounding UI is already metadata-heavy.
+- **Rail Label** (400, 10px, 12px, 0em): Micro-labels in the 60px navigation rail. Keep them light; the rail should orient without becoming a bold text column.
 - **Mono Data** (500, 12px, 16px): IDs, paths, status bar text, shortcuts, counters, and structured agent logs.
+- **Symbols** (300, 24px, `FILL 0`, `wght 300`, `GRAD -25`, `opsz 24`): Material Symbols are thin by default. Rail icons scope down to roughly 19px and weight 260 so the shell matches the fine-line graph and editor aesthetic.
 
 ### Named Rules
 
 **The Product Type Rule.** Fixed rem/px product typography only. Do not add clamp-based display scales or landing-page hero type inside the app.
 
 **The Metadata Voice Rule.** Use monospace for data and machine context; use body sans for human-facing explanation and recovery text.
+
+**The Thin Symbol Rule.** Never use `font-bold` on Material Symbols in persistent chrome. If an icon needs more emphasis, use color, state background, or a larger touch target before increasing stroke weight.
 
 ## Elevation
 
@@ -269,7 +293,7 @@ Kernl is flat by default. Depth is conveyed through tonal surface changes, 1px b
 
 ### Navigation
 
-- **Icon Rail:** 60px fixed rail, `surface` background, hairline right border, centered Material Symbols icons, muted default, `surface-hover` + `primary` active state.
+- **Icon Rail:** 60px fixed rail, `surface` background, hairline right border, 40px route items, thin 19px Material Symbols, and 10px micro-labels. Default state is `text-muted`; hover moves to `text-primary`; active state uses `surface-hover` + `primary`.
 - **Status Bar:** 26px bottom bar, `surface-container-low`, mono data typography, hairline top border, compact live/sync/vault information.
 - **DA Panel:** Closed by default; auto-opens only on DA-specific routes (`/chat`, `/config/da`). It overlays the right edge instead of permanently shrinking the workspace.
 
@@ -300,6 +324,7 @@ Kernl is flat by default. Depth is conveyed through tonal surface changes, 1px b
 - **Do** keep surfaces dark, dense, and structurally quiet; the UI exists so complex data and workflows can shine.
 - **Do** use skeletons for content loading and retry-capable error states for API failures.
 - **Do** keep DA contextual: available everywhere, visually dominant only when summoned or on DA-specific routes.
+- **Do** keep persistent navigation visually light: thin symbols, 10px micro-labels, and state backgrounds instead of heavy icon weight.
 - **Do** document any future literal color exceptions with the reason they cannot use CSS variables.
 - **Do** preserve keyboard-first affordances and visible focus on rows, buttons, fields, and modal actions.
 
@@ -310,6 +335,7 @@ Kernl is flat by default. Depth is conveyed through tonal surface changes, 1px b
 - **Don't** use generic SaaS dashboard patterns: decorative gradients, glassmorphism, oversized colorful cards, exaggerated drop shadows, or hero-metric layouts.
 - **Don't** add border-left or border-right accents greater than 1px on cards, callouts, rows, or alerts. Use full borders, tints, icons, or state text instead.
 - **Don't** pair a 1px border with a large soft shadow on the same card/button/modal.
+- **Don't** make the side rail feel like a bold menu. Avoid `font-bold`, oversized labels, or heavy Material Symbols in persistent navigation.
 - **Don't** add arbitrary z-index values. Use semantic z-index utilities.
 - **Don't** introduce raw hex in Vue templates, editor styles, or SVG graph presentation unless it is a documented literal-color exception.
 - **Don't** add new typography families or fluid display scales without a deliberate design-system revision.

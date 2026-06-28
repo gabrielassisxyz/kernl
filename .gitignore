@@ -49,6 +49,7 @@ __pycache__/
 .cursor/
 .augment/
 .agents/
+.impeccable/
 .vibe-chaos-to-concept/
 CLAUDE.md
 CLAUDE.local.md

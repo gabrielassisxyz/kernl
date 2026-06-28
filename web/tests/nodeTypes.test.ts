@@ -10,14 +10,14 @@ import {
 describe('metaForType', () => {
   it('returns the registry entry for a known type', () => {
     const note = metaForType('note')
-    expect(note.color).toBe('#7B8FE0')
+    expect(note.color).toBe('var(--color-node-note)')
     expect(note.icon).toBe('description')
     expect(note.label).toBe('note')
   })
 
   it('returns a fallback for an unknown type', () => {
     const meta = metaForType('totally_unknown')
-    expect(meta.color).toBe('#9098A7')
+    expect(meta.color).toBe('var(--color-text-muted)')
     expect(meta.icon).toBe('circle')
     expect(meta.label).toBe('totally unknown')
   })
@@ -25,7 +25,7 @@ describe('metaForType', () => {
 
 describe('colorForType / labelForType', () => {
   it('reads color and label off the registry', () => {
-    expect(colorForType('bookmark')).toBe('#E5C270')
+    expect(colorForType('bookmark')).toBe('var(--color-tertiary)')
     expect(labelForType('memory_claim')).toBe('memory claim')
   })
 })

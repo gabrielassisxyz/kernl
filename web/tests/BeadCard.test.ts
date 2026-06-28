@@ -17,15 +17,17 @@ function bead(p: Record<string, unknown> = {}) {
 }
 
 describe('BeadCard', () => {
-  it('renders the 2px amber gate mark when a human is required', () => {
+  it('renders the gate tint when a human is required', () => {
     const w = mount(BeadCard, { props: { bead: bead({ requiresHumanAction: true }) } })
-    expect(w.html()).toContain('w-[2px]')
+    expect(w.classes()).toContain('bg-status-gate/10')
+    expect(w.classes()).toContain('hover:bg-status-gate/20')
     expect(w.html()).toContain('bg-status-gate')
   })
 
-  it('omits the gate mark when no human is required', () => {
+  it('omits the gate tint when no human is required', () => {
     const w = mount(BeadCard, { props: { bead: bead() } })
-    expect(w.html()).not.toContain('w-[2px]')
+    expect(w.classes()).not.toContain('bg-status-gate/10')
+    expect(w.classes()).not.toContain('hover:bg-status-gate/20')
   })
 
   it('pulses the dot for a running state', () => {
