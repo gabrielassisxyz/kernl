@@ -67,6 +67,7 @@ import { EditorState, StateField, StateEffect } from '@codemirror/state'
 import { EditorView, lineNumbers, Decoration } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { wikilinkExtensions } from '~/utils/wikilinkEditor'
+import { livePreviewExtensions } from '~/utils/markdownPreview'
 import FrontmatterUI from './FrontmatterUI.vue'
 import DiffSuggest from './DiffSuggest.vue'
 import UiButton from '~/components/ui/UiButton.vue'
@@ -155,6 +156,7 @@ const loadFile = async (path) => {
         lineNumbers(),
         markdown(),
         daRegionField,
+        livePreviewExtensions(),
         wikilinkExtensions((target) => emit('open-wikilink', target)),
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
