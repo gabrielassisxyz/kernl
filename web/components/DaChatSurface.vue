@@ -1,11 +1,11 @@
 <template>
   <aside 
     class="z-40 flex flex-col overflow-hidden border-border-hairline bg-surface transition-all duration-200 ease-out flex-shrink-0 fixed lg:static top-0 right-0 bottom-[26px] lg:bottom-auto lg:h-full max-w-[calc(100vw-60px)]"
-    :class="isOpen 
-      ? 'translate-x-0 opacity-100 w-full max-w-[400px] border-l' 
-      : 'pointer-events-none translate-x-full opacity-0 lg:translate-x-0 lg:opacity-100 w-full max-w-[400px] lg:w-0 border-l lg:border-l-0'"
+    :class="isOpen
+      ? 'translate-x-0 opacity-100 w-[400px] border-l'
+      : 'pointer-events-none translate-x-full opacity-0 lg:translate-x-0 lg:opacity-100 w-[400px] lg:w-0 border-l lg:border-l-0'"
   >
-    <div class="w-full max-w-[400px] flex flex-col h-full shrink-0">
+    <div class="w-[400px] max-w-[calc(100vw-60px)] flex flex-col h-full shrink-0">
       <div class="h-12 border-b border-border-hairline flex items-center justify-between px-base flex-shrink-0">
       <div class="flex items-center gap-2">
         <span class="font-headline text-text-primary font-semibold">DA</span>
