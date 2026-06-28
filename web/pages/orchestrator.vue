@@ -16,7 +16,7 @@
           </div>
         </div>
 
-        <div v-if="selectedEpicId" class="flex items-center gap-tight font-mono-data text-[11px]" :class="live ? 'text-status-passed' : 'text-text-faint'">
+        <div v-if="selectedEpicId" class="flex items-center gap-tight font-mono-data text-mono-data" :class="live ? 'text-status-passed' : 'text-text-faint'">
           <span class="w-1.5 h-1.5 rounded-full" :class="live ? 'bg-status-passed animate-pulse' : 'bg-text-dim'"></span>
           {{ live ? 'live' : 'offline' }}
         </div>

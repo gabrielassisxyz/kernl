@@ -10,7 +10,7 @@
       <section class="flex flex-col">
         <div class="pb-base mb-base border-b border-border-hairline flex items-center justify-between">
           <h2 class="font-label-caps text-label-caps text-text-primary">Today's tasks</h2>
-          <span class="font-body text-[11px] text-text-muted">{{ tasks.length }} open</span>
+          <span class="font-body text-body text-text-muted">{{ tasks.length }} open</span>
         </div>
         <div class="flex flex-col">
           <div v-if="tasks.length === 0" class="py-section font-body text-body">
@@ -32,7 +32,7 @@
       <section class="flex flex-col">
         <div class="pb-base mb-base border-b border-border-hairline flex items-center justify-between">
           <h2 class="font-label-caps text-label-caps text-text-primary">Active projects</h2>
-          <span class="font-body text-[11px] text-text-muted">{{ projects.length }} active</span>
+          <span class="font-body text-body text-text-muted">{{ projects.length }} active</span>
         </div>
         <div class="flex flex-col">
           <div v-if="projects.length === 0" class="py-section font-body text-body">
@@ -48,7 +48,7 @@
               <span class="w-[6px] h-[6px] rounded-full flex-shrink-0" :class="needsAttention(p) ? 'bg-status-gate animate-pulse' : 'bg-status-running'"></span>
               <span class="font-body text-body text-text-primary truncate">{{ p.title }}</span>
             </div>
-            <span class="font-body text-[11px] transition-colors whitespace-nowrap" :class="statePill(p.state).classes">{{ statePill(p.state).label }}</span>
+            <span class="font-label-caps text-label-caps transition-colors whitespace-nowrap" :class="statePill(p.state).classes">{{ statePill(p.state).label }}</span>
           </div>
         </div>
       </section>

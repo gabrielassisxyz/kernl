@@ -620,8 +620,8 @@ onUnmounted(() => {
 .ctrl-btn:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 1px; }
 
 .stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--color-border-hairline); border-radius: var(--radius-full); background: var(--color-surface-container-low); }
-.stat-num { font-family: var(--font-mono-data); font-size: 20px; line-height: 1; color: var(--color-text-primary); }
-.stat-lbl { font-family: var(--font-mono-data); font-size: 11px; color: var(--color-text-faint); }
+.stat-num { font-family: var(--font-mono-data); font-size: var(--text-display); line-height: 1; color: var(--color-text-primary); }
+.stat-lbl { font-family: var(--font-mono-data); font-size: var(--text-mono-data); color: var(--color-text-faint); }
 
 .conn-head { font-family: var(--font-label-caps); font-size: var(--text-label-caps); color: var(--color-text-faint); margin-bottom: 8px; }
 .conn-row {
@@ -635,7 +635,7 @@ onUnmounted(() => {
 .conn-row:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 1px; }
 
 .legend-btn:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 2px; }
-.conn-label { font-family: var(--font-mono-data); font-size: 11px; color: var(--color-da-accent-text); white-space: nowrap; }
+.conn-label { font-family: var(--font-mono-data); font-size: var(--text-mono-data); color: var(--color-da-accent-text); white-space: nowrap; }
 .conn-title { font-size: var(--text-body); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 
 .panel-enter-active, .panel-leave-active { transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms; }

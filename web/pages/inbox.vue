@@ -2,7 +2,7 @@
   <InboxHeader :totalCount="items.length" :flaggedCount="flaggedCount" />
 
   <div class="px-section pt-base flex items-center justify-between">
-    <div class="flex items-center gap-tight font-mono-data text-[11px] border border-border-hairline rounded overflow-hidden">
+    <div class="flex items-center gap-tight font-mono-data text-mono-data border border-border-hairline rounded overflow-hidden">
       <button
         v-for="t in tabs" :key="t.key"
         class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
@@ -36,7 +36,7 @@
         <div v-if="peekId === item.id" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
           <div class="flex items-center gap-tight mb-tight">
             <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
-            <button class="ml-auto font-mono-data text-[10px] text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
+            <button class="ml-auto font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
           </div>
           <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
         </div>
@@ -62,11 +62,11 @@
       v-if="selected.size > 0"
       class="absolute bottom-section left-1/2 -translate-x-1/2 flex items-center gap-component bg-surface-container-high border border-primary/40 px-section py-base rounded"
     >
-      <span class="font-mono-data text-[11px] text-text-primary">{{ selected.size }} selected</span>
+      <span class="font-mono-data text-mono-data text-text-primary">{{ selected.size }} selected</span>
       <div class="w-[1px] h-4 bg-border-hairline"></div>
-      <button class="font-mono-data text-[11px] text-status-passed hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="acceptSelected">Process all (accept DA)</button>
-      <button class="font-mono-data text-[11px] text-status-failed-text hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="discardSelected">Discard all</button>
-      <button class="font-mono-data text-[11px] text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="selected.clear()">Clear</button>
+      <button class="font-mono-data text-mono-data text-status-passed hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="acceptSelected">Process all (accept DA)</button>
+      <button class="font-mono-data text-mono-data text-status-failed-text hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="discardSelected">Discard all</button>
+      <button class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="selected.clear()">Clear</button>
     </div>
 
     <InboxHint v-else-if="items.length > 0" />
@@ -86,7 +86,7 @@
           </div>
           <h3 class="font-headline text-text-primary truncate" :class="p.became === 'discard' ? 'line-through text-text-muted' : ''">{{ p.title }}</h3>
         </div>
-        <button class="shrink-0 font-mono-data text-[11px] text-text-muted hover:text-primary transition-colors rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="reopenCapture(p.captureId)">↩ Undo</button>
+        <button class="shrink-0 font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="reopenCapture(p.captureId)">↩ Undo</button>
       </div>
 
       <UiErrorState

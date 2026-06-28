@@ -9,7 +9,7 @@
           <div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center group-active:scale-95 transition-transform">
             <span class="material-symbols-outlined text-primary font-bold">terminal</span>
           </div>
-          <span class="font-display text-[12px] font-semibold text-primary">Kernl</span>
+          <span class="font-label-caps text-label-caps text-primary">Kernl</span>
         </NuxtLink>
         
         <!-- Nav Items (only built, reachable surfaces; ordered by the magic loop) -->

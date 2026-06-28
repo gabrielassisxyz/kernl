@@ -25,7 +25,7 @@
             v-for="topic in topics"
             :key="topic"
             @click="selectTopic(topic)"
-            class="text-left px-tight py-1 rounded transition-colors font-body text-[13px] truncate"
+            class="text-left px-tight py-1 rounded transition-colors font-body text-body truncate"
             :class="selectedTopic === topic ? 'bg-surface-hover text-primary' : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'"
           >
             {{ topic }}
@@ -52,7 +52,7 @@
 
           <div v-else-if="claims.length === 0" class="flex flex-col items-center justify-center py-break text-text-muted">
             <span class="material-symbols-outlined text-[32px] mb-component">memory</span>
-            <p class="font-body text-[13px]">No active claims for this topic</p>
+            <p class="font-body text-body">No active claims for this topic</p>
           </div>
           
           <template v-else>

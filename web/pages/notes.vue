@@ -2,7 +2,7 @@
   <div class="flex h-full bg-bg-base font-sans">
     <div class="w-64 border-r border-border-default flex flex-col bg-bg-elevated">
       <div class="h-12 border-b border-border-default flex items-center justify-between px-4 shrink-0">
-        <h1 class="font-medium text-text-primary text-[14px]">Notes Vault</h1>
+        <h1 class="font-headline text-headline text-text-primary">Notes Vault</h1>
         <button
           @click="openNewNote"
           title="New note"
@@ -20,13 +20,13 @@
       <div class="h-12 border-b border-border-default flex items-center px-4 shrink-0">
         <div v-if="selectedFile" class="flex items-center gap-2">
           <span class="material-symbols-outlined text-[16px] text-text-faint">description</span>
-          <span class="font-body text-text-primary text-[14px] font-medium">{{ selectedFile.replace(/\.md$/, '') }}</span>
-          <span class="font-mono-data text-text-faint text-[10px] bg-surface-container border border-border-hairline px-1.5 py-0.5 rounded">{{ selectedFile }}</span>
+          <span class="font-body text-body text-text-primary font-medium">{{ selectedFile.replace(/\.md$/, '') }}</span>
+          <span class="font-mono-data text-mono-data text-text-faint bg-surface-container border border-border-hairline px-1.5 py-0.5 rounded">{{ selectedFile }}</span>
         </div>
       </div>
       <div class="flex-1 overflow-hidden relative">
         <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" @open-wikilink="openWikilink" />
-        <div v-else class="absolute inset-0 flex items-center justify-center text-text-faint text-[13px]">
+        <div v-else class="absolute inset-0 flex items-center justify-center text-text-faint text-body">
           Select a file from tags or create a new note
         </div>
       </div>
