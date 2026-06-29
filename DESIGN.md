@@ -315,6 +315,7 @@ Kernl is flat by default. Depth is conveyed through tonal surface changes, 1px b
 - **Graph Canvas:** Full-bleed SVG graph surface whose SVG presentation attributes and node-type colors reference design-token CSS variables.
 - **CodeMirror Notes Editor:** Tokenized dark editor shell; editor theme uses CSS variables and `color-mix()` for DA-authored regions and wikilink pills.
 - **Agent Log Pane:** Dense monospace event stream with semantic success/failure coloring and expandable tool results.
+- **DA Learned Card:** The human-in-the-loop memory write surface inside the DA panel. A quiet bordered callout (`border-default`, `surface-overlay`, 4px corners) led by a `DA · learned` mono kicker (`9.5px`, `0.08em` tracking, `text-faint`, no decorative icon); the proposed memory sits in 12px body. Three right-aligned `UiButton` actions carry their function icons — `Keep` (`accent` + `check`), `Edit` (`secondary` + `edit`), `Discard` (`ghost` + `close`). Only `Keep` takes the `da-accent` tint, honoring the Accent Scarcity Rule.
 
 ## Do's and Don'ts
 

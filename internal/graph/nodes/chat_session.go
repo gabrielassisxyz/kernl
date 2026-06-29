@@ -21,6 +21,10 @@ type ChatSession struct {
 	Messages           []ChatMessage
 	PendingPermission  *PendingPermissionState
 	DerivedScopeNodeID string
+	// DiscardedCandidates records learned-memory candidate statements the user
+	// rejected, so the same candidate is not re-proposed later in the session
+	// (the discard "negative signal" in the DA-learned Keep/Edit/Discard flow).
+	DiscardedCandidates []string
 }
 
 // ChatMessage is a single message in a chat session.
@@ -55,6 +59,9 @@ func (cs ChatSession) NodeAttrs() []byte {
 		"messages":              messages,
 		"derived_scope_node_id": cs.DerivedScopeNodeID,
 	}
+	if len(cs.DiscardedCandidates) > 0 {
+		attrs["discarded_candidates"] = cs.DiscardedCandidates
+	}
 	if cs.PendingPermission != nil {
 		attrs["pending_permission"] = cs.PendingPermission
 	}
@@ -75,9 +82,10 @@ func CreateChatSession(ctx context.Context, tx *graph.WriteTx, cs *ChatSession, 
 
 // chatSessionAttrs is the deserialized attrs payload for a chat_session node.
 type chatSessionAttrs struct {
-	Messages           []ChatMessage           `json:"messages"`
-	PendingPermission  *PendingPermissionState `json:"pending_permission,omitempty"`
-	DerivedScopeNodeID string                  `json:"derived_scope_node_id"`
+	Messages            []ChatMessage           `json:"messages"`
+	PendingPermission   *PendingPermissionState `json:"pending_permission,omitempty"`
+	DerivedScopeNodeID  string                  `json:"derived_scope_node_id"`
+	DiscardedCandidates []string                `json:"discarded_candidates,omitempty"`
 }
 
 // GetChatSession fetches a single chat session by ID.
@@ -109,12 +117,13 @@ func GetChatSession(ctx context.Context, tx *graph.ReadTx, nodeID string) (*Chat
 	}
 
 	return &ChatSession{
-		ID:                 nodeID,
-		CreatedAt:          tryParseTime(createdAt.String),
-		UpdatedAt:          tryParseTime(updatedAt.String),
-		Messages:           attrs.Messages,
-		PendingPermission:  attrs.PendingPermission,
-		DerivedScopeNodeID: attrs.DerivedScopeNodeID,
+		ID:                  nodeID,
+		CreatedAt:           tryParseTime(createdAt.String),
+		UpdatedAt:           tryParseTime(updatedAt.String),
+		Messages:            attrs.Messages,
+		PendingPermission:   attrs.PendingPermission,
+		DerivedScopeNodeID:  attrs.DerivedScopeNodeID,
+		DiscardedCandidates: attrs.DiscardedCandidates,
 	}, nil
 }
 

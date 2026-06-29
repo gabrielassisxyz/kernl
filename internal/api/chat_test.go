@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
@@ -248,6 +250,163 @@ func TestListNodes(t *testing.T) {
 	if !found {
 		t.Errorf("expected Test Note in list, got %+v", list)
 	}
+}
+
+// postLearned drives the learned-candidate endpoint and returns the recorder.
+func postLearned(t *testing.T, r http.Handler, sessionID, payload string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/api/chat/sessions/"+sessionID+"/learned", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w
+}
+
+func countMemoryClaims(t *testing.T, a *app.App) int {
+	t.Helper()
+	var n int
+	_ = a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'memory_claim' AND deleted_at IS NULL`).Scan(&n)
+	})
+	return n
+}
+
+func TestLearnedKeepPersistsClaimWithSourceEdge(t *testing.T) {
+	a := newTestAppWithGraphWithLLM(t)
+	r := NewRouter(a)
+
+	sessionID := createTestSession(t, r)
+
+	w := postLearned(t, r, sessionID, `{"action":"keep","subject":"tools","statement":"Prefers Google Meet over Zoom."}`)
+	if w.Code != 200 {
+		t.Fatalf("keep: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var res struct {
+		Status string `json:"status"`
+		ID     string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if res.Status != "kept" || res.ID == "" {
+		t.Fatalf("unexpected response: %+v", res)
+	}
+
+	// The claim exists with the kept statement and a `source` edge to the session.
+	err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		claim, err := nodes.GetMemoryClaim(context.Background(), tx, res.ID)
+		if err != nil {
+			return err
+		}
+		if claim.Statement != "Prefers Google Meet over Zoom." {
+			t.Errorf("statement = %q, want the kept text", claim.Statement)
+		}
+		out, err := edges.Outgoing(context.Background(), tx, res.ID)
+		if err != nil {
+			return err
+		}
+		if len(out) != 1 || out[0].Dst != sessionID || out[0].Label != "source" {
+			t.Errorf("expected one source edge to the session, got %+v", out)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify claim: %v", err)
+	}
+}
+
+func TestLearnedEditPersistsModifiedStatement(t *testing.T) {
+	a := newTestAppWithGraphWithLLM(t)
+	r := NewRouter(a)
+	sessionID := createTestSession(t, r)
+
+	// Edit is Keep with a corrected statement — the modified text must win.
+	w := postLearned(t, r, sessionID, `{"action":"keep","subject":"tools","statement":"Prefers Google Meet for all video calls."}`)
+	if w.Code != 200 {
+		t.Fatalf("keep(edited): expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &res)
+
+	err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		claim, err := nodes.GetMemoryClaim(context.Background(), tx, res.ID)
+		if err != nil {
+			return err
+		}
+		if claim.Statement != "Prefers Google Meet for all video calls." {
+			t.Errorf("statement = %q, want the edited text", claim.Statement)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify edited claim: %v", err)
+	}
+}
+
+func TestLearnedDiscardPersistsNoClaimAndSuppresses(t *testing.T) {
+	a := newTestAppWithGraphWithLLM(t)
+	r := NewRouter(a)
+	sessionID := createTestSession(t, r)
+
+	before := countMemoryClaims(t, a)
+
+	w := postLearned(t, r, sessionID, `{"action":"discard","statement":"Prefers Google Meet over Zoom."}`)
+	if w.Code != 200 {
+		t.Fatalf("discard: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if after := countMemoryClaims(t, a); after != before {
+		t.Errorf("discard created a claim: before=%d after=%d", before, after)
+	}
+
+	// The discard is recorded on the session so the candidate isn't re-proposed.
+	var cs *nodes.ChatSession
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		cs, err = nodes.GetChatSession(context.Background(), tx, sessionID)
+		return err
+	}); err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if len(cs.DiscardedCandidates) != 1 || cs.DiscardedCandidates[0] != "Prefers Google Meet over Zoom." {
+		t.Errorf("DiscardedCandidates = %v, want the discarded statement recorded", cs.DiscardedCandidates)
+	}
+}
+
+func TestLearnedRejectsBadInput(t *testing.T) {
+	a := newTestAppWithGraphWithLLM(t)
+	r := NewRouter(a)
+	sessionID := createTestSession(t, r)
+
+	if w := postLearned(t, r, sessionID, `{"action":"keep","statement":""}`); w.Code != 400 {
+		t.Errorf("empty keep statement: expected 400, got %d", w.Code)
+	}
+	if w := postLearned(t, r, sessionID, `{"action":"bogus"}`); w.Code != 400 {
+		t.Errorf("unknown action: expected 400, got %d", w.Code)
+	}
+	if w := postLearned(t, r, "nonexistent", `{"action":"discard","statement":"x"}`); w.Code != 404 {
+		t.Errorf("missing session: expected 404, got %d", w.Code)
+	}
+}
+
+// createTestSession creates a chat session via the API and returns its id.
+func createTestSession(t *testing.T, r http.Handler) string {
+	t.Helper()
+	req := httptest.NewRequest("POST", "/api/chat/sessions", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if res.ID == "" {
+		t.Fatal("create session: empty id")
+	}
+	return res.ID
 }
 
 func testCfgWithLLM() *config.Config {

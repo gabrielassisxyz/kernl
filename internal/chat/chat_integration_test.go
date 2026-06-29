@@ -88,6 +88,21 @@ func newMockLLMClient(responses ...ChatResponse) *mockLLMClient {
 	return &mockLLMClient{Responses: responses}
 }
 
+// contentThenErrLLMClient returns a fixed first response, then errors on every
+// subsequent call — used to prove the learned extractor's failure is swallowed.
+type contentThenErrLLMClient struct {
+	first ChatResponse
+	calls int
+}
+
+func (c *contentThenErrLLMClient) Chat(_ context.Context, _ []Message, _ []Tool) (*ChatResponse, error) {
+	c.calls++
+	if c.calls == 1 {
+		return &c.first, nil
+	}
+	return nil, fmt.Errorf("extractor boom")
+}
+
 func newTestApp(t *testing.T) *app.App {
 	t.Helper()
 	g := testutil.NewInMemoryTestGraph(t)
@@ -558,6 +573,136 @@ func TestChatConcurrentSessions(t *testing.T) {
 
 	for e := range errs {
 		t.Error(e)
+	}
+}
+
+// learnedCandidateEvent returns the first learned_candidate event, or nil.
+func (e *eventRecorder) learnedCandidateEvent() map[string]any {
+	for _, evt := range e.events() {
+		if evt["event"] == "learned_candidate" {
+			return evt
+		}
+	}
+	return nil
+}
+
+func TestLearnedCandidateEmittedForDurableTurn(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "I only ever take calls on Google Meet, stop suggesting Zoom.", "")
+
+	// First response = the chat reply; second = the extractor's JSON verdict.
+	mock := newMockLLMClient(
+		ChatResponse{Content: "Got it — Google Meet it is."},
+		ChatResponse{Content: `{"durable":true,"subject":"tools","statement":"Prefers Google Meet over Zoom."}`},
+	)
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	evt := rec.learnedCandidateEvent()
+	if evt == nil {
+		t.Fatalf("expected learned_candidate event, got buffer: %s", rec.buf.String())
+	}
+	if evt["statement"] != "Prefers Google Meet over Zoom." {
+		t.Errorf("statement = %v, want the extracted preference", evt["statement"])
+	}
+	if evt["subject"] != "tools" {
+		t.Errorf("subject = %v, want tools", evt["subject"])
+	}
+}
+
+func TestLearnedCandidateSuppressedForTransactionalTurn(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "What's the title of that note?", "")
+
+	mock := newMockLLMClient(
+		ChatResponse{Content: `It's "Wave 2 execution state".`},
+		ChatResponse{Content: `{"durable":false}`},
+	)
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if rec.hasEventType("learned_candidate") {
+		t.Errorf("did not expect a learned_candidate for a transactional turn: %s", rec.buf.String())
+	}
+	if !rec.hasEventType("done") {
+		t.Error("expected done event")
+	}
+}
+
+func TestLearnedCandidateSuppressedWhenPreviouslyDiscarded(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "Again: I prefer Google Meet.", "")
+
+	// Mark the candidate as already discarded in this session.
+	cs := getSession(t, a, sessionID)
+	cs.DiscardedCandidates = []string{"Prefers Google Meet over Zoom."}
+	if err := a.Graph.DoWrite(context.Background(), func(tx *graph.WriteTx) error {
+		return nodes.SaveChatSession(context.Background(), tx, cs, nodes.Author{Name: "kernl"})
+	}); err != nil {
+		t.Fatalf("save discarded: %v", err)
+	}
+
+	mock := newMockLLMClient(
+		ChatResponse{Content: "Noted."},
+		ChatResponse{Content: `{"durable":true,"subject":"tools","statement":"Prefers Google Meet over Zoom."}`},
+	)
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if rec.hasEventType("learned_candidate") {
+		t.Errorf("a previously discarded candidate must not be re-proposed: %s", rec.buf.String())
+	}
+}
+
+func TestLearnedExtractionFailureDoesNotBreakChat(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "I prefer dark mode everywhere.", "")
+
+	// Reply succeeds; the extractor call errors — the chat must still complete.
+	client := &contentThenErrLLMClient{first: ChatResponse{Content: "Dark mode set."}}
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, client, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if !rec.hasEventType("token") {
+		t.Error("expected token event despite extractor failure")
+	}
+	if !rec.hasEventType("done") {
+		t.Error("expected done event despite extractor failure")
+	}
+	if rec.hasEventType("learned_candidate") {
+		t.Error("a failed extraction must not emit a candidate")
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/memory"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
@@ -23,6 +24,7 @@ func RegisterChatRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/chat/sessions/{id}", getChatSessionHandler(a))
 	mux.HandleFunc("POST /api/chat/sessions/{id}/messages", postChatMessageHandler(a))
 	mux.HandleFunc("GET /api/chat/sessions/{id}/events", chatEventsHandler(a))
+	mux.HandleFunc("POST /api/chat/sessions/{id}/learned", postLearnedCandidateHandler(a))
 	mux.HandleFunc("GET /api/nodes", listNodesHandler(a))
 }
 
@@ -141,6 +143,79 @@ func postChatMessageHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+// postLearnedCandidateHandler persists the user's decision on a DA-learned
+// memory candidate. Keep (and Edit, which is Keep with a modified statement)
+// writes a MemoryClaim with a `source` edge to the session; Discard records a
+// negative signal on the session so the same candidate is not re-proposed.
+func postLearnedCandidateHandler(a *app.App) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		ctx := r.Context()
+
+		var body struct {
+			Action    string `json:"action"` // "keep" | "discard"
+			Subject   string `json:"subject"`
+			Statement string `json:"statement"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+
+		// Confirm the session exists (and load it for the discard path).
+		var cs *nodes.ChatSession
+		if err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+			var err error
+			cs, err = nodes.GetChatSession(ctx, tx, id)
+			return err
+		}); err != nil {
+			if errors.Is(err, graph.ErrNotFound) {
+				writeError(w, http.StatusNotFound, "session not found")
+				return
+			}
+			slog.Error("learned: load session", "error", err)
+			writeError(w, http.StatusInternalServerError, "failed to load session")
+			return
+		}
+
+		switch body.Action {
+		case "keep":
+			statement := strings.TrimSpace(body.Statement)
+			if statement == "" {
+				writeError(w, http.StatusBadRequest, "statement is required to keep")
+				return
+			}
+			var claimID string
+			if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+				var err error
+				claimID, err = memory.AddMemoryClaim(ctx, tx, id, body.Subject, statement)
+				return err
+			}); err != nil {
+				slog.Error("learned: add claim", "error", err)
+				writeError(w, http.StatusInternalServerError, "failed to persist claim")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"status": "kept", "id": claimID})
+
+		case "discard":
+			cs.DiscardedCandidates = append(cs.DiscardedCandidates, strings.TrimSpace(body.Statement))
+			if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+				return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
+			}); err != nil {
+				slog.Error("learned: record discard", "error", err)
+				writeError(w, http.StatusInternalServerError, "failed to record discard")
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{"status": "discarded"})
+
+		default:
+			writeError(w, http.StatusBadRequest, "action must be 'keep' or 'discard'")
+		}
 	}
 }
 
