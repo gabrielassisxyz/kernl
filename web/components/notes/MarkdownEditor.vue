@@ -1,77 +1,70 @@
 <template>
-  <div class="notes-editor-pane flex flex-col h-full bg-bg-base text-text-primary">
-    <FrontmatterUI v-if="frontmatter" :data="frontmatter" />
-    <div class="flex items-center gap-base px-component py-base border-b border-border-default shrink-0">
-      <UiInput
-        v-model="instruction"
-        @keydown.enter="requestSuggestion"
-        placeholder="How should the AI edit this note? (e.g. summarize, fix grammar)…"
-        classes="h-8 flex-1 rounded border border-border-default bg-bg-elevated px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-da-accent disabled:cursor-not-allowed disabled:opacity-50"
-      />
-      <UiButton
-        @click="requestSuggestion"
-        :disabled="suggesting || !instruction.trim()"
-        :loading="suggesting"
-        variant="accent"
-        size="sm"
-      >Suggest</UiButton>
-    </div>
-    <div class="flex-1 relative">
-      <div ref="editorContainer" class="h-full w-full"></div>
-      
-      <UiModal
-        :open="conflict"
-        title="Save Conflict"
-        size="sm"
-        @close="conflict = false"
-      >
-        <p class="font-body text-body text-text-muted">
-          This note was modified outside the editor while you were working. If you overwrite the file, you'll erase those outside changes. If you discard your edits, you'll lose the work you just did here.
-        </p>
+  <div class="notes-editor-pane" :style="styleVars">
+    <NoteEditorToolbar :sidebar-collapsed="sidebarCollapsed" @toggle-sidebar="$emit('toggle-sidebar')" />
 
-        <template #footer>
-          <div class="flex justify-end gap-base">
-            <UiButton variant="secondary" @click="resolveConflict('reload')">Discard my edits</UiButton>
-            <UiButton variant="primary" @click="resolveConflict('keep')">Overwrite file</UiButton>
-          </div>
-        </template>
-      </UiModal>
-      
-      <UiToast 
-        v-if="saveError" 
-        message="We couldn't save your changes." 
-        actionLabel="Retry" 
-        @action="saveFile" 
-      />
-      
-      <UiToast 
-        v-if="suggestError" 
-        :message="suggestError" 
-        actionLabel="Dismiss" 
-        @action="suggestError = ''" 
-      />
-      
-      <DiffSuggest 
-        v-if="activeHunks.length > 0" 
-        :hunks="activeHunks" 
-        @accept="acceptHunk" 
-        @reject="rejectHunk" 
-      />
+    <div
+      ref="scrollEl"
+      class="notes-editor-scroll"
+      :class="{ 'notes-editor-scroll--typewriter': settings.typewriter }"
+    >
+      <div class="notes-editor-measure" :class="{ 'is-reading': settings.viewMode === 'reading' }">
+        <NoteProperties
+          v-if="settings.viewMode !== 'source'"
+          :data="frontmatterData"
+          :parse-error="frontmatterError"
+          :readonly="settings.viewMode === 'reading'"
+          :show-id="settings.showId"
+          @update:data="applyFrontmatterUpdate"
+        />
+        <div ref="editorContainer" class="notes-editor-cm"></div>
+      </div>
     </div>
+
+    <UiModal :open="conflict" title="Save Conflict" size="sm" @close="conflict = false">
+      <p class="font-body text-body text-text-muted">
+        This note was modified outside the editor while you were working. If you overwrite the file, you'll erase those outside changes. If you discard your edits, you'll lose the work you just did here.
+      </p>
+      <template #footer>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="secondary" @click="resolveConflict('reload')">Discard my edits</UiButton>
+          <UiButton variant="primary" @click="resolveConflict('keep')">Overwrite file</UiButton>
+        </div>
+      </template>
+    </UiModal>
+
+    <UiToast
+      v-if="saveError"
+      message="We couldn't save your changes."
+      actionLabel="Retry"
+      @action="saveFile"
+    />
+
+    <!-- DA diff plumbing stays wired for note-scoped DA chat suggestions; it
+         renders only when hunks arrive (none from this surface today). -->
+    <DiffSuggest
+      v-if="activeHunks.length > 0"
+      :hunks="activeHunks"
+      @accept="acceptHunk"
+      @reject="rejectHunk"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
-import { EditorState, StateField, StateEffect } from '@codemirror/state'
+import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state'
 import { EditorView, lineNumbers, Decoration } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { wikilinkExtensions } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
-import FrontmatterUI from './FrontmatterUI.vue'
+import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
+import { typewriterExtension } from '~/utils/typewriterMode'
+import { replaceFrontmatter, splitFrontmatter } from '~/utils/frontmatter'
+import { useEditorSettings } from '~/composables/useEditorSettings'
+import NoteProperties from './NoteProperties.vue'
+import NoteEditorToolbar from './NoteEditorToolbar.vue'
 import DiffSuggest from './DiffSuggest.vue'
 import UiButton from '~/components/ui/UiButton.vue'
-import UiInput from '~/components/ui/UiInput.vue'
 import UiModal from '~/components/ui/UiModal.vue'
 import UiToast from '~/components/ui/UiToast.vue'
 
@@ -96,45 +89,70 @@ const daRegionField = StateField.define({
 
 const props = defineProps({
   path: String,
-  initialContent: String
+  initialContent: String,
+  sidebarCollapsed: Boolean,
 })
 
-// Best-effort navigation: emitted when a wikilink pill is ctrl/cmd-clicked, so
-// the parent can open the target node.
-const emit = defineEmits(['open-wikilink'])
+// open-wikilink: emitted when a wikilink pill is ctrl/cmd-clicked.
+// toggle-sidebar: forwarded from the toolbar to the parent shell.
+const emit = defineEmits(['open-wikilink', 'toggle-sidebar'])
+
+const { settings, styleVars } = useEditorSettings()
 
 const editorContainer = ref(null)
+const scrollEl = ref(null)
 let view = null
 
-const frontmatter = ref(null)
+// Compartments let us swap mode/setting-driven extensions without tearing down
+// the editor (preserves cursor, history, scroll on a mode flip).
+const previewComp = new Compartment()
+const concealComp = new Compartment()
+const lineNumbersComp = new Compartment()
+const editableComp = new Compartment()
+const typewriterComp = new Compartment()
+
+const frontmatterData = ref({})
+const frontmatterError = ref('')
 const rawContent = ref('')
 const isDirty = ref(false)
 const conflict = ref(false)
 const lastModified = ref('')
 const activeHunks = ref([])
-const instruction = ref('')
-const suggesting = ref(false)
 const saveError = ref(false)
-const suggestError = ref('')
 let saveTimer = null
 
-const extractFrontmatter = (text) => {
-  if (text.startsWith('---\n')) {
-    const end = text.indexOf('\n---\n', 4)
-    if (end !== -1) {
-      const fmText = text.substring(4, end)
-      const lines = fmText.split('\n')
-      const data = {}
-      lines.forEach(line => {
-        const colon = line.indexOf(':')
-        if (colon !== -1) {
-          data[line.substring(0, colon).trim()] = line.substring(colon + 1).trim()
-        }
-      })
-      return { data, length: end + 5 }
-    }
+const syncFrontmatter = (text) => {
+  try {
+    frontmatterData.value = splitFrontmatter(text).data
+    frontmatterError.value = ''
+  } catch (error) {
+    frontmatterError.value = error instanceof Error ? error.message : 'Frontmatter is not valid YAML.'
   }
-  return { data: null, length: 0 }
+}
+
+// --- Mode/setting → extension mapping -------------------------------------
+
+const previewExtFor = (mode) => {
+  if (mode === 'source') return []
+  return livePreviewExtensions(mode === 'live') // reading → reveal=false (full conceal)
+}
+const concealExtFor = (mode) => (mode === 'source' ? [] : frontmatterConcealExtension())
+const lineNumbersExtFor = (mode, on) => (on && mode !== 'reading' ? lineNumbers() : [])
+const editableExtFor = (mode) => EditorView.editable.of(mode !== 'reading')
+const typewriterExtFor = (on) => (on ? typewriterExtension() : [])
+
+const reconfigure = () => {
+  if (!view) return
+  const mode = settings.viewMode
+  view.dispatch({
+    effects: [
+      previewComp.reconfigure(previewExtFor(mode)),
+      concealComp.reconfigure(concealExtFor(mode)),
+      lineNumbersComp.reconfigure(lineNumbersExtFor(mode, settings.lineNumbers)),
+      editableComp.reconfigure(editableExtFor(mode)),
+      typewriterComp.reconfigure(typewriterExtFor(settings.typewriter)),
+    ],
+  })
 }
 
 const loadFile = async (path) => {
@@ -143,42 +161,59 @@ const loadFile = async (path) => {
   if (res.ok) {
     const text = await res.text()
     rawContent.value = text
-    
-    const fm = extractFrontmatter(text)
-    frontmatter.value = fm.data
-    
+    syncFrontmatter(text)
+
     if (view) view.destroy()
-    
-    const docText = text
+
+    const mode = settings.viewMode
     const state = EditorState.create({
-      doc: docText,
+      doc: text,
       extensions: [
-        lineNumbers(),
+        lineNumbersComp.of(lineNumbersExtFor(mode, settings.lineNumbers)),
         markdown(),
         daRegionField,
-        livePreviewExtensions(),
+        previewComp.of(previewExtFor(mode)),
+        concealComp.of(concealExtFor(mode)),
+        editableComp.of(editableExtFor(mode)),
+        typewriterComp.of(typewriterExtFor(settings.typewriter)),
         wikilinkExtensions((target) => emit('open-wikilink', target)),
+        EditorView.lineWrapping,
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
             isDirty.value = true
+            syncFrontmatter(v.state.doc.toString())
             scheduleSave()
           }
-        })
-      ]
+        }),
+      ],
     })
-    
-    view = new EditorView({
-      state,
-      parent: editorContainer.value
-    })
-    
+
+    view = new EditorView({ state, parent: editorContainer.value })
+
     lastModified.value = res.headers.get('Last-Modified') || new Date().toISOString()
+    isDirty.value = false
+    saveError.value = false
   }
+}
+
+const applyFrontmatterUpdate = (nextData) => {
+  if (!view || frontmatterError.value) return
+  const nextContent = replaceFrontmatter(view.state.doc.toString(), nextData)
+  view.dispatch({
+    changes: { from: 0, to: view.state.doc.length, insert: nextContent },
+  })
+  frontmatterData.value = nextData
 }
 
 watch(() => props.path, (newPath) => {
   loadFile(newPath)
 })
+
+// React to view-mode + line-number + typewriter changes from the toolbar.
+watch(
+  () => [settings.viewMode, settings.lineNumbers, settings.typewriter],
+  () => reconfigure(),
+)
 
 onMounted(() => {
   loadFile(props.path)
@@ -188,11 +223,10 @@ onBeforeUnmount(() => {
   // Flush any pending autosave before tearing down. A plain clearTimeout would
   // silently discard edits made within the 5s debounce window. saveFile() must
   // run before view.destroy() so view.state.doc still holds the outgoing content.
-  // props.path is still the outgoing file's path here (new instance not yet mounted).
   if (saveTimer && isDirty.value && view) {
     clearTimeout(saveTimer)
     saveTimer = null
-    saveFile() // fire-and-forget; saves outgoing path + content, not the new file
+    saveFile() // fire-and-forget; saves outgoing path + content
   }
   if (view) view.destroy()
 })
@@ -206,24 +240,24 @@ const scheduleSave = () => {
 
 const saveFile = async () => {
   if (!isDirty.value || conflict.value || !props.path) return
-  
+
   const content = view.state.doc.toString()
-  
+
   try {
     const res = await fetch(`/api/notes/save?path=${encodeURIComponent(props.path)}`, {
       method: 'POST',
       headers: {
         'If-Match': lastModified.value,
-        'Content-Type': 'text/plain'
+        'Content-Type': 'text/plain',
       },
-      body: content
+      body: content,
     })
-    
+
     if (res.status === 409) {
       conflict.value = true
       return
     }
-    
+
     if (res.ok) {
       const data = await res.json()
       lastModified.value = data.last_modified
@@ -247,42 +281,13 @@ const resolveConflict = (action) => {
   }
 }
 
-const requestSuggestion = async () => {
-  if (!props.path || !instruction.value.trim() || suggesting.value) return
-  // Diff is computed against the file on disk, so flush unsaved edits first to
-  // keep hunk offsets aligned with the editor buffer.
-  if (isDirty.value) await saveFile()
-  suggesting.value = true
-  suggestError.value = ''
-  try {
-    const res = await fetch('/api/notes/suggest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: props.path, instruction: instruction.value })
-    })
-    if (res.ok) {
-      const data = await res.json()
-      activeHunks.value = data.hunks || []
-      instruction.value = ''
-    } else if (res.status === 503) {
-      suggestError.value = "AI provider not configured. Add an LLM provider in settings."
-    } else {
-      suggestError.value = "We couldn't generate a suggestion. Please try again."
-    }
-  } catch (e) {
-    suggestError.value = "We couldn't generate a suggestion. Please check your connection and try again."
-  } finally {
-    suggesting.value = false
-  }
-}
-
 const acceptHunk = (hunk) => {
   if (!view) return
   // Apply the suggested change and mark the inserted range as DA-authored.
   const insertedTo = hunk.from + (hunk.content ? hunk.content.length : 0)
   view.dispatch({
     changes: { from: hunk.from, to: hunk.to, insert: hunk.content },
-    effects: addDaRegion.of({ from: hunk.from, to: insertedTo })
+    effects: addDaRegion.of({ from: hunk.from, to: insertedTo }),
   })
   activeHunks.value = activeHunks.value.filter(h => h.id !== hunk.id)
 }
@@ -292,29 +297,88 @@ const rejectHunk = (hunk) => {
 }
 </script>
 
-<style>
-.cm-editor {
+<style scoped>
+.notes-editor-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-width: 0;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+}
+
+/* The single scroll surface: the properties block and the editor scroll as one
+   document, so properties scroll away with content (Obsidian-like). */
+.notes-editor-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.notes-editor-measure {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 28px 40px 25vh;
+}
+
+.notes-editor-measure.is-reading {
+  max-width: 720px;
+}
+
+/* Extra bottom room so the last lines can reach the vertical center. */
+.notes-editor-scroll--typewriter .notes-editor-measure {
+  padding-bottom: 55vh;
+}
+</style>
+
+<style>
+/* CodeMirror grows to its content; the pane (.notes-editor-scroll) owns scroll,
+   so the properties block and document share one scrollbar. */
+.notes-editor-cm .cm-editor {
+  height: auto;
   background-color: transparent !important;
   color: var(--color-text-primary) !important;
 }
-.cm-gutters {
-  background-color: var(--color-bg-elevated) !important;
-  color: var(--color-text-muted) !important;
-  border-right: 1px solid var(--color-border-hairline) !important;
+/* No focus ring on the editor surface — it's a page-like document, not a field. */
+.notes-editor-cm .cm-editor.cm-focused {
+  outline: none !important;
 }
-.cm-activeLineGutter {
-  background-color: var(--color-surface-hover) !important;
-  color: var(--color-text-primary) !important;
+.notes-editor-cm .cm-scroller {
+  overflow: visible;
+  font-family: var(--notes-font, var(--font-body)) !important;
+  font-size: var(--notes-font-size, 15px);
+  line-height: 1.7;
 }
-.cm-activeLine {
-  background-color: var(--color-surface-hover) !important;
-}
-.cm-editor .cm-content {
+.notes-editor-cm .cm-content {
+  padding: 0;
   caret-color: var(--color-on-surface) !important;
 }
-.cm-cursor,
-.cm-cursor-primary {
+/* Line-number gutter sits flush; transparent so it blends into the page. */
+.notes-editor-cm .cm-gutters {
+  background-color: transparent !important;
+  color: var(--color-text-dim) !important;
+  border-right: none !important;
+}
+.notes-editor-cm .cm-activeLineGutter {
+  background-color: transparent !important;
+  color: var(--color-text-muted) !important;
+}
+.notes-editor-cm .cm-activeLine {
+  background-color: color-mix(in srgb, var(--color-surface-hover) 40%, transparent) !important;
+}
+/* Reading mode reads as a document, not an editor: no active-line tint, no caret. */
+.is-reading .cm-activeLine {
+  background-color: transparent !important;
+}
+.is-reading .cm-cursor,
+.is-reading .cm-cursor-primary {
+  display: none !important;
+}
+.notes-editor-cm .cm-cursor,
+.notes-editor-cm .cm-cursor-primary {
   border-left-color: var(--color-on-surface) !important;
 }
 .da-authored {

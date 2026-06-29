@@ -1,36 +1,96 @@
 <template>
-  <div class="flex h-full bg-bg-base font-sans">
-    <div class="w-64 border-r border-border-default flex flex-col bg-bg-elevated">
-      <div class="h-12 border-b border-border-default flex items-center justify-between px-4 shrink-0">
-        <h1 class="font-headline text-headline text-text-primary">Notes Vault</h1>
+  <div class="notes-shell" :class="{ 'notes-shell--collapsed': sidebarCollapsed }">
+    <!-- Backdrop for the mobile overlay sidebar. -->
+    <div
+      v-if="!sidebarCollapsed"
+      class="notes-shell__scrim"
+      aria-hidden="true"
+      @click="sidebarCollapsed = true"
+    ></div>
+
+    <aside class="vault" :class="{ 'vault--collapsed': sidebarCollapsed }">
+     <div class="vault__inner">
+      <div class="vault__tabs">
         <button
-          @click="openNewNote"
-          title="New note"
-          class="flex items-center justify-center w-6 h-6 rounded text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
+          v-for="tab in TABS"
+          :key="tab.id"
+          type="button"
+          class="vault-tab"
+          :class="{ 'vault-tab--active': activeTab === tab.id }"
+          :aria-selected="activeTab === tab.id"
+          @click="activeTab = tab.id"
         >
-          <span class="material-symbols-outlined text-[18px]">add</span>
+          <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">{{ tab.icon }}</span>
+          {{ tab.label }}
+        </button>
+        <div class="vault__tabs-grow"></div>
+        <button type="button" class="vault__new" title="New note" aria-label="New note" @click="openNewNote">
+          <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">add</span>
         </button>
       </div>
-      <div class="flex-1 overflow-y-auto bg-bg-base">
-        <TagHierarchy @select="selectFile" />
-        <NoteList @select="selectFile" ref="noteListRef" />
+
+      <div v-if="activeTab === 'files'" class="vault__search">
+        <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">search</span>
+        <input
+          v-model="query"
+          class="vault__search-input"
+          type="text"
+          placeholder="Search notes"
+          aria-label="Search notes"
+        >
+        <button v-if="query" type="button" class="vault__search-clear" aria-label="Clear search" @click="query = ''">
+          <span class="material-symbols-outlined !text-[15px]" aria-hidden="true">close</span>
+        </button>
       </div>
-    </div>
-    <div class="flex-1 relative flex flex-col bg-bg-base">
-      <div class="h-12 border-b border-border-default flex items-center px-4 shrink-0">
-        <div v-if="selectedFile" class="flex items-center gap-2">
-          <span class="material-symbols-outlined text-[16px] text-text-faint">description</span>
-          <span class="font-body text-body text-text-primary font-medium">{{ selectedFile.replace(/\.md$/, '') }}</span>
-          <span class="font-mono-data text-mono-data text-text-faint bg-surface-container border border-border-hairline px-1.5 py-0.5 rounded">{{ selectedFile }}</span>
+
+      <div class="vault__body">
+        <NoteList
+          v-show="activeTab === 'files'"
+          ref="noteListRef"
+          :selected="selectedFile"
+          :query="query"
+          @select="selectFile"
+        />
+        <TagHierarchy
+          v-if="activeTab === 'tags'"
+          :selected="selectedFile"
+          @select="selectFile"
+        />
+      </div>
+     </div>
+    </aside>
+
+    <section class="workspace">
+      <MarkdownEditor
+        v-if="selectedFile"
+        :path="selectedFile"
+        :key="selectedFile"
+        :sidebar-collapsed="sidebarCollapsed"
+        @open-wikilink="openWikilink"
+        @toggle-sidebar="toggleSidebar"
+      />
+      <div v-else class="workspace__empty">
+        <div class="workspace__topbar">
+          <button
+            type="button"
+            class="workspace__toggle"
+            :title="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'"
+            :aria-label="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'"
+            @click="toggleSidebar"
+          >
+            <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">
+              {{ sidebarCollapsed ? 'left_panel_open' : 'left_panel_close' }}
+            </span>
+          </button>
+        </div>
+        <div class="workspace__empty-body">
+          <span class="material-symbols-outlined workspace__empty-icon" aria-hidden="true">edit_note</span>
+          <p class="workspace__empty-title">No note open</p>
+          <p class="workspace__empty-hint">Pick a note from the vault, or create a new one.</p>
+          <UiButton variant="primary" icon="add" @click="openNewNote">New note</UiButton>
         </div>
       </div>
-      <div class="flex-1 overflow-hidden relative">
-        <MarkdownEditor v-if="selectedFile" :path="selectedFile" :key="selectedFile" @open-wikilink="openWikilink" />
-        <div v-else class="absolute inset-0 flex items-center justify-center text-text-faint text-body">
-          Select a file from tags or create a new note
-        </div>
-      </div>
-    </div>
+    </section>
 
     <UiModal :open="showNewNote" title="New note" size="sm" @close="closeNewNote">
       <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
@@ -57,8 +117,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
-import MarkdownEditor from '~/components/notes/MarkdownEditor.vue'
+import { ref, computed, nextTick, defineAsyncComponent } from 'vue'
 import TagHierarchy from '~/components/notes/TagHierarchy.vue'
 import NoteList from '~/components/notes/NoteList.vue'
 import UiButton from '~/components/ui/UiButton.vue'
@@ -66,16 +125,37 @@ import UiField from '~/components/ui/UiField.vue'
 import UiInput from '~/components/ui/UiInput.vue'
 import UiModal from '~/components/ui/UiModal.vue'
 
+// Lazy-loaded so CodeMirror (a ~620 KB cohesive chunk) is fetched only when a
+// note is actually opened, keeping the vault index paint light.
+const MarkdownEditor = defineAsyncComponent(() => import('~/components/notes/MarkdownEditor.vue'))
+
+const TABS = [
+  { id: 'files', label: 'Files', icon: 'description' },
+  { id: 'tags', label: 'Tags', icon: 'tag' },
+]
+
 const selectedFile = ref(null)
 const noteListRef = ref(null)
+const activeTab = ref('files')
+const query = ref('')
+const sidebarCollapsed = ref(false)
 
 const showNewNote = ref(false)
 const newTitle = ref('')
 const titleInput = ref(null)
 const creating = ref(false)
 
+const toggleSidebar = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
 const selectFile = (path) => {
   selectedFile.value = path
+  // On narrow screens the sidebar overlays the editor; get out of the way once
+  // a note is chosen.
+  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+    sidebarCollapsed.value = true
+  }
 }
 
 // Resolve a ctrl/cmd-clicked wikilink target to an actual vault file and
@@ -143,7 +223,8 @@ const confirmNewNote = async () => {
     })
     if (res.ok) {
       showNewNote.value = false
-      selectedFile.value = path
+      activeTab.value = 'files'
+      selectFile(path)
       noteListRef.value?.refresh()
     }
   } finally {
@@ -151,3 +232,287 @@ const confirmNewNote = async () => {
   }
 }
 </script>
+
+<style scoped>
+.notes-shell {
+  position: relative;
+  display: grid;
+  grid-template-columns: 272px minmax(0, 1fr);
+  height: 100%;
+  background-color: var(--color-bg-base);
+  font-family: var(--font-body);
+  /* Collapse animates the grid track, not the panel's own width/margin, so the
+     fixed-width inner content slides behind overflow:hidden without reflowing. */
+  transition: grid-template-columns 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.notes-shell--collapsed {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+/* --- Vault sidebar --- */
+.vault {
+  min-width: 0;
+  border-right: 1px solid var(--color-border-default);
+  background-color: var(--color-surface);
+  overflow: hidden;
+}
+
+.vault--collapsed {
+  border-right-color: transparent;
+}
+
+/* Fixed width so the content keeps its layout while the track shrinks to 0. */
+.vault__inner {
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  height: 100%;
+}
+
+.vault__tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 42px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--color-border-hairline);
+}
+
+.vault-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.vault-tab:hover {
+  color: var(--color-text-primary);
+  background-color: color-mix(in srgb, var(--color-surface-hover) 50%, transparent);
+}
+
+.vault-tab--active {
+  color: var(--color-text-primary);
+}
+
+/* Underline indicator for the active tab. */
+.vault-tab--active::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -8px;
+  height: 2px;
+  border-radius: 2px;
+  background-color: var(--color-primary);
+}
+
+.vault-tab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+}
+
+.vault__tabs-grow {
+  flex: 1 1 auto;
+}
+
+.vault__new {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.vault__new:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-hover);
+}
+
+.vault__new:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+}
+
+.vault__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  margin: 8px;
+  padding: 0 8px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border-hairline);
+  background-color: var(--color-bg-base);
+  color: var(--color-text-faint);
+  transition: border-color 120ms ease;
+}
+
+.vault__search:focus-within {
+  border-color: color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+}
+
+.vault__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.vault__search-input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.vault__search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  color: var(--color-text-faint);
+  cursor: pointer;
+}
+
+.vault__search-clear:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-hover);
+}
+
+.vault__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* --- Workspace --- */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  background-color: var(--color-bg-base);
+}
+
+.workspace__empty {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace__topbar {
+  display: flex;
+  align-items: center;
+  height: 42px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--color-border-default);
+  background-color: var(--color-surface);
+}
+
+.workspace__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.workspace__toggle:hover {
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-hover);
+}
+
+.workspace__empty-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.workspace__empty-icon {
+  font-size: 40px;
+  color: var(--color-text-dim);
+}
+
+.workspace__empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.workspace__empty-hint {
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.notes-shell__scrim {
+  display: none;
+}
+
+/* Mobile: the sidebar overlays the editor rather than squeezing it. */
+@media (max-width: 767px) {
+  .notes-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .notes-shell--collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .vault {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 272px;
+    z-index: 50;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+    transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .vault--collapsed {
+    transform: translateX(-100%);
+  }
+
+  .notes-shell__scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notes-shell,
+  .vault {
+    transition: none;
+  }
+}
+</style>

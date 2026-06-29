@@ -1,16 +1,19 @@
 /*
  * Material Symbols Outlined — self-hosted subset.
- * Subset icon names (46 glyphs used in this project):
+ * Subset icon names (57 glyphs used in this project):
  *   account_circle, account_tree, add, analytics, arrow_forward, arrow_upward,
- *   auto_awesome, bookmark, check, check_circle, checklist, close, cloud_off,
- *   dashboard, delete, description, edit_note, expand_more, filter_list,
- *   fit_screen, folder_open, help, history, hourglass_empty, hub, inbox,
- *   input, link_off, memory, neurology, open_in_new, play_arrow, policy,
- *   progress_activity, queue, refresh, search, settings, smart_toy, source,
- *   swap_vert, sync, task_alt, terminal, view_kanban, view_list
+ *   auto_awesome, bookmark, check, check_circle, checklist, chrome_reader_mode,
+ *   close, cloud_off, code, dashboard, delete, description, edit_note,
+ *   expand_more, filter_list, fit_screen, folder_open, format_list_numbered,
+ *   help, history, hourglass_empty, hub, inbox, input, keyboard,
+ *   left_panel_close, left_panel_open, link_off, lock, memory, neurology,
+ *   open_in_new, play_arrow, policy, progress_activity, queue, refresh, search,
+ *   settings, smart_toy, source, swap_vert, sync, tag, task_alt, terminal,
+ *   text_fields, tune, view_kanban, view_list, visibility
  *
- * Font file: web/public/fonts/material-symbols-outlined.woff2 (16 KB)
- * Generated via Google Fonts CSS2 API with &icon_names= subsetting.
+ * Font file: web/public/fonts/material-symbols-outlined.woff2 (~41 KB)
+ * Regenerate with: node tools/material-symbols-subset.mjs (edit that script to
+ * add icons). Axes pinned to opsz 20..24, wght 260..300, FILL 0, GRAD -25.
  */
 @font-face {
   font-family: 'Material Symbols Outlined';
