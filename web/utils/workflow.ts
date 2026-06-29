@@ -60,10 +60,13 @@ export function stageBucket(state: string): StageBucket {
   return STAGE_BY_STATE[state] ?? 'planning'
 }
 
-export type TaskStatus = 'open' | 'in_progress' | 'blocked' | 'done'
+// Normalized workflow/bead status for the orchestrator Kanban. Distinct from
+// the task-node CRUD status in composables/useTasks.ts (todo/in_progress/done);
+// named separately so Nuxt auto-imports don't collide on "TaskStatus".
+export type WorkflowStatus = 'open' | 'in_progress' | 'blocked' | 'done'
 
 export interface TaskColumn {
-  id: TaskStatus
+  id: WorkflowStatus
   label: string
 }
 
@@ -82,7 +85,7 @@ const BLOCKED_STATES = new Set(['blocked'])
  * Tasks Kanban buckets. Anything mid-pipeline counts as in_progress; anything
  * not yet started (open / ready) counts as open.
  */
-export function normalizeTaskStatus(state: string): TaskStatus {
+export function normalizeTaskStatus(state: string): WorkflowStatus {
   if (DONE_STATES.has(state)) return 'done'
   if (BLOCKED_STATES.has(state)) return 'blocked'
   // Any "ready_for_*" state is queued work that hasn't started yet → Open.
