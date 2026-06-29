@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
@@ -129,6 +130,141 @@ func TestLoadTelos_SizeCapped(t *testing.T) {
 	}
 	if !strings.HasSuffix(block, "…") {
 		t.Errorf("expected truncation marker on capped block")
+	}
+}
+
+func seedClaim(t *testing.T, g *graph.Graph, title, statement string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateMemoryClaim(ctx, tx, nodes.MemoryClaim{
+			Title: title, Statement: statement, Confidence: 1.0,
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed claim %q: %v", title, err)
+	}
+	return id
+}
+
+func refuteClaim(t *testing.T, g *graph.Graph, claimID string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		ref, err := nodes.CreateMemoryRefutation(ctx, tx, nodes.MemoryRefutation{
+			Title: "Refute", ClaimID: claimID, Reason: "obsolete",
+		}, nodes.Author{Name: "test"})
+		if err != nil {
+			return err
+		}
+		_, err = edges.Create(ctx, tx, edges.Edge{
+			Src: ref, Dst: claimID, Label: "refutes", Type: edges.EdgeType("refutes"),
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("refute claim %s: %v", claimID, err)
+	}
+}
+
+func findVia(notes []planning.ContextNote, via string) []planning.ContextNote {
+	var out []planning.ContextNote
+	for _, n := range notes {
+		if n.Via == via {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// TestBuildContext_SurfacesActiveClaim verifies a memory claim matching the seed
+// is folded into context as a via=claim entry, so claims feed every consumer.
+func TestBuildContext_SurfacesActiveClaim(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedClaim(t, g, "Deploy cadence", "We deploy on Fridays using a canary rollout.")
+
+	notes, err := planning.BuildContext(ctx, g, "what is our deploy canary cadence", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	claims := findVia(notes, "claim")
+	if len(claims) != 1 {
+		t.Fatalf("expected 1 claim surfaced, got %d (full: %+v)", len(claims), notes)
+	}
+	if !strings.Contains(claims[0].Snippet, "canary rollout") {
+		t.Errorf("claim snippet should carry the statement, got %q", claims[0].Snippet)
+	}
+}
+
+// TestBuildContext_RefutedClaimExcluded verifies a refuted claim never surfaces,
+// reusing the shared non-refuted gate.
+func TestBuildContext_RefutedClaimExcluded(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	id := seedClaim(t, g, "Old deploy", "We deploy by manual canary on Fridays.")
+	refuteClaim(t, g, id)
+
+	notes, err := planning.BuildContext(ctx, g, "what is our deploy canary cadence", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if claims := findVia(notes, "claim"); len(claims) != 0 {
+		t.Errorf("refuted claim must not surface, got %+v", claims)
+	}
+}
+
+// TestBuildContext_ClaimsCapped verifies notes still return as before and claims
+// supplement them, capped so they cannot dominate the context.
+func TestBuildContext_ClaimsCapped(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Canary strategy", "Our canary rollout strategy gates on error rate.")
+	for _, s := range []string{
+		"Canary one goes to 1% of traffic.",
+		"Canary two goes to 5% of traffic.",
+		"Canary three goes to 25% of traffic.",
+		"Canary four goes to 50% of traffic.",
+		"Canary five goes to 100% of traffic.",
+		"Canary six is a full rollout.",
+	} {
+		seedClaim(t, g, "Canary step", s)
+	}
+
+	notes, err := planning.BuildContext(ctx, g, "canary rollout strategy", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if got := findVia(notes, "content"); len(got) != 1 || got[0].Title != "Canary strategy" {
+		t.Errorf("note should still return as before, got %+v", got)
+	}
+	if claims := findVia(notes, "claim"); len(claims) > 4 {
+		t.Errorf("claims must be capped at 4, got %d", len(claims))
+	}
+}
+
+// TestBuildContext_NoClaimsNotesOnly verifies a seed matching no claims returns
+// notes only, with no error and no empty claim noise.
+func TestBuildContext_NoClaimsNotesOnly(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy.")
+	seedClaim(t, g, "Unrelated", "The office plants need watering on Mondays.")
+
+	notes, err := planning.BuildContext(ctx, g, "how should we design caching", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if claims := findVia(notes, "claim"); len(claims) != 0 {
+		t.Errorf("non-matching claim must not surface, got %+v", claims)
+	}
+	if len(findVia(notes, "content")) == 0 {
+		t.Error("expected the caching note to still surface")
 	}
 }
 
