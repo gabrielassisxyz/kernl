@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
+	"github.com/gabrielassisxyz/kernl/internal/ingest"
 )
 
 func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
@@ -23,6 +24,9 @@ func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
 	})
 	mux.HandleFunc("POST /api/inbox/{id}/process", func(w http.ResponseWriter, r *http.Request) {
 		processCaptureHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/{id}/merge-plan", func(w http.ResponseWriter, r *http.Request) {
+		mergePlanCaptureHandler(w, r, a)
 	})
 	mux.HandleFunc("POST /api/inbox/{id}/reopen", func(w http.ResponseWriter, r *http.Request) {
 		reopenCaptureHandler(w, r, a)
@@ -208,10 +212,12 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	var req struct {
-		Target    string `json:"target"`    // note | bookmark | task | discard | convert
-		ProjectID string `json:"projectId"` // task only
-		LinkTo    string `json:"linkTo"`    // note/bookmark only
-		Title     string `json:"title"`     // optional override
+		Target        string             `json:"target"`        // note | bookmark | task | discard | update | convert
+		ProjectID     string             `json:"projectId"`     // task only
+		LinkTo        string             `json:"linkTo"`        // note/bookmark only
+		Title         string             `json:"title"`         // optional override
+		TargetNoteID  string             `json:"targetNoteId"`  // update only
+		AcceptedHunks []ingest.MergeHunk `json:"acceptedHunks"` // update only
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -227,10 +233,12 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
 
 	err := inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
-		Target:    req.Target,
-		ProjectID: req.ProjectID,
-		LinkTo:    req.LinkTo,
-		Title:     req.Title,
+		Target:        req.Target,
+		ProjectID:     req.ProjectID,
+		LinkTo:        req.LinkTo,
+		Title:         req.Title,
+		TargetNoteID:  req.TargetNoteID,
+		AcceptedHunks: req.AcceptedHunks,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -239,6 +247,34 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// mergePlanCaptureHandler plans an "Update" for a capture: it resolves the
+// best-matching note and asks the LLM for the additive hunks the user will
+// accept or reject in DiffSuggest. An empty targetNoteId signals the frontend to
+// fall back to creating a note.
+func mergePlanCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	if !a.Config.LLM.IsSet() {
+		writeError(w, http.StatusServiceUnavailable, "no llm provider configured")
+		return
+	}
+	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "llm: "+err.Error())
+		return
+	}
+	plan, err := inbox.PlanCaptureMerge(r.Context(), a.Graph, llm, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(plan)
 }
 
 // reopenCaptureHandler reverses a process: removes the derived node and returns

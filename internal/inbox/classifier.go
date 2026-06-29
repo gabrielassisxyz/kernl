@@ -11,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/ingest"
 )
 
 type Classifier struct {
@@ -84,6 +85,15 @@ func (c *Classifier) processPending(ctx context.Context) error {
 			continue
 		}
 
+		// An "update" suggestion is only trustworthy if a real note exists to
+		// merge into; otherwise downgrade to "note" so the chip never promises a
+		// merge that has no target.
+		if target == "update" {
+			if id, _ := ingest.ResolveMergeTargetFor(ctx, c.graph, p.Body, p.ID); id == "" {
+				target = "note"
+			}
+		}
+
 		err = c.graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 			if p.SuggestedAction != "" {
 				return nil
@@ -127,7 +137,8 @@ func (c *Classifier) classify(ctx context.Context, text string, projects []*node
 Pick exactly one target:
 - "bookmark": the capture is a URL or a reference to save.
 - "task": the capture is an actionable to-do. If it clearly belongs to one of the projects below, set project_id to that project's id; otherwise leave project_id empty.
-- "note": an idea, question, or piece of knowledge to keep.
+- "update": the capture extends, revises, or adds a detail to a topic that almost certainly already has its own note in the knowledge base.
+- "note": a new idea, question, or piece of knowledge to keep on its own page.
 - "discard": noise with no value.
 
 Projects:
@@ -191,6 +202,8 @@ func normalizeTarget(s string) string {
 		return "discard"
 	case strings.Contains(s, "task"):
 		return "task"
+	case strings.Contains(s, "update"):
+		return "update"
 	case strings.Contains(s, "note"):
 		return "note"
 	}

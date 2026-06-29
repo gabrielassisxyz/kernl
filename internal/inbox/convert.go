@@ -3,6 +3,7 @@ package inbox
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,16 +13,30 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/ingest"
+	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
+
+// mergedIntoLabel marks the provenance edge from a note to the capture whose
+// content was merged into it (target "update"). It is deliberately distinct from
+// "derived_from" so the inbox undo (Reopen) never deletes the pre-existing note —
+// it only un-triages the capture.
+const mergedIntoLabel = "merged_into"
 
 // ProcessRequest carries an explicit processing decision for a pending capture.
 // Target is the destination node kind; the other fields are optional refinements
 // supplied by the inbox modal (manual override) or the DA classifier.
 type ProcessRequest struct {
-	Target    string // "note" | "bookmark" | "task" | "discard" | "convert" (infer note/bookmark from body)
+	Target    string // "note" | "bookmark" | "task" | "discard" | "update" | "convert" (infer note/bookmark from body)
 	ProjectID string // task only: parent project (empty = unfiled, the "unprocessed tasks" bucket)
 	LinkTo    string // note/bookmark only: optional node to relate the result to
 	Title     string // optional title override (falls back to the capture title/body)
+
+	// Update only: the note to merge the capture into and the human-accepted
+	// merge hunks (reviewed in DiffSuggest). An empty TargetNoteID is resolved
+	// from the body; with no confident target the action falls back to "note".
+	TargetNoteID  string
+	AcceptedHunks []ingest.MergeHunk
 }
 
 // resolveTargetType maps a UI/API action onto a concrete conversion target.
@@ -73,6 +88,26 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 
 	targetType := resolveTargetType(req.Target, capture.Body)
 
+	// Update merges the capture into an existing note. Resolve the target (from
+	// the request, else from the body) and load it before the write tx. With no
+	// confident target, fall back to creating a note so the capture is never lost.
+	var mergeTarget *nodes.Note
+	if targetType == "update" {
+		targetNoteID := req.TargetNoteID
+		if targetNoteID == "" {
+			targetNoteID, _ = ingest.ResolveMergeTargetFor(ctx, g, capture.Body, captureID)
+		}
+		if targetNoteID != "" {
+			_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+				mergeTarget, _ = nodes.GetNote(ctx, tx, targetNoteID)
+				return nil
+			})
+		}
+		if mergeTarget == nil {
+			targetType = "note"
+		}
+	}
+
 	// Title: explicit override wins, else the capture's own title.
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
@@ -82,6 +117,9 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 	author := nodes.Author{Name: "inbox-convert"}
 	var targetBookmark *nodes.Bookmark
 	var deletedPrepID string // set when a discard removes the capture's prep note
+	// Set on an "update" merge: the note whose body changed, so its vault file
+	// can be mirrored after the tx commits.
+	var mergedNoteID, mergedNoteBody string
 
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var targetID string
@@ -151,6 +189,19 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 					return fmt.Errorf("create part_of edge: %w", err)
 				}
 			}
+		case "update":
+			// Merge the accepted hunks into the existing note. Rejecting all
+			// hunks leaves the body untouched but still triages the capture.
+			newBody := ingest.ApplyHunks(mergeTarget.Body, req.AcceptedHunks)
+			if newBody != mergeTarget.Body {
+				updated := *mergeTarget
+				updated.Body = newBody
+				if err := nodes.UpdateNote(ctx, tx, updated, author); err != nil {
+					return fmt.Errorf("update note: %w", err)
+				}
+				mergedNoteID, mergedNoteBody = mergeTarget.ID, newBody
+			}
+			targetID = mergeTarget.ID
 		}
 
 		// Optional user-chosen link from a note/bookmark to any other node.
@@ -166,10 +217,16 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 		}
 
 		if targetID != "" {
+			// Update uses a distinct label so undo never deletes the pre-existing
+			// note; every other target records standard derived_from provenance.
+			provenance := "derived_from"
+			if targetType == "update" {
+				provenance = mergedIntoLabel
+			}
 			_, err := edges.Create(ctx, tx, edges.Edge{
 				Src:   targetID,
 				Dst:   captureID,
-				Label: "derived_from",
+				Label: provenance,
 			}, author)
 			if err != nil {
 				return fmt.Errorf("create edge: %w", err)
@@ -231,6 +288,15 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 	// Remove the discarded prep's markdown outside the transaction.
 	if deletedPrepID != "" {
 		removeNoteFileByID(vaultRoot, deletedPrepID)
+	}
+
+	// Mirror an update merge into the note's vault file (the source of truth) so
+	// the reconciler does not clobber the node body from the stale file.
+	// Best-effort: the graph already committed, so a mirror failure is logged.
+	if mergedNoteID != "" {
+		if _, err := reconcile.WriteNoteBody(ctx, g, vaultRoot, mergedNoteID, mergedNoteBody); err != nil {
+			slog.Warn("inbox: merged body not mirrored to vault file", "note", mergedNoteID, "err", err)
+		}
 	}
 
 	return nil

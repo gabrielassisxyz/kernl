@@ -19,7 +19,7 @@ func (f *fakeLLM) Chat(ctx context.Context, messages []chat.Message, tools []cha
 func TestLLMExtractorParsesPlainJSON(t *testing.T) {
 	content := `[
 		{"type": "Create Page", "title": "New Concept", "payload": "snippet one"},
-		{"type": "Deep Research", "title": "Verify claim", "payload": "snippet two"}
+		{"type": "Update", "title": "Extend topic", "payload": "snippet two"}
 	]`
 	ex := NewLLMExtractor(&fakeLLM{content: content})
 
@@ -33,8 +33,30 @@ func TestLLMExtractorParsesPlainJSON(t *testing.T) {
 	if actions[0].Type != "Create Page" || actions[0].Title != "New Concept" || actions[0].Payload != "snippet one" {
 		t.Errorf("unexpected first action: %+v", actions[0])
 	}
-	if actions[1].Type != "Deep Research" {
+	if actions[1].Type != "Update" {
 		t.Errorf("unexpected second action type: %q", actions[1].Type)
+	}
+}
+
+// The extractor is narrowed to implemented actions: Deep Research and Add
+// Contradiction Callout must never reach the queue.
+func TestLLMExtractorDropsRetiredActionTypes(t *testing.T) {
+	content := `[
+		{"type": "Deep Research", "title": "Verify claim", "payload": "x"},
+		{"type": "Add Contradiction Callout", "title": "Conflict", "payload": "y"},
+		{"type": "Create Page", "title": "Keep me", "payload": "z"}
+	]`
+	ex := NewLLMExtractor(&fakeLLM{content: content})
+
+	actions, err := ex.ExtractActions(context.Background(), "doc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(actions) != 1 {
+		t.Fatalf("expected 1 action (retired types dropped), got %d", len(actions))
+	}
+	if actions[0].Type != "Create Page" {
+		t.Errorf("expected Create Page, got %q", actions[0].Type)
 	}
 }
 

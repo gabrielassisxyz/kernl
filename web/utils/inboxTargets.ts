@@ -1,9 +1,9 @@
 // Shared presentation for inbox processing targets, used by the row chip, the
 // process modal, and the processed list.
 
-export type Target = 'note' | 'bookmark' | 'task' | 'discard'
+export type Target = 'note' | 'update' | 'bookmark' | 'task' | 'discard'
 
-export const TARGETS: Target[] = ['note', 'bookmark', 'task', 'discard']
+export const TARGETS: Target[] = ['note', 'update', 'bookmark', 'task', 'discard']
 
 interface TargetMeta {
   label: string
@@ -16,6 +16,7 @@ interface TargetMeta {
 
 export const TARGET_META: Record<Target, TargetMeta> = {
   note: { label: 'Note', icon: 'description', chip: 'border-da-accent/40 text-da-accent-text bg-da-accent/10', text: 'text-da-accent-text' },
+  update: { label: 'Update', icon: 'merge', chip: 'border-primary/40 text-primary bg-primary/10', text: 'text-primary' },
   bookmark: { label: 'Bookmark', icon: 'bookmark', chip: 'border-tertiary/40 text-tertiary bg-tertiary/10', text: 'text-tertiary' },
   task: { label: 'Task', icon: 'check_circle', chip: 'border-status-active/40 text-status-active bg-status-active/10', text: 'text-status-active' },
   discard: { label: 'Discard', icon: 'delete', chip: 'border-status-failed/40 text-status-failed-text bg-status-failed/10', text: 'text-status-failed-text' },
