@@ -91,6 +91,15 @@ function onBackdropClick(event: MouseEvent) {
 </script>
 
 <style scoped>
+/* A closed <dialog> must not render. The `flex` utility on the element sets
+   display:flex, which overrides the UA `dialog:not([open]){display:none}` rule —
+   leaving a closed, opacity:0 modal in the layout where it silently intercepts
+   clicks. Re-assert display:none for the closed state (scoped selector wins over
+   the utility class) so only an open modal occupies space. */
+.ui-modal-card:not([open]) {
+  display: none;
+}
+
 .ui-modal-card {
   opacity: 0;
   transform: translateY(6px) scale(0.985);
