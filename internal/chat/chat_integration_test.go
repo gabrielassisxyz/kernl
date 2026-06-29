@@ -212,6 +212,71 @@ func TestChatHappyPathSSE(t *testing.T) {
 	}
 }
 
+func TestChatTelosInjected(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+
+	// A telos-tagged note is always-on context; an untagged note is not.
+	seedNote(t, a, "My Telos", "I value leverage and shipping the loop.", []string{"telos"})
+	seedNote(t, a, "Random", "unrelated body", nil)
+
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "what should I focus on?", "")
+
+	mock := newMockLLMClient(ChatResponse{Content: "Focus on the loop."})
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	// The DA system prompt comes first, then the always-on Telos block, then the
+	// conversation. Assert the Telos content reached the model.
+	var systemBlob string
+	for _, m := range mock.Messages {
+		if m.Role == "system" {
+			systemBlob += m.Content + "\n"
+		}
+	}
+	if !strings.Contains(systemBlob, "I value leverage and shipping the loop.") {
+		t.Errorf("expected Telos content in system context, got system messages:\n%s", systemBlob)
+	}
+	if strings.Contains(systemBlob, "unrelated body") {
+		t.Errorf("untagged note leaked into context:\n%s", systemBlob)
+	}
+}
+
+func TestChatNoTelosNoExtraSystemMessage(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "hello", "")
+
+	mock := newMockLLMClient(ChatResponse{Content: "Hi!"})
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	// With no telos notes, context building is unchanged: system prompt then user.
+	if len(mock.Messages) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(mock.Messages))
+	}
+	if mock.Messages[0].Role != "system" || mock.Messages[0].Content != "You are a test assistant." {
+		t.Errorf("first message = {role=%q content=%q}, want the DA system prompt", mock.Messages[0].Role, mock.Messages[0].Content)
+	}
+	if mock.Messages[1].Role != "user" {
+		t.Errorf("second message role = %q, want user (no empty Telos system noise)", mock.Messages[1].Role)
+	}
+}
+
 func TestChatPermissionBlockAndResume(t *testing.T) {
 	a := newTestApp(t)
 	seedDAIdentity(t, a)

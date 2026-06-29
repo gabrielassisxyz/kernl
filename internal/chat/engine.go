@@ -81,8 +81,17 @@ func (e *ChatEngine) RunSession(ctx context.Context) error {
 		return err
 	}
 
+	// Telos: the user's standing identity/goals, always folded into context.
+	// A load failure is non-fatal — Telos supplements the prompt, it must not
+	// break the chat.
+	telos, err := planning.LoadTelos(ctx, e.app.Graph)
+	if err != nil {
+		slog.Warn("load telos", "error", err)
+		telos = ""
+	}
+
 	// Build messages.
-	messages := e.buildMessages(cs, di)
+	messages := e.buildMessages(cs, di, telos)
 
 	// If there's a pending permission from a previous run, re-emit it and return.
 	if cs.PendingPermission != nil {
@@ -202,10 +211,13 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 	return e.emitDoneEvent()
 }
 
-func (e *ChatEngine) buildMessages(cs *nodes.ChatSession, di *nodes.DAIdentity) []Message {
+func (e *ChatEngine) buildMessages(cs *nodes.ChatSession, di *nodes.DAIdentity, telos string) []Message {
 	var msgs []Message
 	if di != nil && di.SystemPrompt != "" {
 		msgs = append(msgs, Message{Role: "system", Content: di.SystemPrompt})
+	}
+	if telos != "" {
+		msgs = append(msgs, Message{Role: "system", Content: telos})
 	}
 	for _, m := range cs.Messages {
 		msgs = append(msgs, Message{Role: m.Role, Content: m.Content})
