@@ -57,7 +57,7 @@ func TestProcessCaptureUpdate(t *testing.T) {
 	}
 
 	// Note body merged, capture triaged, merged_into edge present.
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		n, err := nodes.GetNote(ctx, tx, noteID)
 		if err != nil {
 			t.Fatalf("GetNote: %v", err)
@@ -86,13 +86,15 @@ func TestProcessCaptureUpdate(t *testing.T) {
 			t.Errorf("expected merged_into edge note→capture")
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
 
 	// Undo must NOT delete the pre-existing note — only re-pend the capture.
 	if err := inbox.Reopen(ctx, g, vault, captureID); err != nil {
 		t.Fatalf("Reopen: %v", err)
 	}
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		if _, err := nodes.GetNote(ctx, tx, noteID); err != nil {
 			t.Errorf("note must survive undo of an update, got %v", err)
 		}
@@ -104,7 +106,9 @@ func TestProcessCaptureUpdate(t *testing.T) {
 			t.Errorf("expected capture re-pended after undo, got tags %v", c.Tags)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
 }
 
 // TestProcessCaptureUpdateNoTargetFallsBack creates a note when no confident
@@ -131,14 +135,18 @@ func TestProcessCaptureUpdateNoTargetFallsBack(t *testing.T) {
 		t.Fatalf("ProcessCapture update: %v", err)
 	}
 
-	g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var noteCount int
-		tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type='note'`).Scan(&noteCount)
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type='note'`).Scan(&noteCount); err != nil {
+			return err
+		}
 		if noteCount != 1 {
 			t.Errorf("expected fallback to create 1 note, got %d", noteCount)
 		}
 		return nil
-	})
+	}); err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
 }
 
 func hasTagT(tags []string, want string) bool {
