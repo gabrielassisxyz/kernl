@@ -92,7 +92,7 @@
       </div>
     </section>
 
-    <UiModal :open="showNewNote" title="New note" size="sm" @close="closeNewNote">
+    <UiModal :open="showNewNote" :title="newNoteTag === 'telos' ? 'New Telos note' : 'New note'" size="sm" @close="closeNewNote">
       <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
         <UiInput
           ref="titleInput"
@@ -117,7 +117,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, defineAsyncComponent } from 'vue'
+import { ref, computed, nextTick, onMounted, defineAsyncComponent } from 'vue'
 import TagHierarchy from '~/components/notes/TagHierarchy.vue'
 import NoteList from '~/components/notes/NoteList.vue'
 import UiButton from '~/components/ui/UiButton.vue'
@@ -142,8 +142,23 @@ const sidebarCollapsed = ref(false)
 
 const showNewNote = ref(false)
 const newTitle = ref('')
+const newNoteTag = ref('') // when set, the new note is created pre-tagged (e.g. 'telos')
 const titleInput = ref(null)
 const creating = ref(false)
+
+// Deep links from other surfaces: ?path= opens an existing note (e.g. Memory's
+// "Edit" on a Telos note); ?new=<tag> opens the create dialog pre-tagged.
+const route = useRoute()
+onMounted(() => {
+  const path = typeof route.query.path === 'string' ? route.query.path : ''
+  if (path) {
+    activeTab.value = 'files'
+    selectFile(path)
+    return
+  }
+  const tag = typeof route.query.new === 'string' ? route.query.new : ''
+  if (tag) openNewNote(tag)
+})
 
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -182,8 +197,10 @@ const slugify = (title) => title
 
 const slugPreview = computed(() => slugify(newTitle.value || ''))
 
-const openNewNote = async () => {
+const openNewNote = async (tag = '') => {
   newTitle.value = ''
+  // Guard against the DOM click event being passed as a positional arg.
+  newNoteTag.value = typeof tag === 'string' ? tag : ''
   showNewNote.value = true
   await nextTick()
   titleInput.value?.focus()
@@ -214,7 +231,8 @@ const confirmNewNote = async () => {
     n++
   }
 
-  const body = `---\ntitle: ${title}\ntags: []\n---\n\n# ${title}\n\n`
+  const tagsLine = newNoteTag.value ? `tags: [${newNoteTag.value}]` : 'tags: []'
+  const body = `---\ntitle: ${title}\n${tagsLine}\n---\n\n# ${title}\n\n`
   try {
     const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
       method: 'POST',
@@ -223,6 +241,7 @@ const confirmNewNote = async () => {
     })
     if (res.ok) {
       showNewNote.value = false
+      newNoteTag.value = ''
       activeTab.value = 'files'
       selectFile(path)
       noteListRef.value?.refresh()

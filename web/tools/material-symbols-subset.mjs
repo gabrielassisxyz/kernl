@@ -19,13 +19,14 @@ const ICONS = [
   'account_circle', 'account_tree', 'add', 'analytics', 'arrow_forward',
   'arrow_upward', 'auto_awesome', 'bookmark', 'check', 'check_circle',
   'checklist', 'chrome_reader_mode', 'close', 'cloud_off', 'code', 'dashboard',
-  'delete', 'description', 'edit_note', 'expand_more', 'filter_list',
+  'delete', 'description', 'edit_note', 'expand_more', 'explore', 'filter_list',
   'fit_screen', 'folder_open', 'format_list_numbered', 'help', 'history',
   'hourglass_empty', 'hub', 'inbox', 'input', 'keyboard', 'left_panel_close',
   'left_panel_open', 'link_off', 'lock', 'memory', 'neurology', 'open_in_new',
   'play_arrow', 'policy', 'progress_activity', 'queue', 'refresh', 'search',
   'settings', 'smart_toy', 'source', 'swap_vert', 'sync', 'tag', 'task_alt',
   'terminal', 'text_fields', 'tune', 'view_kanban', 'view_list', 'visibility',
+  'warning',
 ]
 
 // A modern browser UA so the CSS2 endpoint returns a woff2 src, not legacy ttf.

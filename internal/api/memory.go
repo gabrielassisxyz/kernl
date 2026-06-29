@@ -8,6 +8,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/memory"
+	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
 func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
@@ -71,6 +72,69 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"claims": claims})
+	})
+
+	// Telos: the human-authored half of Memory — notes tagged `telos` that are
+	// ALWAYS injected into the DA's context (vs. claims, which are retrieved by
+	// relevance). The endpoint returns the notes plus the live injection
+	// footprint so the surface can show the user exactly what the DA always sees.
+	mux.HandleFunc("GET /api/memory/telos", func(w http.ResponseWriter, r *http.Request) {
+		type telosNote struct {
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			Body      string `json:"body"`
+			Path      string `json:"path"` // vault file path, "" when not yet on disk
+			UpdatedAt string `json:"updatedAt"`
+		}
+		out := []telosNote{}
+
+		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
+			rows, err := tx.Query(`
+				SELECT n.id, n.title,
+				       COALESCE(json_extract(n.attrs, '$.body'), ''),
+				       COALESCE(np.path, ''),
+				       COALESCE(n.updated_at, '')
+				FROM nodes n
+				JOIN node_tags nt ON nt.node_id = n.id
+				JOIN tags tg ON tg.id = nt.tag_id
+				LEFT JOIN note_paths np ON np.uuid = n.id
+				WHERE n.type = 'note' AND n.deleted_at IS NULL AND tg.name = ?
+				ORDER BY n.updated_at DESC`, planning.TelosTag)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var tn telosNote
+				if err := rows.Scan(&tn.ID, &tn.Title, &tn.Body, &tn.Path, &tn.UpdatedAt); err != nil {
+					return err
+				}
+				out = append(out, tn)
+			}
+			return rows.Err()
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// The exact block the chat engine would inject, so the footprint shown
+		// to the user is the real one (including cap/truncation).
+		tc, err := planning.LoadTelosContext(r.Context(), a.Graph)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"notes": out,
+			"injection": map[string]any{
+				"bytes":     tc.Bytes,
+				"capBytes":  tc.CapBytes,
+				"truncated": tc.Truncated,
+			},
+		})
 	})
 
 	mux.HandleFunc("POST /api/memory/claims/{id}/refute", func(w http.ResponseWriter, r *http.Request) {

@@ -4,17 +4,30 @@
       <div class="flex items-center justify-between w-full">
         <div class="flex items-center gap-component">
           <h1 class="font-headline text-headline text-text-primary">Memory</h1>
-          <span class="font-mono-data text-mono-data text-text-faint">Active claims</span>
+          <span class="font-mono-data text-mono-data text-text-faint">{{ view === 'telos' ? 'Identity & goals' : 'Active claims' }}</span>
         </div>
       </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden">
       <aside class="w-64 border-r border-border-hairline bg-surface flex flex-col shrink-0 overflow-hidden">
+        <!-- Telos: the always-injected half of Memory, pinned above learned topics. -->
         <div class="p-section border-b border-border-hairline shrink-0">
+          <button
+            @click="selectTelos"
+            class="w-full flex items-center gap-base px-tight py-1.5 rounded transition-colors text-left"
+            :class="view === 'telos' ? 'bg-surface-hover text-primary' : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'"
+          >
+            <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">explore</span>
+            <span class="font-body text-body">Telos</span>
+            <span class="ml-auto font-mono-data text-mono-data text-text-faint">always on</span>
+          </button>
+        </div>
+
+        <div class="px-section pt-section pb-base shrink-0">
           <h2 class="font-label-caps text-label-caps text-text-muted">Topics</h2>
         </div>
-        <div class="flex-1 overflow-y-auto p-section flex flex-col gap-1">
+        <div class="flex-1 overflow-y-auto px-section pb-section flex flex-col gap-1">
           <div v-if="topicsPending" class="text-text-muted font-mono-data text-mono-data">Loading…</div>
           <div v-else-if="topicsError" class="font-mono-data text-mono-data text-status-failed-text">
             Failed to load topics.
@@ -26,7 +39,7 @@
             :key="topic"
             @click="selectTopic(topic)"
             class="text-left px-tight py-1 rounded transition-colors font-body text-body truncate"
-            :class="selectedTopic === topic ? 'bg-surface-hover text-primary' : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'"
+            :class="view === 'topics' && selectedTopic === topic ? 'bg-surface-hover text-primary' : 'text-text-muted hover:text-text-primary hover:bg-surface-hover'"
           >
             {{ topic }}
           </button>
@@ -36,6 +49,9 @@
 
       <section class="flex-1 overflow-y-auto p-section relative">
         <div class="max-w-4xl mx-auto flex flex-col gap-component">
+          <MemoryTelos v-if="view === 'telos'" />
+
+          <template v-else>
           <div v-if="claimsPending" class="flex flex-col items-center justify-center py-break text-text-muted">
             <span class="material-symbols-outlined text-[32px] mb-component animate-pulse text-text-faint">memory</span>
             <p class="font-body text-body">Loading…</p>
@@ -56,12 +72,13 @@
           </div>
           
           <template v-else>
-            <MemoryClaimCard 
-              v-for="claim in claims" 
-              :key="claim.ID || claim.id" 
+            <MemoryClaimCard
+              v-for="claim in claims"
+              :key="claim.ID || claim.id"
               :claim="claim"
               @refute="handleRefute"
             />
+          </template>
           </template>
         </div>
       </section>
@@ -72,7 +89,12 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import MemoryClaimCard from '~/components/MemoryClaimCard.vue'
+import MemoryTelos from '~/components/memory/MemoryTelos.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
+
+// Memory has two halves: Telos (always-injected identity) and learned Topics
+// (relevance-retrieved claims). Identity leads — the page opens on Telos.
+const view = ref<'telos' | 'topics'>('telos')
 
 // Fetch topics — the API wraps the array as { topics: [...] }.
 const { data: topicsData, pending: topicsPending, error: topicsError, refresh: refreshTopics } = useFetch<{ topics: string[] }>('/api/memory/topics', {
@@ -102,6 +124,11 @@ const claims = computed(() => claimsData.value?.claims || [])
 
 const selectTopic = (topic: string) => {
   selectedTopic.value = topic
+  view.value = 'topics'
+}
+
+const selectTelos = () => {
+  view.value = 'telos'
 }
 
 const handleRefute = async (id: string, reason: string) => {
