@@ -1,5 +1,8 @@
 /kernl
 /migrate.go
+# Stray bookmark archives written by tests when Vault.Root is unset (resolves
+# relative to the package cwd). Real archives live under <Vault.Root>/.kernl.
+internal/api/.kernl/
 orchestrator/kernl
 orchestrator/.gitignore
 orchestrator/AGENTS.md

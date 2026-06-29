@@ -15,7 +15,10 @@ import (
 )
 
 func TestBookmarkAPI(t *testing.T) {
-	cfg := &config.Config{}
+	// Vault.Root must point at a temp dir: the create handler archives in the
+	// background to <Vault.Root>/.kernl/archives, and an empty root resolves to a
+	// path relative to the test's cwd — polluting internal/api/.kernl in the repo.
+	cfg := &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}}
 	a := &app.App{
 		Config:  cfg,
 		Backend: backend.NewBdCliBackend("/tmp/test"),
