@@ -10,28 +10,25 @@ import (
 )
 
 // allowedActionTypes is the set of action types the review queue understands.
-// These map to the resolve handler in resolve.go and the UI buttons in
-// web/components/ingest/IngestItem.vue.
+// It is deliberately narrowed to the actions the resolve handler implements
+// (resolve.go) so the queue never contains an unactionable item. Earlier action
+// types (Deep Research, Add Contradiction Callout) are intentionally excluded.
 var allowedActionTypes = map[string]struct{}{
-	"Create Page":               {},
-	"Update":                    {},
-	"Add Contradiction Callout": {},
-	"Deep Research":             {},
-	"Skip":                      {},
+	"Create Page": {},
+	"Update":      {},
+	"Skip":        {},
 }
 
 const extractorSystemPrompt = `You analyze a note or document and extract a short list of structured ingestion actions for a knowledge base review queue.
 
 Return ONLY a JSON array (no prose, no markdown fences). Each element must be an object with exactly these fields:
-  "type":    one of "Create Page", "Update", "Add Contradiction Callout", "Deep Research", "Skip"
+  "type":    one of "Create Page", "Update", "Skip"
   "title":   a short human-readable title (a few words)
   "payload": the relevant snippet or text the action applies to
 
 Rules:
 - Choose "Create Page" for genuinely new concepts worth their own page.
 - Choose "Update" when the content extends or revises an existing topic.
-- Choose "Add Contradiction Callout" when the content conflicts with itself or with established knowledge.
-- Choose "Deep Research" when a claim needs verification or further investigation.
 - Choose "Skip" when nothing actionable is present.
 - Keep the list small (at most 5 actions). If nothing is actionable, return an empty array [].`
 

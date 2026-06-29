@@ -17,10 +17,8 @@
     
     <div class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex items-center gap-section transition-opacity duration-200 bg-surface-hover pl-section shrink-0">
       <button @click.stop="$emit('action', 'Create Page')" class="font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors">Create Page</button>
-      <button @click.stop="$emit('action', 'Deep Research')" class="font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors">Deep Research</button>
-      <button @click.stop="$emit('action', 'Skip')" class="font-mono-data text-mono-data text-text-muted hover:text-status-failed-text transition-colors">Skip</button>
       <button @click.stop="$emit('action', 'Update')" class="font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors">Update</button>
-      <button @click.stop="$emit('action', 'Add Contradiction Callout')" class="font-mono-data text-mono-data text-text-muted hover:text-status-gate transition-colors">Add Contradiction Callout</button>
+      <button @click.stop="$emit('action', 'Skip')" class="font-mono-data text-mono-data text-text-muted hover:text-status-failed-text transition-colors">Skip</button>
     </div>
   </div>
 </template>

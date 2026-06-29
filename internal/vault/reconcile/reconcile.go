@@ -742,6 +742,73 @@ func resolveTitle(fm *frontmatter.Frontmatter, absPath string) string {
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
+// WriteNoteBody rewrites the body of a note's vault markdown file in place,
+// preserving its frontmatter, so the file (the source of truth) reflects an
+// in-graph body change. Callers that mutate a note's body directly via
+// nodes.UpdateNote (e.g. ingest/inbox merges) MUST also call this — otherwise
+// the file diverges and the merge is clobbered the next time the file is
+// reconciled (OnChange re-derives the node body from the stale file).
+//
+// It returns written=false (no error) when the file cannot be located — no
+// vault root, or no path cached and no frontmatter id match. The caller's
+// node-level update still stands; only the file mirror is skipped.
+func WriteNoteBody(ctx context.Context, g *graph.Graph, vaultRoot, noteID, newBody string) (written bool, err error) {
+	if vaultRoot == "" {
+		return false, nil
+	}
+	full, ok, err := locateNoteFile(ctx, g, vaultRoot, noteID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+
+	raw, err := os.ReadFile(full)
+	if err != nil {
+		return false, fmt.Errorf("reconcile: read note %q: %w", full, err)
+	}
+	// extractBody returns the body region (a suffix of the file), so trimming it
+	// off leaves the frontmatter block plus its separator untouched.
+	body := extractBody(raw)
+	prefix := strings.TrimSuffix(string(raw), body)
+	if err := os.WriteFile(full, []byte(prefix+newBody), 0644); err != nil {
+		return false, fmt.Errorf("reconcile: write note %q: %w", full, err)
+	}
+	return true, nil
+}
+
+// locateNoteFile resolves a note's absolute file path: first via the note_paths
+// cache, then by scanning for a markdown whose frontmatter id matches (the cache
+// may not be populated yet for a freshly created note).
+func locateNoteFile(ctx context.Context, g *graph.Graph, vaultRoot, noteID string) (string, bool, error) {
+	if rel, found, err := LookupByUUID(ctx, g, noteID); err != nil {
+		return "", false, err
+	} else if found && rel != "" {
+		return filepath.Join(vaultRoot, rel), true, nil
+	}
+
+	var match string
+	_ = filepath.WalkDir(vaultRoot, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil || d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil
+		}
+		if fm, perr := frontmatter.Parse(raw); perr == nil && fm.ID == noteID {
+			match = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if match == "" {
+		return "", false, nil
+	}
+	return match, true, nil
+}
+
 // extractBody returns the content after the frontmatter block.
 // If no frontmatter is present, returns the full content.
 func extractBody(raw []byte) string {

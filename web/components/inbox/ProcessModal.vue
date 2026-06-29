@@ -24,7 +24,7 @@
       </UiField>
 
       <UiField
-        v-if="draft.target !== 'discard'"
+        v-if="draft.target !== 'discard' && draft.target !== 'update'"
         :label="draft.target === 'task' ? 'Project' : 'Link to (optional)'"
       >
         <UiSelect v-model="draft.projectId" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50">
@@ -33,9 +33,14 @@
         </UiSelect>
       </UiField>
 
-      <UiField v-if="draft.target !== 'discard'" label="Title">
+      <UiField v-if="draft.target !== 'discard' && draft.target !== 'update'" label="Title">
         <UiInput v-model="draft.title" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50" />
       </UiField>
+
+      <p v-if="draft.target === 'update'" class="font-body text-body text-text-muted">
+        Kernl finds the best-matching note and proposes the changes to merge in.
+        You'll review each suggested edit before anything is written.
+      </p>
     </div>
 
     <template #footer>
@@ -89,6 +94,12 @@ watch(() => props.item, (item) => {
 
 function confirm() {
   if (!props.item) return
+  // Update merges into a note (resolved + reviewed by the parent), so it carries
+  // no project/link/title here.
+  if (draft.target === 'update') {
+    emit('confirm', { target: 'update', projectId: '', linkTo: '', title: '' })
+    return
+  }
   // projectId only applies to a task; for note/bookmark the same select feeds linkTo.
   const isTask = draft.target === 'task'
   emit('confirm', {

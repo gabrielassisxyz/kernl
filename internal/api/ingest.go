@@ -25,19 +25,32 @@ func RegisterIngestRoutes(mux *http.ServeMux, a *app.App) {
 
 	// Use a real LLM-backed extractor only when an LLM is configured; otherwise
 	// fall back to the stub so behavior is unchanged and no tokens are spent.
+	// The same client backs the Update merge planner.
+	llm := buildIngestLLM(a)
 	var extractor ingest.Extractor = &ingest.StubExtractor{}
-	if a.Config != nil && a.Config.LLM.IsSet() {
-		if llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM)); err != nil {
-			slog.Error("ingest: failed to build LLM client, falling back to stub extractor", "error", err)
-		} else {
-			extractor = ingest.NewLLMExtractor(llm)
-		}
+	if llm != nil {
+		extractor = ingest.NewLLMExtractor(llm)
 	}
 	svc := ingest.NewService(a.Graph, mm, extractor)
 
 	mux.HandleFunc("POST /api/ingest/trigger", ingestTriggerHandler(svc))
 	mux.HandleFunc("GET /api/ingest/queue", ingestQueueListHandler(a))
 	mux.HandleFunc("POST /api/ingest/queue/{id}/resolve", ingestQueueResolveHandler(a))
+	mux.HandleFunc("POST /api/ingest/queue/{id}/merge-plan", ingestMergePlanHandler(a, llm))
+}
+
+// buildIngestLLM constructs the configured LLM client, or returns nil when no
+// LLM is configured (so callers degrade gracefully without spending tokens).
+func buildIngestLLM(a *app.App) chat.LLMClient {
+	if a.Config == nil || !a.Config.LLM.IsSet() {
+		return nil
+	}
+	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+	if err != nil {
+		slog.Error("ingest: failed to build LLM client", "error", err)
+		return nil
+	}
+	return llm
 }
 
 func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
@@ -95,7 +108,9 @@ func ingestQueueResolveHandler(a *app.App) http.HandlerFunc {
 		}
 
 		var body struct {
-			Action string `json:"action"`
+			Action        string             `json:"action"`
+			TargetNoteID  string             `json:"targetNoteId"`
+			AcceptedHunks []ingest.MergeHunk `json:"acceptedHunks"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body) // empty body → Skip
 
@@ -104,7 +119,12 @@ func ingestQueueResolveHandler(a *app.App) http.HandlerFunc {
 			vaultRoot = a.Config.Vault.Root
 		}
 
-		err := ingest.ResolveReview(r.Context(), a.Graph, vaultRoot, id, body.Action)
+		var update *ingest.UpdateInput
+		if body.Action == "Update" {
+			update = &ingest.UpdateInput{TargetNoteID: body.TargetNoteID, AcceptedHunks: body.AcceptedHunks}
+		}
+
+		err := ingest.ResolveReview(r.Context(), a.Graph, vaultRoot, id, body.Action, update)
 		if errors.Is(err, ingest.ErrActionNotImplemented) {
 			http.Error(w, "action not implemented yet: "+body.Action, http.StatusNotImplemented)
 			return
@@ -115,5 +135,31 @@ func ingestQueueResolveHandler(a *app.App) http.HandlerFunc {
 		}
 
 		w.WriteHeader(http.StatusOK)
+	}
+}
+
+// ingestMergePlanHandler plans an Update merge: it resolves the target note and
+// asks the LLM for the additive hunks the user will accept or reject. An empty
+// targetNoteId in the response signals the frontend to fall back to Create Page.
+func ingestMergePlanHandler(a *app.App, llm chat.LLMClient) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		if llm == nil {
+			http.Error(w, "merge requires an LLM, none configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		plan, err := ingest.PlanMerge(r.Context(), a.Graph, llm, id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(plan)
 	}
 }

@@ -22,6 +22,16 @@
       action-icon="play_arrow"
       @action="handleTrigger"
     />
+
+    <!-- Update merge review: accept/reject the hunks the DA proposes folding
+         into the resolved target note. Accepting/rejecting the last hunk
+         applies the accepted set and resolves the review. -->
+    <DiffSuggest
+      v-if="merge"
+      :hunks="merge.hunks"
+      @accept="onMergeAccept"
+      @reject="onMergeReject"
+    />
   </section>
 
   <IngestHint v-if="items.length > 0" />
@@ -61,6 +71,7 @@ import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import IngestHeader from '~/components/ingest/IngestHeader.vue'
 import IngestItem from '~/components/ingest/IngestItem.vue'
 import IngestHint from '~/components/ingest/IngestHint.vue'
+import DiffSuggest from '~/components/notes/DiffSuggest.vue'
 import type { IngestReviewData } from '~/components/ingest/IngestItem.vue'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
@@ -76,24 +87,85 @@ const { data, pending, refresh } = useFetch<IngestReviewData[]>('/api/ingest/que
 const items = computed(() => data.value || [])
 const selectedIndex = ref(0)
 
+interface MergeHunk { id: string; content: string }
+interface MergePlan { targetNoteId: string; targetTitle: string; currentBody: string; hunks: MergeHunk[] }
+interface MergeState { reviewId: string; targetNoteId: string; hunks: MergeHunk[]; accepted: MergeHunk[] }
+
+const merge = ref<MergeState | null>(null)
+
 const handleAction = async (id: string, action: string) => {
+  if (action === 'Update') {
+    await startMerge(id)
+    return
+  }
+  await resolveAction(id, action)
+}
+
+// resolveAction calls the resolve endpoint and optimistically drops the item.
+const resolveAction = async (
+  id: string,
+  action: string,
+  extra: Record<string, unknown> = {}
+) => {
   try {
     await $fetch(`/api/ingest/queue/${id}/resolve`, {
       method: 'POST',
-      body: { action }
+      body: { action, ...extra }
     })
-    // Optimistically remove the item (only on success; unimplemented actions
-    // return 501 and throw, leaving the item in the queue).
     if (data.value) {
       data.value = data.value.filter(i => i.ID !== id)
     }
-    // Adjust selection if needed
     if (selectedIndex.value >= items.value.length) {
       selectedIndex.value = Math.max(0, items.value.length - 1)
     }
   } catch (error) {
     console.error('Failed to process item', error)
   }
+}
+
+// startMerge asks the backend to plan the Update. With no confident target it
+// falls back to Create Page; otherwise it opens the DiffSuggest review.
+const startMerge = async (id: string) => {
+  try {
+    const plan = await $fetch<MergePlan>(`/api/ingest/queue/${id}/merge-plan`, { method: 'POST' })
+    if (!plan || !plan.targetNoteId) {
+      await resolveAction(id, 'Create Page')
+      return
+    }
+    merge.value = {
+      reviewId: id,
+      targetNoteId: plan.targetNoteId,
+      hunks: [...(plan.hunks || [])],
+      accepted: []
+    }
+    if (merge.value.hunks.length === 0) {
+      await finalizeMerge()
+    }
+  } catch (error) {
+    console.error('Failed to plan merge', error)
+  }
+}
+
+const onMergeAccept = (hunk: MergeHunk) => {
+  if (!merge.value) return
+  merge.value.accepted.push(hunk)
+  merge.value.hunks = merge.value.hunks.filter(h => h.id !== hunk.id)
+  if (merge.value.hunks.length === 0) finalizeMerge()
+}
+
+const onMergeReject = (hunk: MergeHunk) => {
+  if (!merge.value) return
+  merge.value.hunks = merge.value.hunks.filter(h => h.id !== hunk.id)
+  if (merge.value.hunks.length === 0) finalizeMerge()
+}
+
+// finalizeMerge applies the accepted hunks. Accepting none is valid — the
+// backend leaves the target unchanged but still connects it and resolves.
+const finalizeMerge = async () => {
+  if (!merge.value) return
+  const { reviewId, targetNoteId, accepted } = merge.value
+  merge.value = null
+  await resolveAction(reviewId, 'Update', { targetNoteId, acceptedHunks: accepted })
 }
 
 const showTriggerModal = ref(false)
@@ -145,14 +217,10 @@ const handleKeydown = (e: KeyboardEvent) => {
     selectedIndex.value = (selectedIndex.value - 1 + items.value.length) % items.value.length
   } else if (e.key === 'c' || e.key === 'C') {
     handleAction(items.value[selectedIndex.value].ID, 'Create Page')
-  } else if (e.key === 'd' || e.key === 'D') {
-    handleAction(items.value[selectedIndex.value].ID, 'Deep Research')
   } else if (e.key === 's' || e.key === 'S') {
     handleAction(items.value[selectedIndex.value].ID, 'Skip')
   } else if (e.key === 'u' || e.key === 'U') {
     handleAction(items.value[selectedIndex.value].ID, 'Update')
-  } else if (e.key === 'a' || e.key === 'A') {
-    handleAction(items.value[selectedIndex.value].ID, 'Add Contradiction Callout')
   } else if (e.key === 't' || e.key === 'T') {
     handleTrigger()
   }

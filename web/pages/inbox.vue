@@ -70,6 +70,16 @@
     </div>
 
     <InboxHint v-else-if="items.length > 0" />
+
+    <!-- Update merge review: accept/reject the changes Kernl proposes folding
+         into the matched note. Deciding the last hunk applies the accepted set
+         and triages the capture. -->
+    <DiffSuggest
+      v-if="merge"
+      :hunks="merge.hunks"
+      @accept="onMergeAccept"
+      @reject="onMergeReject"
+    />
   </section>
 
   <section v-else class="flex-1 overflow-y-auto">
@@ -123,6 +133,7 @@ import InboxItem from '~/components/inbox/InboxItem.vue'
 import InboxHint from '~/components/inbox/InboxHint.vue'
 import CaptureThought from '~/components/CaptureThought.vue'
 import ProcessModal from '~/components/inbox/ProcessModal.vue'
+import DiffSuggest from '~/components/notes/DiffSuggest.vue'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
 import { useProjects } from '~/composables/useProjects'
 import { TARGET_META, normalizeTarget, type Target } from '~/utils/inboxTargets'
@@ -140,7 +151,7 @@ interface ProcessedRow {
   at: string
 }
 
-interface ProcessPayload { target: Target; projectId: string; linkTo: string; title: string }
+interface ProcessPayload { target: Target; projectId: string; linkTo: string; title: string; targetNoteId?: string; acceptedHunks?: { id: string; content: string }[] }
 
 const { data, pending, refresh, error } = useFetch<InboxItemData[]>('/api/inbox/pending', { server: false, default: () => [] })
 const { data: processedData, refresh: refreshProcessed, error: processedError } = useFetch<ProcessedRow[]>('/api/inbox/processed', { server: false, default: () => [] })
@@ -190,6 +201,9 @@ async function postProcess(id: string, payload: ProcessPayload) {
 async function accept(item: InboxItemData, quiet = false) {
   const s = suggestionFor(item)
   if (!s) return
+  // Update is never one-click: it opens the merge review so the user vets every
+  // change before it touches a note.
+  if (s.target === 'update') { await startCaptureMerge(item); return }
   busy.value = true
   try {
     await postProcess(item.id, { target: s.target, projectId: item.suggestedProjectId || '', linkTo: '', title: item.title })
@@ -210,7 +224,12 @@ async function discard(item: InboxItemData, quiet = false) {
 }
 
 async function acceptSelected() {
-  const targets = items.value.filter(i => selected.has(i.id) && normalizeTarget(i.suggestedAction))
+  // Update needs an interactive review, so it is excluded from batch accept;
+  // those rows stay for one-by-one handling.
+  const targets = items.value.filter(i => {
+    const t = normalizeTarget(i.suggestedAction)
+    return selected.has(i.id) && t && t !== 'update'
+  })
   for (const i of targets) await accept(i, true)
   showToast(`Processed ${targets.length} — U to undo last`)
 }
@@ -225,6 +244,12 @@ function openModal(item: InboxItemData) { modalItem.value = item }
 async function confirmModal(payload: ProcessPayload) {
   const item = modalItem.value
   if (!item) return
+  // Update hands off to the merge review instead of processing immediately.
+  if (payload.target === 'update') {
+    modalItem.value = null
+    await startCaptureMerge(item)
+    return
+  }
   busy.value = true
   try {
     await postProcess(item.id, payload)
@@ -233,6 +258,68 @@ async function confirmModal(payload: ProcessPayload) {
     modalItem.value = null
     showToast(`Processed: ${item.title}`)
   } catch (e) { console.error('process failed', e) } finally { busy.value = false }
+}
+
+// ---- update merge review ----
+interface MergeHunk { id: string; content: string }
+interface MergePlan { targetNoteId: string; targetTitle: string; currentBody: string; hunks: MergeHunk[] }
+interface MergeState { captureId: string; captureTitle: string; targetNoteId: string; targetTitle: string; hunks: MergeHunk[]; accepted: MergeHunk[] }
+
+const merge = ref<MergeState | null>(null)
+
+// startCaptureMerge plans the merge. With no confident target it falls back to a
+// plain note; otherwise it opens DiffSuggest for accept/reject.
+async function startCaptureMerge(item: InboxItemData) {
+  try {
+    const plan = await $fetch<MergePlan>(`/api/inbox/${item.id}/merge-plan`, { method: 'POST' })
+    if (!plan || !plan.targetNoteId) {
+      busy.value = true
+      try {
+        await postProcess(item.id, { target: 'note', projectId: '', linkTo: '', title: item.title })
+        undoStack.value.push(item.id)
+        await refreshProcessed()
+        showToast(`No matching note — saved as a note: ${item.title}`)
+      } finally { busy.value = false }
+      return
+    }
+    merge.value = {
+      captureId: item.id,
+      captureTitle: item.title,
+      targetNoteId: plan.targetNoteId,
+      targetTitle: plan.targetTitle,
+      hunks: [...(plan.hunks || [])],
+      accepted: []
+    }
+    if (merge.value.hunks.length === 0) await finalizeMerge()
+  } catch (e) { console.error('merge plan failed', e) }
+}
+
+function onMergeAccept(hunk: MergeHunk) {
+  if (!merge.value) return
+  merge.value.accepted.push(hunk)
+  merge.value.hunks = merge.value.hunks.filter(h => h.id !== hunk.id)
+  if (merge.value.hunks.length === 0) finalizeMerge()
+}
+
+function onMergeReject(hunk: MergeHunk) {
+  if (!merge.value) return
+  merge.value.hunks = merge.value.hunks.filter(h => h.id !== hunk.id)
+  if (merge.value.hunks.length === 0) finalizeMerge()
+}
+
+// finalizeMerge applies the accepted hunks. Accepting none is valid — the note
+// is left unchanged but the capture is still triaged into it.
+async function finalizeMerge() {
+  if (!merge.value) return
+  const { captureId, captureTitle, targetNoteId, targetTitle, accepted } = merge.value
+  merge.value = null
+  busy.value = true
+  try {
+    await postProcess(captureId, { target: 'update', projectId: '', linkTo: '', title: '', targetNoteId, acceptedHunks: accepted })
+    undoStack.value.push(captureId)
+    await refreshProcessed()
+    showToast(`Merged into ${targetTitle || 'note'}: ${captureTitle}`)
+  } catch (e) { console.error('merge apply failed', e) } finally { busy.value = false }
 }
 
 function toggleSelect(id: string) {

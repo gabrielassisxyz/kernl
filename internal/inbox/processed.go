@@ -52,7 +52,9 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 				return err
 			}
 			for _, e := range in {
-				if e.Label != "derived_from" {
+				// derived_from points at a node the capture became; merged_into
+				// points at a pre-existing note the capture was folded into.
+				if e.Label != "derived_from" && e.Label != mergedIntoLabel {
 					continue
 				}
 				var typ, title string
@@ -64,7 +66,11 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 				if err != nil {
 					continue // derived node gone (e.g. undone) — skip the link
 				}
-				item.Became = typ
+				if e.Label == mergedIntoLabel {
+					item.Became = "update"
+				} else {
+					item.Became = typ
+				}
 				item.TargetID = e.Src
 				item.TargetTitle = title
 				if projectID.Valid {
