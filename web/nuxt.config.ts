@@ -19,6 +19,15 @@ export default defineNuxtConfig({
     plugins: [
       tailwindcss(),
     ],
+    build: {
+      // The notes editor pulls in CodeMirror + the lezer markdown grammar — a
+      // single cohesive ~620 KB chunk. It's lazy-loaded (the editor mounts only
+      // when a note is opened, via defineAsyncComponent in pages/notes.vue), so
+      // it never weighs on first paint of any route. Splitting it further would
+      // add round-trips without real benefit, so we raise the warning ceiling
+      // rather than suppress it outright.
+      chunkSizeWarningLimit: 700,
+    },
   },
   app: {
     head: {

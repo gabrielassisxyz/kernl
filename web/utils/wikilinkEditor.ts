@@ -11,7 +11,6 @@ import {
   EditorView,
   MatchDecorator,
   ViewPlugin,
-  WidgetType,
   type DecorationSet,
   type ViewUpdate,
 } from '@codemirror/view'
@@ -98,25 +97,6 @@ export function wikilinkAutocomplete() {
 // group 2 = optional alias.
 const PILL_RE = /\[\[([^\]\n|]+)(?:\|([^\]\n]*))?\]\]/g
 
-// A small leading dot that hints "this is a link". Kept as an atomic widget so
-// it can't be split by the caret; the link text itself stays plain editable
-// text (mark decoration), so editing the underlying [[uuid|alias]] still works.
-class WikilinkDotWidget extends WidgetType {
-  eq() {
-    return true
-  }
-  toDOM() {
-    const dot = document.createElement('span')
-    dot.className = 'cm-wl-dot'
-    return dot
-  }
-  ignoreEvent() {
-    return false
-  }
-}
-
-const dotWidget = new WikilinkDotWidget()
-
 // Build decorations for one match: a pill background over the whole link, a
 // de-emphasis mark over the "[[uuid|" prefix and the trailing "]]", and an
 // emphasised mark over the alias so it reads cleanly. Mark decorations (not a
@@ -133,22 +113,22 @@ function decorateMatch(
   const aliasStart = hasAlias ? from + 2 + target.length + 1 : from + 2
   const aliasEnd = to - 2
 
-  // Whole-link pill background.
+  // Ranges must reach the RangeSetBuilder sorted by `from`. All four are marks
+  // (startSide 5e8), so document order is enough: whole-link wrapper, then the
+  // opening "[[uuid|", the alias, and the closing "]]".
+
+  // Whole-link wrapper (hover target + click navigation via data-wl-target).
   add(
     from,
     to,
     Decoration.mark({ class: 'cm-wl-pill', attributes: { 'data-wl-target': target } }),
   )
-  // Leading dot widget, just inside the pill.
-  add(from, from, Decoration.widget({ widget: dotWidget, side: 1 }))
-
-  // Dim the structural "[[" + (uuid + "|") part. For an alias-less link this is
-  // just the "[[" brackets.
-  add(from, aliasStart, Decoration.mark({ class: 'cm-wl-dim' }))
-  // Dim the closing "]]".
-  add(aliasEnd, to, Decoration.mark({ class: 'cm-wl-dim' }))
-  // Emphasise the alias (or, for [[target]], the target itself).
+  // The structural "[[" + (uuid + "|") part — concealed until hover.
+  add(from, aliasStart, Decoration.mark({ class: 'cm-wl-bracket' }))
+  // The alias (or, for [[target]], the target itself) — shown in the link accent.
   add(aliasStart, aliasEnd, Decoration.mark({ class: 'cm-wl-alias' }))
+  // The closing "]]" — concealed until hover.
+  add(aliasEnd, to, Decoration.mark({ class: 'cm-wl-bracket' }))
 }
 
 const wikilinkMatcher = new MatchDecorator({
@@ -190,47 +170,29 @@ export function wikilinkPills(onPillClick?: (target: string) => void) {
   )
 }
 
-// Theme: pills + completion menu chip, matching the editor's dark IBM-Plex look.
+// Theme: Obsidian-style wikilinks. The link reads as plain accent-coloured text
+// with its [[ ]] brackets (and any uuid) concealed; hovering reveals the raw
+// brackets and shows a pointer, signalling it's navigable (ctrl/cmd-click).
 export const wikilinkTheme = EditorView.theme({
-  '.cm-wl-pill': {
-    backgroundColor: 'color-mix(in srgb, var(--color-da-accent) 10%, transparent)',
-    borderRadius: '4px',
-    padding: '0 3px',
-    boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 22%, transparent)',
-    transition: 'background-color 120ms ease, box-shadow 120ms ease',
-  },
-  // Brighten on hover so the link reads as interactive (ctrl/cmd-click navigates).
   '.cm-wl-pill:hover': {
-    backgroundColor: 'color-mix(in srgb, var(--color-da-accent) 18%, transparent)',
-    boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 40%, transparent)',
+    cursor: 'pointer',
   },
-  '.cm-wl-dot': {
-    display: 'inline-block',
-    width: '5px',
-    height: '5px',
-    marginRight: '4px',
-    borderRadius: '50%',
-    backgroundColor: 'var(--color-da-accent)',
-    boxShadow: '0 0 0 2px color-mix(in srgb, var(--color-da-accent) 15%, transparent)',
-    transform: 'translateY(-1px)',
-    verticalAlign: 'middle',
-  },
-  '.cm-wl-dim': {
-    color: 'var(--color-text-dim)',
-    opacity: '0.55',
-    transition: 'color 120ms ease, opacity 120ms ease',
-  },
+  // The visible link text, coloured with the note-node accent.
   '.cm-wl-alias': {
-    color: 'var(--color-primary-fixed-dim)',
+    color: 'var(--color-node-note)',
     transition: 'color 120ms ease',
   },
   '.cm-wl-pill:hover .cm-wl-alias': {
-    color: 'var(--color-primary-fixed)',
+    textDecoration: 'underline',
+    textUnderlineOffset: '2px',
   },
-  // De-emphasised uuid/brackets fade up slightly on hover so the full target is
-  // legible when the user is about to navigate, without ever fully shouting.
-  '.cm-wl-pill:hover .cm-wl-dim': {
-    opacity: '0.75',
+  // "[[", trailing "]]", and any "uuid|" — concealed until hover.
+  '.cm-wl-bracket': {
+    display: 'none',
+    color: 'var(--color-text-dim)',
+  },
+  '.cm-wl-pill:hover .cm-wl-bracket': {
+    display: 'inline',
   },
 
   // --- Completion popup, themed to the dark IBM-Plex editor ---

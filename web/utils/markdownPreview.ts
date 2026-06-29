@@ -151,39 +151,47 @@ function specToDecoration(spec: PreviewSpec): Decoration {
   return Decoration.mark({ class: KIND_CLASS[spec.kind] })
 }
 
-function buildDecorations(state: EditorState): DecorationSet {
-  const specs = collectPreviewSpecs(state, computeActiveLines(state))
+// `reveal` controls the raw-on-cursor-line behaviour: in live-preview the line
+// under the cursor shows its raw markers (so you can edit them); in reading
+// mode nothing is active, so every marker stays concealed for a clean read.
+function buildDecorations(state: EditorState, reveal: boolean): DecorationSet {
+  const activeLines = reveal ? computeActiveLines(state) : new Set<number>()
+  const specs = collectPreviewSpecs(state, activeLines)
   const ranges = specs.map((s) => specToDecoration(s).range(s.from, s.to))
   // sort=true: specs come out of a tree walk, not in document order.
   return Decoration.set(ranges, true)
 }
 
-const livePreviewPlugin = ViewPlugin.fromClass(
-  class {
-    decorations: DecorationSet
-    constructor(view: EditorView) {
-      this.decorations = buildDecorations(view.state)
-    }
-    update(update: ViewUpdate) {
-      // Selection changes move the active line, so reveal/conceal must refresh
-      // on selectionSet too, not just docChanged.
-      if (update.docChanged || update.selectionSet || update.viewportChanged) {
-        this.decorations = buildDecorations(update.view.state)
+function livePreviewPlugin(reveal: boolean) {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
+      constructor(view: EditorView) {
+        this.decorations = buildDecorations(view.state, reveal)
       }
-    }
-  },
-  { decorations: (v) => v.decorations },
-)
+      update(update: ViewUpdate) {
+        // Selection changes move the active line, so reveal/conceal must refresh
+        // on selectionSet too, not just docChanged.
+        if (update.docChanged || update.selectionSet || update.viewportChanged) {
+          this.decorations = buildDecorations(update.view.state, reveal)
+        }
+      }
+    },
+    { decorations: (v) => v.decorations },
+  )
+}
 
 // Inline styling for the concealed-marker content. Sizes/weights track the
 // editor's existing IBM-Plex look; colors come from the @theme tokens so the
 // preview restyles centrally with the rest of the app (U2/U2.1).
+// Heading sizes multiply by --notes-heading-scale (default 1) so the settings
+// popover can tune heading prominence without touching this module.
 export const livePreviewTheme = EditorView.theme({
-  '.cm-md-h1': { fontSize: '1.6em', fontWeight: '600', lineHeight: '1.3' },
-  '.cm-md-h2': { fontSize: '1.4em', fontWeight: '600', lineHeight: '1.3' },
-  '.cm-md-h3': { fontSize: '1.2em', fontWeight: '600', lineHeight: '1.3' },
-  '.cm-md-h4': { fontSize: '1.1em', fontWeight: '600' },
-  '.cm-md-h5': { fontSize: '1em', fontWeight: '600' },
+  '.cm-md-h1': { fontSize: 'calc(1.6em * var(--notes-heading-scale, 1))', fontWeight: '600', lineHeight: '1.3' },
+  '.cm-md-h2': { fontSize: 'calc(1.4em * var(--notes-heading-scale, 1))', fontWeight: '600', lineHeight: '1.3' },
+  '.cm-md-h3': { fontSize: 'calc(1.2em * var(--notes-heading-scale, 1))', fontWeight: '600', lineHeight: '1.3' },
+  '.cm-md-h4': { fontSize: 'calc(1.1em * var(--notes-heading-scale, 1))', fontWeight: '600' },
+  '.cm-md-h5': { fontSize: 'calc(1em * var(--notes-heading-scale, 1))', fontWeight: '600' },
   '.cm-md-h6': { fontSize: '1em', fontWeight: '600', color: 'var(--color-text-muted)' },
   '.cm-md-strong': { fontWeight: '700' },
   '.cm-md-emphasis': { fontStyle: 'italic' },
@@ -202,6 +210,7 @@ export const livePreviewTheme = EditorView.theme({
 })
 
 // Single bundle for the editor's extensions array, mirroring wikilinkExtensions.
-export function livePreviewExtensions() {
-  return [livePreviewPlugin, livePreviewTheme]
+// reveal=true (default) is live-preview; reveal=false is reading mode.
+export function livePreviewExtensions(reveal = true) {
+  return [livePreviewPlugin(reveal), livePreviewTheme]
 }
