@@ -26,7 +26,6 @@
             <div class="flex flex-col gap-base">
               <div class="flex items-center gap-2">
                 <span class="font-label-caps text-label-caps text-primary">Kernl DA</span>
-                <span class="px-1.5 py-0.5 rounded-sm bg-surface-container-high border border-border-hairline text-mono-data font-mono-data text-text-faint">v2.4-stable</span>
               </div>
               <div class="font-body text-body text-text-primary space-y-4">
                 <p>{{ msg.content }}</p>
@@ -51,6 +50,14 @@
           <span class="inline-block w-[2px] h-[1.1em] bg-da-accent align-middle ml-[2px] animate-blink"></span>
         </div>
       </div>
+
+      <DaLearnedCard
+        v-if="learnedCandidate"
+        :subject="learnedCandidate.subject"
+        :statement="learnedCandidate.statement"
+        @keep="keepCandidate"
+        @discard="discardCandidate"
+      />
 
       <UiErrorState
         v-if="error"
@@ -85,6 +92,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
+import DaLearnedCard from '~/components/DaLearnedCard.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
 
@@ -100,7 +108,7 @@ const daGreeting = computed(() => {
 defineEmits(['close'])
 
 const daInput = ref('')
-const { messages, error, isStreaming, sendMessage } = useChatSession()
+const { messages, error, isStreaming, learnedCandidate, sendMessage, keepCandidate, discardCandidate } = useChatSession()
 
 const handleSend = () => {
   if (daInput.value.trim() && !isStreaming.value) {

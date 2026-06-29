@@ -117,6 +117,8 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 				return err
 			}
 		}
+		// U9: propose a learned memory from the just-completed exchange.
+		e.proposeLearnedCandidate(ctx, cs, resp.Content)
 		return e.emitDoneEvent()
 	}
 
@@ -268,6 +270,110 @@ func (e *ChatEngine) emitPermissionRequiredEvent(pp *nodes.PendingPermissionStat
 		"node_path":    pp.RequestedNodePath,
 		"description":  "The agent wants to read this node.",
 	})
+}
+
+// learnedExtractorPrompt instructs a cheap second pass to surface a single
+// durable memory worth remembering — not transient/transactional chatter.
+const learnedExtractorPrompt = `You extract durable memories for a personal knowledge assistant.
+Given the latest exchange, decide whether the USER expressed a lasting personal
+preference, fact, or standing goal worth remembering across future sessions —
+not a one-off or transactional request.
+Respond ONLY with a JSON object, no prose, no code fences:
+{"durable": true|false, "subject": "<2-4 word topic>", "statement": "<the memory in third person, one sentence>"}
+If nothing durable was expressed, respond {"durable": false}.`
+
+// learnedCandidate is the structured output of the post-response extractor.
+type learnedCandidate struct {
+	Durable   bool   `json:"durable"`
+	Subject   string `json:"subject"`
+	Statement string `json:"statement"`
+}
+
+// proposeLearnedCandidate runs a cheap second pass over the just-completed
+// exchange and, if it finds a durable preference/fact, emits a
+// `learned_candidate` event for the human-in-the-loop Keep/Edit/Discard card.
+//
+// Decision: this runs AFTER the response tokens are flushed but BEFORE `done`,
+// rather than in a detached goroutine. The SSE stream is owned by the request
+// handler and closes when RunSession returns, and the frontend tears down its
+// EventSource on `done` — so a truly async write would race a closed stream.
+// Emitting before `done` keeps the candidate on the same stream. The response
+// is never blocked because its tokens are already flushed, and every failure
+// here is swallowed so extraction can never break the chat.
+func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, cs *nodes.ChatSession, assistantContent string) {
+	if strings.TrimSpace(assistantContent) == "" {
+		return
+	}
+	lastUser := lastUserMessage(cs)
+	if lastUser == "" {
+		return
+	}
+
+	msgs := []Message{
+		{Role: "system", Content: learnedExtractorPrompt},
+		{Role: "user", Content: fmt.Sprintf("User said: %q\nAssistant replied: %q", lastUser, assistantContent)},
+	}
+	resp, err := e.llmClient.Chat(ctx, msgs, nil)
+	if err != nil {
+		slog.Warn("learned extraction", "error", err)
+		return
+	}
+
+	cand, ok := parseLearnedCandidate(resp.Content)
+	if !ok || !cand.Durable || strings.TrimSpace(cand.Statement) == "" {
+		return
+	}
+	if isDiscardedCandidate(cs, cand.Statement) {
+		return
+	}
+	if err := e.emitLearnedCandidateEvent(cand.Subject, cand.Statement); err != nil {
+		slog.Warn("emit learned candidate", "error", err)
+	}
+}
+
+func (e *ChatEngine) emitLearnedCandidateEvent(subject, statement string) error {
+	return e.writeEvent(map[string]any{
+		"event":     "learned_candidate",
+		"subject":   subject,
+		"statement": statement,
+	})
+}
+
+// lastUserMessage returns the most recent user-authored message content.
+func lastUserMessage(cs *nodes.ChatSession) string {
+	for i := len(cs.Messages) - 1; i >= 0; i-- {
+		if cs.Messages[i].Role == "user" {
+			return cs.Messages[i].Content
+		}
+	}
+	return ""
+}
+
+// isDiscardedCandidate reports whether the user already rejected this statement
+// in the session, so it is not re-proposed (the discard negative signal).
+func isDiscardedCandidate(cs *nodes.ChatSession, statement string) bool {
+	want := strings.ToLower(strings.TrimSpace(statement))
+	for _, d := range cs.DiscardedCandidates {
+		if strings.ToLower(strings.TrimSpace(d)) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// parseLearnedCandidate extracts the JSON object from a model reply, tolerating
+// surrounding prose or code fences.
+func parseLearnedCandidate(content string) (learnedCandidate, bool) {
+	start := strings.IndexByte(content, '{')
+	end := strings.LastIndexByte(content, '}')
+	if start == -1 || end == -1 || end < start {
+		return learnedCandidate{}, false
+	}
+	var cand learnedCandidate
+	if err := json.Unmarshal([]byte(content[start:end+1]), &cand); err != nil {
+		return learnedCandidate{}, false
+	}
+	return cand, true
 }
 
 func (e *ChatEngine) writeEvent(v map[string]any) error {

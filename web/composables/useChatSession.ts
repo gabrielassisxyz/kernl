@@ -17,9 +17,15 @@ export interface PermissionEvent {
   description: string;
 }
 
+export interface LearnedCandidate {
+  subject: string;
+  statement: string;
+}
+
 export function useChatSession() {
   const messages = ref<{ role: string; content: string }[]>([]);
   const pendingPermission = ref<PermissionEvent | null>(null);
+  const learnedCandidate = ref<LearnedCandidate | null>(null);
   const error = ref<string | null>(null);
   const isStreaming = ref(false);
 
@@ -58,6 +64,12 @@ export function useChatSession() {
             node_id: (data as unknown as PermissionEvent).node_id,
             node_path: (data as unknown as PermissionEvent).node_path,
             description: (data as unknown as PermissionEvent).description,
+          };
+          break;
+        case 'learned_candidate':
+          learnedCandidate.value = {
+            subject: (data as unknown as LearnedCandidate).subject || '',
+            statement: (data as unknown as LearnedCandidate).statement || '',
           };
           break;
         case 'done':
@@ -108,6 +120,28 @@ export function useChatSession() {
     connectSSE();
   }
 
+  async function keepCandidate(statement: string): Promise<void> {
+    const candidate = learnedCandidate.value;
+    if (!candidate || !sessionId) return;
+    learnedCandidate.value = null;
+    await fetch(`/api/chat/sessions/${sessionId}/learned`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'keep', subject: candidate.subject, statement }),
+    });
+  }
+
+  async function discardCandidate(): Promise<void> {
+    const candidate = learnedCandidate.value;
+    if (!candidate || !sessionId) return;
+    learnedCandidate.value = null;
+    await fetch(`/api/chat/sessions/${sessionId}/learned`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'discard', statement: candidate.statement }),
+    });
+  }
+
   function loadSession(): void {
     ensureSession().then(connectSSE);
   }
@@ -115,10 +149,13 @@ export function useChatSession() {
   return {
     messages,
     pendingPermission,
+    learnedCandidate,
     error,
     isStreaming,
     sendMessage,
     resolvePermission,
+    keepCandidate,
+    discardCandidate,
     loadSession,
   };
 }
