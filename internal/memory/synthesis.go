@@ -20,18 +20,24 @@ func SynthesizeTopic(ctx context.Context, tx *graph.ReadTx, topic string) ([]*no
 		return nil, fmt.Errorf("SynthesizeTopic: %w", err)
 	}
 
+	return FilterRefuted(ctx, tx, claims)
+}
+
+// FilterRefuted returns the subset of claims that are NOT the target of a
+// 'refutes' edge, preserving input order. It is the shared "active claim"
+// gate used both by topic synthesis and by planning-context retrieval, so a
+// refuted claim is excluded everywhere claims are surfaced.
+func FilterRefuted(ctx context.Context, tx *graph.ReadTx, claims []*nodes.MemoryClaim) ([]*nodes.MemoryClaim, error) {
 	if len(claims) == 0 {
 		return nil, nil
 	}
 
-	var ids []string
-	var args []any
+	args := make([]any, 0, len(claims))
 	for _, c := range claims {
-		ids = append(ids, c.ID)
 		args = append(args, c.ID)
 	}
 
-	placeholders := make([]string, len(ids))
+	placeholders := make([]string, len(claims))
 	for i := range placeholders {
 		placeholders[i] = "?"
 	}
@@ -40,7 +46,7 @@ func SynthesizeTopic(ctx context.Context, tx *graph.ReadTx, topic string) ([]*no
 
 	rows, err := tx.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("SynthesizeTopic: query refutes: %w", err)
+		return nil, fmt.Errorf("FilterRefuted: query refutes: %w", err)
 	}
 	defer rows.Close()
 
@@ -48,12 +54,12 @@ func SynthesizeTopic(ctx context.Context, tx *graph.ReadTx, topic string) ([]*no
 	for rows.Next() {
 		var dst string
 		if err := rows.Scan(&dst); err != nil {
-			return nil, fmt.Errorf("SynthesizeTopic: scan refutes: %w", err)
+			return nil, fmt.Errorf("FilterRefuted: scan refutes: %w", err)
 		}
 		refuted[dst] = true
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("SynthesizeTopic: rows: %w", err)
+		return nil, fmt.Errorf("FilterRefuted: rows: %w", err)
 	}
 
 	var active []*nodes.MemoryClaim

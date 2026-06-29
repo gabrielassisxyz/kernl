@@ -12,9 +12,15 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/relate"
 	"github.com/gabrielassisxyz/kernl/internal/graph/search"
+	"github.com/gabrielassisxyz/kernl/internal/memory"
 )
+
+// maxContextClaims caps how many memory claims supplement the notes in a single
+// planning context, so claims enrich rather than dominate the retrieved set.
+const maxContextClaims = 4
 
 // stopwords are common words dropped from a planning seed before retrieval, so
 // the content signal keys on the meaningful terms.
@@ -137,12 +143,88 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked"})
 			}
 		}
+
+		// 3. Memory signal: surface active (non-refuted) claims matching the
+		// seed's salient terms. Claims supplement notes — they get their own
+		// capped budget so they cannot crowd out the topical/structural notes.
+		claims, err := matchClaims(ctx, tx, seed)
+		if err != nil {
+			return fmt.Errorf("planning: claims: %w", err)
+		}
+		for _, c := range claims {
+			out = append(out, ContextNote{
+				ID: c.ID, Title: c.Title, Snippet: truncateSnippet(c.Statement), Via: "claim",
+			})
+		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+// matchClaims returns the active memory claims most relevant to seed, ranked by
+// how many of the seed's salient terms they match (FTS over claim title,
+// statement and tags), with refuted claims filtered out and the result capped
+// at maxContextClaims. It mirrors the content-signal aggregation used for notes.
+func matchClaims(ctx context.Context, tx *graph.ReadTx, seed string) ([]*nodes.MemoryClaim, error) {
+	type agg struct {
+		matches  int
+		bestRank float64
+	}
+	scored := map[string]*agg{}
+	for _, term := range salientTerms(seed) {
+		hits, err := search.Search(ctx, tx, term, search.WithTypes("memory_claim"))
+		if err != nil {
+			continue // a single bad term must not sink the whole retrieval
+		}
+		for _, h := range hits {
+			a := scored[h.NodeID]
+			if a == nil {
+				a = &agg{bestRank: h.Rank}
+				scored[h.NodeID] = a
+			}
+			a.matches++
+			if h.Rank < a.bestRank {
+				a.bestRank = h.Rank
+			}
+		}
+	}
+	if len(scored) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(scored))
+	for id := range scored {
+		ids = append(ids, id)
+	}
+	// Most distinct terms matched first; FTS rank breaks ties.
+	sort.Slice(ids, func(i, j int) bool {
+		ai, aj := scored[ids[i]], scored[ids[j]]
+		if ai.matches != aj.matches {
+			return ai.matches > aj.matches
+		}
+		return ai.bestRank < aj.bestRank
+	})
+
+	ranked := make([]*nodes.MemoryClaim, 0, len(ids))
+	for _, id := range ids {
+		c, err := nodes.GetMemoryClaim(ctx, tx, id)
+		if err != nil {
+			continue // tolerate a claim that vanished between FTS hit and load
+		}
+		ranked = append(ranked, c)
+	}
+
+	active, err := memory.FilterRefuted(ctx, tx, ranked)
+	if err != nil {
+		return nil, err
+	}
+	if len(active) > maxContextClaims {
+		active = active[:maxContextClaims]
+	}
+	return active, nil
 }
 
 func isNodeID(tx *graph.ReadTx, s string) bool {
@@ -160,9 +242,15 @@ func snippet(tx *graph.ReadTx, nodeID string) string {
 	).Scan(&body); err != nil {
 		return ""
 	}
-	body = strings.Join(strings.Fields(body), " ")
-	if len(body) > snippetLen {
-		return strings.TrimSpace(body[:snippetLen]) + "…"
+	return truncateSnippet(body)
+}
+
+// truncateSnippet collapses whitespace and caps text at snippetLen, appending
+// an ellipsis when truncated. Shared by note bodies and claim statements.
+func truncateSnippet(text string) string {
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > snippetLen {
+		return strings.TrimSpace(text[:snippetLen]) + "…"
 	}
-	return body
+	return text
 }
