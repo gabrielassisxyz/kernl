@@ -115,6 +115,48 @@ func SetProjectStatus(ctx context.Context, tx *graph.WriteTx, id, status string,
 	return nil
 }
 
+// UpdateProjectMeta updates a project's title and description in place.
+// Returns ErrNotFound when the project does not exist.
+func UpdateProjectMeta(ctx context.Context, tx *graph.WriteTx, id, title, description string, author Author) error {
+	if !author.Valid() {
+		return graph.ErrAuthorRequired
+	}
+	res, err := tx.Exec(
+		`UPDATE nodes SET title = ?, attrs = json_set(attrs, '$.description', ?), updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		 WHERE id = ? AND type = 'project' AND deleted_at IS NULL`,
+		title, description, id,
+	)
+	if err != nil {
+		return fmt.Errorf("UpdateProjectMeta: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("UpdateProjectMeta: rows affected: %w", err)
+	}
+	if n == 0 {
+		return graph.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteProject removes a project node, preserving history via the shared
+// delete chokepoint. Tasks that referenced it keep their projectId attr and
+// simply render as unassigned — deletion does not cascade.
+func DeleteProject(ctx context.Context, tx *graph.WriteTx, id string, author Author) error {
+	// Type check first so the generic chokepoint can't delete a non-project.
+	var one int
+	err := tx.QueryRow(
+		`SELECT 1 FROM nodes WHERE id = ? AND type = 'project' AND deleted_at IS NULL`, id,
+	).Scan(&one)
+	if err == sql.ErrNoRows {
+		return graph.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("DeleteProject: %w", err)
+	}
+	return deleteNode(ctx, tx, id, author)
+}
+
 func scanProject(id string, title, attrsRaw, createdAt, updatedAt sql.NullString) (*Project, error) {
 	var attrs struct {
 		Description string `json:"description"`
