@@ -93,3 +93,30 @@ func TestDiffHunkIsLineAligned(t *testing.T) {
 		t.Errorf("expected content %q, got %q", "BRAVO\n", hunks[0].Content)
 	}
 }
+
+func TestApplySuggestHunks(t *testing.T) {
+	// A DA-proposed whole-body rewrite must apply cleanly and leave frontmatter.
+	current := "---\nid: n1\ntitle: T\n---\n\nold body line\n"
+	proposedBody := "new body line\n"
+	hunks := DiffBody(current, proposedBody)
+
+	got := ApplySuggestHunks(current, hunks)
+	fm, _ := SplitFrontmatter(current)
+	if !strings.HasPrefix(got, fm) {
+		t.Errorf("frontmatter not preserved:\n%q", got)
+	}
+	if !strings.Contains(got, "new body line") || strings.Contains(got, "old body line") {
+		t.Errorf("body not replaced:\n%q", got)
+	}
+
+	// Empty hunk set is a no-op.
+	if ApplySuggestHunks(current, nil) != current {
+		t.Error("nil hunks should be a no-op")
+	}
+
+	// Out-of-range hunks are skipped, never panic or corrupt.
+	bad := []SuggestHunk{{ID: "x", From: 1000, To: 2000, Content: "boom"}}
+	if ApplySuggestHunks(current, bad) != current {
+		t.Error("out-of-range hunk should be skipped")
+	}
+}

@@ -130,4 +130,59 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"saved", "last_modified": "` + newLastModified + `"}`))
 	})
+
+	// Apply hunks the user accepted from a DA chat suggestion. The DA never
+	// writes: it proposes hunks (via the suggest_note_edit chat tool), the user
+	// picks which to accept, and this endpoint applies exactly those to the file.
+	// Hunks carry full-document offsets past the frontmatter, so the note's
+	// frontmatter and id are preserved.
+	mux.HandleFunc("POST /api/notes/apply-hunks", func(w http.ResponseWriter, r *http.Request) {
+		root := a.Config.Vault.Root
+		if root == "" {
+			home, _ := os.UserHomeDir()
+			root = filepath.Join(home, ".kernl", "vault")
+		}
+
+		var req struct {
+			Path  string              `json:"path"`
+			Hunks []notes.SuggestHunk `json:"hunks"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Path == "" {
+			http.Error(w, "path is required", http.StatusBadRequest)
+			return
+		}
+		if len(req.Hunks) == 0 {
+			http.Error(w, "no hunks to apply", http.StatusBadRequest)
+			return
+		}
+
+		fullPath := filepath.Join(root, req.Path)
+		current, err := os.ReadFile(fullPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		updated := notes.ApplySuggestHunks(string(current), req.Hunks)
+		if updated == string(current) {
+			// Every hunk was out of range / a no-op — surface it rather than
+			// silently pretending success.
+			http.Error(w, "hunks did not apply to the current note (it may have changed)", http.StatusConflict)
+			return
+		}
+		if err := os.WriteFile(fullPath, []byte(updated), 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		info, _ := os.Stat(fullPath)
+		newLastModified := info.ModTime().Format(time.RFC3339)
+		w.Header().Set("ETag", newLastModified)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "applied", "last_modified": newLastModified})
+	})
 }

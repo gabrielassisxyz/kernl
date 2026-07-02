@@ -59,6 +59,24 @@
         @discard="discardCandidate"
       />
 
+      <!-- DA-proposed note edit: the DA never writes; the user accepts or
+           rejects each hunk here and only then does it touch the note. -->
+      <div v-if="diffSuggestion" class="border border-da-accent/40 rounded bg-da-accent/[0.04] p-base flex flex-col gap-base">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined !text-[16px] text-da-accent-text">edit_note</span>
+          <span class="font-mono-data text-mono-data text-da-accent-text">Proposed edit · {{ diffNoteName }}</span>
+        </div>
+        <div
+          v-for="hunk in pendingHunks"
+          :key="hunk.id"
+          class="rounded border border-border-hairline bg-surface p-2 font-mono-data text-mono-data text-status-passed whitespace-pre-wrap overflow-x-auto"
+        >+ {{ hunk.content }}</div>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="ghost" size="xs" @click="rejectDiff">Reject</UiButton>
+          <UiButton variant="primary" size="xs" @click="acceptDiff">Apply edit</UiButton>
+        </div>
+      </div>
+
       <UiErrorState
         v-if="error"
         bordered
@@ -93,6 +111,7 @@
 import { ref, computed } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
 import DaLearnedCard from '~/components/DaLearnedCard.vue'
+import UiButton from '~/components/ui/UiButton.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
 
@@ -108,7 +127,10 @@ const daGreeting = computed(() => {
 defineEmits(['close'])
 
 const daInput = ref('')
-const { messages, error, isStreaming, learnedCandidate, sendMessage, keepCandidate, discardCandidate } = useChatSession()
+const {
+  messages, error, isStreaming, learnedCandidate, diffSuggestion,
+  sendMessage, keepCandidate, discardCandidate, applyDiff, dismissDiff,
+} = useChatSession()
 
 const handleSend = () => {
   if (daInput.value.trim() && !isStreaming.value) {
@@ -116,6 +138,17 @@ const handleSend = () => {
     daInput.value = ''
   }
 }
+
+const pendingHunks = computed(() => diffSuggestion.value?.hunks || [])
+const diffNoteName = computed(() => {
+  const p = diffSuggestion.value?.notePath || ''
+  return (p.split('/').pop() || p).replace(/\.md$/, '')
+})
+
+// Apply every proposed hunk; reject drops the suggestion untouched. (The DA
+// currently proposes a single whole-body hunk, so this is accept-all / reject.)
+const acceptDiff = () => applyDiff(pendingHunks.value)
+const rejectDiff = () => dismissDiff()
 </script>
 
 <style scoped>

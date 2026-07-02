@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/notes"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
@@ -102,7 +105,7 @@ func (e *ChatEngine) RunSession(ctx context.Context) error {
 }
 
 func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, messages []Message) error {
-	tools := []Tool{readNodeTool(), searchNotesTool()}
+	tools := []Tool{readNodeTool(), searchNotesTool(), suggestNoteEditTool()}
 
 	resp, err := e.llmClient.Chat(ctx, messages, tools)
 	if err != nil {
@@ -208,9 +211,74 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 			})
 			return e.runAgentLoop(ctx, cs, messages)
 		}
+
+		if tc.Function.Name == "suggest_note_edit" {
+			args := struct {
+				NodeID  string `json:"node_id"`
+				NewBody string `json:"new_body"`
+			}{}
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+				_ = e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
+				return nil
+			}
+
+			result := e.presentNoteEdit(ctx, args.NodeID, args.NewBody)
+			// Feed the outcome back so the LLM can close with a short confirmation
+			// (e.g. "I've proposed the edit for your review").
+			messages = append(messages, Message{
+				Role:    "tool",
+				Content: fmt.Sprintf("suggest_note_edit(%s) = %s", args.NodeID, result),
+			})
+			return e.runAgentLoop(ctx, cs, messages)
+		}
 	}
 
 	return e.emitDoneEvent()
+}
+
+// presentNoteEdit reads the note's file, diffs the proposed body against it, and
+// emits a `diff` event the chat surface renders as an accept/reject card. It
+// never writes — applying an accepted hunk is a separate, user-initiated call
+// (POST /api/notes/apply-hunks). Returns a short status for the LLM's next turn.
+func (e *ChatEngine) presentNoteEdit(ctx context.Context, nodeID, newBody string) string {
+	root := e.app.Config.Vault.Root
+	if root == "" {
+		return "no vault configured; cannot propose edits"
+	}
+
+	// Resolve the note's vault path from the reconciler's cache.
+	var relPath string
+	_ = e.app.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, nodeID).Scan(&relPath)
+	})
+	if relPath == "" {
+		return fmt.Sprintf("note %s has no file on disk; cannot propose an edit", nodeID)
+	}
+
+	current, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(relPath)))
+	if err != nil {
+		return fmt.Sprintf("could not read note %s: %v", nodeID, err)
+	}
+
+	hunks := notes.DiffBody(string(current), newBody)
+	if len(hunks) == 0 {
+		return "the proposed body is identical to the current note; nothing to change"
+	}
+
+	if err := e.emitDiffEvent(nodeID, relPath, hunks); err != nil {
+		slog.Warn("emit diff event", "error", err)
+		return "failed to present the edit"
+	}
+	return "edit presented to the user as a diff for accept/reject"
+}
+
+func (e *ChatEngine) emitDiffEvent(nodeID, notePath string, hunks []notes.SuggestHunk) error {
+	return e.writeEvent(map[string]any{
+		"event":    "diff",
+		"noteId":   nodeID,
+		"notePath": notePath,
+		"hunks":    hunks,
+	})
 }
 
 func (e *ChatEngine) buildMessages(cs *nodes.ChatSession, di *nodes.DAIdentity, telos string) []Message {
@@ -413,6 +481,21 @@ func searchNotesTool() Tool {
 				"query": {"type": "string"}
 			},
 			"required": ["query"]
+		}`),
+	}
+}
+
+func suggestNoteEditTool() Tool {
+	return Tool{
+		Name:        "suggest_note_edit",
+		Description: "Propose an edit to an existing note. Provide the note's id (from search_notes) and the FULL revised body of the note. The change is NOT applied — it is shown to the user as a diff they accept or reject. Use this instead of pasting text for the user to copy when they ask you to change a note.",
+		Parameters: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"node_id": {"type": "string"},
+				"new_body": {"type": "string", "description": "The complete revised note body (no frontmatter)."}
+			},
+			"required": ["node_id", "new_body"]
 		}`),
 	}
 }

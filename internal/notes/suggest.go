@@ -1,6 +1,38 @@
 package notes
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
+
+// ApplySuggestHunks applies the given hunks to doc as range replacements,
+// returning the new document. Hunks are applied high-offset-first so earlier
+// replacements never invalidate later offsets. Out-of-range or overlapping
+// hunks are skipped defensively — a malformed hunk can never corrupt the file.
+// Because DiffBody offsets hunks past the frontmatter, applying them to the full
+// document leaves the frontmatter (and the note id) untouched.
+func ApplySuggestHunks(doc string, hunks []SuggestHunk) string {
+	if len(hunks) == 0 {
+		return doc
+	}
+	ordered := make([]SuggestHunk, len(hunks))
+	copy(ordered, hunks)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].From > ordered[j].From })
+
+	out := doc
+	prevFrom := len(doc) + 1 // guards against overlapping hunks
+	for _, h := range ordered {
+		if h.From < 0 || h.To > len(out) || h.From > h.To {
+			continue
+		}
+		if h.To > prevFrom {
+			continue // overlaps a hunk already applied to the right
+		}
+		out = out[:h.From] + h.Content + out[h.To:]
+		prevFrom = h.From
+	}
+	return out
+}
 
 // SuggestHunk is a suggested edit: replace the [From,To) byte range of the
 // current document with Content. This matches the editor's acceptHunk shape
