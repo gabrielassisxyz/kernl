@@ -20,7 +20,6 @@
         <span
           v-if="badgeFor(file)"
           class="note-row__dir"
-          :style="typeOf(file) ? { color: colorForType(typeOf(file)) } : undefined"
         >{{ badgeFor(file) }}</span>
       </button>
     </div>
@@ -29,7 +28,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { colorForType, labelForType } from '~/utils/nodeTypes'
+import { labelForType } from '~/utils/nodeTypes'
 
 const props = defineProps({
   selected: { type: String, default: null },
