@@ -110,7 +110,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "tasks", title, "#task")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, "tasks", title, "task")
 		return err
 	})
 	if err != nil {

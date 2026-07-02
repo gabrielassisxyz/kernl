@@ -60,17 +60,26 @@ func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, ent
 		title = slug
 	}
 	body := fmt.Sprintf("Notes for [[%s|%s]].\n", entityID, title)
-	if len(tags) > 0 {
-		body += "\n" + strings.Join(tags, " ") + "\n"
+
+	// Tags belong in YAML frontmatter (and on the note node), not as literal
+	// "#tag" text appended to the body — the body form never reached the tag
+	// index and read as noise in the note. Leading '#' is tolerated for callers.
+	cleanTags := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.TrimPrefix(strings.TrimSpace(t), "#")
+		if t != "" {
+			cleanTags = append(cleanTags, t)
+		}
 	}
 
-	fileBytes := renderCompanionMarkdown(noteID, title, body)
+	fileBytes := renderCompanionMarkdown(noteID, title, body, cleanTags)
 	contentHash := reconcile.HashBytes(fileBytes)
 
 	if _, err := nodes.CreateNote(ctx, tx, nodes.Note{
 		ID:    noteID,
 		Title: title,
 		Body:  body,
+		Tags:  cleanTags,
 	}, nodes.Author{Name: "api"}); err != nil {
 		return CompanionFile{}, fmt.Errorf("companion: create note: %w", err)
 	}
@@ -104,12 +113,19 @@ type CompanionFile struct {
 
 // renderCompanionMarkdown builds the markdown file content with a frontmatter
 // id equal to the note node id, so reconcile.OnCreate/ColdStart match the
-// existing node by id rather than creating a duplicate.
-func renderCompanionMarkdown(id, title, body string) []byte {
+// existing node by id rather than creating a duplicate. Tags render as a YAML
+// list so the reconciler and tag navigation pick them up.
+func renderCompanionMarkdown(id, title, body string, tags []string) []byte {
 	var b strings.Builder
 	b.WriteString("---\n")
 	b.WriteString("id: " + id + "\n")
 	b.WriteString("title: " + title + "\n")
+	if len(tags) > 0 {
+		b.WriteString("tags:\n")
+		for _, t := range tags {
+			b.WriteString("  - " + t + "\n")
+		}
+	}
 	b.WriteString("---\n")
 	b.WriteString(body)
 	return []byte(b.String())
