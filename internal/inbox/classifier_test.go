@@ -3,10 +3,12 @@ package inbox
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
@@ -93,4 +95,69 @@ func TestParseClassification(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A capture whose only tie to a project is a term buried in that project's note
+// must inherit the project. This proves the classifier reads the graph, not
+// just the project titles (UAT I2 regression).
+func TestClassifyReadsGraphForProjectAssociation(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	var projectID string
+	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		pid, err := nodes.CreateProject(ctx, tx, nodes.Project{Title: "Atlas Verde"}, nodes.Author{Name: "test"})
+		if err != nil {
+			return err
+		}
+		projectID = pid
+		// A note carrying the sentinel term, linked to the project.
+		noteID, err := nodes.CreateNote(ctx, tx, nodes.Note{
+			Title: "Companion",
+			Body:  "The sentinel term azimute-cobalto-17 lives only here.",
+		}, nodes.Author{Name: "test"})
+		if err != nil {
+			return err
+		}
+		_, err = edges.Create(ctx, tx, edges.Edge{Src: noteID, Dst: pid, Label: "describes"}, nodes.Author{Name: "test"})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The mock echoes the prompt back so we can assert the project hint reached it.
+	var seenPrompt string
+	capturing := &promptCapturingLLM{onPrompt: func(p string) { seenPrompt = p }, reply: `{"target":"task","project_id":"` + projectID + `"}`}
+	c := NewClassifier(g, capturing, ClassifierOptions{})
+
+	target, gotProject, err := c.classify(ctx, "turn azimute-cobalto-17 into a task", []*nodes.Project{{ID: projectID, Title: "Atlas Verde"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(seenPrompt, "azimute-cobalto-17") {
+		t.Errorf("prompt should include the matching note body, got:\n%s", seenPrompt)
+	}
+	if !strings.Contains(seenPrompt, projectID) {
+		t.Error("prompt should surface the note's project association")
+	}
+	if target != "task" || gotProject != projectID {
+		t.Errorf("expected task attached to %s, got (%q, %q)", projectID, target, gotProject)
+	}
+}
+
+type promptCapturingLLM struct {
+	onPrompt func(string)
+	reply    string
+}
+
+func (m *promptCapturingLLM) Chat(ctx context.Context, messages []chat.Message, tools []chat.Tool) (*chat.ChatResponse, error) {
+	if m.onPrompt != nil && len(messages) > 0 {
+		m.onPrompt(messages[len(messages)-1].Content)
+	}
+	return &chat.ChatResponse{Content: m.reply}, nil
 }
