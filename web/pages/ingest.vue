@@ -2,8 +2,29 @@
   <IngestHeader :totalCount="items.length" @trigger="handleTrigger" />
 
   <section class="flex-1 overflow-y-auto relative">
+    <!-- Intake: paste text or upload a file. Both feed the same review queue
+         below as the server-path trigger. -->
+    <div class="px-section pt-section flex flex-col gap-base">
+      <div class="rounded border border-border-hairline bg-surface-overlay focus-within:border-primary/70 transition-colors p-component flex flex-col gap-base">
+        <textarea
+          v-model="pasteText"
+          rows="3"
+          placeholder="Paste text to ingest — meeting notes, an article, a decision…"
+          class="w-full bg-transparent border-none text-body text-text-primary resize-y focus:ring-0 outline-none placeholder:text-text-faint"
+        ></textarea>
+        <div class="flex items-center justify-between gap-base">
+          <div class="flex items-center gap-base">
+            <input ref="fileInput" type="file" accept=".md,.txt,text/markdown,text/plain" class="hidden" @change="onFilePicked" />
+            <UiButton variant="ghost" size="sm" icon="upload_file" @click="fileInput?.click()">Upload .md / .txt</UiButton>
+            <span v-if="uploadStatus" class="font-mono-data text-mono-data text-text-muted">{{ uploadStatus }}</span>
+          </div>
+          <UiButton variant="primary" size="sm" :loading="pasting" :disabled="!pasteText.trim()" @click="submitPaste">Ingest text</UiButton>
+        </div>
+      </div>
+    </div>
+
     <div class="flex flex-col">
-      <IngestItem 
+      <IngestItem
         v-for="(item, index) in items" 
         :key="item.ID" 
         :item="item" 
@@ -86,6 +107,59 @@ const { data, pending, refresh } = useFetch<IngestReviewData[]>('/api/ingest/que
 
 const items = computed(() => data.value || [])
 const selectedIndex = ref(0)
+
+// ---- intake: paste + upload ----
+const pasteText = ref('')
+const pasting = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const uploadStatus = ref('')
+
+// Extraction runs in a detached goroutine on the server, so poll the queue for
+// a short window after intake until a new review item lands.
+async function pollQueueForGrowth(fromCount: number) {
+  const deadline = Date.now() + 15000
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 1500))
+    await refresh()
+    if (items.value.length > fromCount) return
+  }
+}
+
+const submitPaste = async () => {
+  const text = pasteText.value.trim()
+  if (!text || pasting.value) return
+  pasting.value = true
+  const before = items.value.length
+  try {
+    await $fetch('/api/ingest/paste', { method: 'POST', body: { text } })
+    pasteText.value = ''
+    await pollQueueForGrowth(before)
+  } catch (error) {
+    console.error('Failed to ingest pasted text', error)
+  } finally {
+    pasting.value = false
+  }
+}
+
+const onFilePicked = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  uploadStatus.value = `Uploading ${file.name}…`
+  const before = items.value.length
+  try {
+    const form = new FormData()
+    form.append('file', file)
+    await $fetch('/api/ingest/upload', { method: 'POST', body: form })
+    uploadStatus.value = `Ingested ${file.name}`
+    await pollQueueForGrowth(before)
+  } catch (error) {
+    console.error('Failed to upload file', error)
+    uploadStatus.value = 'Upload failed — only .md / .txt are supported'
+  } finally {
+    input.value = '' // allow re-selecting the same file
+  }
+}
 
 interface MergeHunk { id: string; content: string }
 interface MergePlan { targetNoteId: string; targetTitle: string; currentBody: string; hunks: MergeHunk[] }
