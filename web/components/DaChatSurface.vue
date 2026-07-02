@@ -32,6 +32,14 @@
               </div>
               <!-- DA replies are markdown; renderMarkdown sanitizes before v-html. -->
               <div class="da-prose font-body text-body text-text-primary" v-html="renderMarkdown(msg.content)"></div>
+              
+              <DaLearnedCard
+                v-if="msg.learned_candidate"
+                :subject="msg.learned_candidate.subject"
+                :statement="msg.learned_candidate.statement"
+                @keep="keepCandidate(msg.learned_candidate.subject, msg.learned_candidate.statement)"
+                @discard="discardCandidate(msg.learned_candidate.statement)"
+              />
             </div>
           </template>
           
@@ -53,14 +61,6 @@
         </div>
       </div>
 
-      <DaLearnedCard
-        v-if="learnedCandidate"
-        :subject="learnedCandidate.subject"
-        :statement="learnedCandidate.statement"
-        @keep="keepCandidate"
-        @discard="discardCandidate"
-      />
-
       <UiErrorState
         v-if="error"
         bordered
@@ -75,7 +75,7 @@
         <textarea
           v-model="daInput" 
           @keydown.enter.prevent="handleSend"
-          :disabled="isStreaming"
+          
           class="w-full bg-transparent border-none focus:ring-0 text-body text-text-primary resize-none placeholder:text-text-faint custom-caret outline-none" 
           placeholder="ask, instruct, or paste a directive…" 
           rows="3"
@@ -111,10 +111,10 @@ const daGreeting = computed(() => {
 defineEmits(['close'])
 
 const daInput = ref('')
-const { messages, error, isStreaming, learnedCandidate, sendMessage, keepCandidate, discardCandidate, newConversation } = useChatSession()
+const { messages, error, isStreaming, sendMessage, keepCandidate, discardCandidate, newConversation } = useChatSession()
 
 const handleSend = () => {
-  if (daInput.value.trim() && !isStreaming.value) {
+  if (daInput.value.trim()) {
     sendMessage(daInput.value)
     daInput.value = ''
   }

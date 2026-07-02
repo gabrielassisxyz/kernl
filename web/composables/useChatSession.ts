@@ -6,7 +6,7 @@ export interface SSEMessage {
 
 export interface SSEState {
   event: string;
-  messages?: { role: string; content: string }[];
+  messages?: { role: string; content: string; learned_candidate?: LearnedCandidate }[];
   pending_permission?: PermissionEvent;
 }
 
@@ -23,9 +23,8 @@ export interface LearnedCandidate {
 }
 
 export function useChatSession() {
-  const messages = ref<{ role: string; content: string }[]>([]);
+  const messages = ref<{ role: string; content: string; learned_candidate?: LearnedCandidate }[]>([]);
   const pendingPermission = ref<PermissionEvent | null>(null);
-  const learnedCandidate = ref<LearnedCandidate | null>(null);
   const error = ref<string | null>(null);
   const isStreaming = ref(false);
 
@@ -78,11 +77,8 @@ export function useChatSession() {
             description: (data as unknown as PermissionEvent).description,
           };
           break;
-        case 'learned_candidate':
-          learnedCandidate.value = {
-            subject: (data as unknown as LearnedCandidate).subject || '',
-            statement: (data as unknown as LearnedCandidate).statement || '',
-          };
+        case 'assistant_done':
+          isStreaming.value = false;
           break;
         case 'done':
           eventSource?.close();
@@ -132,25 +128,33 @@ export function useChatSession() {
     connectSSE();
   }
 
-  async function keepCandidate(statement: string): Promise<void> {
-    const candidate = learnedCandidate.value;
-    if (!candidate || !sessionId) return;
-    learnedCandidate.value = null;
+  async function keepCandidate(subject: string, statement: string): Promise<void> {
+    if (!sessionId) return;
+    // Optimistic UI update: hide the card
+    messages.value.forEach(m => {
+      if (m.learned_candidate && m.learned_candidate.statement === statement) {
+        m.learned_candidate = undefined;
+      }
+    });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'keep', subject: candidate.subject, statement }),
+      body: JSON.stringify({ action: 'keep', subject, statement }),
     });
   }
 
-  async function discardCandidate(): Promise<void> {
-    const candidate = learnedCandidate.value;
-    if (!candidate || !sessionId) return;
-    learnedCandidate.value = null;
+  async function discardCandidate(statement: string): Promise<void> {
+    if (!sessionId) return;
+    // Optimistic UI update: hide the card
+    messages.value.forEach(m => {
+      if (m.learned_candidate && m.learned_candidate.statement === statement) {
+        m.learned_candidate = undefined;
+      }
+    });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'discard', statement: candidate.statement }),
+      body: JSON.stringify({ action: 'discard', statement }),
     });
   }
 
@@ -167,7 +171,6 @@ export function useChatSession() {
     streamingIndex = null;
     messages.value = [];
     pendingPermission.value = null;
-    learnedCandidate.value = null;
     error.value = null;
     isStreaming.value = false;
   }
@@ -175,7 +178,6 @@ export function useChatSession() {
   return {
     messages,
     pendingPermission,
-    learnedCandidate,
     error,
     isStreaming,
     sendMessage,
