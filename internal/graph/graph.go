@@ -75,6 +75,10 @@ func (wtx *WriteTx) Exec(query string, args ...any) (sql.Result, error) {
 	return wtx.tx.Exec(query, args...)
 }
 
+func (wtx *WriteTx) AsReadTx() *ReadTx {
+	return &ReadTx{tx: wtx.tx}
+}
+
 func (wtx *WriteTx) QueryRow(query string, args ...any) *sql.Row {
 	return wtx.tx.QueryRow(query, args...)
 }
