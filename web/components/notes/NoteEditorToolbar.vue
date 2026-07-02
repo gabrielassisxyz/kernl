@@ -25,6 +25,16 @@
       <span class="save-chip__dot" aria-hidden="true"></span>
       {{ SAVE_LABELS[saveState] }}
     </span>
+    <button
+      v-if="saveState === 'dirty'"
+      type="button"
+      class="tbtn ml-1"
+      title="Save now (Ctrl+S)"
+      aria-label="Save now"
+      @click="$emit('save-manual')"
+    >
+      <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">save</span>
+    </button>
 
     <div class="grow"></div>
 
@@ -184,7 +194,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useEditorSettings, type EditorFont, type ViewMode } from '~/composables/useEditorSettings'
 
 defineProps<{ sidebarCollapsed?: boolean; saveState?: 'saved' | 'saving' | 'dirty' | 'conflict' }>()
-defineEmits<{ (e: 'toggle-sidebar'): void; (e: 'delete-note'): void }>()
+defineEmits<{ (e: 'toggle-sidebar'): void; (e: 'delete-note'): void; (e: 'save-manual'): void }>()
 
 const SAVE_LABELS: Record<string, string> = {
   saved: 'Saved',

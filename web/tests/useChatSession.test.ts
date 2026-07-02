@@ -118,4 +118,36 @@ describe('useChatSession', () => {
       expect(capturedEventSource).toBeTruthy();
     }
   });
+
+  it('grows one assistant message across successive token events', async () => {
+    mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'sess-5' }) });
+
+    const { sendMessage, messages } = useChatSession();
+    await sendMessage('Hi');
+
+    const sse = capturedEventSource!;
+    sse.onmessage!({ data: JSON.stringify({ event: 'token', content: 'Hello' }) } as MessageEvent);
+    sse.onmessage!({ data: JSON.stringify({ event: 'token', content: ' world' }) } as MessageEvent);
+
+    const assistant = messages.value.filter((m) => m.role === 'assistant');
+    expect(assistant).toEqual([{ role: 'assistant', content: 'Hello world' }]);
+  });
+
+  it('newConversation resets state and creates a fresh session on next send', async () => {
+    mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'sess-6' }) });
+
+    const { sendMessage, messages, newConversation, isStreaming } = useChatSession();
+    await sendMessage('Hi');
+    expect(messages.value.length).toBeGreaterThan(0);
+
+    newConversation();
+    expect(messages.value).toEqual([]);
+    expect(isStreaming.value).toBe(false);
+
+    mockFetch.mockClear();
+    mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'sess-7' }) });
+    await sendMessage('Again');
+    // A new session must be created — sessionId was dropped.
+    expect(mockFetch).toHaveBeenCalledWith('/api/chat/sessions', { method: 'POST' });
+  });
 });

@@ -17,6 +17,8 @@
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
     "codemirror": "^6.0.2",
+    "dompurify": "^3.4.11",
+    "marked": "^18.0.5",
     "nuxt": "^3.21.8",
     "vue": "^3.5.38",
     "yaml": "^2.9.0"

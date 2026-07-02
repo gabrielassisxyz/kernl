@@ -95,7 +95,7 @@
 
     <UiModal :open="showDeleteNote" title="Delete note" size="sm" @close="showDeleteNote = false">
       <p class="font-body text-body text-text-muted">
-        Delete <span class="text-text-primary">{{ selectedFile }}</span>? The file is removed from the vault and its node leaves the graph. This cannot be undone.
+        Delete <span class="text-text-primary">{{ selectedFile }}</span>? The file will be moved to the system trash and its node will leave the graph.
       </p>
       <template #footer>
         <div class="flex justify-end gap-base">

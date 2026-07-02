@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hymkor/trash-go"
 	"github.com/google/uuid"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -103,6 +104,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			w.Header().Set("Last-Modified", lm)
 			w.Header().Set("ETag", lm)
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write(data)
 	})
@@ -181,7 +183,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
-		if err := os.Remove(fullPath); err != nil {
+		if err := trash.Throw(fullPath); err != nil {
 			if os.IsNotExist(err) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return

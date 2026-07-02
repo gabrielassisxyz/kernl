@@ -232,13 +232,16 @@ const linkEls = new Map()
 const setNodeRef = (el, id) => { if (el) nodeEls.set(id, el); else nodeEls.delete(id) }
 const setLinkRef = (el, id) => { if (el) linkEls.set(id, el); else linkEls.delete(id) }
 
-// plain (non-reactive) simulation arrays for cheap per-frame mutation
+// plain (non-reactive) simulation arrays for cheap per-frame mutation;
+// `simNodes`/`simLinks` are identity-stable ref mirrors reassigned on load so
+// the display computeds below actually re-evaluate (positions themselves are
+// synced imperatively by `syncDOM`, never through reactivity)
 let simNodesRaw = []
 let simLinksRaw = []
-const simNodes = ref([]) // identity-stable mirror used for reactive counts
+const simNodes = ref([])
+const simLinks = ref([])
 const byId = new Map()
 
-// ---- rendering (depends on `frame` so it re-evaluates each tick) ----
 const activeId = computed(() => hoverId.value || selectedId.value)
 
 const neighborSet = computed(() => {
@@ -246,7 +249,7 @@ const neighborSet = computed(() => {
   const id = activeId.value
   if (!id) return set
   set.add(id)
-  for (const l of simLinksRaw) {
+  for (const l of simLinks.value) {
     if (l.s.id === id) set.add(l.t.id)
     if (l.t.id === id) set.add(l.s.id)
   }
@@ -256,7 +259,7 @@ const neighborSet = computed(() => {
 const displayNodes = computed(() => {
   const id = activeId.value
   const nb = neighborSet.value
-  return simNodesRaw
+  return simNodes.value
     .filter((n) => !hiddenTypes.has(n.type))
     .map((n) => ({
       ...n,
@@ -267,7 +270,7 @@ const displayNodes = computed(() => {
 
 const displayLinks = computed(() => {
   const id = activeId.value
-  return simLinksRaw
+  return simLinks.value
     .filter((l) => !hiddenTypes.has(l.s.type) && !hiddenTypes.has(l.t.type))
     .map((l) => {
       const active = !!id && (l.s.id === id || l.t.id === id)
@@ -300,7 +303,7 @@ const incoming = computed(() => connectionsFor(selectedId.value, 'in'))
 function connectionsFor(id, dir) {
   if (!id) return []
   const out = []
-  for (const l of simLinksRaw) {
+  for (const l of simLinks.value) {
     if (dir === 'out' && l.s.id === id) out.push({ edgeId: l.id, label: l.label, node: l.t })
     if (dir === 'in' && l.t.id === id) out.push({ edgeId: l.id, label: l.label, node: l.s })
   }
@@ -360,6 +363,7 @@ async function load() {
       simLinksRaw.push({ id: e.id, label: e.label, s, t })
     }
     simNodes.value = simNodesRaw
+    simLinks.value = simLinksRaw
     loading.value = false
     await nextTick()
     runSim(w, h)
