@@ -42,15 +42,22 @@ const loading = ref(true)
 // path → node type, from the graph. The badge shows what a note IS (note,
 // project, …), not where it happens to live — UI-created notes land at the
 // vault root and used to show no badge at all.
-const typeByPath = ref({})
+const nodeByPath = ref({})
 
 const filtered = computed(() => {
   const q = props.query.trim().toLowerCase()
   if (!q) return files.value
-  return files.value.filter((f) => f.toLowerCase().includes(q))
+  return files.value.filter((f) => {
+    if (f.toLowerCase().includes(q)) return true
+    const node = nodeByPath.value[f]
+    if (node && node.title && node.title.toLowerCase().includes(q)) return true
+    return false
+  })
 })
 
 const displayName = (file) => {
+  const node = nodeByPath.value[file]
+  if (node && node.title) return node.title
   const base = file.split('/').pop() || file
   return base.replace(/\.md$/, '')
 }
@@ -60,7 +67,7 @@ const folderOf = (file) => {
   return idx === -1 ? '' : file.slice(0, idx)
 }
 
-const typeOf = (file) => typeByPath.value[file] || ''
+const typeOf = (file) => nodeByPath.value[file]?.type || ''
 
 // Node type when the graph knows the file; folder as fallback while the
 // reconciler hasn't caught up with a brand-new note yet.
@@ -86,9 +93,9 @@ const refresh = async () => {
       const notes = await notesRes.json()
       const map = {}
       for (const n of notes || []) {
-        if (n.path && n.type) map[n.path] = n.type
+        if (n.path) map[n.path] = n
       }
-      typeByPath.value = map
+      nodeByPath.value = map
     }
   } catch (e) {
     console.error('Error fetching vault list', e)

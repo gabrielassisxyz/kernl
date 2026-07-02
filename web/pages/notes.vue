@@ -106,7 +106,7 @@
     </UiModal>
 
     <UiModal :open="showNewNote" :title="newNoteTag === 'telos' ? 'New Telos note' : 'New note'" size="sm" @close="closeNewNote">
-      <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
+      <UiField :hint="namePreview ? `Will create ${namePreview}` : ''">
         <UiInput
           ref="titleInput"
           v-model="newTitle"
@@ -121,7 +121,7 @@
           <span class="font-mono-data text-mono-data text-text-muted">Enter creates · Esc cancels</span>
           <div class="flex items-center gap-base">
             <UiButton variant="ghost" @click="closeNewNote">Cancel</UiButton>
-            <UiButton variant="primary" :loading="creating" :disabled="!slugPreview" @click="confirmNewNote">Create note</UiButton>
+            <UiButton variant="primary" :loading="creating" :disabled="!namePreview" @click="confirmNewNote">Create note</UiButton>
           </div>
         </div>
       </template>
@@ -232,6 +232,8 @@ const openWikilink = async (target) => {
         body
       })
       if (createRes.ok) {
+        // Wait briefly for the backend vault watcher to index the new note
+        await new Promise((r) => setTimeout(r, 250))
         // Refresh the file list so the sidebar knows about it
         if (noteListRef.value) noteListRef.value.refresh()
         selectFile(path)
@@ -262,15 +264,7 @@ const confirmDeleteNote = async () => {
   }
 }
 
-const slugify = (title) => title
-  .toLowerCase()
-  .trim()
-  .replace(/\s+/g, '-')
-  .replace(/[^a-z0-9-]/g, '')
-  .replace(/-+/g, '-')
-  .replace(/^-|-$/g, '')
-
-const slugPreview = computed(() => slugify(newTitle.value || ''))
+const namePreview = computed(() => newTitle.value ? `${newTitle.value.trim()}.md` : '')
 
 const openNewNote = async (tag = '') => {
   newTitle.value = ''
@@ -288,8 +282,7 @@ const closeNewNote = () => {
 
 const confirmNewNote = async () => {
   const title = newTitle.value.trim()
-  const slug = slugify(title)
-  if (!slug || creating.value) return
+  if (!title || creating.value) return
   creating.value = true
 
   // Collision guard against the current disk-truth list.
@@ -299,10 +292,10 @@ const confirmNewNote = async () => {
     if (res.ok) existing = (await res.json()).files || []
   } catch (e) { /* best-effort */ }
 
-  let path = `${slug}.md`
+  let path = `${title}.md`
   let n = 2
   while (existing.includes(path)) {
-    path = `${slug}-${n}.md`
+    path = `${title} ${n}.md`
     n++
   }
 
@@ -319,6 +312,7 @@ const confirmNewNote = async () => {
       newNoteTag.value = ''
       activeTab.value = 'files'
       selectFile(path)
+      await new Promise((r) => setTimeout(r, 250))
       noteListRef.value?.refresh()
     }
   } finally {
