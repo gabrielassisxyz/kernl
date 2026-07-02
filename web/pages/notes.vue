@@ -211,7 +211,31 @@ const openWikilink = async (target) => {
     if (listRes.ok) {
       const { files } = await listRes.json()
       const match = (files || []).find((f) => f === slug || f.endsWith(`/${slug}`))
-      if (match) selectFile(match)
+      if (match) {
+        selectFile(match)
+        return
+      }
+    }
+
+    // Note not found; create it automatically.
+    // (If the target is a UUID, we don't want to create a file named "019f...md",
+    // but wikilinks typed manually without autocomplete just use the title as target).
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target)
+    if (!isUUID) {
+      const title = target.replace(/\.md$/, '')
+      const path = `${title}.md`
+      const body = `---\ntitle: ${title}\ntags: []\n---\n\n# ${title}\n\n`
+      
+      const createRes = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body
+      })
+      if (createRes.ok) {
+        // Refresh the file list so the sidebar knows about it
+        if (noteListRef.value) noteListRef.value.refresh()
+        selectFile(path)
+      }
     }
   } catch (e) { /* best-effort wikilink navigation */ }
 }

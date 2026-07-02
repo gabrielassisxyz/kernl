@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hymkor/trash-go"
 	"github.com/google/uuid"
+	"github.com/hymkor/trash-go"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"

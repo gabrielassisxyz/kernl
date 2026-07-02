@@ -135,7 +135,17 @@ function buildWikilinkDeco(view: EditorView, isResolved?: WikilinkResolver): Dec
       // then the "[[uuid|" prefix, the alias, and the closing "]]" — in document
       // order, as RangeSetBuilder requires.
       builder.add(from, to, Decoration.mark({ class: pillClass, attributes: { 'data-wl-target': target } }))
-      builder.add(from, aliasStart, Decoration.mark({ class: 'cm-wl-bracket' }))
+      
+      if (hasAlias) {
+        // Render [[
+        builder.add(from, from + 2, Decoration.mark({ class: 'cm-wl-bracket' }))
+        // Completely hide the target and the pipe (UUID|)
+        builder.add(from + 2, aliasStart, Decoration.replace({}))
+      } else {
+        // No alias, so aliasStart is from + 2. Just render [[
+        builder.add(from, aliasStart, Decoration.mark({ class: 'cm-wl-bracket' }))
+      }
+      
       builder.add(aliasStart, aliasEnd, Decoration.mark({ class: 'cm-wl-alias' }))
       builder.add(aliasEnd, to, Decoration.mark({ class: 'cm-wl-bracket' }))
     }
@@ -195,8 +205,7 @@ export const wikilinkTheme = EditorView.theme({
     transition: 'color 120ms ease',
   },
   '.cm-wl-pill:hover .cm-wl-alias': {
-    textDecoration: 'underline',
-    textUnderlineOffset: '2px',
+    filter: 'brightness(1.2) saturate(1.2)',
   },
   // "[[", trailing "]]", and any "uuid|" — concealed until hover OR until the
   // keyboard selection touches the link (cm-wl-pill--active).
@@ -213,7 +222,8 @@ export const wikilinkTheme = EditorView.theme({
     color: 'color-mix(in srgb, var(--color-node-note) 45%, var(--color-text-muted))',
   },
   '.cm-wl-unresolved:hover .cm-wl-alias': {
-    textDecorationStyle: 'dashed',
+    color: 'var(--color-node-note)',
+    filter: 'none',
   },
 
   // --- Completion popup, themed to the dark IBM-Plex editor ---
