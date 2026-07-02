@@ -65,6 +65,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			w.Header().Set("Last-Modified", lm)
 			w.Header().Set("ETag", lm)
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write(data)
 	})

@@ -1,6 +1,6 @@
 <template>
   <div class="notes-editor-pane" :style="styleVars">
-    <NoteEditorToolbar :sidebar-collapsed="sidebarCollapsed" :save-state="saveState" @toggle-sidebar="$emit('toggle-sidebar')" />
+    <NoteEditorToolbar :sidebar-collapsed="sidebarCollapsed" :save-state="saveState" @toggle-sidebar="$emit('toggle-sidebar')" @save-manual="flushPendingSave" />
 
     <div
       ref="scrollEl"
@@ -170,7 +170,7 @@ const reconfigure = () => {
 
 const loadFile = async (path) => {
   if (!path) return
-  const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`)
+  const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, { cache: 'no-cache' })
   if (res.ok) {
     const text = await res.text()
     rawContent.value = text
@@ -262,7 +262,7 @@ const scheduleSave = () => {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     saveFile()
-  }, 5000)
+  }, 2000)
 }
 
 // Cancel the debounce and persist immediately (Ctrl+S, note switch, navigation).
@@ -274,49 +274,65 @@ const flushPendingSave = async ({ keepalive = false } = {}) => {
   if (isDirty.value) await saveFile({ keepalive })
 }
 
+let currentSavePromise = null
+
 const saveFile = async ({ keepalive = false } = {}) => {
   if (!isDirty.value || conflict.value || !loadedPath || !view) return
 
+  if (currentSavePromise) {
+    await currentSavePromise
+    if (!isDirty.value || conflict.value || !loadedPath || !view) return
+  }
+
   const path = loadedPath
   const content = view.state.doc.toString()
+  const matchValue = lastModified.value
   isSaving.value = true
 
-  try {
-    const res = await fetch(`/api/notes/save?path=${encodeURIComponent(path)}`, {
-      method: 'POST',
-      headers: {
-        'If-Match': lastModified.value,
-        'Content-Type': 'text/plain',
-      },
-      body: content,
-      keepalive,
-    })
+  const doSave = async () => {
+    try {
+      const res = await fetch(`/api/notes/save?path=${encodeURIComponent(path)}`, {
+        method: 'POST',
+        headers: {
+          'If-Match': matchValue,
+          'Content-Type': 'text/plain',
+        },
+        body: content,
+        keepalive,
+      })
 
-    if (res.status === 409) {
-      conflict.value = true
-      return
-    }
+      if (res.status === 409) {
+        if (loadedPath === path) conflict.value = true
+        return
+      }
 
-    if (res.ok) {
-      const data = await res.json()
-      lastModified.value = data.last_modified
-      isDirty.value = false
-      saveError.value = false
-    } else {
-      saveError.value = true
+      if (res.ok) {
+        const data = await res.json()
+        if (loadedPath === path) {
+          lastModified.value = data.last_modified
+          isDirty.value = false
+          saveError.value = false
+        }
+      } else {
+        if (loadedPath === path) saveError.value = true
+      }
+    } catch (e) {
+      if (loadedPath === path) saveError.value = true
+    } finally {
+      if (loadedPath === path) isSaving.value = false
     }
-  } catch (e) {
-    saveError.value = true
-  } finally {
-    isSaving.value = false
   }
+
+  currentSavePromise = doSave()
+  await currentSavePromise
+  currentSavePromise = null
 }
 
-const resolveConflict = (action) => {
+const resolveConflict = async (action) => {
   conflict.value = false
   if (action === 'keep') {
     lastModified.value = ''
-    saveFile()
+    await saveFile()
   } else {
     loadFile(props.path)
   }

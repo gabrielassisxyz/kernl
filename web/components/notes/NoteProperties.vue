@@ -48,6 +48,7 @@
             :placeholder="listValue(row.value).length ? '' : 'Empty'"
             @keydown.enter.prevent="addTag(row.key)"
             @keydown="onTagSeparator(row.key, $event)"
+            @blur="addTag(row.key)"
           >
         </div>
 
@@ -173,15 +174,22 @@ function emitUpdate(next: FrontmatterData): void {
 function commitScalar(key: string, event: Event): void {
   if (props.readonly || LOCKED_KEYS.has(key)) return
   const value = (event.target as HTMLInputElement).value
-  emitUpdate({ ...(props.data || {}), [key]: value })
+  setTimeout(() => {
+    emitUpdate({ ...(props.data || {}), [key]: value })
+  }, 0)
 }
 
 function addTag(key: string): void {
-  const tag = normalizeTag(tagDrafts.value[key] || '')
-  if (!tag) return
-  const values = listValue((props.data || {})[key])
-  if (!values.includes(tag)) emitUpdate({ ...(props.data || {}), [key]: [...values, tag] })
-  tagDrafts.value[key] = ''
+  // Defer execution so that if this blur was triggered by a click on the
+  // CodeMirror editor, we don't dispatch a state change while CM is handling
+  // its mousedown/focus event.
+  setTimeout(() => {
+    const tag = normalizeTag(tagDrafts.value[key] || '')
+    if (!tag) return
+    const values = listValue((props.data || {})[key])
+    if (!values.includes(tag)) emitUpdate({ ...(props.data || {}), [key]: [...values, tag] })
+    tagDrafts.value[key] = ''
+  }, 0)
 }
 
 // Comma or space commits the current tag, matching how people type tag lists.
