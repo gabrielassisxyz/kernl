@@ -753,3 +753,49 @@ func TestChatSSEReconnectRestoresPendingPermission(t *testing.T) {
 		t.Error("expected permission_required on reconnect")
 	}
 }
+
+// Assistant turns must be persisted on the session node. Before this, only
+// user messages survived, so the state event emitted on every SSE reconnect
+// erased all DA replies from the client (UAT DA1: second message wiped the
+// first response).
+func TestChatAssistantMessagePersisted(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "hello", "")
+
+	mock := newMockLLMClient(ChatResponse{Content: "Hi there!"})
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	cs := getSession(t, a, sessionID)
+	if len(cs.Messages) != 2 {
+		t.Fatalf("expected 2 persisted messages (user + assistant), got %d", len(cs.Messages))
+	}
+	last := cs.Messages[len(cs.Messages)-1]
+	if last.Role != "assistant" || last.Content != "Hi there!" {
+		t.Errorf("expected persisted assistant reply, got role=%q content=%q", last.Role, last.Content)
+	}
+
+	// A reconnect's state event must now carry the full transcript.
+	rec2 := &eventRecorder{}
+	engine2, err := NewChatEngine(a, sessionID, rec2, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine reconnect: %v", err)
+	}
+	_ = engine2.RunSession(context.Background())
+	for _, ev := range rec2.events() {
+		if ev["event"] == "state" {
+			msgs, _ := ev["messages"].([]any)
+			if len(msgs) < 2 {
+				t.Errorf("state event on reconnect should carry user+assistant, got %v", ev["messages"])
+			}
+		}
+	}
+}

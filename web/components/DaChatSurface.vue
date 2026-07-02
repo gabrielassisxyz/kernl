@@ -11,7 +11,10 @@
         <span class="font-headline text-text-primary font-semibold">DA</span>
         <span class="font-mono-data text-mono-data text-text-muted bg-surface-container px-1.5 py-0.5 border border-border-hairline">scope · global</span>
       </div>
-      <UiIconButton icon="close" label="Close DA" @click="$emit('close')" />
+      <div class="flex items-center gap-1">
+        <UiIconButton icon="add" label="New conversation" @click="startNewConversation" />
+        <UiIconButton icon="close" label="Close DA" @click="$emit('close')" />
+      </div>
     </div>
 
     <div class="flex-1 overflow-y-auto p-section flex flex-col gap-section">
@@ -27,9 +30,8 @@
               <div class="flex items-center gap-2">
                 <span class="font-label-caps text-label-caps text-primary">Kernl DA</span>
               </div>
-              <div class="font-body text-body text-text-primary space-y-4">
-                <p>{{ msg.content }}</p>
-              </div>
+              <!-- DA replies are markdown; renderMarkdown sanitizes before v-html. -->
+              <div class="da-prose font-body text-body text-text-primary" v-html="renderMarkdown(msg.content)"></div>
             </div>
           </template>
           
@@ -92,6 +94,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
+import { renderMarkdown } from '~/utils/renderMarkdown'
 import DaLearnedCard from '~/components/DaLearnedCard.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
@@ -108,13 +111,18 @@ const daGreeting = computed(() => {
 defineEmits(['close'])
 
 const daInput = ref('')
-const { messages, error, isStreaming, learnedCandidate, sendMessage, keepCandidate, discardCandidate } = useChatSession()
+const { messages, error, isStreaming, learnedCandidate, sendMessage, keepCandidate, discardCandidate, newConversation } = useChatSession()
 
 const handleSend = () => {
   if (daInput.value.trim() && !isStreaming.value) {
     sendMessage(daInput.value)
     daInput.value = ''
   }
+}
+
+const startNewConversation = () => {
+  if (isStreaming.value) return
+  newConversation()
 }
 </script>
 
@@ -125,5 +133,75 @@ const handleSend = () => {
 }
 .animate-blink {
   animation: blink 1s step-end infinite;
+}
+
+/* Prose styling for rendered DA markdown (:deep — v-html content has no scope attr). */
+.da-prose :deep(p),
+.da-prose :deep(ul),
+.da-prose :deep(ol),
+.da-prose :deep(pre),
+.da-prose :deep(blockquote) {
+  margin: 0 0 0.75em;
+}
+.da-prose :deep(> *:last-child) {
+  margin-bottom: 0;
+}
+.da-prose :deep(ul),
+.da-prose :deep(ol) {
+  padding-left: 1.25em;
+  list-style: revert;
+}
+.da-prose :deep(h1),
+.da-prose :deep(h2),
+.da-prose :deep(h3),
+.da-prose :deep(h4) {
+  font-family: var(--font-headline);
+  color: var(--color-text-primary);
+  font-size: 1em;
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+}
+.da-prose :deep(code) {
+  font-family: var(--font-mono-data);
+  font-size: 0.85em;
+  background-color: var(--color-surface-container-low);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.1em 0.35em;
+}
+.da-prose :deep(pre) {
+  background-color: var(--color-surface-container-low);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--radius-lg, 6px);
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.da-prose :deep(pre code) {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.da-prose :deep(blockquote) {
+  border-left: 2px solid var(--color-da-accent);
+  padding-left: 10px;
+  color: var(--color-text-muted);
+}
+.da-prose :deep(a) {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.da-prose :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--color-border-hairline);
+  margin: 0.75em 0;
+}
+.da-prose :deep(table) {
+  border-collapse: collapse;
+  margin: 0 0 0.75em;
+}
+.da-prose :deep(th),
+.da-prose :deep(td) {
+  border: 1px solid var(--color-border-hairline);
+  padding: 4px 8px;
 }
 </style>

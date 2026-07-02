@@ -31,6 +31,9 @@ export function useChatSession() {
 
   let sessionId: string | null = null;
   let eventSource: EventSource | null = null;
+  // Index of the assistant message currently being streamed, so successive
+  // token events grow ONE message instead of pushing one message per token.
+  let streamingIndex: number | null = null;
 
   function ensureSession(): Promise<void> {
     if (sessionId) return Promise.resolve();
@@ -44,16 +47,25 @@ export function useChatSession() {
   function connectSSE(): void {
     if (eventSource) eventSource.close();
     if (!sessionId) return;
+    streamingIndex = null;
 
     eventSource = new EventSource(`/api/chat/sessions/${sessionId}/events`);
     eventSource.onmessage = (e: MessageEvent) => {
       const data: SSEState = JSON.parse(e.data);
       switch (data.event) {
         case 'token':
-          messages.value.push({ role: 'assistant', content: data.content || '' });
+          if (streamingIndex === null) {
+            messages.value.push({ role: 'assistant', content: data.content || '' });
+            streamingIndex = messages.value.length - 1;
+          } else {
+            messages.value[streamingIndex].content += data.content || '';
+          }
           break;
         case 'state':
+          // Authoritative replace: the server persists assistant turns too, so
+          // the state snapshot is the full transcript.
           messages.value = (data.messages || []).map((m) => ({ ...m }));
+          streamingIndex = null;
           if (data.pending_permission) {
             pendingPermission.value = data.pending_permission;
           }
@@ -146,6 +158,20 @@ export function useChatSession() {
     ensureSession().then(connectSSE);
   }
 
+  // Drop the current session client-side; the next send creates a fresh one.
+  // The old session node stays in the graph (no delete endpoint yet).
+  function newConversation(): void {
+    eventSource?.close();
+    eventSource = null;
+    sessionId = null;
+    streamingIndex = null;
+    messages.value = [];
+    pendingPermission.value = null;
+    learnedCandidate.value = null;
+    error.value = null;
+    isStreaming.value = false;
+  }
+
   return {
     messages,
     pendingPermission,
@@ -157,5 +183,6 @@ export function useChatSession() {
     keepCandidate,
     discardCandidate,
     loadSession,
+    newConversation,
   };
 }

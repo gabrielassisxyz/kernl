@@ -116,6 +116,17 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 			if err := e.emitTokenEvent(resp.Content); err != nil {
 				return err
 			}
+			// Persist the assistant turn. Without this the session holds only
+			// user messages, and the state event emitted on the next SSE
+			// reconnect wipes every DA reply from the client.
+			cs.Messages = append(cs.Messages, nodes.ChatMessage{
+				Role:      "assistant",
+				Content:   resp.Content,
+				Timestamp: time.Now().UTC(),
+			})
+			if err := e.saveSession(ctx, cs); err != nil {
+				slog.Warn("persist assistant message", "error", err)
+			}
 		}
 		// U9: propose a learned memory from the just-completed exchange.
 		e.proposeLearnedCandidate(ctx, cs, resp.Content)
