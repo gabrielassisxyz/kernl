@@ -25,6 +25,7 @@ describe('NoteProperties', () => {
     const input = wrapper.get('input[aria-label="title value"]')
     await input.setValue('New')
     await input.trigger('change')
+    await new Promise(r => setTimeout(r, 0))
 
     expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ title: 'New', tags: [] })
   })
@@ -34,11 +35,13 @@ describe('NoteProperties', () => {
 
     await wrapper.get('input[aria-label="Add value to tags"]').setValue('telos')
     await wrapper.get('input[aria-label="Add value to tags"]').trigger('keydown.enter')
+    await new Promise(r => setTimeout(r, 0))
 
     expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ title: 'Note', tags: ['da', 'telos'] })
 
     await wrapper.setProps({ data: { title: 'Note', tags: ['da', 'telos'] } })
     await wrapper.get('button[aria-label="Remove telos"]').trigger('click')
+    await new Promise(r => setTimeout(r, 0))
 
     expect(wrapper.emitted('update:data')?.[1]?.[0]).toEqual({ title: 'Note', tags: ['da'] })
   })
@@ -52,6 +55,7 @@ describe('NoteProperties', () => {
     await wrapper.get('input[aria-label="New property name"]').setValue('reviewed')
     await wrapper.get('select[aria-label="New property type"]').setValue('date')
     await wrapper.get('.note-properties__add-form').trigger('submit')
+    vi.runAllTimers()
 
     expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ reviewed: '2026-06-28' })
     vi.useRealTimers()

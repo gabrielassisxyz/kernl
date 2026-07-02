@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
 )
 
 func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
@@ -62,6 +65,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			w.Header().Set("Last-Modified", lm)
 			w.Header().Set("ETag", lm)
 		}
+		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write(data)
 	})
@@ -91,12 +95,27 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
+		// Inject the node id at creation. Without it the reconciler injects one
+		// out-of-band right after the editor loads the file, bumping the mtime and
+		// turning the editor's very next autosave into a false 409 conflict.
+		// InjectID is a no-op when an id is already present.
+		if strings.HasSuffix(fullPath, ".md") {
+			if injected, injErr := frontmatter.InjectID(body, uuid.Must(uuid.NewV7()).String()); injErr == nil {
+				body = injected
+			}
+		}
+
 		err = os.WriteFile(fullPath, body, 0644)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
+		if info, statErr := os.Stat(fullPath); statErr == nil {
+			lm := info.ModTime().Format(time.RFC3339)
+			w.Header().Set("Last-Modified", lm)
+			w.Header().Set("ETag", lm)
+		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"saved"}`))
 	})

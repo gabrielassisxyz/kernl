@@ -13,6 +13,29 @@
       </span>
     </button>
 
+    <!-- Autosave status: the editor has no Save button by design, so this chip
+         is the user's only confirmation that edits reached disk (Ctrl+S flushes). -->
+    <span
+      v-if="saveState"
+      class="save-chip"
+      :class="`save-chip--${saveState}`"
+      role="status"
+      :title="saveState === 'dirty' ? 'Unsaved changes — autosaves shortly, Ctrl+S to save now' : undefined"
+    >
+      <span class="save-chip__dot" aria-hidden="true"></span>
+      {{ SAVE_LABELS[saveState] }}
+    </span>
+    <button
+      v-if="saveState === 'dirty'"
+      type="button"
+      class="tbtn ml-1"
+      title="Save now (Ctrl+S)"
+      aria-label="Save now"
+      @click="$emit('save-manual')"
+    >
+      <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">save</span>
+    </button>
+
     <div class="grow"></div>
 
     <!-- View mode: source / live preview / reading. -->
@@ -160,8 +183,15 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useEditorSettings, type EditorFont, type ViewMode } from '~/composables/useEditorSettings'
 
-defineProps<{ sidebarCollapsed?: boolean }>()
-defineEmits<{ (e: 'toggle-sidebar'): void }>()
+defineProps<{ sidebarCollapsed?: boolean; saveState?: 'saved' | 'saving' | 'dirty' | 'conflict' }>()
+defineEmits<{ (e: 'toggle-sidebar'): void; (e: 'save-manual'): void }>()
+
+const SAVE_LABELS: Record<string, string> = {
+  saved: 'Saved',
+  saving: 'Saving…',
+  dirty: 'Unsaved',
+  conflict: 'Conflict',
+}
 
 const { settings, setViewMode, setFont, setFontSize, setHeadingScale, reset } = useEditorSettings()
 
@@ -215,6 +245,43 @@ onBeforeUnmount(() => {
 
 .grow {
   flex: 1 1 auto;
+}
+
+/* Autosave status chip. */
+.save-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  height: 22px;
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono-data);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.save-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--color-text-faint);
+}
+
+.save-chip--saved .save-chip__dot {
+  background-color: var(--color-status-passed);
+}
+
+.save-chip--saving .save-chip__dot,
+.save-chip--dirty .save-chip__dot {
+  background-color: var(--color-status-gate);
+}
+
+.save-chip--conflict {
+  color: var(--color-status-failed-text);
+}
+
+.save-chip--conflict .save-chip__dot {
+  background-color: var(--color-status-failed-text);
 }
 
 /* Toolbar icon button (ghost). */
