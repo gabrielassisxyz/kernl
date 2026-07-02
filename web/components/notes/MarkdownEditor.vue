@@ -1,6 +1,6 @@
 <template>
   <div class="notes-editor-pane" :style="styleVars">
-    <NoteEditorToolbar :sidebar-collapsed="sidebarCollapsed" @toggle-sidebar="$emit('toggle-sidebar')" />
+    <NoteEditorToolbar :sidebar-collapsed="sidebarCollapsed" :save-state="saveState" @toggle-sidebar="$emit('toggle-sidebar')" />
 
     <div
       ref="scrollEl"
@@ -51,9 +51,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state'
-import { EditorView, lineNumbers, Decoration } from '@codemirror/view'
+import { EditorView, lineNumbers, Decoration, keymap } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
 import { wikilinkExtensions } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
@@ -115,11 +116,23 @@ const frontmatterData = ref({})
 const frontmatterError = ref('')
 const rawContent = ref('')
 const isDirty = ref(false)
+const isSaving = ref(false)
 const conflict = ref(false)
 const lastModified = ref('')
 const activeHunks = ref([])
 const saveError = ref(false)
 let saveTimer = null
+// The path the current editor doc was loaded from. saveFile targets this, not
+// props.path: during a note switch props.path already points at the NEW note
+// while the outgoing doc still belongs to the old one.
+let loadedPath = ''
+
+const saveState = computed(() => {
+  if (conflict.value) return 'conflict'
+  if (isSaving.value) return 'saving'
+  if (isDirty.value) return 'dirty'
+  return 'saved'
+})
 
 const syncFrontmatter = (text) => {
   try {
@@ -177,6 +190,7 @@ const loadFile = async (path) => {
         editableComp.of(editableExtFor(mode)),
         typewriterComp.of(typewriterExtFor(settings.typewriter)),
         wikilinkExtensions((target) => emit('open-wikilink', target)),
+        keymap.of([{ key: 'Mod-s', run: () => { flushPendingSave(); return true }, preventDefault: true }]),
         EditorView.lineWrapping,
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
@@ -190,9 +204,11 @@ const loadFile = async (path) => {
 
     view = new EditorView({ state, parent: editorContainer.value })
 
+    loadedPath = path
     lastModified.value = res.headers.get('Last-Modified') || new Date().toISOString()
     isDirty.value = false
     saveError.value = false
+    conflict.value = false // a conflict belongs to the previously loaded path
   }
 }
 
@@ -205,7 +221,10 @@ const applyFrontmatterUpdate = (nextData) => {
   frontmatterData.value = nextData
 }
 
-watch(() => props.path, (newPath) => {
+watch(() => props.path, async (newPath) => {
+  // Flush the outgoing note before loading the next one — switching notes used
+  // to silently drop any edit still inside the autosave debounce window.
+  await flushPendingSave()
   loadFile(newPath)
 })
 
@@ -215,19 +234,27 @@ watch(
   () => reconfigure(),
 )
 
+// Flush edits when the tab is backgrounded or the page is torn down; keepalive
+// lets the request outlive the document.
+const onPageHide = () => { flushPendingSave({ keepalive: true }) }
+
 onMounted(() => {
   loadFile(props.path)
+  window.addEventListener('pagehide', onPageHide)
+})
+
+// Awaited flush for SPA navigations — unlike the unmount hook, a route guard
+// can hold navigation until the save round-trip completes.
+onBeforeRouteLeave(async () => {
+  await flushPendingSave()
 })
 
 onBeforeUnmount(() => {
-  // Flush any pending autosave before tearing down. A plain clearTimeout would
-  // silently discard edits made within the 5s debounce window. saveFile() must
-  // run before view.destroy() so view.state.doc still holds the outgoing content.
-  if (saveTimer && isDirty.value && view) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-    saveFile() // fire-and-forget; saves outgoing path + content
-  }
+  window.removeEventListener('pagehide', onPageHide)
+  // Backup flush for non-route teardowns. saveFile() captures the doc
+  // synchronously, so it must be invoked before view.destroy(); keepalive lets
+  // the request survive the component going away.
+  flushPendingSave({ keepalive: true })
   if (view) view.destroy()
 })
 
@@ -238,19 +265,31 @@ const scheduleSave = () => {
   }, 5000)
 }
 
-const saveFile = async () => {
-  if (!isDirty.value || conflict.value || !props.path) return
+// Cancel the debounce and persist immediately (Ctrl+S, note switch, navigation).
+const flushPendingSave = async ({ keepalive = false } = {}) => {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (isDirty.value) await saveFile({ keepalive })
+}
 
+const saveFile = async ({ keepalive = false } = {}) => {
+  if (!isDirty.value || conflict.value || !loadedPath || !view) return
+
+  const path = loadedPath
   const content = view.state.doc.toString()
+  isSaving.value = true
 
   try {
-    const res = await fetch(`/api/notes/save?path=${encodeURIComponent(props.path)}`, {
+    const res = await fetch(`/api/notes/save?path=${encodeURIComponent(path)}`, {
       method: 'POST',
       headers: {
         'If-Match': lastModified.value,
         'Content-Type': 'text/plain',
       },
       body: content,
+      keepalive,
     })
 
     if (res.status === 409) {
@@ -268,6 +307,8 @@ const saveFile = async () => {
     }
   } catch (e) {
     saveError.value = true
+  } finally {
+    isSaving.value = false
   }
 }
 
