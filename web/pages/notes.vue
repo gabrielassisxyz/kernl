@@ -68,6 +68,7 @@
         :sidebar-collapsed="sidebarCollapsed"
         @open-wikilink="openWikilink"
         @toggle-sidebar="toggleSidebar"
+        @delete-note="showDeleteNote = true"
       />
       <div v-else class="workspace__empty">
         <div class="workspace__topbar">
@@ -91,6 +92,18 @@
         </div>
       </div>
     </section>
+
+    <UiModal :open="showDeleteNote" title="Delete note" size="sm" @close="showDeleteNote = false">
+      <p class="font-body text-body text-text-muted">
+        Delete <span class="text-text-primary">{{ selectedFile }}</span>? The file is removed from the vault and its node leaves the graph. This cannot be undone.
+      </p>
+      <template #footer>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="ghost" @click="showDeleteNote = false">Cancel</UiButton>
+          <UiButton variant="primary" :loading="deleting" @click="confirmDeleteNote">Delete note</UiButton>
+        </div>
+      </template>
+    </UiModal>
 
     <UiModal :open="showNewNote" :title="newNoteTag === 'telos' ? 'New Telos note' : 'New note'" size="sm" @close="closeNewNote">
       <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
@@ -173,18 +186,56 @@ const selectFile = (path) => {
   }
 }
 
-// Resolve a ctrl/cmd-clicked wikilink target to an actual vault file and
-// select it the same way clicking a note in the list does.
+// Resolve a clicked wikilink target to an actual vault file and select it the
+// same way clicking a note in the list does. Autocomplete inserts
+// [[<uuid>|title]], so try the graph id→path mapping first; hand-typed
+// [[Some Note]] links fall back to filename-slug matching.
 const openWikilink = async (target) => {
-  const slug = target.endsWith('.md') ? target : `${target}.md`
   try {
-    const res = await fetch('/api/vault/list')
+    const res = await fetch('/api/vault/notes')
     if (res.ok) {
-      const { files } = await res.json()
+      const notes = (await res.json()) || []
+      const byId = notes.find((n) => n.id === target)
+      if (byId?.path) {
+        selectFile(byId.path)
+        return
+      }
+      const byTitle = notes.find((n) => (n.title || '').toLowerCase() === target.toLowerCase())
+      if (byTitle?.path) {
+        selectFile(byTitle.path)
+        return
+      }
+    }
+    const slug = target.endsWith('.md') ? target : `${target}.md`
+    const listRes = await fetch('/api/vault/list')
+    if (listRes.ok) {
+      const { files } = await listRes.json()
       const match = (files || []).find((f) => f === slug || f.endsWith(`/${slug}`))
       if (match) selectFile(match)
     }
   } catch (e) { /* best-effort wikilink navigation */ }
+}
+
+// Delete the open note: the toolbar button asks, this confirms and executes.
+// The backend removes the file; the vault watcher reconciles the node away.
+const showDeleteNote = ref(false)
+const deleting = ref(false)
+
+const confirmDeleteNote = async () => {
+  if (!selectedFile.value || deleting.value) return
+  deleting.value = true
+  try {
+    const res = await fetch(`/api/vault/file?path=${encodeURIComponent(selectedFile.value)}`, {
+      method: 'DELETE',
+    })
+    if (res.ok || res.status === 404) {
+      showDeleteNote.value = false
+      selectedFile.value = null
+      noteListRef.value?.refresh()
+    }
+  } finally {
+    deleting.value = false
+  }
 }
 
 const slugify = (title) => title

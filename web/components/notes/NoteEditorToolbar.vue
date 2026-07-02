@@ -57,6 +57,16 @@
       <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">keyboard</span>
     </button>
 
+    <button
+      type="button"
+      class="tbtn tbtn--danger"
+      title="Delete note"
+      aria-label="Delete note"
+      @click="$emit('delete-note')"
+    >
+      <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">delete</span>
+    </button>
+
     <!-- Settings popover. -->
     <div ref="settingsAnchor" class="settings-anchor">
       <button
@@ -174,7 +184,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useEditorSettings, type EditorFont, type ViewMode } from '~/composables/useEditorSettings'
 
 defineProps<{ sidebarCollapsed?: boolean; saveState?: 'saved' | 'saving' | 'dirty' | 'conflict' }>()
-defineEmits<{ (e: 'toggle-sidebar'): void }>()
+defineEmits<{ (e: 'toggle-sidebar'): void; (e: 'delete-note'): void }>()
 
 const SAVE_LABELS: Record<string, string> = {
   saved: 'Saved',
@@ -296,6 +306,10 @@ onBeforeUnmount(() => {
 .tbtn--active {
   background-color: var(--color-surface-hover);
   color: var(--color-primary);
+}
+
+.tbtn--danger:hover {
+  color: var(--color-status-failed-text);
 }
 
 .tbtn:focus-visible {
