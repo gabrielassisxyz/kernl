@@ -80,3 +80,51 @@ func TestVaultCreateKeepsExistingID(t *testing.T) {
 		t.Errorf("body with existing id must be written verbatim, got:\n%s", saved)
 	}
 }
+
+// DELETE must remove the file (graph cleanup is the watcher's job) and refuse
+// paths that escape the vault root.
+func TestVaultDeleteFile(t *testing.T) {
+	root := t.TempDir()
+	a := &app.App{Config: &config.Config{Vault: config.VaultConfig{Root: root}}}
+
+	mux := http.NewServeMux()
+	api.RegisterVaultRoutes(mux, a)
+
+	target := filepath.Join(root, "doomed.md")
+	if err := os.WriteFile(target, []byte("---\nid: x\n---\nbye\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("DELETE", "/api/vault/file?path=doomed.md", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Error("expected file to be removed")
+	}
+
+	// Missing file → 404.
+	req = httptest.NewRequest("DELETE", "/api/vault/file?path=doomed.md", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for missing file, got %d", w.Code)
+	}
+
+	// Traversal → 400, file outside the vault untouched.
+	outside := filepath.Join(filepath.Dir(root), "outside.md")
+	if err := os.WriteFile(outside, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest("DELETE", "/api/vault/file?path=../outside.md", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for traversal, got %d", w.Code)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Error("file outside the vault must not be touched")
+	}
+}

@@ -27,6 +27,10 @@ action would flag the conflict (attach a contradiction callout) for reconciliati
 - **Depends on:** Memory rewiring (v0.1.0). Candidate **stretch** once Memory is
   wired and time allows; otherwise a follow-up.
 
+### Notes — Undo delete note
+A feature to undo the deletion of a note (move the note back from the system trash to the vault and reconnect it in the graph).
+- **Why deferred:** the initial implementation simply moves the file to the system trash. Building a full undo flow (tracking the original location, moving it back, and ensuring graph reconnection) is a follow-up scope.
+
 ### Notes — WYSIWYG / ProseMirror editor (Tiptap / Milkdown)
 A true rich-text editor beyond the v0.1.0 CodeMirror 6 live-preview approach.
 - **Why deferred:** CodeMirror live-preview is the closest-to-Obsidian path and

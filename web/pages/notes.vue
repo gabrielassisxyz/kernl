@@ -68,6 +68,7 @@
         :sidebar-collapsed="sidebarCollapsed"
         @open-wikilink="openWikilink"
         @toggle-sidebar="toggleSidebar"
+        @delete-note="showDeleteNote = true"
       />
       <div v-else class="workspace__empty">
         <div class="workspace__topbar">
@@ -92,8 +93,20 @@
       </div>
     </section>
 
+    <UiModal :open="showDeleteNote" title="Delete note" size="sm" @close="showDeleteNote = false">
+      <p class="font-body text-body text-text-muted">
+        Delete <span class="text-text-primary">{{ selectedFile }}</span>? The file will be moved to the system trash and its node will leave the graph.
+      </p>
+      <template #footer>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="ghost" @click="showDeleteNote = false">Cancel</UiButton>
+          <UiButton variant="primary" :loading="deleting" @click="confirmDeleteNote">Delete note</UiButton>
+        </div>
+      </template>
+    </UiModal>
+
     <UiModal :open="showNewNote" :title="newNoteTag === 'telos' ? 'New Telos note' : 'New note'" size="sm" @close="closeNewNote">
-      <UiField :hint="slugPreview ? `Will create ${slugPreview}.md` : ''">
+      <UiField :hint="namePreview ? `Will create ${namePreview}` : ''">
         <UiInput
           ref="titleInput"
           v-model="newTitle"
@@ -108,7 +121,7 @@
           <span class="font-mono-data text-mono-data text-text-muted">Enter creates · Esc cancels</span>
           <div class="flex items-center gap-base">
             <UiButton variant="ghost" @click="closeNewNote">Cancel</UiButton>
-            <UiButton variant="primary" :loading="creating" :disabled="!slugPreview" @click="confirmNewNote">Create note</UiButton>
+            <UiButton variant="primary" :loading="creating" :disabled="!namePreview" @click="confirmNewNote">Create note</UiButton>
           </div>
         </div>
       </template>
@@ -173,29 +186,85 @@ const selectFile = (path) => {
   }
 }
 
-// Resolve a ctrl/cmd-clicked wikilink target to an actual vault file and
-// select it the same way clicking a note in the list does.
+// Resolve a clicked wikilink target to an actual vault file and select it the
+// same way clicking a note in the list does. Autocomplete inserts
+// [[<uuid>|title]], so try the graph id→path mapping first; hand-typed
+// [[Some Note]] links fall back to filename-slug matching.
 const openWikilink = async (target) => {
-  const slug = target.endsWith('.md') ? target : `${target}.md`
   try {
-    const res = await fetch('/api/vault/list')
+    const res = await fetch('/api/vault/notes')
     if (res.ok) {
-      const { files } = await res.json()
+      const notes = (await res.json()) || []
+      const byId = notes.find((n) => n.id === target)
+      if (byId?.path) {
+        selectFile(byId.path)
+        return
+      }
+      const byTitle = notes.find((n) => (n.title || '').toLowerCase() === target.toLowerCase())
+      if (byTitle?.path) {
+        selectFile(byTitle.path)
+        return
+      }
+    }
+    const slug = target.endsWith('.md') ? target : `${target}.md`
+    const listRes = await fetch('/api/vault/list')
+    if (listRes.ok) {
+      const { files } = await listRes.json()
       const match = (files || []).find((f) => f === slug || f.endsWith(`/${slug}`))
-      if (match) selectFile(match)
+      if (match) {
+        selectFile(match)
+        return
+      }
+    }
+
+    // Note not found; create it automatically.
+    // (If the target is a UUID, we don't want to create a file named "019f...md",
+    // but wikilinks typed manually without autocomplete just use the title as target).
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(target)
+    if (!isUUID) {
+      const title = target.replace(/\.md$/, '')
+      const path = `${title}.md`
+      const body = `---\ntitle: ${title}\ntags: []\n---\n\n# ${title}\n\n`
+      
+      const createRes = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body
+      })
+      if (createRes.ok) {
+        // Wait briefly for the backend vault watcher to index the new note
+        await new Promise((r) => setTimeout(r, 250))
+        // Refresh the file list so the sidebar knows about it
+        if (noteListRef.value) noteListRef.value.refresh()
+        selectFile(path)
+      }
     }
   } catch (e) { /* best-effort wikilink navigation */ }
 }
 
-const slugify = (title) => title
-  .toLowerCase()
-  .trim()
-  .replace(/\s+/g, '-')
-  .replace(/[^a-z0-9-]/g, '')
-  .replace(/-+/g, '-')
-  .replace(/^-|-$/g, '')
+// Delete the open note: the toolbar button asks, this confirms and executes.
+// The backend removes the file; the vault watcher reconciles the node away.
+const showDeleteNote = ref(false)
+const deleting = ref(false)
 
-const slugPreview = computed(() => slugify(newTitle.value || ''))
+const confirmDeleteNote = async () => {
+  if (!selectedFile.value || deleting.value) return
+  deleting.value = true
+  try {
+    const res = await fetch(`/api/vault/file?path=${encodeURIComponent(selectedFile.value)}`, {
+      method: 'DELETE',
+    })
+    if (res.ok || res.status === 404) {
+      showDeleteNote.value = false
+      selectedFile.value = null
+      noteListRef.value?.refresh()
+    }
+  } finally {
+    deleting.value = false
+  }
+}
+
+const namePreview = computed(() => newTitle.value ? `${newTitle.value.trim()}.md` : '')
 
 const openNewNote = async (tag = '') => {
   newTitle.value = ''
@@ -213,8 +282,7 @@ const closeNewNote = () => {
 
 const confirmNewNote = async () => {
   const title = newTitle.value.trim()
-  const slug = slugify(title)
-  if (!slug || creating.value) return
+  if (!title || creating.value) return
   creating.value = true
 
   // Collision guard against the current disk-truth list.
@@ -224,10 +292,10 @@ const confirmNewNote = async () => {
     if (res.ok) existing = (await res.json()).files || []
   } catch (e) { /* best-effort */ }
 
-  let path = `${slug}.md`
+  let path = `${title}.md`
   let n = 2
   while (existing.includes(path)) {
-    path = `${slug}-${n}.md`
+    path = `${title} ${n}.md`
     n++
   }
 
@@ -244,6 +312,7 @@ const confirmNewNote = async () => {
       newNoteTag.value = ''
       activeTab.value = 'files'
       selectFile(path)
+      await new Promise((r) => setTimeout(r, 250))
       noteListRef.value?.refresh()
     }
   } finally {
