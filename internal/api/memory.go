@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -16,7 +17,20 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 		var topics []string
 
 		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
-			rows, err := tx.Query(`SELECT DISTINCT json_extract(attrs, '$.subject') FROM nodes WHERE type = 'memory_claim' AND json_extract(attrs, '$.subject') IS NOT NULL`)
+			// Only list subjects that still have at least one ACTIVE claim.
+			// A subject whose every claim was refuted would otherwise linger in
+			// the sidebar and render an empty "no active claims" panel — the
+			// GET /claims path already filters refuted claims, so the two views
+			// must agree.
+			rows, err := tx.Query(`
+				SELECT DISTINCT json_extract(n.attrs, '$.subject')
+				FROM nodes n
+				WHERE n.type = 'memory_claim'
+				  AND json_extract(n.attrs, '$.subject') IS NOT NULL
+				  AND n.deleted_at IS NULL
+				  AND NOT EXISTS (
+				      SELECT 1 FROM edges e WHERE e.label = 'refutes' AND e.dst = n.id
+				  )`)
 			if err != nil {
 				return err
 			}
@@ -135,6 +149,41 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 				"truncated": tc.Truncated,
 			},
 		})
+	})
+
+	// Manual, user-authored claims. The DA-learned Keep flow is not the only way
+	// a rule should enter memory — the user can assert one directly, and it is
+	// tagged with user provenance so the card can distinguish it from DA claims.
+	mux.HandleFunc("POST /api/memory/claims", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Subject   string `json:"subject"`
+			Statement string `json:"statement"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		subject := strings.TrimSpace(req.Subject)
+		statement := strings.TrimSpace(req.Statement)
+		if subject == "" || statement == "" {
+			http.Error(w, "subject and statement are required", http.StatusBadRequest)
+			return
+		}
+
+		var claimID string
+		err := a.Graph.DoWrite(r.Context(), func(tx *graph.WriteTx) error {
+			var err error
+			claimID, err = memory.AddUserMemoryClaim(r.Context(), tx, subject, statement)
+			return err
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"id": claimID})
 	})
 
 	mux.HandleFunc("POST /api/memory/claims/{id}/refute", func(w http.ResponseWriter, r *http.Request) {

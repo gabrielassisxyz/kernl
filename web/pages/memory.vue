@@ -6,6 +6,13 @@
           <h1 class="font-headline text-headline text-text-primary">Memory</h1>
           <span class="font-mono-data text-mono-data text-text-faint">{{ view === 'telos' ? 'Identity & goals' : 'Active claims' }}</span>
         </div>
+        <button
+          class="flex items-center gap-tight px-component py-base rounded bg-primary text-on-primary font-body text-body hover:bg-primary-container transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
+          @click="showCreate = true"
+        >
+          <span class="material-symbols-outlined !text-[16px]">add</span>
+          New claim
+        </button>
       </div>
     </header>
 
@@ -83,14 +90,37 @@
         </div>
       </section>
     </div>
+
+    <UiModal :open="showCreate" title="New claim" size="sm" @close="showCreate = false">
+      <div class="flex flex-col gap-section">
+        <UiField label="Topic" hint="Groups related claims. Reuse an existing topic name to add to it.">
+          <UiInput v-model="newSubject" ref="subjectInput" placeholder="e.g. writing style" />
+        </UiField>
+        <UiField label="Claim" hint="A durable rule or fact, written as a statement.">
+          <UiTextarea v-model="newStatement" rows="3" placeholder="e.g. Prefers small, reviewable diffs." />
+        </UiField>
+        <p v-if="createError" class="font-mono-data text-mono-data text-status-failed-text">{{ createError }}</p>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="ghost" @click="showCreate = false">Cancel</UiButton>
+          <UiButton variant="primary" :loading="creating" :disabled="!newSubject.trim() || !newStatement.trim()" @click="createClaim">Save claim</UiButton>
+        </div>
+      </template>
+    </UiModal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import MemoryClaimCard from '~/components/MemoryClaimCard.vue'
 import MemoryTelos from '~/components/memory/MemoryTelos.vue'
+import UiButton from '~/components/ui/UiButton.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
+import UiField from '~/components/ui/UiField.vue'
+import UiInput from '~/components/ui/UiInput.vue'
+import UiModal from '~/components/ui/UiModal.vue'
+import UiTextarea from '~/components/ui/UiTextarea.vue'
 
 // Memory has two halves: Telos (always-injected identity) and learned Topics
 // (relevance-retrieved claims). Identity leads — the page opens on Telos.
@@ -139,11 +169,54 @@ const handleRefute = async (id: string, reason: string) => {
     })
 
     // Refetch the topic's active claims (the refuted one drops out server-side
-    // via SynthesizeTopic's 'refutes' filter).
-    await refreshClaims()
+    // via SynthesizeTopic's 'refutes' filter), and the topic list — a topic
+    // whose last claim was just refuted must leave the sidebar, not linger
+    // showing "no active claims".
+    const refutedTopic = selectedTopic.value
+    await Promise.all([refreshClaims(), refreshTopics()])
+    if (!topics.value.includes(refutedTopic)) {
+      selectedTopic.value = topics.value[0] || ''
+    }
   } catch (err) {
     console.error('Failed to refute claim:', err)
-    // Could add toast notification here in a full app
+  }
+}
+
+// --- manual claim creation ---
+const showCreate = ref(false)
+const newSubject = ref('')
+const newStatement = ref('')
+const creating = ref(false)
+const createError = ref<string | null>(null)
+const subjectInput = ref<{ focus: () => void } | null>(null)
+
+watch(showCreate, async (open) => {
+  if (open) {
+    newSubject.value = ''
+    newStatement.value = ''
+    createError.value = null
+    await nextTick()
+    subjectInput.value?.focus()
+  }
+})
+
+const createClaim = async () => {
+  const subject = newSubject.value.trim()
+  const statement = newStatement.value.trim()
+  if (!subject || !statement || creating.value) return
+  creating.value = true
+  createError.value = null
+  try {
+    await $fetch('/api/memory/claims', { method: 'POST', body: { subject, statement } })
+    showCreate.value = false
+    await refreshTopics()
+    selectedTopic.value = subject
+    view.value = 'topics'
+    await refreshClaims()
+  } catch (err) {
+    createError.value = err instanceof Error ? err.message : String(err)
+  } finally {
+    creating.value = false
   }
 }
 </script>

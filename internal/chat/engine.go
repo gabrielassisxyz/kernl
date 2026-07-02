@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/memory"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
@@ -309,8 +310,16 @@ func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, cs *nodes.Chat
 		return
 	}
 
+	// Offer the model the topics that already exist so it reuses one when the
+	// concept matches, instead of minting a near-duplicate subject for the same
+	// idea. Best-effort: a lookup failure just means no reuse hint this turn.
+	subjectHint := ""
+	if subjects, err := memory.ActiveSubjects(ctx, e.app.Graph); err == nil && len(subjects) > 0 {
+		subjectHint = "\n\nExisting subjects (reuse one verbatim if the concept matches, otherwise create a new one):\n- " + strings.Join(subjects, "\n- ")
+	}
+
 	msgs := []Message{
-		{Role: "system", Content: learnedExtractorPrompt},
+		{Role: "system", Content: learnedExtractorPrompt + subjectHint},
 		{Role: "user", Content: fmt.Sprintf("User said: %q\nAssistant replied: %q", lastUser, assistantContent)},
 	}
 	resp, err := e.llmClient.Chat(ctx, msgs, nil)

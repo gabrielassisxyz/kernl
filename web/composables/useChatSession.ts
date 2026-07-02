@@ -120,14 +120,17 @@ export function useChatSession() {
     connectSSE();
   }
 
-  async function keepCandidate(statement: string): Promise<void> {
+  async function keepCandidate(statement: string, subject?: string): Promise<void> {
     const candidate = learnedCandidate.value;
     if (!candidate || !sessionId) return;
+    // An edited subject lets the user fold the claim into an existing topic
+    // instead of spawning a near-duplicate; fall back to the proposed subject.
+    const finalSubject = (subject ?? candidate.subject).trim() || candidate.subject;
     learnedCandidate.value = null;
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'keep', subject: candidate.subject, statement }),
+      body: JSON.stringify({ action: 'keep', subject: finalSubject, statement }),
     });
   }
 
