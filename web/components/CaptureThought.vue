@@ -29,7 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 
 const emit = defineEmits<{ submit: [body: string]; cancel: [] }>()
 
@@ -37,6 +37,10 @@ const text = ref('')
 const captured = ref(false)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 let capturedTimer: ReturnType<typeof setTimeout>
+
+// Capture is the whole point of opening the inbox — focus the box so the user
+// can type immediately instead of clicking into it first.
+onMounted(() => inputEl.value?.focus())
 
 const onKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Escape') {

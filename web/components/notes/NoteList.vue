@@ -17,7 +17,10 @@
       >
         <span class="note-row__dot" aria-hidden="true"></span>
         <span class="note-row__name">{{ displayName(file) }}</span>
-        <span v-if="folderOf(file)" class="note-row__dir">{{ folderOf(file) }}</span>
+        <span
+          v-if="badgeFor(file)"
+          class="note-row__dir"
+        >{{ badgeFor(file) }}</span>
       </button>
     </div>
   </div>
@@ -25,6 +28,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { labelForType } from '~/utils/nodeTypes'
 
 const props = defineProps({
   selected: { type: String, default: null },
@@ -35,14 +39,25 @@ defineEmits(['select'])
 
 const files = ref([])
 const loading = ref(true)
+// path → node type, from the graph. The badge shows what a note IS (note,
+// project, …), not where it happens to live — UI-created notes land at the
+// vault root and used to show no badge at all.
+const nodeByPath = ref({})
 
 const filtered = computed(() => {
   const q = props.query.trim().toLowerCase()
   if (!q) return files.value
-  return files.value.filter((f) => f.toLowerCase().includes(q))
+  return files.value.filter((f) => {
+    if (f.toLowerCase().includes(q)) return true
+    const node = nodeByPath.value[f]
+    if (node && node.title && node.title.toLowerCase().includes(q)) return true
+    return false
+  })
 })
 
 const displayName = (file) => {
+  const node = nodeByPath.value[file]
+  if (node && node.title) return node.title
   const base = file.split('/').pop() || file
   return base.replace(/\.md$/, '')
 }
@@ -52,14 +67,35 @@ const folderOf = (file) => {
   return idx === -1 ? '' : file.slice(0, idx)
 }
 
+const typeOf = (file) => nodeByPath.value[file]?.type || ''
+
+// Node type when the graph knows the file; folder as fallback while the
+// reconciler hasn't caught up with a brand-new note yet.
+const badgeFor = (file) => {
+  const t = typeOf(file)
+  return t ? labelForType(t) : folderOf(file)
+}
+
 const refresh = async () => {
   loading.value = true
   try {
-    // Flat disk-truth list so brand-new untagged notes have somewhere to appear.
-    const res = await fetch('/api/vault/list')
-    if (res.ok) {
-      const data = await res.json()
+    // Flat disk-truth list so brand-new untagged notes have somewhere to appear;
+    // the graph join enriches rows with their node type for the badge.
+    const [listRes, notesRes] = await Promise.all([
+      fetch('/api/vault/list'),
+      fetch('/api/vault/notes'),
+    ])
+    if (listRes.ok) {
+      const data = await listRes.json()
       files.value = data.files || []
+    }
+    if (notesRes.ok) {
+      const notes = await notesRes.json()
+      const map = {}
+      for (const n of notes || []) {
+        if (n.path) map[n.path] = n
+      }
+      nodeByPath.value = map
     }
   } catch (e) {
     console.error('Error fetching vault list', e)

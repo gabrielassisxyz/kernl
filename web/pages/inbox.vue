@@ -127,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue'
 import InboxHeader from '~/components/inbox/InboxHeader.vue'
 import InboxItem from '~/components/inbox/InboxItem.vue'
 import InboxHint from '~/components/inbox/InboxHint.vue'
@@ -151,7 +151,7 @@ interface ProcessedRow {
   at: string
 }
 
-interface ProcessPayload { target: Target; projectId: string; linkTo: string; title: string; targetNoteId?: string; acceptedHunks?: { id: string; content: string }[] }
+interface ProcessPayload { target: Target; projectId: string; linkTo: string; title: string; targetNoteId?: string; acceptedHunks?: { id: string; content: string }[]; suggestedTarget?: string; suggestedProjectId?: string }
 
 const { data, pending, refresh, error } = useFetch<InboxItemData[]>('/api/inbox/pending', { server: false, default: () => [] })
 const { data: processedData, refresh: refreshProcessed, error: processedError } = useFetch<ProcessedRow[]>('/api/inbox/processed', { server: false, default: () => [] })
@@ -252,7 +252,13 @@ async function confirmModal(payload: ProcessPayload) {
   }
   busy.value = true
   try {
-    await postProcess(item.id, payload)
+    // Echo the DA's original suggestion so the backend can learn from any
+    // override the user just made in the modal.
+    await postProcess(item.id, {
+      ...payload,
+      suggestedTarget: item.suggestedAction || '',
+      suggestedProjectId: item.suggestedProjectId || '',
+    })
     undoStack.value.push(item.id)
     await refreshProcessed()
     modalItem.value = null
@@ -393,9 +399,44 @@ function onKey(e: KeyboardEvent) {
   else if (e.key === 'x' || e.key === 'X') { if (item) toggleSelect(item.id) }
 }
 
+// ---- classification polling ----
+// The DA classifies captures in a background loop with no push channel, so poll
+// while any item is still awaiting a suggestion; stop once all are classified
+// or the tab is hidden, and resume on focus.
+const AWAITING = (i: InboxItemData) => !i.suggestedAction
+const hasPendingClassification = computed(() => items.value.some(AWAITING))
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+function startPolling() {
+  if (pollTimer || typeof document === 'undefined' || document.hidden) return
+  pollTimer = setInterval(async () => {
+    if (document.hidden || !hasPendingClassification.value) { stopPolling(); return }
+    await refresh()
+  }, 3000)
+}
+
+watch(hasPendingClassification, (pending) => {
+  if (pending) startPolling()
+  else stopPolling()
+})
+
+function onVisibility() {
+  if (document.hidden) stopPolling()
+  else if (hasPendingClassification.value) { refresh(); startPolling() }
+}
+
 onMounted(() => {
   loadProjects()
   window.addEventListener('keydown', onKey)
+  document.addEventListener('visibilitychange', onVisibility)
+  if (hasPendingClassification.value) startPolling()
 })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  document.removeEventListener('visibilitychange', onVisibility)
+  stopPolling()
+})
 </script>

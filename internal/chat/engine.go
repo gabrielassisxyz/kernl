@@ -116,9 +116,24 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 			if err := e.emitTokenEvent(resp.Content); err != nil {
 				return err
 			}
+			// Persist the assistant turn. Without this the session holds only
+			// user messages, and the state event emitted on the next SSE
+			// reconnect wipes every DA reply from the client.
+			cs.Messages = append(cs.Messages, nodes.ChatMessage{
+				Role:      "assistant",
+				Content:   resp.Content,
+				Timestamp: time.Now().UTC(),
+			})
+			if err := e.saveSession(ctx, cs); err != nil {
+				slog.Warn("persist assistant message", "error", err)
+			}
 		}
-		// U9: propose a learned memory from the just-completed exchange.
-		e.proposeLearnedCandidate(ctx, cs, resp.Content)
+
+		// Emit assistant_done so the frontend can unlock the input immediately.
+		_ = e.writeEvent(map[string]any{"event": "assistant_done"})
+
+		// U9: propose a learned memory from the just-completed exchange in the background.
+		go e.proposeLearnedCandidate(ctx, e.sessionID, resp.Content)
 		return e.emitDoneEvent()
 	}
 
@@ -293,17 +308,23 @@ type learnedCandidate struct {
 // exchange and, if it finds a durable preference/fact, emits a
 // `learned_candidate` event for the human-in-the-loop Keep/Edit/Discard card.
 //
-// Decision: this runs AFTER the response tokens are flushed but BEFORE `done`,
-// rather than in a detached goroutine. The SSE stream is owned by the request
-// handler and closes when RunSession returns, and the frontend tears down its
-// EventSource on `done` — so a truly async write would race a closed stream.
-// Emitting before `done` keeps the candidate on the same stream. The response
-// is never blocked because its tokens are already flushed, and every failure
-// here is swallowed so extraction can never break the chat.
-func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, cs *nodes.ChatSession, assistantContent string) {
+// Decision: runs detached so it never blocks the chat UI. If the user sends a
+// message while this runs, it safely appends the candidate to the persisted
+// session state via transaction.
+func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, sessionID string, assistantContent string) {
 	if strings.TrimSpace(assistantContent) == "" {
 		return
 	}
+
+	var cs *nodes.ChatSession
+	if err := e.app.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		cs, err = nodes.GetChatSession(context.Background(), tx, sessionID)
+		return err
+	}); err != nil {
+		return
+	}
+
 	lastUser := lastUserMessage(cs)
 	if lastUser == "" {
 		return
@@ -313,7 +334,9 @@ func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, cs *nodes.Chat
 		{Role: "system", Content: learnedExtractorPrompt},
 		{Role: "user", Content: fmt.Sprintf("User said: %q\nAssistant replied: %q", lastUser, assistantContent)},
 	}
-	resp, err := e.llmClient.Chat(ctx, msgs, nil)
+	// Use context.Background() because the request ctx might be canceled if the user
+	// navigates away or sends a new message closing the connection.
+	resp, err := e.llmClient.Chat(context.Background(), msgs, nil)
 	if err != nil {
 		slog.Warn("learned extraction", "error", err)
 		return
@@ -326,16 +349,38 @@ func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, cs *nodes.Chat
 	if isDiscardedCandidate(cs, cand.Statement) {
 		return
 	}
-	if err := e.emitLearnedCandidateEvent(cand.Subject, cand.Statement); err != nil {
-		slog.Warn("emit learned candidate", "error", err)
-	}
-}
 
-func (e *ChatEngine) emitLearnedCandidateEvent(subject, statement string) error {
-	return e.writeEvent(map[string]any{
-		"event":     "learned_candidate",
-		"subject":   subject,
-		"statement": statement,
+	// Update the session in a transaction to avoid racing with new user messages.
+	err = e.app.Graph.DoWrite(context.Background(), func(tx *graph.WriteTx) error {
+		latestCS, err := nodes.GetChatSession(context.Background(), tx.AsReadTx(), sessionID)
+		if err != nil {
+			return err
+		}
+		for i := len(latestCS.Messages) - 1; i >= 0; i-- {
+			if latestCS.Messages[i].Role == "assistant" && latestCS.Messages[i].Content == assistantContent {
+				latestCS.Messages[i].LearnedCandidate = &nodes.LearnedCandidateState{
+					Subject:   cand.Subject,
+					Statement: cand.Statement,
+				}
+				break
+			}
+		}
+		return nodes.SaveChatSession(context.Background(), tx, latestCS, nodes.Author{Name: "kernl"})
+	})
+
+	if err != nil {
+		slog.Warn("save learned candidate", "error", err)
+		return
+	}
+
+	// Try to emit state to the current stream. If the user sent a new message,
+	// this stream is likely closed, but that's fine—the new stream will pick it up from the DB.
+	_ = e.app.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		latest, err := nodes.GetChatSession(context.Background(), tx, sessionID)
+		if err == nil {
+			_ = e.emitStateEvent(latest)
+		}
+		return nil
 	})
 }
 

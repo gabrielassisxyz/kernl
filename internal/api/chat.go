@@ -165,11 +165,9 @@ func postLearnedCandidateHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 
-		// Confirm the session exists (and load it for the discard path).
-		var cs *nodes.ChatSession
+		// Confirm the session exists.
 		if err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
-			var err error
-			cs, err = nodes.GetChatSession(ctx, tx, id)
+			_, err := nodes.GetChatSession(ctx, tx, id)
 			return err
 		}); err != nil {
 			if errors.Is(err, graph.ErrNotFound) {
@@ -190,7 +188,13 @@ func postLearnedCandidateHandler(a *app.App) http.HandlerFunc {
 			}
 			var claimID string
 			if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-				var err error
+				// Clear the candidate from the session so the UI card goes away.
+				latestCS, err := nodes.GetChatSession(ctx, tx.AsReadTx(), id)
+				if err == nil {
+					clearLearnedCandidate(latestCS, statement)
+					_ = nodes.SaveChatSession(ctx, tx, latestCS, nodes.Author{Name: "kernl"})
+				}
+
 				claimID, err = memory.AddMemoryClaim(ctx, tx, id, body.Subject, statement)
 				return err
 			}); err != nil {
@@ -202,9 +206,15 @@ func postLearnedCandidateHandler(a *app.App) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]any{"status": "kept", "id": claimID})
 
 		case "discard":
-			cs.DiscardedCandidates = append(cs.DiscardedCandidates, strings.TrimSpace(body.Statement))
+			statement := strings.TrimSpace(body.Statement)
 			if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-				return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
+				latestCS, err := nodes.GetChatSession(ctx, tx.AsReadTx(), id)
+				if err != nil {
+					return err
+				}
+				latestCS.DiscardedCandidates = append(latestCS.DiscardedCandidates, statement)
+				clearLearnedCandidate(latestCS, statement)
+				return nodes.SaveChatSession(ctx, tx, latestCS, nodes.Author{Name: "kernl"})
 			}); err != nil {
 				slog.Error("learned: record discard", "error", err)
 				writeError(w, http.StatusInternalServerError, "failed to record discard")
@@ -215,6 +225,14 @@ func postLearnedCandidateHandler(a *app.App) http.HandlerFunc {
 
 		default:
 			writeError(w, http.StatusBadRequest, "action must be 'keep' or 'discard'")
+		}
+	}
+}
+
+func clearLearnedCandidate(cs *nodes.ChatSession, statement string) {
+	for i := range cs.Messages {
+		if cs.Messages[i].LearnedCandidate != nil && cs.Messages[i].LearnedCandidate.Statement == statement {
+			cs.Messages[i].LearnedCandidate = nil
 		}
 	}
 }

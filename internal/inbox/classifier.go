@@ -10,8 +10,10 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
+	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
 type Classifier struct {
@@ -132,6 +134,12 @@ func (c *Classifier) classify(ctx context.Context, text string, projects []*node
 		projectList.WriteString("(no projects exist yet)\n")
 	}
 
+	// Read the graph, not just the project titles: a capture often ties to a
+	// project only through a term buried in that project's notes (e.g. a
+	// sentinel word). Surface the notes matching the capture and, when a note
+	// links to a project, name that project so the model can attach the task.
+	relevant := c.relatedContext(ctx, text, projects)
+
 	prompt := fmt.Sprintf(`You triage a captured thought into the user's knowledge graph.
 
 Pick exactly one target:
@@ -143,10 +151,12 @@ Pick exactly one target:
 
 Projects:
 %s
+Related notes already in the knowledge base (match the capture against these — if one names a project, prefer that project_id):
+%s
 Respond with ONLY a JSON object, no prose: {"target": "...", "project_id": "..."}
 
 Capture:
-%s`, projectList.String(), text)
+%s`, projectList.String(), relevant, text)
 
 	resp, err := c.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
@@ -154,6 +164,45 @@ Capture:
 	}
 	target, projectID = parseClassification(resp.Content, projects)
 	return target, projectID, nil
+}
+
+// relatedContext searches the graph for notes matching the capture and, when a
+// matching note links to (or describes) a known project, records that project
+// alongside the note. This is the seam that lets a capture inherit a project
+// association from a term that lives only in the project's notes.
+func (c *Classifier) relatedContext(ctx context.Context, text string, projects []*nodes.Project) string {
+	notesFound, err := planning.BuildContext(ctx, c.graph, text, 6)
+	if err != nil || len(notesFound) == 0 {
+		return "(no related notes found)\n"
+	}
+
+	projectByID := make(map[string]string, len(projects))
+	for _, p := range projects {
+		projectByID[p.ID] = p.Title
+	}
+
+	var b strings.Builder
+	_ = c.graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		for _, n := range notesFound {
+			// Any outgoing edge to a known project (describes for companion
+			// notes, links_to for wikilinks) ties the note to that project.
+			var projectHint string
+			if outs, oerr := edges.Outgoing(ctx, tx, n.ID); oerr == nil {
+				for _, e := range outs {
+					if title, ok := projectByID[e.Dst]; ok {
+						projectHint = fmt.Sprintf(" [project: %s (%s)]", title, e.Dst)
+						break
+					}
+				}
+			}
+			fmt.Fprintf(&b, "- %s: %s%s\n", n.Title, n.Snippet, projectHint)
+		}
+		return nil
+	})
+	if b.Len() == 0 {
+		return "(no related notes found)\n"
+	}
+	return b.String()
 }
 
 // parseClassification extracts the target and project id from the model output,
