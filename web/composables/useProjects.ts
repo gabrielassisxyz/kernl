@@ -72,5 +72,25 @@ export function useProjects() {
     await load()
   }
 
-  return { projects, loading, error, load, create, setStatus }
+  async function update(
+    id: string,
+    patch: { title?: string; description?: string; status?: ProjectStatus }
+  ): Promise<void> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error(`PATCH /api/projects/${id} → ${res.status}`)
+    await load()
+  }
+
+  // Removes the project and its companion note; tasks stay, unassigned.
+  async function remove(id: string): Promise<void> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`DELETE /api/projects/${id} → ${res.status}`)
+    await load()
+  }
+
+  return { projects, loading, error, load, create, setStatus, update, remove }
 }

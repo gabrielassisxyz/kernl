@@ -76,4 +76,41 @@ func TestApplyHunksRejectsEmpty(t *testing.T) {
 	}
 }
 
+func TestApplyHunksRejectsPathTraversal(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "vault")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	a := &app.App{Config: &config.Config{Vault: config.VaultConfig{Root: root}}}
+	mux := http.NewServeMux()
+	api.RegisterNotesRoutes(mux, a)
+
+	outside := filepath.Join(base, "outside.md")
+	original := "outside vault\n"
+	if err := os.WriteFile(outside, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"path": "../outside.md",
+		"hunks": []notes.SuggestHunk{{
+			ID:      "escape",
+			From:    0,
+			To:      len(original),
+			Content: "modified outside vault\n",
+		}},
+	})
+	req := httptest.NewRequest("POST", "/api/notes/apply-hunks", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for traversal path, got %d: %s", w.Code, w.Body.String())
+	}
+	saved, _ := os.ReadFile(outside)
+	if string(saved) != original {
+		t.Fatalf("outside-vault file must be untouched, got %q", string(saved))
+	}
+}
+
 func contains(s, sub string) bool { return bytes.Contains([]byte(s), []byte(sub)) }

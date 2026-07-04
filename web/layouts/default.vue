@@ -123,7 +123,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 const route = useRoute()
 const daRelevantRoutes = new Set(['/chat', '/config/da'])
 const daOpen = ref(daRelevantRoutes.has(route.path))
-const currentTime = ref(new Date().toISOString().slice(0, 19).replace('T', ' '))
+const currentTime = ref('---- -- -- --:--:--')
 const userPreference = ref(false)
 const vaultLabel = ref('~/vault')
 

@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
+	"github.com/gabrielassisxyz/kernl/internal/suggestlog"
 )
 
 func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
@@ -218,6 +219,10 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		Title         string             `json:"title"`         // optional override
 		TargetNoteID  string             `json:"targetNoteId"`  // update only
 		AcceptedHunks []ingest.MergeHunk `json:"acceptedHunks"` // update only
+		// The DA's original suggestion, echoed back so we can learn from
+		// overrides. Empty when the client doesn't send it.
+		SuggestedTarget    string `json:"suggestedTarget"`
+		SuggestedProjectID string `json:"suggestedProjectId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -243,6 +248,21 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Learn from overrides: if the user accepted a different target or project
+	// than the DA suggested, record the pair for later prompt tuning.
+	if req.SuggestedTarget != "" && req.SuggestedTarget != req.Target {
+		_ = suggestlog.Log(vaultRoot, suggestlog.Edit{
+			Surface: "inbox", Field: "target",
+			Original: req.SuggestedTarget, Edited: req.Target, Context: id,
+		})
+	}
+	if req.Target == "task" && req.SuggestedProjectID != req.ProjectID {
+		_ = suggestlog.Log(vaultRoot, suggestlog.Edit{
+			Surface: "inbox", Field: "projectId",
+			Original: req.SuggestedProjectID, Edited: req.ProjectID, Context: id,
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")

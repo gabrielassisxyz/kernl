@@ -27,11 +27,18 @@ type ChatSession struct {
 	DiscardedCandidates []string
 }
 
+// LearnedCandidateState represents a durable memory extracted from the chat.
+type LearnedCandidateState struct {
+	Subject   string `json:"subject"`
+	Statement string `json:"statement"`
+}
+
 // ChatMessage is a single message in a chat session.
 type ChatMessage struct {
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
+	Role             string                 `json:"role"`
+	Content          string                 `json:"content"`
+	Timestamp        time.Time              `json:"timestamp"`
+	LearnedCandidate *LearnedCandidateState `json:"learned_candidate,omitempty"`
 }
 
 // PendingPermissionState represents a pending tool-call permission request.

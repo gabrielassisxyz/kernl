@@ -6,7 +6,7 @@ export interface SSEMessage {
 
 export interface SSEState {
   event: string;
-  messages?: { role: string; content: string }[];
+  messages?: { role: string; content: string; learned_candidate?: LearnedCandidate }[];
   pending_permission?: PermissionEvent;
 }
 
@@ -38,15 +38,17 @@ export interface DiffSuggestion {
 }
 
 export function useChatSession() {
-  const messages = ref<{ role: string; content: string }[]>([]);
+  const messages = ref<{ role: string; content: string; learned_candidate?: LearnedCandidate }[]>([]);
   const pendingPermission = ref<PermissionEvent | null>(null);
-  const learnedCandidate = ref<LearnedCandidate | null>(null);
   const diffSuggestion = ref<DiffSuggestion | null>(null);
   const error = ref<string | null>(null);
   const isStreaming = ref(false);
 
   let sessionId: string | null = null;
   let eventSource: EventSource | null = null;
+  // Index of the assistant message currently being streamed, so successive
+  // token events grow ONE message instead of pushing one message per token.
+  let streamingIndex: number | null = null;
 
   function ensureSession(): Promise<void> {
     if (sessionId) return Promise.resolve();
@@ -60,16 +62,25 @@ export function useChatSession() {
   function connectSSE(): void {
     if (eventSource) eventSource.close();
     if (!sessionId) return;
+    streamingIndex = null;
 
     eventSource = new EventSource(`/api/chat/sessions/${sessionId}/events`);
     eventSource.onmessage = (e: MessageEvent) => {
       const data: SSEState = JSON.parse(e.data);
       switch (data.event) {
         case 'token':
-          messages.value.push({ role: 'assistant', content: data.content || '' });
+          if (streamingIndex === null) {
+            messages.value.push({ role: 'assistant', content: data.content || '' });
+            streamingIndex = messages.value.length - 1;
+          } else {
+            messages.value[streamingIndex].content += data.content || '';
+          }
           break;
         case 'state':
+          // Authoritative replace: the server persists assistant turns too, so
+          // the state snapshot is the full transcript.
           messages.value = (data.messages || []).map((m) => ({ ...m }));
+          streamingIndex = null;
           if (data.pending_permission) {
             pendingPermission.value = data.pending_permission;
           }
@@ -82,11 +93,8 @@ export function useChatSession() {
             description: (data as unknown as PermissionEvent).description,
           };
           break;
-        case 'learned_candidate':
-          learnedCandidate.value = {
-            subject: (data as unknown as LearnedCandidate).subject || '',
-            statement: (data as unknown as LearnedCandidate).statement || '',
-          };
+        case 'assistant_done':
+          isStreaming.value = false;
           break;
         case 'diff': {
           const d = data as unknown as { noteId: string; notePath: string; hunks: SuggestHunk[] };
@@ -141,25 +149,37 @@ export function useChatSession() {
     connectSSE();
   }
 
-  async function keepCandidate(statement: string): Promise<void> {
-    const candidate = learnedCandidate.value;
-    if (!candidate || !sessionId) return;
-    learnedCandidate.value = null;
+  async function keepCandidate(subject: string, statement: string, originalStatement = statement): Promise<void> {
+    if (!sessionId) return;
+    const finalSubject = subject.trim();
+    const finalStatement = statement.trim();
+    if (!finalSubject || !finalStatement) return;
+
+    // Optimistic UI update: hide the card.
+    messages.value.forEach(m => {
+      if (m.learned_candidate && m.learned_candidate.statement === originalStatement) {
+        m.learned_candidate = undefined;
+      }
+    });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'keep', subject: candidate.subject, statement }),
+      body: JSON.stringify({ action: 'keep', subject: finalSubject, statement: finalStatement }),
     });
   }
 
-  async function discardCandidate(): Promise<void> {
-    const candidate = learnedCandidate.value;
-    if (!candidate || !sessionId) return;
-    learnedCandidate.value = null;
+  async function discardCandidate(statement: string): Promise<void> {
+    if (!sessionId) return;
+    // Optimistic UI update: hide the card
+    messages.value.forEach(m => {
+      if (m.learned_candidate && m.learned_candidate.statement === statement) {
+        m.learned_candidate = undefined;
+      }
+    });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'discard', statement: candidate.statement }),
+      body: JSON.stringify({ action: 'discard', statement }),
     });
   }
 
@@ -185,10 +205,23 @@ export function useChatSession() {
     diffSuggestion.value = null;
   }
 
+  // Drop the current session client-side; the next send creates a fresh one.
+  // The old session node stays in the graph (no delete endpoint yet).
+  function newConversation(): void {
+    eventSource?.close();
+    eventSource = null;
+    sessionId = null;
+    streamingIndex = null;
+    messages.value = [];
+    pendingPermission.value = null;
+    diffSuggestion.value = null;
+    error.value = null;
+    isStreaming.value = false;
+  }
+
   return {
     messages,
     pendingPermission,
-    learnedCandidate,
     diffSuggestion,
     error,
     isStreaming,
@@ -199,5 +232,6 @@ export function useChatSession() {
     applyDiff,
     dismissDiff,
     loadSession,
+    newConversation,
   };
 }

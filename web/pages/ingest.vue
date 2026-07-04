@@ -2,8 +2,43 @@
   <IngestHeader :totalCount="items.length" @trigger="handleTrigger" />
 
   <section class="flex-1 overflow-y-auto relative">
+    <!-- Intake: paste text or upload a file. Both feed the same review queue
+         below as the server-path trigger. -->
+    <div class="px-section py-section border-b border-border-hairline flex flex-col gap-base shrink-0">
+      <div class="bg-surface-overlay border border-border-default focus-within:border-primary/70 transition-colors p-component flex flex-col gap-2 relative rounded z-10">
+        <div class="flex items-start gap-3">
+          <span class="text-text-faint font-mono-data text-mono-data pt-[2px]">&gt;</span>
+          <textarea
+            ref="inputEl"
+            v-model="pasteText"
+            @keydown="onPasteKeydown"
+            rows="3"
+            autofocus
+            placeholder="Paste text to ingest — meeting notes, an article, a decision…"
+            class="w-full bg-transparent border-none text-text-primary font-mono-data text-mono-data focus:ring-0 resize-none p-0 placeholder:text-text-faint leading-relaxed outline-none"
+          ></textarea>
+          <span v-show="!pasteText" class="blinking-cursor absolute top-[18px] left-[32px] pointer-events-none font-mono-data text-mono-data h-[14px]">_</span>
+        </div>
+
+        <div class="flex items-center justify-between mt-1">
+          <div class="flex items-center gap-4 text-text-faint font-mono-data text-mono-data tracking-wide">
+            <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.csv,.xlsx,.txt,.png,.jpg,.jpeg,.py,.java,.kt,.md,text/*,image/*,application/pdf" class="hidden" @change="onFilePicked" />
+            <button class="hover:text-text-primary transition-colors flex items-center gap-1 outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded cursor-pointer" @click="fileInput?.click()">
+              <span class="material-symbols-outlined !text-[16px]">upload_file</span>
+              Upload files
+            </button>
+            <span v-if="uploadStatus" class="text-text-muted">{{ uploadStatus }}</span>
+          </div>
+          <div class="flex gap-4 text-text-faint font-mono-data text-mono-data tracking-wide">
+            <span class="hidden sm:inline">[SHIFT+ENTER] new line</span>
+            <span>[ENTER] save</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="flex flex-col">
-      <IngestItem 
+      <IngestItem
         v-for="(item, index) in items" 
         :key="item.ID" 
         :item="item" 
@@ -86,6 +121,70 @@ const { data, pending, refresh } = useFetch<IngestReviewData[]>('/api/ingest/que
 
 const items = computed(() => data.value || [])
 const selectedIndex = ref(0)
+
+// ---- intake: paste + upload ----
+const pasteText = ref('')
+const pasting = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
+const inputEl = ref<HTMLTextAreaElement | null>(null)
+const uploadStatus = ref('')
+
+const onPasteKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    submitPaste()
+  }
+}
+
+// Extraction runs in a detached goroutine on the server, so poll the queue for
+// a short window after intake until a new review item lands.
+async function pollQueueForGrowth(fromCount: number) {
+  const deadline = Date.now() + 15000
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 1500))
+    await refresh()
+    if (items.value.length > fromCount) return
+  }
+}
+
+const submitPaste = async () => {
+  const text = pasteText.value.trim()
+  if (!text || pasting.value) return
+  pasting.value = true
+  const before = items.value.length
+  try {
+    await $fetch('/api/ingest/paste', { method: 'POST', body: { text } })
+    pasteText.value = ''
+    await pollQueueForGrowth(before)
+  } catch (error) {
+    console.error('Failed to ingest pasted text', error)
+  } finally {
+    pasting.value = false
+  }
+}
+
+const onFilePicked = async (e: Event) => {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (!files || files.length === 0) return
+  uploadStatus.value = `Uploading ${files.length} file(s)…`
+  const before = items.value.length
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const form = new FormData()
+      form.append('file', file)
+      await $fetch('/api/ingest/upload', { method: 'POST', body: form })
+    }
+    uploadStatus.value = `Ingested ${files.length} file(s)`
+    await pollQueueForGrowth(before)
+  } catch (error) {
+    console.error('Failed to upload file(s)', error)
+    uploadStatus.value = 'Upload failed'
+  } finally {
+    input.value = '' // allow re-selecting the same files
+  }
+}
 
 interface MergeHunk { id: string; content: string }
 interface MergePlan { targetNoteId: string; targetTitle: string; currentBody: string; hunks: MergeHunk[] }
@@ -201,6 +300,9 @@ const submitTrigger = async () => {
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
+  const tg = e.target as HTMLElement | null
+  if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT')) return
+
   // Prevent defaults for app-wide shortcuts if necessary
   if (items.value.length === 0) {
     if (e.key === 't' || e.key === 'T') {
@@ -227,6 +329,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(() => {
+  inputEl.value?.focus()
   window.addEventListener('keydown', handleKeydown)
 })
 
@@ -234,3 +337,17 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>
+
+<style scoped>
+.blinking-cursor {
+  font-weight: bold;
+  font-size: 1.2em;
+  color: var(--color-text-muted);
+  animation: 1s blink step-end infinite;
+}
+
+@keyframes blink {
+  from, to { color: transparent; }
+  50% { color: var(--color-text-muted); }
+}
+</style>

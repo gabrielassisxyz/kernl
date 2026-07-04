@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -160,7 +161,11 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
-		fullPath := filepath.Join(root, req.Path)
+		fullPath, err := resolveVaultFilePath(root, req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		current, err := os.ReadFile(fullPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
@@ -185,4 +190,27 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "applied", "last_modified": newLastModified})
 	})
+}
+
+func resolveVaultFilePath(root, relPath string) (string, error) {
+	if strings.TrimSpace(relPath) == "" {
+		return "", fmt.Errorf("path is required")
+	}
+	cleanRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	cleanRel := filepath.Clean(filepath.FromSlash(relPath))
+	if filepath.IsAbs(cleanRel) || cleanRel == ".." || strings.HasPrefix(cleanRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path must stay within the vault")
+	}
+	fullPath, err := filepath.Abs(filepath.Join(cleanRoot, cleanRel))
+	if err != nil {
+		return "", err
+	}
+	rootRel, err := filepath.Rel(cleanRoot, fullPath)
+	if err != nil || rootRel == ".." || strings.HasPrefix(rootRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("path must stay within the vault")
+	}
+	return fullPath, nil
 }

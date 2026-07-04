@@ -11,7 +11,10 @@
         <span class="font-headline text-text-primary font-semibold">DA</span>
         <span class="font-mono-data text-mono-data text-text-muted bg-surface-container px-1.5 py-0.5 border border-border-hairline">scope · global</span>
       </div>
-      <UiIconButton icon="close" label="Close DA" @click="$emit('close')" />
+      <div class="flex items-center gap-1">
+        <UiIconButton icon="add" label="New conversation" @click="startNewConversation" />
+        <UiIconButton icon="close" label="Close DA" @click="$emit('close')" />
+      </div>
     </div>
 
     <div class="flex-1 overflow-y-auto p-section flex flex-col gap-section">
@@ -27,12 +30,19 @@
               <div class="flex items-center gap-2">
                 <span class="font-label-caps text-label-caps text-primary">Kernl DA</span>
               </div>
-              <div class="font-body text-body text-text-primary space-y-4">
-                <p>{{ msg.content }}</p>
-              </div>
+              <!-- DA replies are markdown; renderMarkdown sanitizes before v-html. -->
+              <div class="da-prose font-body text-body text-text-primary" v-html="renderMarkdown(msg.content)"></div>
+
+              <DaLearnedCard
+                v-if="msg.learned_candidate"
+                :subject="msg.learned_candidate.subject"
+                :statement="msg.learned_candidate.statement"
+                @keep="(statement, subject) => keepCandidate(subject, statement, msg.learned_candidate.statement)"
+                @discard="discardCandidate(msg.learned_candidate.statement)"
+              />
             </div>
           </template>
-          
+
           <template v-else>
             <div class="flex flex-col gap-base rounded border border-da-accent/30 bg-da-accent/10 px-base py-base">
               <span class="font-label-caps text-label-caps text-da-accent-text">You</span>
@@ -50,14 +60,6 @@
           <span class="inline-block w-[2px] h-[1.1em] bg-da-accent align-middle ml-[2px] animate-blink"></span>
         </div>
       </div>
-
-      <DaLearnedCard
-        v-if="learnedCandidate"
-        :subject="learnedCandidate.subject"
-        :statement="learnedCandidate.statement"
-        @keep="keepCandidate"
-        @discard="discardCandidate"
-      />
 
       <!-- DA-proposed note edit: the DA never writes; the user accepts or
            rejects each hunk here and only then does it touch the note. -->
@@ -89,11 +91,10 @@
     <div class="p-base border-t border-border-hairline bg-background">
       <div class="relative flex items-end bg-surface-overlay border border-border-hairline rounded focus-within:border-primary transition-colors p-2 gap-2">
         <textarea
-          v-model="daInput" 
+          v-model="daInput"
           @keydown.enter.prevent="handleSend"
-          :disabled="isStreaming"
-          class="w-full bg-transparent border-none focus:ring-0 text-body text-text-primary resize-none placeholder:text-text-faint custom-caret outline-none" 
-          placeholder="ask, instruct, or paste a directive…" 
+          class="w-full bg-transparent border-none focus:ring-0 text-body text-text-primary resize-none placeholder:text-text-faint custom-caret outline-none"
+          placeholder="ask, instruct, or paste a directive…"
           rows="3"
         ></textarea>
         <UiIconButton icon="arrow_upward" label="Send to DA" variant="primary" @click="handleSend" />
@@ -108,8 +109,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
+import { renderMarkdown } from '~/utils/renderMarkdown'
 import DaLearnedCard from '~/components/DaLearnedCard.vue'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
@@ -119,21 +121,25 @@ defineProps({
   isOpen: Boolean
 })
 
-const daGreeting = computed(() => {
+const daGreeting = ref('Hello, Gabriel.')
+
+const updateGreeting = () => {
   const h = new Date().getHours()
   const tod = h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening'
-  return `${tod}, Gabriel.`
-})
+  daGreeting.value = `${tod}, Gabriel.`
+}
+
+onMounted(updateGreeting)
 defineEmits(['close'])
 
 const daInput = ref('')
 const {
-  messages, error, isStreaming, learnedCandidate, diffSuggestion,
-  sendMessage, keepCandidate, discardCandidate, applyDiff, dismissDiff,
+  messages, error, isStreaming, diffSuggestion,
+  sendMessage, keepCandidate, discardCandidate, applyDiff, dismissDiff, newConversation,
 } = useChatSession()
 
 const handleSend = () => {
-  if (daInput.value.trim() && !isStreaming.value) {
+  if (daInput.value.trim()) {
     sendMessage(daInput.value)
     daInput.value = ''
   }
@@ -149,6 +155,11 @@ const diffNoteName = computed(() => {
 // currently proposes a single whole-body hunk, so this is accept-all / reject.)
 const acceptDiff = () => applyDiff(pendingHunks.value)
 const rejectDiff = () => dismissDiff()
+
+const startNewConversation = () => {
+  if (isStreaming.value) return
+  newConversation()
+}
 </script>
 
 <style scoped>
@@ -158,5 +169,75 @@ const rejectDiff = () => dismissDiff()
 }
 .animate-blink {
   animation: blink 1s step-end infinite;
+}
+
+/* Prose styling for rendered DA markdown (:deep — v-html content has no scope attr). */
+.da-prose :deep(p),
+.da-prose :deep(ul),
+.da-prose :deep(ol),
+.da-prose :deep(pre),
+.da-prose :deep(blockquote) {
+  margin: 0 0 0.75em;
+}
+.da-prose :deep(> *:last-child) {
+  margin-bottom: 0;
+}
+.da-prose :deep(ul),
+.da-prose :deep(ol) {
+  padding-left: 1.25em;
+  list-style: revert;
+}
+.da-prose :deep(h1),
+.da-prose :deep(h2),
+.da-prose :deep(h3),
+.da-prose :deep(h4) {
+  font-family: var(--font-headline);
+  color: var(--color-text-primary);
+  font-size: 1em;
+  font-weight: 600;
+  margin: 1em 0 0.4em;
+}
+.da-prose :deep(code) {
+  font-family: var(--font-mono-data);
+  font-size: 0.85em;
+  background-color: var(--color-surface-container-low);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.1em 0.35em;
+}
+.da-prose :deep(pre) {
+  background-color: var(--color-surface-container-low);
+  border: 1px solid var(--color-border-hairline);
+  border-radius: var(--radius-lg, 6px);
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.da-prose :deep(pre code) {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.da-prose :deep(blockquote) {
+  border-left: 2px solid var(--color-da-accent);
+  padding-left: 10px;
+  color: var(--color-text-muted);
+}
+.da-prose :deep(a) {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+.da-prose :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--color-border-hairline);
+  margin: 0.75em 0;
+}
+.da-prose :deep(table) {
+  border-collapse: collapse;
+  margin: 0 0 0.75em;
+}
+.da-prose :deep(th),
+.da-prose :deep(td) {
+  border: 1px solid var(--color-border-hairline);
+  padding: 4px 8px;
 }
 </style>

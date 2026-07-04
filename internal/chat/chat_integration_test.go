@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
@@ -24,14 +25,21 @@ import (
 
 // eventRecorder implements ChatEventWriter and captures SSE data for assertions.
 type eventRecorder struct {
+	mu  sync.Mutex
 	buf bytes.Buffer
 }
 
-func (e *eventRecorder) Write(p []byte) (int, error) { return e.buf.Write(p) }
-func (e *eventRecorder) Flush()                      {}
+func (e *eventRecorder) Write(p []byte) (int, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.buf.Write(p)
+}
+func (e *eventRecorder) Flush() {}
 
 func (e *eventRecorder) events() []map[string]any {
+	e.mu.Lock()
 	raw := e.buf.String()
+	e.mu.Unlock()
 	var out []map[string]any
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
@@ -71,12 +79,15 @@ func (alwaysDeny) CanRead(_ context.Context, _ string) (bool, DenialReason, erro
 
 // mockLLMClient is a deterministic stub for integration testing.
 type mockLLMClient struct {
+	mu        sync.Mutex
 	Responses []ChatResponse
 	CallIndex int
 	Messages  []Message
 }
 
 func (m *mockLLMClient) Chat(ctx context.Context, messages []Message, tools []Tool) (*ChatResponse, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Messages = append(m.Messages, messages...)
 	if m.CallIndex >= len(m.Responses) {
 		return &ChatResponse{Content: "No more responses."}, nil
@@ -86,6 +97,18 @@ func (m *mockLLMClient) Chat(ctx context.Context, messages []Message, tools []To
 	return &resp, nil
 }
 
+func (m *mockLLMClient) GetCallIndex() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.CallIndex
+}
+
+func (m *mockLLMClient) GetMessages() []Message {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.Messages
+}
+
 func newMockLLMClient(responses ...ChatResponse) *mockLLMClient {
 	return &mockLLMClient{Responses: responses}
 }
@@ -93,16 +116,25 @@ func newMockLLMClient(responses ...ChatResponse) *mockLLMClient {
 // contentThenErrLLMClient returns a fixed first response, then errors on every
 // subsequent call — used to prove the learned extractor's failure is swallowed.
 type contentThenErrLLMClient struct {
+	mu    sync.Mutex
 	first ChatResponse
 	calls int
 }
 
 func (c *contentThenErrLLMClient) Chat(_ context.Context, _ []Message, _ []Tool) (*ChatResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.calls++
 	if c.calls == 1 {
 		return &c.first, nil
 	}
 	return nil, fmt.Errorf("extractor boom")
+}
+
+func (c *contentThenErrLLMClient) GetCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
 }
 
 func newTestApp(t *testing.T) *app.App {
@@ -253,7 +285,7 @@ func TestChatTelosInjected(t *testing.T) {
 	// The DA system prompt comes first, then the always-on Telos block, then the
 	// conversation. Assert the Telos content reached the model.
 	var systemBlob string
-	for _, m := range mock.Messages {
+	for _, m := range mock.GetMessages() {
 		if m.Role == "system" {
 			systemBlob += m.Content + "\n"
 		}
@@ -283,14 +315,14 @@ func TestChatNoTelosNoExtraSystemMessage(t *testing.T) {
 	}
 
 	// With no telos notes, context building is unchanged: system prompt then user.
-	if len(mock.Messages) < 2 {
-		t.Fatalf("expected at least 2 messages, got %d", len(mock.Messages))
+	if len(mock.GetMessages()) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(mock.GetMessages()))
 	}
-	if mock.Messages[0].Role != "system" || mock.Messages[0].Content != "You are a test assistant." {
-		t.Errorf("first message = {role=%q content=%q}, want the DA system prompt", mock.Messages[0].Role, mock.Messages[0].Content)
+	if mock.GetMessages()[0].Role != "system" || mock.GetMessages()[0].Content != "You are a test assistant." {
+		t.Errorf("first message = {role=%q content=%q}, want the DA system prompt", mock.GetMessages()[0].Role, mock.GetMessages()[0].Content)
 	}
-	if mock.Messages[1].Role != "user" {
-		t.Errorf("second message role = %q, want user (no empty Telos system noise)", mock.Messages[1].Role)
+	if mock.GetMessages()[1].Role != "user" {
+		t.Errorf("second message role = %q, want user (no empty Telos system noise)", mock.GetMessages()[1].Role)
 	}
 }
 
@@ -420,15 +452,15 @@ func TestScopeDerivation(t *testing.T) {
 		t.Fatalf("RunSession: %v", err)
 	}
 
-	if len(mock.Messages) < 2 {
-		t.Fatalf("expected at least 2 messages, got %d", len(mock.Messages))
+	if len(mock.GetMessages()) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(mock.GetMessages()))
 	}
-	if mock.Messages[0].Role != "system" {
-		t.Errorf("first message role = %q, want system", mock.Messages[0].Role)
+	if mock.GetMessages()[0].Role != "system" {
+		t.Errorf("first message role = %q, want system", mock.GetMessages()[0].Role)
 	}
-	if mock.Messages[1].Role != "user" || mock.Messages[1].Content != "show the scoped note" {
+	if mock.GetMessages()[1].Role != "user" || mock.GetMessages()[1].Content != "show the scoped note" {
 		t.Errorf("second message = {role=%q content=%q}, want {role=user content='show the scoped note'}",
-			mock.Messages[1].Role, mock.Messages[1].Content)
+			mock.GetMessages()[1].Role, mock.GetMessages()[1].Content)
 	}
 }
 
@@ -462,14 +494,14 @@ func TestDAIdentityApplied(t *testing.T) {
 	}
 
 	// Verify the mock received the DA system prompt as the first message.
-	if len(mock.Messages) == 0 {
+	if len(mock.GetMessages()) == 0 {
 		t.Fatal("no messages recorded by mock")
 	}
-	if mock.Messages[0].Role != "system" {
-		t.Errorf("first message role = %q, want system", mock.Messages[0].Role)
+	if mock.GetMessages()[0].Role != "system" {
+		t.Errorf("first message role = %q, want system", mock.GetMessages()[0].Role)
 	}
-	if mock.Messages[0].Content != "You are custom test assistant." {
-		t.Errorf("system prompt = %q, want 'You are custom test assistant.'", mock.Messages[0].Content)
+	if mock.GetMessages()[0].Content != "You are custom test assistant." {
+		t.Errorf("system prompt = %q, want 'You are custom test assistant.'", mock.GetMessages()[0].Content)
 	}
 }
 
@@ -578,16 +610,6 @@ func TestChatConcurrentSessions(t *testing.T) {
 	}
 }
 
-// learnedCandidateEvent returns the first learned_candidate event, or nil.
-func (e *eventRecorder) learnedCandidateEvent() map[string]any {
-	for _, evt := range e.events() {
-		if evt["event"] == "learned_candidate" {
-			return evt
-		}
-	}
-	return nil
-}
-
 func TestLearnedCandidateEmittedForDurableTurn(t *testing.T) {
 	a := newTestApp(t)
 	seedDAIdentity(t, a)
@@ -608,15 +630,29 @@ func TestLearnedCandidateEmittedForDurableTurn(t *testing.T) {
 		t.Fatalf("RunSession: %v", err)
 	}
 
-	evt := rec.learnedCandidateEvent()
-	if evt == nil {
-		t.Fatalf("expected learned_candidate event, got buffer: %s", rec.buf.String())
+	var lc *nodes.LearnedCandidateState
+	for i := 0; i < 50; i++ {
+		cs := getSession(t, a, sessionID)
+		for _, msg := range cs.Messages {
+			if msg.Role == "assistant" && msg.LearnedCandidate != nil {
+				lc = msg.LearnedCandidate
+				break
+			}
+		}
+		if lc != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if evt["statement"] != "Prefers Google Meet over Zoom." {
-		t.Errorf("statement = %v, want the extracted preference", evt["statement"])
+
+	if lc == nil {
+		t.Fatalf("expected learned_candidate to be saved, got buffer: %s", rec.buf.String())
 	}
-	if evt["subject"] != "tools" {
-		t.Errorf("subject = %v, want tools", evt["subject"])
+	if lc.Statement != "Prefers Google Meet over Zoom." {
+		t.Errorf("statement = %v, want the extracted preference", lc.Statement)
+	}
+	if lc.Subject != "tools" {
+		t.Errorf("subject = %v, want tools", lc.Subject)
 	}
 }
 
@@ -639,8 +675,19 @@ func TestLearnedCandidateSuppressedForTransactionalTurn(t *testing.T) {
 		t.Fatalf("RunSession: %v", err)
 	}
 
-	if rec.hasEventType("learned_candidate") {
-		t.Errorf("did not expect a learned_candidate for a transactional turn: %s", rec.buf.String())
+	for i := 0; i < 50; i++ {
+		if mock.GetCallIndex() == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	cs := getSession(t, a, sessionID)
+	for _, msg := range cs.Messages {
+		if msg.Role == "assistant" && msg.LearnedCandidate != nil {
+			t.Errorf("did not expect a learned_candidate for a transactional turn, but found one")
+		}
 	}
 	if !rec.hasEventType("done") {
 		t.Error("expected done event")
@@ -675,8 +722,19 @@ func TestLearnedCandidateSuppressedWhenPreviouslyDiscarded(t *testing.T) {
 		t.Fatalf("RunSession: %v", err)
 	}
 
-	if rec.hasEventType("learned_candidate") {
-		t.Errorf("a previously discarded candidate must not be re-proposed: %s", rec.buf.String())
+	for i := 0; i < 50; i++ {
+		if mock.GetCallIndex() == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	cs = getSession(t, a, sessionID)
+	for _, msg := range cs.Messages {
+		if msg.Role == "assistant" && msg.LearnedCandidate != nil {
+			t.Errorf("a previously discarded candidate must not be re-proposed")
+		}
 	}
 }
 
@@ -703,8 +761,19 @@ func TestLearnedExtractionFailureDoesNotBreakChat(t *testing.T) {
 	if !rec.hasEventType("done") {
 		t.Error("expected done event despite extractor failure")
 	}
-	if rec.hasEventType("learned_candidate") {
-		t.Error("a failed extraction must not emit a candidate")
+	for i := 0; i < 50; i++ {
+		if client.GetCalls() == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	cs := getSession(t, a, sessionID)
+	for _, msg := range cs.Messages {
+		if msg.Role == "assistant" && msg.LearnedCandidate != nil {
+			t.Errorf("a failed extraction must not save a candidate")
+		}
 	}
 }
 
@@ -807,5 +876,51 @@ func TestChatSuggestNoteEditEmitsDiff(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(a.Config.Vault.Root, rel))
 	if string(after) != file {
 		t.Errorf("suggest_note_edit must not write the file; got:\n%s", after)
+	}
+}
+
+// Assistant turns must be persisted on the session node. Before this, only
+// user messages survived, so the state event emitted on every SSE reconnect
+// erased all DA replies from the client (UAT DA1: second message wiped the
+// first response).
+func TestChatAssistantMessagePersisted(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "hello", "")
+
+	mock := newMockLLMClient(ChatResponse{Content: "Hi there!"})
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine: %v", err)
+	}
+	if err := engine.RunSession(context.Background()); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	cs := getSession(t, a, sessionID)
+	if len(cs.Messages) != 2 {
+		t.Fatalf("expected 2 persisted messages (user + assistant), got %d", len(cs.Messages))
+	}
+	last := cs.Messages[len(cs.Messages)-1]
+	if last.Role != "assistant" || last.Content != "Hi there!" {
+		t.Errorf("expected persisted assistant reply, got role=%q content=%q", last.Role, last.Content)
+	}
+
+	// A reconnect's state event must now carry the full transcript.
+	rec2 := &eventRecorder{}
+	engine2, err := NewChatEngine(a, sessionID, rec2, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatalf("NewChatEngine reconnect: %v", err)
+	}
+	_ = engine2.RunSession(context.Background())
+	for _, ev := range rec2.events() {
+		if ev["event"] == "state" {
+			msgs, _ := ev["messages"].([]any)
+			if len(msgs) < 2 {
+				t.Errorf("state event on reconnect should carry user+assistant, got %v", ev["messages"])
+			}
+		}
 	}
 }

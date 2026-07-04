@@ -26,7 +26,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, useId, watch } from 'vue'
 
 type ModalSize = 'sm' | 'md' | 'lg' | 'xl'
 type ModalAlign = 'center' | 'top'
@@ -49,7 +49,7 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{ (e: 'close'): void }>()
-const titleId = `ui-modal-title-${Math.random().toString(36).slice(2)}`
+const titleId = `ui-modal-title-${useId()}`
 
 const dialogRef = ref<HTMLDialogElement | null>(null)
 

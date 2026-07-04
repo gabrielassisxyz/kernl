@@ -6,10 +6,10 @@
 
 import type { CompletionContext, CompletionResult } from '@codemirror/autocomplete'
 import { autocompletion } from '@codemirror/autocomplete'
+import { RangeSetBuilder, StateEffect } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
-  MatchDecorator,
   ViewPlugin,
   type DecorationSet,
   type ViewUpdate,
@@ -97,56 +97,79 @@ export function wikilinkAutocomplete() {
 // group 2 = optional alias.
 const PILL_RE = /\[\[([^\]\n|]+)(?:\|([^\]\n]*))?\]\]/g
 
-// Build decorations for one match: a pill background over the whole link, a
-// de-emphasis mark over the "[[uuid|" prefix and the trailing "]]", and an
-// emphasised mark over the alias so it reads cleanly. Mark decorations (not a
-// replace widget) keep every character editable — clicking in and arrow keys
-// behave normally, which is the robust choice the brief asks for.
-function decorateMatch(
-  add: (from: number, to: number, deco: Decoration) => void,
-  from: number,
-  to: number,
-  match: RegExpExecArray,
-) {
-  const target = match[1]
-  const hasAlias = match[2] !== undefined
-  const aliasStart = hasAlias ? from + 2 + target.length + 1 : from + 2
-  const aliasEnd = to - 2
+// Dispatched when the caller's resolver data (known node ids/titles) arrives
+// after the editor mounted, so pills re-style without waiting for an edit.
+export const wikilinkResolverUpdated = StateEffect.define<void>()
 
-  // Ranges must reach the RangeSetBuilder sorted by `from`. All four are marks
-  // (startSide 5e8), so document order is enough: whole-link wrapper, then the
-  // opening "[[uuid|", the alias, and the closing "]]".
+// isResolved: returns whether a wikilink target points at an existing node.
+// Undefined predicate = unknown; style everything as resolved (no false alarms
+// while the lookup is still loading).
+export type WikilinkResolver = (target: string) => boolean
 
-  // Whole-link wrapper (hover target + click navigation via data-wl-target).
-  add(
-    from,
-    to,
-    Decoration.mark({ class: 'cm-wl-pill', attributes: { 'data-wl-target': target } }),
-  )
-  // The structural "[[" + (uuid + "|") part — concealed until hover.
-  add(from, aliasStart, Decoration.mark({ class: 'cm-wl-bracket' }))
-  // The alias (or, for [[target]], the target itself) — shown in the link accent.
-  add(aliasStart, aliasEnd, Decoration.mark({ class: 'cm-wl-alias' }))
-  // The closing "]]" — concealed until hover.
-  add(aliasEnd, to, Decoration.mark({ class: 'cm-wl-bracket' }))
+// Build decorations for the visible ranges. Mark decorations (not a replace
+// widget) keep every character editable. Brackets are concealed unless the
+// selection touches the link (keyboard parity with mouse hover, which reveals
+// via CSS) — mirrors how markdownPreview reveals raw markers on the active line.
+function buildWikilinkDeco(view: EditorView, isResolved?: WikilinkResolver): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>()
+  const sel = view.state.selection.main
+  for (const range of view.visibleRanges) {
+    const text = view.state.doc.sliceString(range.from, range.to)
+    PILL_RE.lastIndex = 0
+    let match: RegExpExecArray | null
+    while ((match = PILL_RE.exec(text))) {
+      const from = range.from + match.index
+      const to = from + match[0].length
+      const target = match[1]
+      const hasAlias = match[2] !== undefined
+      const aliasStart = hasAlias ? from + 2 + target.length + 1 : from + 2
+      const aliasEnd = to - 2
+
+      const active = sel.from <= to && sel.to >= from
+      const unresolved = isResolved ? !isResolved(target) : false
+      let pillClass = 'cm-wl-pill'
+      if (active) pillClass += ' cm-wl-pill--active'
+      if (unresolved) pillClass += ' cm-wl-unresolved'
+
+      // Whole-link wrapper (hover target + click navigation via data-wl-target),
+      // then the "[[uuid|" prefix, the alias, and the closing "]]" — in document
+      // order, as RangeSetBuilder requires.
+      builder.add(from, to, Decoration.mark({ class: pillClass, attributes: { 'data-wl-target': target } }))
+
+      if (hasAlias) {
+        // Render [[
+        builder.add(from, from + 2, Decoration.mark({ class: 'cm-wl-bracket' }))
+        // Completely hide the target and the pipe (UUID|)
+        builder.add(from + 2, aliasStart, Decoration.replace({}))
+      } else {
+        // No alias, so aliasStart is from + 2. Just render [[
+        builder.add(from, aliasStart, Decoration.mark({ class: 'cm-wl-bracket' }))
+      }
+
+      builder.add(aliasStart, aliasEnd, Decoration.mark({ class: 'cm-wl-alias' }))
+      builder.add(aliasEnd, to, Decoration.mark({ class: 'cm-wl-bracket' }))
+    }
+  }
+  return builder.finish()
 }
-
-const wikilinkMatcher = new MatchDecorator({
-  regexp: PILL_RE,
-  decorate: (add, from, to, match) => decorateMatch(add, from, to, match),
-})
 
 // onPillClick: best-effort navigation hook. The plugin emits the clicked
 // target via this callback (wired to a Vue event in the component).
-export function wikilinkPills(onPillClick?: (target: string) => void) {
+export function wikilinkPills(onPillClick?: (target: string) => void, isResolved?: WikilinkResolver) {
   return ViewPlugin.fromClass(
     class {
       decorations: DecorationSet
       constructor(view: EditorView) {
-        this.decorations = wikilinkMatcher.createDeco(view)
+        this.decorations = buildWikilinkDeco(view, isResolved)
       }
       update(update: ViewUpdate) {
-        this.decorations = wikilinkMatcher.updateDeco(update, this.decorations)
+        const resolverArrived = update.transactions.some((tr) =>
+          tr.effects.some((e) => e.is(wikilinkResolverUpdated)),
+        )
+        // selectionSet: bracket reveal follows the keyboard cursor, not just hover.
+        if (update.docChanged || update.viewportChanged || update.selectionSet || resolverArrived) {
+          this.decorations = buildWikilinkDeco(update.view, isResolved)
+        }
       }
     },
     {
@@ -154,9 +177,8 @@ export function wikilinkPills(onPillClick?: (target: string) => void) {
       eventHandlers: {
         click(event: MouseEvent) {
           if (!onPillClick) return false
-          // Best-effort: ctrl/cmd-click a pill to navigate. Plain clicks still
-          // place the caret for editing.
-          if (!event.ctrlKey && !event.metaKey) return false
+          // Plain click navigates (the UAT-expected behaviour); the text stays
+          // editable via keyboard and by clicking just outside the pill.
           const el = (event.target as HTMLElement)?.closest('.cm-wl-pill') as HTMLElement | null
           const target = el?.getAttribute('data-wl-target')
           if (target) {
@@ -183,16 +205,25 @@ export const wikilinkTheme = EditorView.theme({
     transition: 'color 120ms ease',
   },
   '.cm-wl-pill:hover .cm-wl-alias': {
-    textDecoration: 'underline',
-    textUnderlineOffset: '2px',
+    filter: 'brightness(1.2) saturate(1.2)',
   },
-  // "[[", trailing "]]", and any "uuid|" — concealed until hover.
+  // "[[", trailing "]]", and any "uuid|" — concealed until hover OR until the
+  // keyboard selection touches the link (cm-wl-pill--active).
   '.cm-wl-bracket': {
     display: 'none',
     color: 'var(--color-text-dim)',
   },
-  '.cm-wl-pill:hover .cm-wl-bracket': {
+  '.cm-wl-pill:hover .cm-wl-bracket, .cm-wl-pill--active .cm-wl-bracket': {
     display: 'inline',
+  },
+  // Unresolved target: same hue, visibly desaturated, so a dangling link is
+  // distinguishable at a glance without shouting.
+  '.cm-wl-unresolved .cm-wl-alias': {
+    color: 'color-mix(in srgb, var(--color-node-note) 45%, var(--color-text-muted))',
+  },
+  '.cm-wl-unresolved:hover .cm-wl-alias': {
+    color: 'var(--color-node-note)',
+    filter: 'none',
   },
 
   // --- Completion popup, themed to the dark IBM-Plex editor ---
@@ -251,6 +282,6 @@ export const wikilinkTheme = EditorView.theme({
 })
 
 // Single extension bundle for the editor to drop into its extensions array.
-export function wikilinkExtensions(onPillClick?: (target: string) => void) {
-  return [wikilinkAutocomplete(), wikilinkPills(onPillClick), wikilinkTheme]
+export function wikilinkExtensions(onPillClick?: (target: string) => void, isResolved?: WikilinkResolver) {
+  return [wikilinkAutocomplete(), wikilinkPills(onPillClick, isResolved), wikilinkTheme]
 }
