@@ -37,7 +37,7 @@
                 v-if="msg.learned_candidate"
                 :subject="msg.learned_candidate.subject"
                 :statement="msg.learned_candidate.statement"
-                @keep="keepCandidate(msg.learned_candidate.subject, msg.learned_candidate.statement)"
+                @keep="(statement, subject) => keepCandidate(subject, statement, msg.learned_candidate.statement)"
                 @discard="discardCandidate(msg.learned_candidate.statement)"
               />
             </div>
@@ -92,7 +92,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
 import { renderMarkdown } from '~/utils/renderMarkdown'
 import DaLearnedCard from '~/components/DaLearnedCard.vue'
@@ -103,11 +103,15 @@ defineProps({
   isOpen: Boolean
 })
 
-const daGreeting = computed(() => {
+const daGreeting = ref('Hello, Gabriel.')
+
+const updateGreeting = () => {
   const h = new Date().getHours()
   const tod = h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening'
-  return `${tod}, Gabriel.`
-})
+  daGreeting.value = `${tod}, Gabriel.`
+}
+
+onMounted(updateGreeting)
 defineEmits(['close'])
 
 const daInput = ref('')

@@ -215,3 +215,91 @@ func TestMemoryAPI_Refute(t *testing.T) {
 		t.Errorf("expected 0 claims after refutation, got %v", len(res.Claims))
 	}
 }
+
+// A topic whose only claim has been refuted must disappear from the topics
+// list, matching the claims endpoint (UAT M3: empty "no active claims" topics).
+func TestMemoryAPI_TopicsExcludeFullyRefuted(t *testing.T) {
+	a, mux := setupMemoryTest(t)
+	ctx := context.Background()
+
+	var claimID string
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		id, err := nodes.CreateMemoryClaim(ctx, tx, nodes.MemoryClaim{
+			Statement: "to be refuted", Subject: "doomed-topic",
+		}, nodes.Author{Name: "system"})
+		claimID = id
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := memory.RefuteMemoryClaim(ctx, tx, claimID, "no longer true")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/topics", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	var res struct {
+		Topics []string `json:"topics"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	for _, tp := range res.Topics {
+		if tp == "doomed-topic" {
+			t.Errorf("fully-refuted topic must not appear, got %v", res.Topics)
+		}
+	}
+	found := false
+	for _, tp := range res.Topics {
+		if tp == "go-programming" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("live topic missing from %v", res.Topics)
+	}
+}
+
+// Users can author a claim directly; it lands with "user" provenance.
+func TestMemoryAPI_CreateUserClaim(t *testing.T) {
+	_, mux := setupMemoryTest(t)
+
+	body := bytes.NewBufferString(`{"subject":"writing-style","statement":"Prefers small diffs."}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/memory/claims", body)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/memory/claims?topic=writing-style", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	var res struct {
+		Claims []nodes.MemoryClaim `json:"claims"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Claims) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(res.Claims))
+	}
+	if res.Claims[0].Source != "user" {
+		t.Errorf("expected user provenance, got %q", res.Claims[0].Source)
+	}
+
+	for _, payload := range []string{`{"subject":"x"}`, `{"statement":"y"}`, `{}`} {
+		req = httptest.NewRequest(http.MethodPost, "/api/memory/claims", bytes.NewBufferString(payload))
+		w = httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("payload %s: expected 400, got %d", payload, w.Code)
+		}
+	}
+}

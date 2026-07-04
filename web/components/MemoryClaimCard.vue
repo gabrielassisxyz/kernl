@@ -17,7 +17,7 @@
     <!-- Provenance -->
     <div class="mt-component pt-component border-t border-border-hairline">
       <div class="flex items-center gap-component text-mono-data font-mono-data text-text-faint">
-        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-body">source</span> {{ claim.Source || claim.source || 'Unknown' }}</span>
+        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-body">source</span> {{ provenanceLabel }}</span>
         <span v-if="claim.Confidence || claim.confidence != null" class="flex items-center gap-1"><span class="material-symbols-outlined text-body">analytics</span> {{(claim.Confidence || claim.confidence) * 100}}%</span>
         <span>{{ claim.ID || claim.id }}</span>
         <span v-if="claim.CreatedAt || claim.createdAt">{{ formatDate(claim.CreatedAt || claim.createdAt) }}</span>
@@ -43,13 +43,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiInput from '~/components/ui/UiInput.vue'
 
 const props = defineProps<{
   claim: any
 }>()
+
+// Map the raw source attr to human-readable provenance.
+const provenanceLabel = computed(() => {
+  const src = (props.claim.Source || props.claim.source || '').toLowerCase()
+  if (src === 'user') return 'You'
+  if (src === 'da') return 'DA suggestion'
+  return src || 'Unknown'
+})
 
 const emit = defineEmits<{
   (e: 'refute', id: string, reason: string): void

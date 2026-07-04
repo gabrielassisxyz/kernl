@@ -150,4 +150,40 @@ describe('useChatSession', () => {
     // A new session must be created — sessionId was dropped.
     expect(mockFetch).toHaveBeenCalledWith('/api/chat/sessions', { method: 'POST' });
   });
+
+  it('keeps edited learned candidates and hides the original card', async () => {
+    mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'sess-8' }) });
+
+    const { sendMessage, messages, keepCandidate } = useChatSession();
+    await sendMessage('Remember this');
+
+    const sse = capturedEventSource!;
+    sse.onmessage!({
+      data: JSON.stringify({
+        event: 'state',
+        messages: [{
+          role: 'assistant',
+          content: 'I learned something.',
+          learned_candidate: {
+            subject: 'planning',
+            statement: 'Original claim.',
+          },
+        }],
+      }),
+    } as MessageEvent);
+
+    mockFetch.mockClear();
+    await keepCandidate('planning-style', 'Edited claim.', 'Original claim.');
+
+    expect(messages.value[0].learned_candidate).toBeUndefined();
+    expect(mockFetch).toHaveBeenCalledWith('/api/chat/sessions/sess-8/learned', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'keep',
+        subject: 'planning-style',
+        statement: 'Edited claim.',
+      }),
+    });
+  });
 });

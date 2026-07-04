@@ -128,18 +128,22 @@ export function useChatSession() {
     connectSSE();
   }
 
-  async function keepCandidate(subject: string, statement: string): Promise<void> {
+  async function keepCandidate(subject: string, statement: string, originalStatement = statement): Promise<void> {
     if (!sessionId) return;
-    // Optimistic UI update: hide the card
+    const finalSubject = subject.trim();
+    const finalStatement = statement.trim();
+    if (!finalSubject || !finalStatement) return;
+
+    // Optimistic UI update: hide the card.
     messages.value.forEach(m => {
-      if (m.learned_candidate && m.learned_candidate.statement === statement) {
+      if (m.learned_candidate && m.learned_candidate.statement === originalStatement) {
         m.learned_candidate = undefined;
       }
     });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'keep', subject, statement }),
+      body: JSON.stringify({ action: 'keep', subject: finalSubject, statement: finalStatement }),
     });
   }
 
