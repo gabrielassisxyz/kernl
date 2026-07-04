@@ -4,21 +4,35 @@
   <section class="flex-1 overflow-y-auto relative">
     <!-- Intake: paste text or upload a file. Both feed the same review queue
          below as the server-path trigger. -->
-    <div class="px-section pt-section flex flex-col gap-base">
-      <div class="rounded border border-border-hairline bg-surface-overlay focus-within:border-primary/70 transition-colors p-component flex flex-col gap-base">
-        <textarea
-          v-model="pasteText"
-          rows="3"
-          placeholder="Paste text to ingest — meeting notes, an article, a decision…"
-          class="w-full bg-transparent border-none text-body text-text-primary resize-y focus:ring-0 outline-none placeholder:text-text-faint"
-        ></textarea>
-        <div class="flex items-center justify-between gap-base">
-          <div class="flex items-center gap-base">
-            <input ref="fileInput" type="file" accept=".md,.txt,text/markdown,text/plain" class="hidden" @change="onFilePicked" />
-            <UiButton variant="ghost" size="sm" icon="upload_file" @click="fileInput?.click()">Upload .md / .txt</UiButton>
-            <span v-if="uploadStatus" class="font-mono-data text-mono-data text-text-muted">{{ uploadStatus }}</span>
+    <div class="px-section py-section border-b border-border-hairline flex flex-col gap-base shrink-0">
+      <div class="bg-surface-overlay border border-border-default focus-within:border-primary/70 transition-colors p-component flex flex-col gap-2 relative rounded z-10">
+        <div class="flex items-start gap-3">
+          <span class="text-text-faint font-mono-data text-mono-data pt-[2px]">&gt;</span>
+          <textarea
+            ref="inputEl"
+            v-model="pasteText"
+            @keydown="onPasteKeydown"
+            rows="3"
+            autofocus
+            placeholder="Paste text to ingest — meeting notes, an article, a decision…"
+            class="w-full bg-transparent border-none text-text-primary font-mono-data text-mono-data focus:ring-0 resize-none p-0 placeholder:text-text-faint leading-relaxed outline-none"
+          ></textarea>
+          <span v-show="!pasteText" class="blinking-cursor absolute top-[18px] left-[32px] pointer-events-none font-mono-data text-mono-data h-[14px]">_</span>
+        </div>
+        
+        <div class="flex items-center justify-between mt-1">
+          <div class="flex items-center gap-4 text-text-faint font-mono-data text-mono-data tracking-wide">
+            <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.csv,.xlsx,.txt,.png,.jpg,.jpeg,.py,.java,.kt,.md,text/*,image/*,application/pdf" class="hidden" @change="onFilePicked" />
+            <button class="hover:text-text-primary transition-colors flex items-center gap-1 outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded cursor-pointer" @click="fileInput?.click()">
+              <span class="material-symbols-outlined !text-[16px]">upload_file</span>
+              Upload files
+            </button>
+            <span v-if="uploadStatus" class="text-text-muted">{{ uploadStatus }}</span>
           </div>
-          <UiButton variant="primary" size="sm" :loading="pasting" :disabled="!pasteText.trim()" @click="submitPaste">Ingest text</UiButton>
+          <div class="flex gap-4 text-text-faint font-mono-data text-mono-data tracking-wide">
+            <span class="hidden sm:inline">[SHIFT+ENTER] new line</span>
+            <span>[ENTER] save</span>
+          </div>
         </div>
       </div>
     </div>
@@ -112,7 +126,15 @@ const selectedIndex = ref(0)
 const pasteText = ref('')
 const pasting = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const inputEl = ref<HTMLTextAreaElement | null>(null)
 const uploadStatus = ref('')
+
+const onPasteKeydown = (e: KeyboardEvent) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    submitPaste()
+  }
+}
 
 // Extraction runs in a detached goroutine on the server, so poll the queue for
 // a short window after intake until a new review item lands.
@@ -143,21 +165,24 @@ const submitPaste = async () => {
 
 const onFilePicked = async (e: Event) => {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  uploadStatus.value = `Uploading ${file.name}…`
+  const files = input.files
+  if (!files || files.length === 0) return
+  uploadStatus.value = `Uploading ${files.length} file(s)…`
   const before = items.value.length
   try {
-    const form = new FormData()
-    form.append('file', file)
-    await $fetch('/api/ingest/upload', { method: 'POST', body: form })
-    uploadStatus.value = `Ingested ${file.name}`
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const form = new FormData()
+      form.append('file', file)
+      await $fetch('/api/ingest/upload', { method: 'POST', body: form })
+    }
+    uploadStatus.value = `Ingested ${files.length} file(s)`
     await pollQueueForGrowth(before)
   } catch (error) {
-    console.error('Failed to upload file', error)
-    uploadStatus.value = 'Upload failed — only .md / .txt are supported'
+    console.error('Failed to upload file(s)', error)
+    uploadStatus.value = 'Upload failed'
   } finally {
-    input.value = '' // allow re-selecting the same file
+    input.value = '' // allow re-selecting the same files
   }
 }
 
@@ -275,6 +300,9 @@ const submitTrigger = async () => {
 }
 
 const handleKeydown = (e: KeyboardEvent) => {
+  const tg = e.target as HTMLElement | null
+  if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT')) return
+
   // Prevent defaults for app-wide shortcuts if necessary
   if (items.value.length === 0) {
     if (e.key === 't' || e.key === 'T') {
@@ -301,6 +329,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 }
 
 onMounted(() => {
+  inputEl.value?.focus()
   window.addEventListener('keydown', handleKeydown)
 })
 
@@ -308,3 +337,17 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
 })
 </script>
+
+<style scoped>
+.blinking-cursor {
+  font-weight: bold;
+  font-size: 1.2em;
+  color: var(--color-text-muted);
+  animation: 1s blink step-end infinite;
+}
+
+@keyframes blink {
+  from, to { color: transparent; }
+  50% { color: var(--color-text-muted); }
+}
+</style>
