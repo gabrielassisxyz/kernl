@@ -4,9 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/google/uuid"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/chat"
@@ -34,9 +41,120 @@ func RegisterIngestRoutes(mux *http.ServeMux, a *app.App) {
 	svc := ingest.NewService(a.Graph, mm, extractor)
 
 	mux.HandleFunc("POST /api/ingest/trigger", ingestTriggerHandler(svc))
+	mux.HandleFunc("POST /api/ingest/paste", ingestPasteHandler(svc, vaultRoot))
+	mux.HandleFunc("POST /api/ingest/upload", ingestUploadHandler(svc, vaultRoot))
 	mux.HandleFunc("GET /api/ingest/queue", ingestQueueListHandler(a))
 	mux.HandleFunc("POST /api/ingest/queue/{id}/resolve", ingestQueueResolveHandler(a))
 	mux.HandleFunc("POST /api/ingest/queue/{id}/merge-plan", ingestMergePlanHandler(a, llm))
+}
+
+// maxIngestBytes caps paste/upload size so a huge file can't stall extraction.
+const maxIngestBytes = 2 << 20 // 2 MiB
+
+// stageAndProcess writes raw ingest content to a staging file inside the vault
+// and runs it through the SAME ProcessFile pipeline as trigger, so paste and
+// upload share extraction, manifest dedup, and review creation. Processing is
+// detached (the request returns 202) because extraction can call the LLM.
+func stageAndProcess(svc *ingest.Service, vaultRoot string, content []byte) error {
+	if vaultRoot == "" {
+		return errors.New("no vault configured")
+	}
+	dir := filepath.Join(vaultRoot, ".kernl", "ingest-staging")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	staged := filepath.Join(dir, uuid.Must(uuid.NewV7()).String()+".md")
+	if err := os.WriteFile(staged, content, 0o644); err != nil {
+		return err
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		if err := svc.ProcessFile(ctx, staged, ""); err != nil {
+			slog.Error("ingest staged content failed", "error", err)
+		}
+	}()
+	return nil
+}
+
+func ingestPasteHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Title string `json:"title"`
+			Text  string `json:"text"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		text := strings.TrimSpace(body.Text)
+		if text == "" {
+			http.Error(w, "text is required", http.StatusBadRequest)
+			return
+		}
+		if len(text) > maxIngestBytes {
+			http.Error(w, "pasted content is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// A title, when given, becomes a leading H1 so the extractor can anchor on it.
+		content := text
+		if t := strings.TrimSpace(body.Title); t != "" {
+			content = "# " + t + "\n\n" + text
+		}
+
+		if err := stageAndProcess(svc, vaultRoot, []byte(content)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func ingestUploadHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(maxIngestBytes); err != nil {
+			http.Error(w, "could not parse upload", http.StatusBadRequest)
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "missing file field", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		ext := strings.ToLower(filepath.Ext(header.Filename))
+		if ext != ".md" && ext != ".txt" {
+			http.Error(w, "only .md and .txt files are supported", http.StatusUnsupportedMediaType)
+			return
+		}
+
+		content, err := io.ReadAll(io.LimitReader(file, maxIngestBytes+1))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if len(content) > maxIngestBytes {
+			http.Error(w, "file is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if len(strings.TrimSpace(string(content))) == 0 {
+			http.Error(w, "file is empty", http.StatusBadRequest)
+			return
+		}
+		if !utf8.Valid(content) {
+			http.Error(w, "file is not valid UTF-8 text", http.StatusBadRequest)
+			return
+		}
+
+		if err := stageAndProcess(svc, vaultRoot, content); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}
 }
 
 // buildIngestLLM constructs the configured LLM client, or returns nil when no

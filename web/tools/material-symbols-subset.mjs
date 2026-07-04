@@ -25,7 +25,7 @@ const ICONS = [
   'left_panel_open', 'link_off', 'lock', 'memory', 'neurology', 'open_in_new',
   'play_arrow', 'policy', 'progress_activity', 'queue', 'refresh', 'save', 'search',
   'settings', 'smart_toy', 'source', 'swap_vert', 'sync', 'tag', 'task_alt',
-  'terminal', 'text_fields', 'tune', 'view_kanban', 'view_list', 'visibility',
+  'terminal', 'text_fields', 'tune', 'upload_file', 'view_kanban', 'view_list', 'visibility',
   'warning',
 ]
 
