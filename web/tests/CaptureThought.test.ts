@@ -66,4 +66,10 @@ describe('CaptureThought', () => {
     await w.find('textarea').setValue('typing')
     expect(w.find('.blinking-cursor').attributes('style') || '').toContain('display: none')
   })
+
+  it('focuses the textarea on mount so the user can type immediately', () => {
+    const w = mount(CaptureThought, { attachTo: document.body })
+    expect(document.activeElement).toBe(w.find('textarea').element)
+    w.unmount()
+  })
 })
