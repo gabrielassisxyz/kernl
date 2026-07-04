@@ -1,6 +1,12 @@
 <template>
   <div class="notes-editor-pane" :style="styleVars">
-    <NoteEditorToolbar :sidebar-collapsed="sidebarCollapsed" @toggle-sidebar="$emit('toggle-sidebar')" />
+    <NoteEditorToolbar
+      :sidebar-collapsed="sidebarCollapsed"
+      :save-state="saveState"
+      @toggle-sidebar="$emit('toggle-sidebar')"
+      @save-manual="flushPendingSave"
+      @delete-note="$emit('delete-note')"
+    />
 
     <div
       ref="scrollEl"
@@ -51,11 +57,12 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state'
-import { EditorView, lineNumbers, Decoration } from '@codemirror/view'
+import { EditorView, lineNumbers, Decoration, keymap } from '@codemirror/view'
 import { markdown } from '@codemirror/lang-markdown'
-import { wikilinkExtensions } from '~/utils/wikilinkEditor'
+import { wikilinkExtensions, wikilinkResolverUpdated } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
 import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
 import { typewriterExtension } from '~/utils/typewriterMode'
@@ -93,9 +100,10 @@ const props = defineProps({
   sidebarCollapsed: Boolean,
 })
 
-// open-wikilink: emitted when a wikilink pill is ctrl/cmd-clicked.
+// open-wikilink: emitted when a wikilink pill is clicked.
 // toggle-sidebar: forwarded from the toolbar to the parent shell.
-const emit = defineEmits(['open-wikilink', 'toggle-sidebar'])
+// delete-note: forwarded from the toolbar; the page owns the confirm + call.
+const emit = defineEmits(['open-wikilink', 'toggle-sidebar', 'delete-note'])
 
 const { settings, styleVars } = useEditorSettings()
 
@@ -115,11 +123,53 @@ const frontmatterData = ref({})
 const frontmatterError = ref('')
 const rawContent = ref('')
 const isDirty = ref(false)
+const isSaving = ref(false)
 const conflict = ref(false)
 const lastModified = ref('')
 const activeHunks = ref([])
 const saveError = ref(false)
 let saveTimer = null
+// The path the current editor doc was loaded from. saveFile targets this, not
+// props.path: during a note switch props.path already points at the NEW note
+// while the outgoing doc still belongs to the old one.
+let loadedPath = ''
+
+const saveState = computed(() => {
+  if (conflict.value) return 'conflict'
+  if (isSaving.value) return 'saving'
+  if (isDirty.value) return 'dirty'
+  return 'saved'
+})
+
+// --- Wikilink resolution ---------------------------------------------------
+// Known node ids/titles/slugs so pills can style dangling links distinctly.
+// Loaded once per mount; while empty, isResolved is permissive (no false alarms).
+const knownTargets = { ids: new Set(), names: new Set(), loaded: false }
+
+const isWikilinkResolved = (target) => {
+  if (!knownTargets.loaded) return true
+  if (knownTargets.ids.has(target)) return true
+  return knownTargets.names.has(target.toLowerCase().replace(/\.md$/, ''))
+}
+
+const loadWikilinkTargets = async () => {
+  try {
+    const res = await fetch('/api/vault/notes')
+    if (!res.ok) return
+    const list = await res.json()
+    for (const n of list || []) {
+      if (n.id) knownTargets.ids.add(n.id)
+      if (n.title) knownTargets.names.add(String(n.title).toLowerCase())
+      if (n.path) {
+        const base = String(n.path).split('/').pop().replace(/\.md$/, '')
+        knownTargets.names.add(base.toLowerCase())
+      }
+    }
+    knownTargets.loaded = true
+    // Restyle pills now that resolution data exists.
+    view?.dispatch({ effects: wikilinkResolverUpdated.of() })
+  } catch (e) { /* best-effort styling; links keep the resolved look */ }
+}
 
 const syncFrontmatter = (text) => {
   try {
@@ -157,7 +207,7 @@ const reconfigure = () => {
 
 const loadFile = async (path) => {
   if (!path) return
-  const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`)
+  const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, { cache: 'no-cache' })
   if (res.ok) {
     const text = await res.text()
     rawContent.value = text
@@ -176,7 +226,8 @@ const loadFile = async (path) => {
         concealComp.of(concealExtFor(mode)),
         editableComp.of(editableExtFor(mode)),
         typewriterComp.of(typewriterExtFor(settings.typewriter)),
-        wikilinkExtensions((target) => emit('open-wikilink', target)),
+        wikilinkExtensions((target) => emit('open-wikilink', target), isWikilinkResolved),
+        keymap.of([{ key: 'Mod-s', run: () => { flushPendingSave(); return true }, preventDefault: true }]),
         EditorView.lineWrapping,
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
@@ -190,9 +241,11 @@ const loadFile = async (path) => {
 
     view = new EditorView({ state, parent: editorContainer.value })
 
+    loadedPath = path
     lastModified.value = res.headers.get('Last-Modified') || new Date().toISOString()
     isDirty.value = false
     saveError.value = false
+    conflict.value = false // a conflict belongs to the previously loaded path
   }
 }
 
@@ -205,7 +258,10 @@ const applyFrontmatterUpdate = (nextData) => {
   frontmatterData.value = nextData
 }
 
-watch(() => props.path, (newPath) => {
+watch(() => props.path, async (newPath) => {
+  // Flush the outgoing note before loading the next one — switching notes used
+  // to silently drop any edit still inside the autosave debounce window.
+  await flushPendingSave()
   loadFile(newPath)
 })
 
@@ -215,19 +271,28 @@ watch(
   () => reconfigure(),
 )
 
+// Flush edits when the tab is backgrounded or the page is torn down; keepalive
+// lets the request outlive the document.
+const onPageHide = () => { flushPendingSave({ keepalive: true }) }
+
 onMounted(() => {
   loadFile(props.path)
+  loadWikilinkTargets()
+  window.addEventListener('pagehide', onPageHide)
+})
+
+// Awaited flush for SPA navigations — unlike the unmount hook, a route guard
+// can hold navigation until the save round-trip completes.
+onBeforeRouteLeave(async () => {
+  await flushPendingSave()
 })
 
 onBeforeUnmount(() => {
-  // Flush any pending autosave before tearing down. A plain clearTimeout would
-  // silently discard edits made within the 5s debounce window. saveFile() must
-  // run before view.destroy() so view.state.doc still holds the outgoing content.
-  if (saveTimer && isDirty.value && view) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-    saveFile() // fire-and-forget; saves outgoing path + content
-  }
+  window.removeEventListener('pagehide', onPageHide)
+  // Backup flush for non-route teardowns. saveFile() captures the doc
+  // synchronously, so it must be invoked before view.destroy(); keepalive lets
+  // the request survive the component going away.
+  flushPendingSave({ keepalive: true })
   if (view) view.destroy()
 })
 
@@ -235,47 +300,77 @@ const scheduleSave = () => {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => {
     saveFile()
-  }, 5000)
+  }, 2000)
 }
 
-const saveFile = async () => {
-  if (!isDirty.value || conflict.value || !props.path) return
-
-  const content = view.state.doc.toString()
-
-  try {
-    const res = await fetch(`/api/notes/save?path=${encodeURIComponent(props.path)}`, {
-      method: 'POST',
-      headers: {
-        'If-Match': lastModified.value,
-        'Content-Type': 'text/plain',
-      },
-      body: content,
-    })
-
-    if (res.status === 409) {
-      conflict.value = true
-      return
-    }
-
-    if (res.ok) {
-      const data = await res.json()
-      lastModified.value = data.last_modified
-      isDirty.value = false
-      saveError.value = false
-    } else {
-      saveError.value = true
-    }
-  } catch (e) {
-    saveError.value = true
+// Cancel the debounce and persist immediately (Ctrl+S, note switch, navigation).
+const flushPendingSave = async ({ keepalive = false } = {}) => {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
   }
+  if (isDirty.value) await saveFile({ keepalive })
 }
 
-const resolveConflict = (action) => {
+let currentSavePromise = null
+
+const saveFile = async ({ keepalive = false } = {}) => {
+  if (!isDirty.value || conflict.value || !loadedPath || !view) return
+
+  if (currentSavePromise) {
+    await currentSavePromise
+    if (!isDirty.value || conflict.value || !loadedPath || !view) return
+  }
+
+  const path = loadedPath
+  const content = view.state.doc.toString()
+  const matchValue = lastModified.value
+  isSaving.value = true
+
+  const doSave = async () => {
+    try {
+      const res = await fetch(`/api/notes/save?path=${encodeURIComponent(path)}`, {
+        method: 'POST',
+        headers: {
+          'If-Match': matchValue,
+          'Content-Type': 'text/plain',
+        },
+        body: content,
+        keepalive,
+      })
+
+      if (res.status === 409) {
+        if (loadedPath === path) conflict.value = true
+        return
+      }
+
+      if (res.ok) {
+        const data = await res.json()
+        if (loadedPath === path) {
+          lastModified.value = data.last_modified
+          isDirty.value = false
+          saveError.value = false
+        }
+      } else {
+        if (loadedPath === path) saveError.value = true
+      }
+    } catch (e) {
+      if (loadedPath === path) saveError.value = true
+    } finally {
+      if (loadedPath === path) isSaving.value = false
+    }
+  }
+
+  currentSavePromise = doSave()
+  await currentSavePromise
+  currentSavePromise = null
+}
+
+const resolveConflict = async (action) => {
   conflict.value = false
   if (action === 'keep') {
     lastModified.value = ''
-    saveFile()
+    await saveFile()
   } else {
     loadFile(props.path)
   }

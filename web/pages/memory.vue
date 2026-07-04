@@ -143,14 +143,27 @@ watch(topics, (newTopics) => {
 }, { immediate: true })
 
 // Fetch claims based on selected topic — the API wraps as { claims: [...] }.
-const { data: claimsData, pending: claimsPending, refresh: refreshClaims, error: claimsError } = useFetch<{ claims: any[] }>('/api/memory/claims', {
+const { data: claimsData, pending: claimsPending, refresh: refreshClaimsRaw, error: claimsError } = useFetch<{ claims: any[] }>('/api/memory/claims', {
   server: false,
   query: computed(() => ({ topic: selectedTopic.value })),
   default: () => ({ claims: [] }),
-  watch: [selectedTopic]
+  immediate: false,
+  watch: false
 })
 
 const claims = computed(() => claimsData.value?.claims || [])
+
+const refreshClaims = async () => {
+  if (!selectedTopic.value) {
+    claimsData.value = { claims: [] }
+    return
+  }
+  await refreshClaimsRaw()
+}
+
+watch(selectedTopic, () => {
+  void refreshClaims()
+}, { immediate: true })
 
 const selectTopic = (topic: string) => {
   selectedTopic.value = topic
