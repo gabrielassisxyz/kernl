@@ -32,7 +32,7 @@
               </div>
               <!-- DA replies are markdown; renderMarkdown sanitizes before v-html. -->
               <div class="da-prose font-body text-body text-text-primary" v-html="renderMarkdown(msg.content)"></div>
-              
+
               <DaLearnedCard
                 v-if="msg.learned_candidate"
                 :subject="msg.learned_candidate.subject"
@@ -42,7 +42,7 @@
               />
             </div>
           </template>
-          
+
           <template v-else>
             <div class="flex flex-col gap-base rounded border border-da-accent/30 bg-da-accent/10 px-base py-base">
               <span class="font-label-caps text-label-caps text-da-accent-text">You</span>
@@ -61,6 +61,24 @@
         </div>
       </div>
 
+      <!-- DA-proposed note edit: the DA never writes; the user accepts or
+           rejects each hunk here and only then does it touch the note. -->
+      <div v-if="diffSuggestion" class="border border-da-accent/40 rounded bg-da-accent/[0.04] p-base flex flex-col gap-base">
+        <div class="flex items-center gap-2">
+          <span class="material-symbols-outlined !text-[16px] text-da-accent-text">edit_note</span>
+          <span class="font-mono-data text-mono-data text-da-accent-text">Proposed edit · {{ diffNoteName }}</span>
+        </div>
+        <div
+          v-for="hunk in pendingHunks"
+          :key="hunk.id"
+          class="rounded border border-border-hairline bg-surface p-2 font-mono-data text-mono-data text-status-passed whitespace-pre-wrap overflow-x-auto"
+        >+ {{ hunk.content }}</div>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="ghost" size="xs" @click="rejectDiff">Reject</UiButton>
+          <UiButton variant="primary" size="xs" @click="acceptDiff">Apply edit</UiButton>
+        </div>
+      </div>
+
       <UiErrorState
         v-if="error"
         bordered
@@ -73,11 +91,10 @@
     <div class="p-base border-t border-border-hairline bg-background">
       <div class="relative flex items-end bg-surface-overlay border border-border-hairline rounded focus-within:border-primary transition-colors p-2 gap-2">
         <textarea
-          v-model="daInput" 
+          v-model="daInput"
           @keydown.enter.prevent="handleSend"
-          
-          class="w-full bg-transparent border-none focus:ring-0 text-body text-text-primary resize-none placeholder:text-text-faint custom-caret outline-none" 
-          placeholder="ask, instruct, or paste a directive…" 
+          class="w-full bg-transparent border-none focus:ring-0 text-body text-text-primary resize-none placeholder:text-text-faint custom-caret outline-none"
+          placeholder="ask, instruct, or paste a directive…"
           rows="3"
         ></textarea>
         <UiIconButton icon="arrow_upward" label="Send to DA" variant="primary" @click="handleSend" />
@@ -92,10 +109,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useChatSession } from '~/composables/useChatSession'
 import { renderMarkdown } from '~/utils/renderMarkdown'
 import DaLearnedCard from '~/components/DaLearnedCard.vue'
+import UiButton from '~/components/ui/UiButton.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
 
@@ -115,7 +133,10 @@ onMounted(updateGreeting)
 defineEmits(['close'])
 
 const daInput = ref('')
-const { messages, error, isStreaming, sendMessage, keepCandidate, discardCandidate, newConversation } = useChatSession()
+const {
+  messages, error, isStreaming, diffSuggestion,
+  sendMessage, keepCandidate, discardCandidate, applyDiff, dismissDiff, newConversation,
+} = useChatSession()
 
 const handleSend = () => {
   if (daInput.value.trim()) {
@@ -123,6 +144,17 @@ const handleSend = () => {
     daInput.value = ''
   }
 }
+
+const pendingHunks = computed(() => diffSuggestion.value?.hunks || [])
+const diffNoteName = computed(() => {
+  const p = diffSuggestion.value?.notePath || ''
+  return (p.split('/').pop() || p).replace(/\.md$/, '')
+})
+
+// Apply every proposed hunk; reject drops the suggestion untouched. (The DA
+// currently proposes a single whole-body hunk, so this is accept-all / reject.)
+const acceptDiff = () => applyDiff(pendingHunks.value)
+const rejectDiff = () => dismissDiff()
 
 const startNewConversation = () => {
   if (isStreaming.value) return

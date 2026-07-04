@@ -190,8 +190,9 @@ onMounted(() => {
       userPreference.value = saved === '1'
     }
   }
-  
-  if (!daRelevantRoutes.has(route.path)) {
+  if (daRelevantRoutes.has(route.path)) {
+    daOpen.value = true
+  } else {
     daOpen.value = userPreference.value
   }
 

@@ -135,7 +135,7 @@ function buildWikilinkDeco(view: EditorView, isResolved?: WikilinkResolver): Dec
       // then the "[[uuid|" prefix, the alias, and the closing "]]" — in document
       // order, as RangeSetBuilder requires.
       builder.add(from, to, Decoration.mark({ class: pillClass, attributes: { 'data-wl-target': target } }))
-      
+
       if (hasAlias) {
         // Render [[
         builder.add(from, from + 2, Decoration.mark({ class: 'cm-wl-bracket' }))
@@ -145,7 +145,7 @@ function buildWikilinkDeco(view: EditorView, isResolved?: WikilinkResolver): Dec
         // No alias, so aliasStart is from + 2. Just render [[
         builder.add(from, aliasStart, Decoration.mark({ class: 'cm-wl-bracket' }))
       }
-      
+
       builder.add(aliasStart, aliasEnd, Decoration.mark({ class: 'cm-wl-alias' }))
       builder.add(aliasEnd, to, Decoration.mark({ class: 'cm-wl-bracket' }))
     }

@@ -22,9 +22,25 @@ export interface LearnedCandidate {
   statement: string;
 }
 
+export interface SuggestHunk {
+  id: string;
+  from: number;
+  to: number;
+  content: string;
+}
+
+// A note edit the DA proposed via the suggest_note_edit tool, awaiting the
+// user's accept/reject.
+export interface DiffSuggestion {
+  noteId: string;
+  notePath: string;
+  hunks: SuggestHunk[];
+}
+
 export function useChatSession() {
   const messages = ref<{ role: string; content: string; learned_candidate?: LearnedCandidate }[]>([]);
   const pendingPermission = ref<PermissionEvent | null>(null);
+  const diffSuggestion = ref<DiffSuggestion | null>(null);
   const error = ref<string | null>(null);
   const isStreaming = ref(false);
 
@@ -80,6 +96,11 @@ export function useChatSession() {
         case 'assistant_done':
           isStreaming.value = false;
           break;
+        case 'diff': {
+          const d = data as unknown as { noteId: string; notePath: string; hunks: SuggestHunk[] };
+          diffSuggestion.value = { noteId: d.noteId, notePath: d.notePath, hunks: d.hunks || [] };
+          break;
+        }
         case 'done':
           eventSource?.close();
           eventSource = null;
@@ -166,6 +187,24 @@ export function useChatSession() {
     ensureSession().then(connectSSE);
   }
 
+  // Apply the accepted hunks of a DA-proposed note edit. The DA only ever
+  // proposes; this user-initiated call is what actually writes the file.
+  async function applyDiff(acceptedHunks: SuggestHunk[]): Promise<void> {
+    const suggestion = diffSuggestion.value;
+    if (!suggestion) return;
+    diffSuggestion.value = null;
+    if (acceptedHunks.length === 0) return;
+    await fetch('/api/notes/apply-hunks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: suggestion.notePath, hunks: acceptedHunks }),
+    });
+  }
+
+  function dismissDiff(): void {
+    diffSuggestion.value = null;
+  }
+
   // Drop the current session client-side; the next send creates a fresh one.
   // The old session node stays in the graph (no delete endpoint yet).
   function newConversation(): void {
@@ -175,6 +214,7 @@ export function useChatSession() {
     streamingIndex = null;
     messages.value = [];
     pendingPermission.value = null;
+    diffSuggestion.value = null;
     error.value = null;
     isStreaming.value = false;
   }
@@ -182,12 +222,15 @@ export function useChatSession() {
   return {
     messages,
     pendingPermission,
+    diffSuggestion,
     error,
     isStreaming,
     sendMessage,
     resolvePermission,
     keepCandidate,
     discardCandidate,
+    applyDiff,
+    dismissDiff,
     loadSession,
     newConversation,
   };

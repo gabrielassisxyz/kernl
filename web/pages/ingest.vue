@@ -19,7 +19,7 @@
           ></textarea>
           <span v-show="!pasteText" class="blinking-cursor absolute top-[18px] left-[32px] pointer-events-none font-mono-data text-mono-data h-[14px]">_</span>
         </div>
-        
+
         <div class="flex items-center justify-between mt-1">
           <div class="flex items-center gap-4 text-text-faint font-mono-data text-mono-data tracking-wide">
             <input ref="fileInput" type="file" multiple accept=".pdf,.docx,.csv,.xlsx,.txt,.png,.jpg,.jpeg,.py,.java,.kt,.md,text/*,image/*,application/pdf" class="hidden" @change="onFilePicked" />

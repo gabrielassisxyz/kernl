@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -820,6 +822,60 @@ func TestChatSSEReconnectRestoresPendingPermission(t *testing.T) {
 	}
 	if !rec2.hasEventType("permission_required") {
 		t.Error("expected permission_required on reconnect")
+	}
+}
+
+// The suggest_note_edit tool must present the DA's proposed body as a `diff`
+// event (never writing), so the chat surface can offer accept/reject (UAT N4).
+func TestChatSuggestNoteEditEmitsDiff(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	ctx := context.Background()
+
+	// Seed a note WITH a file + note_paths row so the tool can locate it.
+	noteID := seedNote(t, a, "Atlas", "old body\n", nil)
+	rel := "atlas.md"
+	file := "---\nid: " + noteID + "\ntitle: Atlas\n---\n\nold body\n"
+	if err := os.WriteFile(filepath.Join(a.Config.Vault.Root, rel), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := tx.Exec(`INSERT INTO note_paths (uuid, path, content_hash, updated_at)
+			VALUES (?, ?, '', strftime('%Y-%m-%dT%H:%M:%SZ','now'))`, noteID, rel)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "add a paragraph to Atlas", "")
+
+	mock := newMockLLMClient(
+		ChatResponse{ToolCalls: []ToolCall{{
+			ID: "c1", Type: "function",
+			Function: ToolFunction{
+				Name:      "suggest_note_edit",
+				Arguments: fmt.Sprintf(`{"node_id":"%s","new_body":"old body\n\nnew paragraph.\n"}`, noteID),
+			},
+		}}},
+		ChatResponse{Content: "I've proposed the edit for your review."},
+	)
+	rec := &eventRecorder{}
+	engine, err := NewChatEngine(a, sessionID, rec, mock, alwaysAllow{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.RunSession(ctx); err != nil {
+		t.Fatalf("RunSession: %v", err)
+	}
+
+	if !rec.hasEventType("diff") {
+		t.Fatal("expected a diff event from suggest_note_edit")
+	}
+	// The file must be UNCHANGED — the tool only proposes.
+	after, _ := os.ReadFile(filepath.Join(a.Config.Vault.Root, rel))
+	if string(after) != file {
+		t.Errorf("suggest_note_edit must not write the file; got:\n%s", after)
 	}
 }
 

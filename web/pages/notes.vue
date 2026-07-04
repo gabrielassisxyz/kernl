@@ -225,7 +225,7 @@ const openWikilink = async (target) => {
       const title = target.replace(/\.md$/, '')
       const path = `${title}.md`
       const body = `---\ntitle: ${title}\ntags: []\n---\n\n# ${title}\n\n`
-      
+
       const createRes = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
