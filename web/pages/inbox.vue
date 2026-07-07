@@ -13,33 +13,103 @@
   </div>
 
   <div v-if="tab === 'unprocessed'" class="px-section pt-base">
-    <CaptureThought @submit="() => refresh()" />
+    <section class="bg-surface-overlay border border-border-default rounded overflow-hidden">
+      <div class="flex items-center justify-between gap-component px-component py-base border-b border-border-hairline">
+        <div class="flex items-center gap-base min-w-0">
+          <span class="material-symbols-outlined !text-body text-text-faint">inbox</span>
+          <h2 class="font-headline text-headline text-text-primary truncate">Capture</h2>
+        </div>
+        <div class="flex items-center gap-tight font-mono-data text-mono-data border border-border-hairline rounded overflow-hidden">
+          <button
+            v-for="m in entryModes" :key="m.key"
+            class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
+            :class="entryMode === m.key ? 'bg-surface-hover text-text-primary' : 'text-text-muted hover:text-text-primary'"
+            @click="entryMode = m.key"
+          >{{ m.label }}</button>
+        </div>
+      </div>
+      <div class="p-component">
+        <CaptureThought v-if="entryMode === 'quick'" embedded @submit="() => refresh()" />
+        <InboxBatchDump v-else @created="onBatchCreated" />
+      </div>
+    </section>
   </div>
 
   <section v-if="tab === 'unprocessed'" class="flex-1 overflow-y-auto relative">
     <div class="flex flex-col gap-base px-section py-base pb-[120px]">
-      <template v-for="(item, index) in items" :key="item.id">
-        <InboxItem
-          :item="item"
-          :suggestion="suggestionFor(item)"
-          :selected="selected.has(item.id)"
-          :isCursor="cursor === index"
-          :prepping="preppingId === item.id"
-          @select="cursor = index"
-          @toggleSelect="toggleSelect(item.id)"
-          @accept="accept(item)"
-          @edit="openModal(item)"
-          @discard="discard(item)"
-          @prep="triggerPrep(item)"
-          @peek="togglePeek(item)"
-        />
-        <div v-if="peekId === item.id" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
-          <div class="flex items-center gap-tight mb-tight">
-            <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
-            <button class="ml-auto font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
+      <template v-for="group in inboxGroups" :key="group.id">
+        <div v-if="group.kind === 'batch'" class="border border-border-hairline bg-surface rounded-lg overflow-hidden">
+          <div class="flex items-center gap-base px-component py-base border-b border-border-hairline">
+            <span class="font-mono-data text-mono-data px-tight border border-border-hairline text-text-faint bg-surface-container-low">BATCH</span>
+            <div class="flex flex-col flex-1 min-w-0">
+              <h3 class="font-headline text-text-primary truncate">{{ group.title }}</h3>
+              <p class="font-mono-data text-mono-data text-text-muted truncate">{{ group.source }} · {{ group.items.length }} captures</p>
+            </div>
+            <button class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="toggleBatchLog(group.id)">
+              {{ openBatchLogs.has(group.id) ? 'Hide compact log' : 'Compact log' }}
+            </button>
           </div>
-          <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
+          <div v-if="openBatchLogs.has(group.id)" class="px-component py-base border-b border-border-hairline bg-bg-base">
+            <div
+              v-for="item in group.items"
+              :key="`log-${item.id}`"
+              class="grid grid-cols-[44px_minmax(0,1fr)] gap-base py-tight font-body text-body"
+            >
+              <span class="font-mono-data text-mono-data text-text-faint">{{ itemBatchTime(item) || `#${(item.batchSequence ?? 0) + 1}` }}</span>
+              <span class="text-text-muted truncate">{{ item.subtitle || item.title }}</span>
+            </div>
+          </div>
+          <div class="flex flex-col gap-base p-base">
+            <template v-for="item in group.items" :key="item.id">
+              <InboxItem
+                :item="item"
+                :suggestion="suggestionFor(item)"
+                :selected="selected.has(item.id)"
+                :isCursor="cursor === itemIndex(item.id)"
+                :prepping="preppingId === item.id"
+                @select="cursor = itemIndex(item.id)"
+                @toggleSelect="toggleSelect(item.id)"
+                @accept="accept(item)"
+                @edit="openModal(item)"
+                @discard="discard(item)"
+                @prep="triggerPrep(item)"
+                @peek="togglePeek(item)"
+              />
+              <div v-if="peekId === item.id" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
+                <div class="flex items-center gap-tight mb-tight">
+                  <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
+                  <button class="ml-auto font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
+                </div>
+                <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
+              </div>
+            </template>
+          </div>
         </div>
+        <template v-else>
+          <InboxItem
+            v-for="item in group.items"
+            :key="item.id"
+            :item="item"
+            :suggestion="suggestionFor(item)"
+            :selected="selected.has(item.id)"
+            :isCursor="cursor === itemIndex(item.id)"
+            :prepping="preppingId === item.id"
+            @select="cursor = itemIndex(item.id)"
+            @toggleSelect="toggleSelect(item.id)"
+            @accept="accept(item)"
+            @edit="openModal(item)"
+            @discard="discard(item)"
+            @prep="triggerPrep(item)"
+            @peek="togglePeek(item)"
+          />
+          <div v-for="item in group.items" v-show="peekId === item.id" :key="`peek-${item.id}`" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
+            <div class="flex items-center gap-tight mb-tight">
+              <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
+              <button class="ml-auto font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
+            </div>
+            <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
+          </div>
+        </template>
       </template>
 
       <UiErrorState
@@ -132,6 +202,7 @@ import InboxHeader from '~/components/inbox/InboxHeader.vue'
 import InboxItem from '~/components/inbox/InboxItem.vue'
 import InboxHint from '~/components/inbox/InboxHint.vue'
 import CaptureThought from '~/components/CaptureThought.vue'
+import InboxBatchDump from '~/components/inbox/InboxBatchDump.vue'
 import ProcessModal from '~/components/inbox/ProcessModal.vue'
 import DiffSuggest from '~/components/notes/DiffSuggest.vue'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
@@ -151,7 +222,27 @@ interface ProcessedRow {
   at: string
 }
 
-interface ProcessPayload { target: Target; projectId: string; linkTo: string; title: string; targetNoteId?: string; acceptedHunks?: { id: string; content: string }[]; suggestedTarget?: string; suggestedProjectId?: string }
+interface ProcessPayload {
+  target: Target
+  projectId: string
+  linkTo: string
+  title: string
+  projectTitle?: string
+  projectDescription?: string
+  initialTasks?: string[]
+  targetNoteId?: string
+  acceptedHunks?: { id: string; content: string }[]
+  suggestedTarget?: string
+  suggestedProjectId?: string
+}
+
+interface InboxGroup {
+  id: string
+  kind: 'single' | 'batch'
+  title: string
+  source: string
+  items: InboxItemData[]
+}
 
 const { data, pending, refresh, error } = useFetch<InboxItemData[]>('/api/inbox/pending', { server: false, default: () => [] })
 const { data: processedData, refresh: refreshProcessed, error: processedError } = useFetch<ProcessedRow[]>('/api/inbox/processed', { server: false, default: () => [] })
@@ -166,6 +257,11 @@ const tabs = computed(() => [
   { key: 'unprocessed' as const, label: 'Unprocessed', count: items.value.length },
   { key: 'processed' as const, label: 'Processed', count: processed.value.length },
 ])
+const entryMode = ref<'quick' | 'batch'>('quick')
+const entryModes = [
+  { key: 'quick' as const, label: 'Quick capture' },
+  { key: 'batch' as const, label: 'Batch dump' },
+]
 
 const cursor = ref(0)
 const selected = reactive(new Set<string>())
@@ -184,10 +280,68 @@ function showToast(msg: string) {
 
 const projectTitle = (id?: string) => projects.value.find(p => p.id === id)?.title || ''
 
-function suggestionFor(item: InboxItemData): { target: Target; projectTitle: string } | null {
+function suggestionFor(item: InboxItemData): { target: Target; projectTitle: string; initialTaskCount?: number } | null {
   const target = normalizeTarget(item.suggestedAction)
   if (!target) return null
-  return { target, projectTitle: projectTitle(item.suggestedProjectId) }
+  return {
+    target,
+    projectTitle: item.suggestedProjectTitle || projectTitle(item.suggestedProjectId),
+    initialTaskCount: item.suggestedInitialTasks?.length || 0,
+  }
+}
+
+const openBatchLogs = reactive(new Set<string>())
+
+const inboxGroups = computed<InboxGroup[]>(() => {
+  const out: InboxGroup[] = []
+  const byBatch = new Map<string, InboxGroup>()
+  for (const item of items.value) {
+    if (!item.batchId) {
+      out.push({ id: item.id, kind: 'single', title: item.title, source: item.type || 'CAPTURE', items: [item] })
+      continue
+    }
+    let group = byBatch.get(item.batchId)
+    if (!group) {
+      group = {
+        id: item.batchId,
+        kind: 'batch',
+        title: item.batchContextTitle || 'Batch dump',
+        source: (item.batchSource || item.type || 'batch').toUpperCase(),
+        items: [],
+      }
+      byBatch.set(item.batchId, group)
+      out.push(group)
+    }
+    group.items.push(item)
+  }
+  for (const group of out) {
+    if (group.kind === 'batch') {
+      group.items.sort((a, b) => (a.batchSequence ?? 0) - (b.batchSequence ?? 0))
+    }
+  }
+  return out
+})
+const orderedItems = computed(() => inboxGroups.value.flatMap(group => group.items))
+
+function itemIndex(id: string): number {
+  const idx = orderedItems.value.findIndex(i => i.id === id)
+  return idx >= 0 ? idx : 0
+}
+
+function itemBatchTime(item: InboxItemData): string {
+  const match = (item.batchTimestamp || '').match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/)
+  return match ? match[0].slice(0, 5) : ''
+}
+
+function toggleBatchLog(id: string) {
+  if (openBatchLogs.has(id)) openBatchLogs.delete(id)
+  else openBatchLogs.add(id)
+}
+
+async function onBatchCreated(batchId: string) {
+  if (batchId) openBatchLogs.add(batchId)
+  await refresh()
+  showToast('Batch captures created')
 }
 
 // ---- processing ----
@@ -195,7 +349,7 @@ async function postProcess(id: string, payload: ProcessPayload) {
   await $fetch(`/api/inbox/${id}/process`, { method: 'POST', body: payload })
   if (data.value) data.value = data.value.filter(i => i.id !== id)
   selected.delete(id)
-  if (cursor.value >= items.value.length) cursor.value = Math.max(0, items.value.length - 1)
+  if (cursor.value >= orderedItems.value.length) cursor.value = Math.max(0, orderedItems.value.length - 1)
 }
 
 async function accept(item: InboxItemData, quiet = false) {
@@ -206,7 +360,15 @@ async function accept(item: InboxItemData, quiet = false) {
   if (s.target === 'update') { await startCaptureMerge(item); return }
   busy.value = true
   try {
-    await postProcess(item.id, { target: s.target, projectId: item.suggestedProjectId || '', linkTo: '', title: item.title })
+    await postProcess(item.id, {
+      target: s.target,
+      projectId: item.suggestedProjectId || '',
+      linkTo: '',
+      title: item.suggestedProjectTitle || item.title,
+      projectTitle: item.suggestedProjectTitle || item.title,
+      projectDescription: item.suggestedProjectDescription || item.subtitle || '',
+      initialTasks: item.suggestedInitialTasks || [],
+    })
     undoStack.value.push(item.id)
     await refreshProcessed()
     if (!quiet) showToast(`Processed: ${item.title}`)
@@ -389,10 +551,10 @@ function onKey(e: KeyboardEvent) {
   if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT')) return
   if (modalItem.value) return
   if (e.key === 'u' || e.key === 'U') { undo(); return }
-  if (tab.value !== 'unprocessed' || items.value.length === 0) return
-  const item = items.value[cursor.value]
-  if (e.key === 'ArrowDown') { e.preventDefault(); cursor.value = (cursor.value + 1) % items.value.length }
-  else if (e.key === 'ArrowUp') { e.preventDefault(); cursor.value = (cursor.value - 1 + items.value.length) % items.value.length }
+  if (tab.value !== 'unprocessed' || orderedItems.value.length === 0) return
+  const item = orderedItems.value[cursor.value]
+  if (e.key === 'ArrowDown') { e.preventDefault(); cursor.value = (cursor.value + 1) % orderedItems.value.length }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); cursor.value = (cursor.value - 1 + orderedItems.value.length) % orderedItems.value.length }
   else if (e.key === 'Enter') { if (item) suggestionFor(item) ? accept(item) : openModal(item) }
   else if (e.key === 'e' || e.key === 'E') { if (item) openModal(item) }
   else if (e.key === 'd' || e.key === 'D') { if (item) discard(item) }

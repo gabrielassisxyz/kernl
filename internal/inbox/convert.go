@@ -27,10 +27,15 @@ const mergedIntoLabel = "merged_into"
 // Target is the destination node kind; the other fields are optional refinements
 // supplied by the inbox modal (manual override) or the DA classifier.
 type ProcessRequest struct {
-	Target    string // "note" | "bookmark" | "task" | "discard" | "update" | "convert" (infer note/bookmark from body)
+	Target    string // "note" | "bookmark" | "task" | "project" | "discard" | "update" | "convert" (infer note/bookmark from body)
 	ProjectID string // task only: parent project (empty = unfiled, the "unprocessed tasks" bucket)
 	LinkTo    string // note/bookmark only: optional node to relate the result to
 	Title     string // optional title override (falls back to the capture title/body)
+	// Project only: optional metadata suggested by the classifier or edited by
+	// the user in the inbox modal.
+	ProjectTitle       string
+	ProjectDescription string
+	InitialTasks       []string
 
 	// Update only: the note to merge the capture into and the human-accepted
 	// merge hunks (reviewed in DiffSuggest). An empty TargetNoteID is resolved
@@ -41,8 +46,8 @@ type ProcessRequest struct {
 
 // resolveTargetType maps a UI/API action onto a concrete conversion target.
 // The single "convert" action infers note vs bookmark from the capture body
-// (a URL-looking body becomes a bookmark, everything else a note). "note",
-// "bookmark", "task", and "discard" pass through unchanged.
+// (a URL-looking body becomes a bookmark, everything else a note). Concrete
+// targets pass through unchanged.
 func resolveTargetType(action, body string) string {
 	if action == "convert" {
 		if looksLikeURL(body) {
@@ -68,8 +73,9 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 // ProcessCapture turns a pending capture into the node described by req and
 // triages the capture. note → vault markdown + Note node; bookmark → Bookmark
 // node (archived async); task → Task node optionally filed under a project via a
-// part_of edge; discard → no target. Every created target gets a derived_from
-// edge back to the capture for provenance (and undo).
+// part_of edge; project → Project node plus suggested initial tasks; discard →
+// no target. Every created target gets a derived_from edge back to the capture
+// for provenance (and undo).
 func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bookmarks.Archiver, captureID string, req ProcessRequest) error {
 	var capture *nodes.Capture
 	var prepID string
@@ -189,6 +195,43 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 					return fmt.Errorf("create part_of edge: %w", err)
 				}
 			}
+		case "project":
+			projectTitle := strings.TrimSpace(req.ProjectTitle)
+			if projectTitle == "" {
+				projectTitle = title
+			}
+			if projectTitle == "" {
+				projectTitle = "Capture Project"
+			}
+			projectDescription := strings.TrimSpace(req.ProjectDescription)
+			if projectDescription == "" {
+				projectDescription = capture.Body
+			}
+			projectID, err := nodes.CreateProject(ctx, tx, nodes.Project{
+				Title:       projectTitle,
+				Description: projectDescription,
+			}, author)
+			if err != nil {
+				return fmt.Errorf("create project: %w", err)
+			}
+			targetID = projectID
+			for _, taskTitle := range cleanProjectTaskTitles(req.InitialTasks) {
+				taskID, err := nodes.CreateTask(ctx, tx, nodes.Task{
+					Title:     taskTitle,
+					ProjectID: projectID,
+				}, author)
+				if err != nil {
+					return fmt.Errorf("create project task: %w", err)
+				}
+				if _, err := edges.Create(ctx, tx, edges.Edge{
+					Src:   taskID,
+					Dst:   projectID,
+					Label: "part_of",
+					Type:  edges.EdgeTypePartOf,
+				}, author); err != nil {
+					return fmt.Errorf("create project task part_of edge: %w", err)
+				}
+			}
 		case "update":
 			// Merge the accepted hunks into the existing note. Rejecting all
 			// hunks leaves the body untouched but still triages the capture.
@@ -300,4 +343,19 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 	}
 
 	return nil
+}
+
+func cleanProjectTaskTitles(tasks []string) []string {
+	out := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		task = strings.TrimSpace(task)
+		if task == "" {
+			continue
+		}
+		out = append(out, task)
+		if len(out) >= 6 {
+			break
+		}
+	}
+	return out
 }

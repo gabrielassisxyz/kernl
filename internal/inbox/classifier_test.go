@@ -89,9 +89,9 @@ func TestParseClassification(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotTarget, gotProject := parseClassification(tc.raw, projects)
-			if gotTarget != tc.wantTarget || gotProject != tc.wantProject {
-				t.Errorf("parseClassification(%q) = (%q, %q), want (%q, %q)", tc.raw, gotTarget, gotProject, tc.wantTarget, tc.wantProject)
+			got := parseClassification(tc.raw, projects)
+			if got.Target != tc.wantTarget || got.ProjectID != tc.wantProject {
+				t.Errorf("parseClassification(%q) = (%q, %q), want (%q, %q)", tc.raw, got.Target, got.ProjectID, tc.wantTarget, tc.wantProject)
 			}
 		})
 	}
@@ -135,7 +135,7 @@ func TestClassifyReadsGraphForProjectAssociation(t *testing.T) {
 	capturing := &promptCapturingLLM{onPrompt: func(p string) { seenPrompt = p }, reply: `{"target":"task","project_id":"` + projectID + `"}`}
 	c := NewClassifier(g, capturing, ClassifierOptions{})
 
-	target, gotProject, err := c.classify(ctx, "turn azimute-cobalto-17 into a task", []*nodes.Project{{ID: projectID, Title: "Atlas Verde"}})
+	got, err := c.classify(ctx, "turn azimute-cobalto-17 into a task", []*nodes.Project{{ID: projectID, Title: "Atlas Verde"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +145,62 @@ func TestClassifyReadsGraphForProjectAssociation(t *testing.T) {
 	if !strings.Contains(seenPrompt, projectID) {
 		t.Error("prompt should surface the note's project association")
 	}
-	if target != "task" || gotProject != projectID {
-		t.Errorf("expected task attached to %s, got (%q, %q)", projectID, target, gotProject)
+	if got.Target != "task" || got.ProjectID != projectID {
+		t.Errorf("expected task attached to %s, got (%q, %q)", projectID, got.Target, got.ProjectID)
+	}
+}
+
+func TestClassifyBatchKeepsRelatedMessagesTogether(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	result, err := CreateBatch(ctx, g, BatchInput{
+		RawText:      "[06/07/2026, 14:32] Me: Build an ai-memory explainer project\n[06/07/2026, 14:33] Me: Task: map the repo architecture\n[06/07/2026, 14:34] Me: Task: write usage examples",
+		Source:       "whatsapp",
+		SplitMode:    BatchSplitWhatsApp,
+		ContextTitle: "ai-memory planning",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var seenPrompt string
+	llm := &promptCapturingLLM{
+		onPrompt: func(p string) { seenPrompt = p },
+		reply: `{"items":[
+			{"sequence":0,"target":"project","project_title":"ai-memory explainer","project_description":"Explain ai-memory from the repo context.","initial_tasks":["Map the repo architecture","Write usage examples"]},
+			{"sequence":1,"target":"discard"},
+			{"sequence":2,"target":"discard"}
+		]}`,
+	}
+	classifier := NewClassifier(g, llm, ClassifierOptions{})
+	if err := classifier.processPending(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(seenPrompt, "Task: map the repo architecture") || !strings.Contains(seenPrompt, "Do not treat each line in isolation") {
+		t.Fatalf("batch prompt did not include related-message guidance:\n%s", seenPrompt)
+	}
+
+	var first *nodes.Capture
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		first, err = nodes.GetCapture(ctx, tx, result.IDs[0])
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if first.SuggestedAction != "project" {
+		t.Fatalf("first SuggestedAction = %q, want project", first.SuggestedAction)
+	}
+	if first.SuggestedProjectTitle != "ai-memory explainer" {
+		t.Fatalf("SuggestedProjectTitle = %q", first.SuggestedProjectTitle)
+	}
+	if len(first.SuggestedInitialTasks) != 2 {
+		t.Fatalf("SuggestedInitialTasks = %#v, want 2 tasks", first.SuggestedInitialTasks)
 	}
 }
 

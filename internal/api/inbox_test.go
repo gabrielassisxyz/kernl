@@ -150,6 +150,200 @@ func TestInboxPendingDTOShape(t *testing.T) {
 	}
 }
 
+func TestInboxBatchPreviewAndCreate(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	a := &app.App{Graph: g, Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}}}
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	body := `{"text":"[06/07/2026, 14:32] Me: Project idea\n[06/07/2026, 14:33] Me: Task idea","source":"whatsapp","splitMode":"whatsapp","contextTitle":"Planning dump"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/inbox/batch/analyze", bytes.NewBufferString(`{"text":"[06/07/2026, 14:32] Me: Project idea\n[06/07/2026, 14:33] Me: Task idea"}`))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("analyze returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var analysis struct {
+		Source                string           `json:"source"`
+		Separator             string           `json:"separator"`
+		SuggestedContextTitle string           `json:"suggestedContextTitle"`
+		Segments              []map[string]any `json:"segments"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &analysis); err != nil {
+		t.Fatalf("unmarshal analysis: %v", err)
+	}
+	if analysis.Source != "whatsapp" || analysis.Separator != "whatsapp" || analysis.SuggestedContextTitle == "" || len(analysis.Segments) != 2 {
+		t.Fatalf("unexpected analysis: %#v", analysis)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/inbox/batch/preview", bytes.NewBufferString(body))
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("preview returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var preview struct {
+		Segments []map[string]any `json:"segments"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &preview); err != nil {
+		t.Fatalf("unmarshal preview: %v", err)
+	}
+	if len(preview.Segments) != 2 {
+		t.Fatalf("expected 2 preview segments, got %d", len(preview.Segments))
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/inbox/batch", bytes.NewBufferString(body))
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var created struct {
+		BatchID string   `json:"batchId"`
+		IDs     []string `json:"ids"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create: %v", err)
+	}
+	if created.BatchID == "" || len(created.IDs) != 2 {
+		t.Fatalf("unexpected create response: %#v", created)
+	}
+
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		cap, err := nodes.GetCapture(ctx, tx, created.IDs[0])
+		if err != nil {
+			return err
+		}
+		if cap.BatchID != created.BatchID {
+			t.Fatalf("BatchID = %q, want %q", cap.BatchID, created.BatchID)
+		}
+		if cap.BatchContextTitle != "Planning dump" {
+			t.Fatalf("BatchContextTitle = %q", cap.BatchContextTitle)
+		}
+		if cap.BatchTimestamp != "06/07/2026 14:32" {
+			t.Fatalf("BatchTimestamp = %q", cap.BatchTimestamp)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/inbox/batch-log?batchId="+created.BatchID, nil)
+	rr = httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("batch read returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var batchLog map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &batchLog); err != nil {
+		t.Fatalf("unmarshal batch read: %v", err)
+	}
+	if batchLog["batchId"] != created.BatchID {
+		t.Fatalf("batchId = %v", batchLog["batchId"])
+	}
+	if len(batchLog["rawEntries"].([]any)) != 2 {
+		t.Fatalf("expected 2 raw entries, got %v", batchLog["rawEntries"])
+	}
+	if len(batchLog["finalEntries"].([]any)) != 2 {
+		t.Fatalf("expected 2 final entries, got %v", batchLog["finalEntries"])
+	}
+	if len(batchLog["createdCaptureIds"].([]any)) != 2 {
+		t.Fatalf("expected 2 created capture ids, got %v", batchLog["createdCaptureIds"])
+	}
+}
+
+func TestInboxBatchAnalyzeWithLLM(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	a := &app.App{
+		Graph: g,
+		Config: &config.Config{
+			Vault: config.VaultConfig{Root: t.TempDir()},
+			LLM: config.LLMConfig{
+				Provider: "noop",
+			},
+		},
+	}
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	body := `{"text":"[06/07/2026, 14:32] Me: Build an ai-memory explainer project\n[06/07/2026, 14:33] Me: Task: map the repo architecture\n[06/07/2026, 14:34] Me: Task: write usage examples","source":"whatsapp","splitMode":"whatsapp","contextTitle":"ai-memory planning"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/inbox/batch/analyze", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("analyze returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var analysis map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &analysis); err != nil {
+		t.Fatalf("unmarshal analysis: %v", err)
+	}
+	if analysis["source"] != "whatsapp" || analysis["separator"] != "whatsapp" {
+		t.Fatalf("unexpected analysis: %#v", analysis)
+	}
+	if analysis["enrichmentStatus"] != "unavailable" && analysis["enrichmentStatus"] != "failed" {
+		t.Fatalf("expected unavailable or failed enrichment, got %v", analysis["enrichmentStatus"])
+	}
+}
+
+func TestInboxBatchCreateWithLLMGrouping(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	a := &app.App{
+		Graph: g,
+		Config: &config.Config{
+			Vault: config.VaultConfig{Root: t.TempDir()},
+			LLM: config.LLMConfig{
+				Provider: "noop",
+			},
+		},
+	}
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	body := `{"text":"Build an ai-memory explainer project. Task: map the repo architecture. Task: write usage examples.","source":"text","splitMode":"semantic","contextTitle":"ai-memory planning"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/inbox/batch", bytes.NewBufferString(body))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal create: %v", err)
+	}
+	if created["batchId"] == "" {
+		t.Fatalf("missing batchId")
+	}
+	// The noop provider returns deterministic fallback; without a real mock
+	// response we assert the deterministic path still creates one capture.
+	if len(created["ids"].([]any)) != 1 {
+		t.Fatalf("expected 1 fallback capture, got %v", created["ids"])
+	}
+	if created["rawSegmentCount"] != float64(1) {
+		t.Fatalf("expected rawSegmentCount=1, got %v", created["rawSegmentCount"])
+	}
+	if created["enrichmentStatus"] != "unavailable" && created["enrichmentStatus"] != "failed" {
+		t.Fatalf("expected unavailable or failed enrichment, got %v", created["enrichmentStatus"])
+	}
+}
+
 func keysOf(m map[string]any) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {

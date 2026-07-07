@@ -1,18 +1,23 @@
-package api_test
+package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
+	"github.com/gabrielassisxyz/kernl/internal/ingest"
 )
 
 // queueLen polls the ingest queue until it reaches want or the deadline passes;
@@ -39,15 +44,39 @@ func waitForQueue(t *testing.T, mux http.Handler, want int) int {
 func newIngestApp(t *testing.T) (*app.App, http.Handler) {
 	t.Helper()
 	a := &app.App{
-		Graph:  testutil.NewInMemoryTestGraph(t),
-		Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}},
+		Graph: testutil.NewInMemoryTestGraph(t),
+		Config: &config.Config{
+			Vault: config.VaultConfig{Root: t.TempDir()},
+			LLM:   config.LLMConfig{Provider: "test"},
+		},
 	}
 	mux := http.NewServeMux()
-	api.RegisterIngestRoutes(mux, a)
+	RegisterIngestRoutes(mux, a)
 	return a, mux
 }
 
+type fakeIngestLLM struct {
+	content string
+}
+
+func (f fakeIngestLLM) Chat(ctx context.Context, messages []chat.Message, tools []chat.Tool) (*chat.ChatResponse, error) {
+	return &chat.ChatResponse{Content: f.content}, nil
+}
+
+func withFakeIngestLLM(t *testing.T, content string) {
+	t.Helper()
+	old := newIngestLLM
+	newIngestLLM = func(cfg chat.LLMProviderConfig) (chat.LLMClient, error) {
+		if cfg.Provider == "" {
+			return nil, errors.New("missing provider")
+		}
+		return fakeIngestLLM{content: content}, nil
+	}
+	t.Cleanup(func() { newIngestLLM = old })
+}
+
 func TestIngestPasteCreatesReview(t *testing.T) {
+	withFakeIngestLLM(t, `[{"type":"Create Page","title":"Meeting decision","payload":"Decided to prioritize X."}]`)
 	_, mux := newIngestApp(t)
 
 	body, _ := json.Marshal(map[string]string{"text": "Meeting notes: decided to prioritize X."})
@@ -63,6 +92,7 @@ func TestIngestPasteCreatesReview(t *testing.T) {
 }
 
 func TestIngestPasteRejectsEmpty(t *testing.T) {
+	withFakeIngestLLM(t, `[]`)
 	_, mux := newIngestApp(t)
 
 	body, _ := json.Marshal(map[string]string{"text": "   "})
@@ -75,6 +105,7 @@ func TestIngestPasteRejectsEmpty(t *testing.T) {
 }
 
 func TestIngestUploadCreatesReview(t *testing.T) {
+	withFakeIngestLLM(t, `[{"type":"Create Page","title":"Room measurement","payload":"Detail measurement by room."}]`)
 	_, mux := newIngestApp(t)
 
 	var buf bytes.Buffer
@@ -95,7 +126,78 @@ func TestIngestUploadCreatesReview(t *testing.T) {
 	}
 }
 
+func TestIngestDisabledWithoutLLM(t *testing.T) {
+	a := &app.App{
+		Graph:  testutil.NewInMemoryTestGraph(t),
+		Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}},
+	}
+	mux := http.NewServeMux()
+	RegisterIngestRoutes(mux, a)
+
+	body, _ := json.Marshal(map[string]string{"text": "Meeting notes"})
+	req := httptest.NewRequest("POST", "/api/ingest/paste", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503 for paste without LLM, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req = httptest.NewRequest("GET", "/api/ingest/queue", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("queue should remain readable without LLM, got %d", w.Code)
+	}
+}
+
+func TestIngestSourceCreatesLinkedReview(t *testing.T) {
+	withFakeIngestLLM(t, `[{"type":"Create Page","title":"Repo overview","payload":"The repo documents ai-memory routing."}]`)
+	oldFetcher := defaultIngestSourceFetcher
+	defaultIngestSourceFetcher = ingest.StaticSourceFetcher{Document: ingest.SourceDocument{
+		Kind:    ingest.SourceKindGitHub,
+		URL:     "https://github.com/example/ai-memory",
+		Title:   "example/ai-memory",
+		Content: "ai-memory stores durable project knowledge.",
+	}}
+	t.Cleanup(func() { defaultIngestSourceFetcher = oldFetcher })
+
+	a, mux := newIngestApp(t)
+	body, _ := json.Marshal(map[string]string{"url": "https://github.com/example/ai-memory", "kind": "github_repo"})
+	req := httptest.NewRequest("POST", "/api/ingest/source", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	var response map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	sourceID := response["sourceNodeId"]
+	if sourceID == "" {
+		t.Fatalf("expected sourceNodeId in response")
+	}
+	if n := waitForQueue(t, mux, 1); n < 1 {
+		t.Fatalf("expected source ingest to produce a review item, queue=%d", n)
+	}
+	var reviews []*nodes.IngestReview
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		reviews, err = nodes.ListIngestReviews(context.Background(), tx, nodes.IngestReviewFilter{})
+		return err
+	}); err != nil {
+		t.Fatalf("ListIngestReviews: %v", err)
+	}
+	if len(reviews) != 1 {
+		t.Fatalf("expected 1 review, got %d", len(reviews))
+	}
+	if reviews[0].SourceNodeID != sourceID {
+		t.Fatalf("review SourceNodeID = %q, want %q", reviews[0].SourceNodeID, sourceID)
+	}
+}
+
 func TestIngestUploadRejectsNonText(t *testing.T) {
+	withFakeIngestLLM(t, `[]`)
 	_, mux := newIngestApp(t)
 
 	var buf bytes.Buffer

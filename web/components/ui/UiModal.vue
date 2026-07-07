@@ -2,7 +2,7 @@
   <dialog
     ref="dialogRef"
     class="ui-modal-card flex max-h-[86vh] w-full flex-col overflow-hidden rounded border border-border-default bg-surface-overlay"
-    :class="[sizeClass, align === 'top' ? 'mt-[12vh] mb-auto' : 'm-auto']"
+    :class="[sizeClass, align === 'top' ? 'mx-auto mt-[12vh] mb-auto' : 'm-auto']"
     @close="emit('close')"
     @click="onBackdropClick"
     aria-modal="true"

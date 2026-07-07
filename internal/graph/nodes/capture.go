@@ -24,6 +24,17 @@ type Capture struct {
 	// SuggestedProjectID is set by the classifier when it suggests filing the
 	// capture as a task under a specific project; empty otherwise.
 	SuggestedProjectID string
+	// SuggestedProjectTitle/Description/InitialTasks are set when the classifier
+	// suggests promoting the capture into a new project.
+	SuggestedProjectTitle       string
+	SuggestedProjectDescription string
+	SuggestedInitialTasks       []string
+	BatchID                     string
+	BatchSource                 string
+	BatchSequence               int
+	BatchSender                 string
+	BatchTimestamp              string
+	BatchContextTitle           string
 }
 
 // Meta returns the common metadata for this node.
@@ -34,10 +45,19 @@ func (c Capture) Meta() *Meta {
 // NodeAttrs marshals type-specific fields for the nodes.attrs column.
 func (c Capture) NodeAttrs() []byte {
 	attrs := map[string]any{
-		"body":                 c.Body,
-		"captured_from":        c.CapturedFrom,
-		"suggested_action":     c.SuggestedAction,
-		"suggested_project_id": c.SuggestedProjectID,
+		"body":                          c.Body,
+		"captured_from":                 c.CapturedFrom,
+		"suggested_action":              c.SuggestedAction,
+		"suggested_project_id":          c.SuggestedProjectID,
+		"suggested_project_title":       c.SuggestedProjectTitle,
+		"suggested_project_description": c.SuggestedProjectDescription,
+		"suggested_initial_tasks":       c.SuggestedInitialTasks,
+		"batch_id":                      c.BatchID,
+		"batch_source":                  c.BatchSource,
+		"batch_sequence":                c.BatchSequence,
+		"batch_sender":                  c.BatchSender,
+		"batch_timestamp":               c.BatchTimestamp,
+		"batch_context_title":           c.BatchContextTitle,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -55,7 +75,24 @@ func (c Capture) FTSFields() FTSFields {
 type CaptureFilter struct {
 	CapturedFromPrefix string
 	Tags               []string
+	BatchID            string
 	Limit              int
+}
+
+type captureAttrs struct {
+	Body                        string   `json:"body"`
+	CapturedFrom                string   `json:"captured_from"`
+	SuggestedAction             string   `json:"suggested_action"`
+	SuggestedProjectID          string   `json:"suggested_project_id"`
+	SuggestedProjectTitle       string   `json:"suggested_project_title"`
+	SuggestedProjectDescription string   `json:"suggested_project_description"`
+	SuggestedInitialTasks       []string `json:"suggested_initial_tasks"`
+	BatchID                     string   `json:"batch_id"`
+	BatchSource                 string   `json:"batch_source"`
+	BatchSequence               int      `json:"batch_sequence"`
+	BatchSender                 string   `json:"batch_sender"`
+	BatchTimestamp              string   `json:"batch_timestamp"`
+	BatchContextTitle           string   `json:"batch_context_title"`
 }
 
 // CreateCapture inserts a new capture node and returns its ID.
@@ -79,12 +116,7 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 		return nil, fmt.Errorf("GetCapture: %w", err)
 	}
 
-	var attrs struct {
-		Body               string `json:"body"`
-		CapturedFrom       string `json:"captured_from"`
-		SuggestedAction    string `json:"suggested_action"`
-		SuggestedProjectID string `json:"suggested_project_id"`
-	}
+	var attrs captureAttrs
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
 			return nil, fmt.Errorf("GetCapture: unmarshal attrs: %w", err)
@@ -97,15 +129,24 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	}
 
 	return &Capture{
-		ID:                 id,
-		CreatedAt:          tryParseTime(createdAt.String),
-		UpdatedAt:          tryParseTime(updatedAt.String),
-		Title:              title.String,
-		Body:               attrs.Body,
-		CapturedFrom:       attrs.CapturedFrom,
-		Tags:               tags,
-		SuggestedAction:    attrs.SuggestedAction,
-		SuggestedProjectID: attrs.SuggestedProjectID,
+		ID:                          id,
+		CreatedAt:                   tryParseTime(createdAt.String),
+		UpdatedAt:                   tryParseTime(updatedAt.String),
+		Title:                       title.String,
+		Body:                        attrs.Body,
+		CapturedFrom:                attrs.CapturedFrom,
+		Tags:                        tags,
+		SuggestedAction:             attrs.SuggestedAction,
+		SuggestedProjectID:          attrs.SuggestedProjectID,
+		SuggestedProjectTitle:       attrs.SuggestedProjectTitle,
+		SuggestedProjectDescription: attrs.SuggestedProjectDescription,
+		SuggestedInitialTasks:       attrs.SuggestedInitialTasks,
+		BatchID:                     attrs.BatchID,
+		BatchSource:                 attrs.BatchSource,
+		BatchSequence:               attrs.BatchSequence,
+		BatchSender:                 attrs.BatchSender,
+		BatchTimestamp:              attrs.BatchTimestamp,
+		BatchContextTitle:           attrs.BatchContextTitle,
 	}, nil
 }
 
@@ -138,6 +179,10 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 			args = append(args, tag)
 		}
 	}
+	if f.BatchID != "" {
+		query += ` AND json_extract(attrs, '$.batch_id') = ?`
+		args = append(args, f.BatchID)
+	}
 
 	query += ` ORDER BY created_at DESC`
 	if f.Limit > 0 {
@@ -160,12 +205,7 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 			return nil, fmt.Errorf("ListCaptures: scan: %w", err)
 		}
 
-		var attrs struct {
-			Body               string `json:"body"`
-			CapturedFrom       string `json:"captured_from"`
-			SuggestedAction    string `json:"suggested_action"`
-			SuggestedProjectID string `json:"suggested_project_id"`
-		}
+		var attrs captureAttrs
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
 				return nil, fmt.Errorf("ListCaptures: unmarshal: %w", err)
@@ -178,15 +218,24 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 		}
 
 		out = append(out, &Capture{
-			ID:                 id,
-			CreatedAt:          tryParseTime(createdAt.String),
-			UpdatedAt:          tryParseTime(updatedAt.String),
-			Title:              title.String,
-			Body:               attrs.Body,
-			CapturedFrom:       attrs.CapturedFrom,
-			Tags:               tags,
-			SuggestedAction:    attrs.SuggestedAction,
-			SuggestedProjectID: attrs.SuggestedProjectID,
+			ID:                          id,
+			CreatedAt:                   tryParseTime(createdAt.String),
+			UpdatedAt:                   tryParseTime(updatedAt.String),
+			Title:                       title.String,
+			Body:                        attrs.Body,
+			CapturedFrom:                attrs.CapturedFrom,
+			Tags:                        tags,
+			SuggestedAction:             attrs.SuggestedAction,
+			SuggestedProjectID:          attrs.SuggestedProjectID,
+			SuggestedProjectTitle:       attrs.SuggestedProjectTitle,
+			SuggestedProjectDescription: attrs.SuggestedProjectDescription,
+			SuggestedInitialTasks:       attrs.SuggestedInitialTasks,
+			BatchID:                     attrs.BatchID,
+			BatchSource:                 attrs.BatchSource,
+			BatchSequence:               attrs.BatchSequence,
+			BatchSender:                 attrs.BatchSender,
+			BatchTimestamp:              attrs.BatchTimestamp,
+			BatchContextTitle:           attrs.BatchContextTitle,
 		})
 	}
 	return out, rows.Err()

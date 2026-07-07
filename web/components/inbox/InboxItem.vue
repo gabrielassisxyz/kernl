@@ -23,6 +23,10 @@
     <div class="flex flex-col flex-1 min-w-0">
       <div class="flex items-center gap-base mb-tight">
         <span class="font-mono-data text-mono-data tracking-widest px-tight text-text-faint border border-border-hairline">{{ item.type || 'ITEM' }}</span>
+        <span v-if="item.batchId" class="font-mono-data text-mono-data px-tight border border-border-hairline text-text-faint bg-surface-container-low">
+          #{{ batchNumber }}
+        </span>
+        <span v-if="batchTime" class="font-mono-data text-mono-data text-text-faint">{{ batchTime }}</span>
         <h3 class="font-headline text-text-primary truncate">{{ item.title }}</h3>
       </div>
       <p v-if="showSubtitle" class="font-body text-text-muted truncate text-mono-data">{{ item.subtitle }}</p>
@@ -71,6 +75,14 @@ export interface InboxItemData {
   subtitle: string
   suggestedAction?: string
   suggestedProjectId?: string
+  suggestedProjectTitle?: string
+  suggestedProjectDescription?: string
+  suggestedInitialTasks?: string[]
+  batchId?: string
+  batchSource?: string
+  batchSequence?: number
+  batchTimestamp?: string
+  batchContextTitle?: string
   hasPrep?: boolean
   flagged?: boolean
 }
@@ -78,7 +90,7 @@ export interface InboxItemData {
 const props = defineProps<{
   item: InboxItemData
   /** normalized DA suggestion (target + resolved project title), or null while unclassified */
-  suggestion: { target: Target; projectTitle: string } | null
+  suggestion: { target: Target; projectTitle: string; initialTaskCount?: number } | null
   selected?: boolean
   isCursor?: boolean
   prepping?: boolean
@@ -98,8 +110,16 @@ const chipLabel = computed(() => {
   const s = props.suggestion!
   const base = TARGET_META[s.target].label
   if (s.target === 'task') return s.projectTitle ? `Task · ${s.projectTitle}` : 'Task · Unprocessed'
+  if (s.target === 'project') return s.initialTaskCount ? `Project · ${s.initialTaskCount} tasks` : 'Project'
   if (s.target === 'note' && s.projectTitle) return `Note · ${s.projectTitle}`
   return base
+})
+
+const batchNumber = computed(() => String((props.item.batchSequence ?? 0) + 1).padStart(2, '0'))
+const batchTime = computed(() => {
+  const ts = props.item.batchTimestamp || ''
+  const match = ts.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/)
+  return match ? match[0].slice(0, 5) : ''
 })
 
 // Captures often carry subtitle === title (body mirrors the one-liner); skip the dupe.
