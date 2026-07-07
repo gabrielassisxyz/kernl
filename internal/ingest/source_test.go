@@ -27,6 +27,34 @@ func TestSourceFetcherRejectsUnsafeTargets(t *testing.T) {
 	}
 }
 
+func TestSourceFetcherRejectsUnsafeRedirect(t *testing.T) {
+	var redirectSeen bool
+	fetcher := NewSourceFetcher(staticHTTPClient(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "example.com" {
+			return redirectResponse("http://127.0.0.1/secret"), nil
+		}
+		redirectSeen = true
+		return textResponse(200, "text/plain", "should not reach here"), nil
+	}))
+	_, err := fetcher.Fetch(context.Background(), "https://example.com/article", SourceKindURL, 4096)
+	if err == nil {
+		t.Fatal("expected redirect to private IP to be rejected")
+	}
+	if redirectSeen {
+		t.Fatalf("CheckRedirect allowed the redirect target to be fetched")
+	}
+}
+
+func TestSourceFetcherRejectsBinaryContentType(t *testing.T) {
+	fetcher := NewSourceFetcher(staticHTTPClient(func(req *http.Request) (*http.Response, error) {
+		return textResponse(200, "application/zip", "PK"), nil
+	}))
+	_, err := fetcher.Fetch(context.Background(), "https://example.com/file.zip", SourceKindURL, 4096)
+	if err == nil {
+		t.Fatal("expected binary content type to be rejected")
+	}
+}
+
 func TestSourceFetcherFetchesHTMLAsText(t *testing.T) {
 	fetcher := NewSourceFetcher(staticHTTPClient(func(req *http.Request) (*http.Response, error) {
 		return textResponse(200, "text/html", `<html><head><title>Article</title></head><body><article><h1>Hello</h1><p>Readable text.</p></article><script>bad()</script></body></html>`), nil
@@ -75,7 +103,13 @@ func TestSourceFetcherFetchesGitHubRepoDocs(t *testing.T) {
 }
 
 func staticHTTPClient(fn func(*http.Request) (*http.Response, error)) *http.Client {
-	return &http.Client{Transport: roundTripFunc(fn)}
+	return sourceClient(fn)
+}
+
+func sourceClient(fn func(*http.Request) (*http.Response, error)) *http.Client {
+	client := &http.Client{Transport: roundTripFunc(fn)}
+	client.CheckRedirect = checkSourceRedirect
+	return client
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
@@ -89,5 +123,13 @@ func textResponse(status int, contentType, body string) *http.Response {
 		StatusCode: status,
 		Header:     http.Header{"Content-Type": []string{contentType}},
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+func redirectResponse(location string) *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusFound,
+		Header:     http.Header{"Location": []string{location}},
+		Body:       io.NopCloser(strings.NewReader("")),
 	}
 }

@@ -22,6 +22,35 @@ const (
 
 var ErrUnsafeSourceURL = errors.New("unsafe source URL")
 
+// allowedContentTypePrefixes restricts ingest to textual formats. Binary
+// content is rejected even if it happens to be valid UTF-8, because the
+// downstream pipeline expects markdown-compatible text.
+var allowedContentTypePrefixes = []string{
+	"text/",
+	"application/json",
+	"application/xml",
+	"application/xhtml+xml",
+	"application/rss+xml",
+	"application/atom+xml",
+}
+
+// blockedContentTypePrefixes catches archives, executables, and media even if
+// a URL tries to smuggle them past the text allow-list.
+var blockedContentTypePrefixes = []string{
+	"application/octet-stream",
+	"application/zip",
+	"application/gzip",
+	"application/x-gzip",
+	"application/x-tar",
+	"application/x-executable",
+	"application/x-sharedlib",
+	"application/pdf",
+	"image/",
+	"audio/",
+	"video/",
+	"font/",
+}
+
 type SourceDocument struct {
 	Kind    string
 	URL     string
@@ -52,9 +81,29 @@ type SourceFetcher struct {
 
 func NewSourceFetcher(client *http.Client) SourceFetcher {
 	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = defaultSourceHTTPClient()
 	}
 	return SourceFetcher{Client: client}
+}
+
+// defaultSourceHTTPClient returns a conservative client for fetching external
+// ingest sources. Redirects are followed, but every hop is re-validated to
+// prevent SSRF via open redirectors.
+func defaultSourceHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:       15 * time.Second,
+		CheckRedirect: checkSourceRedirect,
+	}
+}
+
+func checkSourceRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("too many redirects")
+	}
+	if _, err := validateSourceURL(req.URL.String()); err != nil {
+		return fmt.Errorf("redirect target rejected: %w", err)
+	}
+	return nil
 }
 
 func (f SourceFetcher) Fetch(ctx context.Context, rawURL, kind string, maxBytes int64) (SourceDocument, error) {
@@ -156,6 +205,10 @@ func (f SourceFetcher) fetchText(ctx context.Context, rawURL string, maxBytes in
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", "", fmt.Errorf("source returned status %d", resp.StatusCode)
 	}
+	contentType := resp.Header.Get("Content-Type")
+	if !isAllowedContentType(contentType) {
+		return "", "", fmt.Errorf("unsupported content type %q", contentType)
+	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return "", "", fmt.Errorf("read source: %w", err)
@@ -195,6 +248,23 @@ func isPublicIP(ip net.IP) bool {
 	return !ip.IsLoopback() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsUnspecified()
 }
 
+func isAllowedContentType(contentType string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	for _, prefix := range blockedContentTypePrefixes {
+		if strings.HasPrefix(ct, prefix) {
+			return false
+		}
+	}
+	for _, prefix := range allowedContentTypePrefixes {
+		if strings.HasPrefix(ct, prefix) {
+			return true
+		}
+	}
+	// Empty or missing content-type is allowed; we fall back to sniffing
+	// below. Explicitly unknown types are rejected.
+	return ct == ""
+}
+
 func parseGitHubRepo(parsed *url.URL) (string, string, bool) {
 	if strings.ToLower(parsed.Hostname()) != "github.com" {
 		return "", "", false
@@ -207,14 +277,30 @@ func parseGitHubRepo(parsed *url.URL) (string, string, bool) {
 	return parts[0], repo, true
 }
 
+var (
+	titleRE     = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+	brRE        = regexp.MustCompile(`(?i)<br\s*/?>`)
+	blockEndRE  = regexp.MustCompile(`(?i)</(p|div|section|article|li|h[1-6])>`)
+	stripTagsRE = regexp.MustCompile(`(?s)<[^>]+>`)
+	blockTags   = []string{"script", "style", "nav", "footer", "iframe", "noscript"}
+	blockTagREs = makeBlockTagREs(blockTags)
+)
+
+func makeBlockTagREs(tags []string) []*regexp.Regexp {
+	out := make([]*regexp.Regexp, len(tags))
+	for i, tag := range tags {
+		out[i] = regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
+	}
+	return out
+}
+
 func looksLikeHTML(s string) bool {
 	lower := strings.ToLower(s)
 	return strings.Contains(lower, "<html") || strings.Contains(lower, "<body") || strings.Contains(lower, "<article")
 }
 
 func htmlTitle(raw, fallback string) string {
-	re := regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-	m := re.FindStringSubmatch(raw)
+	m := titleRE.FindStringSubmatch(raw)
 	if len(m) < 2 {
 		return fallback
 	}
@@ -227,18 +313,17 @@ func htmlTitle(raw, fallback string) string {
 
 func htmlToText(raw string) string {
 	s := raw
-	for _, tag := range []string{"script", "style", "nav", "footer", "iframe", "noscript"} {
-		re := regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
+	for _, re := range blockTagREs {
 		s = re.ReplaceAllString(s, " ")
 	}
-	s = regexp.MustCompile(`(?i)<br\s*/?>`).ReplaceAllString(s, "\n")
-	s = regexp.MustCompile(`(?i)</(p|div|section|article|li|h[1-6])>`).ReplaceAllString(s, "\n")
+	s = brRE.ReplaceAllString(s, "\n")
+	s = blockEndRE.ReplaceAllString(s, "\n")
 	s = stripTags(s)
 	return collapseSpace(s)
 }
 
 func stripTags(s string) string {
-	return regexp.MustCompile(`(?s)<[^>]+>`).ReplaceAllString(s, " ")
+	return stripTagsRE.ReplaceAllString(s, " ")
 }
 
 func collapseSpace(s string) string {

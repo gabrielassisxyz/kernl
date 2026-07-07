@@ -196,7 +196,10 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 	if err != nil {
 		return nil, err
 	}
-	batchID := uuid.Must(uuid.NewV7()).String()
+	batchID, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("generate batch id: %w", err)
+	}
 	source := strings.TrimSpace(input.Source)
 	if source == "" {
 		source = analysis.Source
@@ -240,7 +243,7 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 				Body:              segment.Body,
 				CapturedFrom:      source,
 				Tags:              []string{"pending"},
-				BatchID:           batchID,
+				BatchID:           batchID.String(),
 				BatchSource:       source,
 				BatchSequence:     segment.Sequence,
 				BatchSender:       segment.Sender,
@@ -268,7 +271,7 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 			return fmt.Errorf("marshal created ids: %w", err)
 		}
 		if err := logStore.Put(ctx, tx, BatchLogRecord{
-			ID:                    batchID,
+			ID:                    batchID.String(),
 			Source:                source,
 			Separator:             analysis.Separator,
 			ContextTitle:          contextTitle,
@@ -297,7 +300,7 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 	}
 
 	return &BatchCreateResult{
-		BatchID:          batchID,
+		BatchID:          batchID.String(),
 		Segments:         viewSegments,
 		FinalSegments:    finalSegments,
 		IDs:              ids,

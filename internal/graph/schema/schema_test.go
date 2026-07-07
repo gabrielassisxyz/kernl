@@ -57,6 +57,86 @@ func TestMigration0001UpDown(t *testing.T) {
 	}
 }
 
+func TestMigration001InitConstraints(t *testing.T) {
+	db := schemaOpenTemp(t)
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("UpTo 1: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `INSERT INTO nodes(id, type, title, attrs) VALUES (?, ?, ?, ?)`, "test-1", "test", "Test Node", "not json")
+	if err == nil {
+		t.Error("expected CHECK constraint to reject invalid JSON, but INSERT succeeded")
+	}
+
+	_, err = db.ExecContext(ctx, `INSERT INTO nodes(id, type, title, attrs, bogus) VALUES ('x', 't', 'Test', '{}', 1)`)
+	if err == nil {
+		t.Error("expected STRICT table to reject unknown column 'bogus', but INSERT succeeded")
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO nodes(id, type, title) VALUES ('n1', 't', 'Test')`); err != nil {
+		t.Fatalf("insert node: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO revisions(id, node_id, diff, author) VALUES ('r1', 'n1', '{}', 'tester')`); err != nil {
+		t.Fatalf("insert revision: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `DELETE FROM nodes WHERE id = 'n1'`)
+	if err != nil {
+		t.Fatalf("DELETE returned error: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM revisions WHERE id = 'r1'`).Scan(&count); err != nil {
+		t.Fatalf("count revisions: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("revision should survive the node deletion (node_id becomes NULL)")
+	}
+
+	var nodeID sql.NullString
+	if err := db.QueryRow(`SELECT node_id FROM revisions WHERE id = 'r1'`).Scan(&nodeID); err != nil {
+		t.Fatalf("select node_id: %v", err)
+	}
+	if nodeID.Valid {
+		t.Errorf("expected node_id to be NULL after DELETE (ON DELETE SET NULL), got %q", nodeID.String)
+	}
+}
+
+func TestMigration001InitRoundTrip(t *testing.T) {
+	db := schemaOpenTemp(t)
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("UpTo 1: %v", err)
+	}
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("Re-Up to 1: %v", err)
+	}
+
+	for _, table := range []string{"nodes", "edges", "revisions", "tags", "node_tags", "nodes_fts"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name=? COLLATE NOCASE", table).Scan(&count); err != nil {
+			t.Fatalf("checking %s: %v", table, err)
+		}
+		if count == 0 {
+			t.Errorf("table %s not found after round-trip", table)
+		}
+	}
+}
+
 func TestMigration0002IndexesRoundTrip(t *testing.T) {
 	db := schemaOpenTemp(t)
 	r, err := migrate.New(db, schema.FS)
@@ -239,6 +319,28 @@ func TestMigration003DanglingLinksConstraints(t *testing.T) {
 	// target_kind outside enum should fail
 	if _, err := db.ExecContext(ctx, `INSERT INTO dangling_links(id, src_node_id, target_key, target_kind) VALUES (?, ?, ?, ?)`, "d2", "n1", "foo", "invalid"); err == nil {
 		t.Error("expected CHECK violation for target_kind")
+	}
+}
+
+func TestMigration004BatchLogsConstraints(t *testing.T) {
+	db := schemaOpenTemp(t)
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 4); err != nil {
+		t.Fatalf("UpTo 4: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO batch_logs(id, raw_segments_json) VALUES (?, ?)`, "b1", "not json"); err == nil {
+		t.Error("expected CHECK constraint to reject invalid JSON in raw_segments_json")
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO batch_logs(id) VALUES (?)`, "b2"); err != nil {
+		t.Fatalf("insert with defaults should succeed: %v", err)
 	}
 }
 
