@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -32,6 +33,11 @@ type BatchInput struct {
 	Source       string
 	SplitMode    string
 	ContextTitle string
+	// FinalSegments carries capture candidates the client already reviewed and
+	// approved in a prior /api/inbox/batch/analyze round-trip. When set,
+	// CreateBatchWithLLM persists them verbatim instead of re-running LLM
+	// enrichment, so the created captures cannot diverge from what the user saw.
+	FinalSegments []FinalBatchSegment
 }
 
 type BatchSegment struct {
@@ -84,18 +90,7 @@ func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClie
 		return nil, fmt.Errorf("no segments produced")
 	}
 
-	source := strings.TrimSpace(input.Source)
-	separator := normalizeBatchSplit(input.SplitMode)
-	if separator == BatchSplitAuto {
-		detectedSource, detectedSeparator := detectBatchShape(input.RawText)
-		if source == "" {
-			source = detectedSource
-		}
-		separator = detectedSeparator
-	}
-	if source == "" {
-		source = BatchSourceText
-	}
+	source, separator := resolveBatchSourceAndSeparator(input)
 
 	contextTitle := strings.TrimSpace(input.ContextTitle)
 
@@ -123,16 +118,7 @@ func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClie
 	}
 
 	// Build UI-compatible BatchSegment view from final segments.
-	viewSegments := make([]BatchSegment, 0, len(finalSegments))
-	for _, fs := range finalSegments {
-		viewSegments = append(viewSegments, BatchSegment{
-			Body:            fs.Body,
-			Sender:          fs.Sender,
-			Timestamp:       fs.Timestamp,
-			Sequence:        fs.Sequence,
-			ParseConfidence: fs.Confidence,
-		})
-	}
+	viewSegments := viewSegmentsFromFinal(finalSegments)
 
 	var finalContextTitle string
 	if enrichment != nil && strings.TrimSpace(enrichment.ContextTitle) != "" {
@@ -154,6 +140,40 @@ func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClie
 		analysis.EnrichmentStatus = enrichment.Status
 	}
 	return analysis, nil
+}
+
+// resolveBatchSourceAndSeparator applies the auto-detection fallback shared by
+// AnalyzeBatchWithLLM and by the client-approved-segments create path.
+func resolveBatchSourceAndSeparator(input BatchInput) (source string, separator string) {
+	source = strings.TrimSpace(input.Source)
+	separator = normalizeBatchSplit(input.SplitMode)
+	if separator == BatchSplitAuto {
+		detectedSource, detectedSeparator := detectBatchShape(input.RawText)
+		if source == "" {
+			source = detectedSource
+		}
+		separator = detectedSeparator
+	}
+	if source == "" {
+		source = BatchSourceText
+	}
+	return source, separator
+}
+
+// viewSegmentsFromFinal projects final capture candidates onto the
+// UI-compatible BatchSegment shape used for previews and title suggestions.
+func viewSegmentsFromFinal(finalSegments []FinalBatchSegment) []BatchSegment {
+	out := make([]BatchSegment, 0, len(finalSegments))
+	for _, fs := range finalSegments {
+		out = append(out, BatchSegment{
+			Body:            fs.Body,
+			Sender:          fs.Sender,
+			Timestamp:       fs.Timestamp,
+			Sequence:        fs.Sequence,
+			ParseConfidence: fs.Confidence,
+		})
+	}
+	return out
 }
 
 func PreviewBatch(input BatchInput) ([]BatchSegment, error) {
@@ -191,8 +211,36 @@ func CreateBatch(ctx context.Context, g *graph.Graph, input BatchInput) (*BatchC
 	return CreateBatchWithLLM(ctx, g, input, nil)
 }
 
+// resolveBatchAnalysisForCreate returns the BatchAnalysis to persist for a
+// create call. When the client supplies final segments it already reviewed
+// (from a prior AnalyzeBatchWithLLM round-trip), those are used verbatim and
+// only the raw segments are recomputed via the deterministic parser for the
+// batch log. This avoids re-running non-deterministic LLM grouping a second
+// time and guarantees the persisted captures match what the user approved.
+// If no final segments are supplied, fall back to the original behavior of
+// analyzing (and possibly LLM-enriching) the input from scratch.
+func resolveBatchAnalysisForCreate(ctx context.Context, input BatchInput, llm chat.LLMClient) (*BatchAnalysis, error) {
+	if len(input.FinalSegments) == 0 {
+		return AnalyzeBatchWithLLM(ctx, input, llm)
+	}
+	rawSegments, err := previewBatchInternal(input)
+	if err != nil {
+		return nil, err
+	}
+	source, separator := resolveBatchSourceAndSeparator(input)
+	viewSegments := viewSegmentsFromFinal(input.FinalSegments)
+	return &BatchAnalysis{
+		Source:                source,
+		Separator:             separator,
+		SuggestedContextTitle: suggestedContextTitle(strings.TrimSpace(input.ContextTitle), viewSegments),
+		Segments:              viewSegments,
+		RawSegments:           rawSegments,
+		FinalSegments:         input.FinalSegments,
+	}, nil
+}
+
 func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, llm chat.LLMClient) (*BatchCreateResult, error) {
-	analysis, err := AnalyzeBatchWithLLM(ctx, input, llm)
+	analysis, err := resolveBatchAnalysisForCreate(ctx, input, llm)
 	if err != nil {
 		return nil, err
 	}
@@ -288,16 +336,7 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 		return nil, err
 	}
 
-	viewSegments := make([]BatchSegment, 0, len(finalSegments))
-	for _, fs := range finalSegments {
-		viewSegments = append(viewSegments, BatchSegment{
-			Body:            fs.Body,
-			Sender:          fs.Sender,
-			Timestamp:       fs.Timestamp,
-			Sequence:        fs.Sequence,
-			ParseConfidence: fs.Confidence,
-		})
-	}
+	viewSegments := viewSegmentsFromFinal(finalSegments)
 
 	return &BatchCreateResult{
 		BatchID:          batchID.String(),
@@ -489,10 +528,21 @@ func suggestedContextTitle(explicit string, segments []BatchSegment) string {
 	if title == "" {
 		return "Inbox batch"
 	}
-	if len(title) > 56 {
-		return title[:56] + "…"
+	if utf8.RuneCountInString(title) > 56 {
+		return truncateRunes(title, 56) + "…"
 	}
 	return title
+}
+
+// truncateRunes returns the first n runes of s. Slicing by byte offset (e.g.
+// title[:56]) corrupts multi-byte UTF-8 text (accented characters, emoji),
+// which this app must handle correctly for Portuguese content.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 func cleanSegments(segments []BatchSegment) []BatchSegment {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
@@ -136,13 +137,24 @@ func captureTitle(c *nodes.Capture) string {
 	if i := strings.IndexByte(body, '\n'); i >= 0 {
 		body = body[:i]
 	}
-	if len(body) > 60 {
-		return body[:60] + "…"
+	if utf8.RuneCountInString(body) > 60 {
+		return truncateRunes(body, 60) + "…"
 	}
 	if body == "" {
 		return "Untitled capture"
 	}
 	return body
+}
+
+// truncateRunes returns the first n runes of s. Slicing by byte offset (e.g.
+// body[:60]) corrupts multi-byte UTF-8 text (accented characters, emoji),
+// which this app must handle correctly for Portuguese content.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
@@ -221,7 +233,9 @@ func getInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
-	// Fallback for older batches created before batch_logs existed.
+	// Fallback for older batches created before batch_logs existed. Return the
+	// same BatchLogResponse object shape as the primary path above so the
+	// client always gets one consistent contract regardless of batch age.
 	var captures []*nodes.Capture
 	if err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
 		var err error
@@ -231,11 +245,49 @@ func getInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusInternalServerError, "failed to load batch")
 		return
 	}
-	items := make([]inboxItemDTO, 0, len(captures))
+	response := buildBatchLogResponseFromCaptures(batchID, captures)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// buildBatchLogResponseFromCaptures reconstructs a BatchLogResponse for
+// batches created before batch_logs existed, so the primary and fallback
+// paths of getInboxBatchHandler return the same camelCase object shape. The
+// original raw/final split is not recoverable for these legacy batches, so
+// both entry lists are approximated 1:1 from the surviving captures; the
+// richer per-capture view (with the same "CAPTURE" Type default applied by
+// getPendingCapturesHandler) is carried in Captures for callers that want it.
+func buildBatchLogResponseFromCaptures(batchID string, captures []*nodes.Capture) inbox.BatchLogResponse {
+	resp := inbox.BatchLogResponse{
+		BatchID:           batchID,
+		RawEntries:        make([]inbox.BatchLogEntry, 0, len(captures)),
+		FinalEntries:      make([]inbox.BatchLogEntry, 0, len(captures)),
+		CreatedCaptureIDs: make([]string, 0, len(captures)),
+		Captures:          make([]any, 0, len(captures)),
+	}
 	for _, c := range captures {
-		items = append(items, inboxItemDTO{
+		if resp.Source == "" {
+			resp.Source = c.BatchSource
+		}
+		if resp.ContextTitle == "" {
+			resp.ContextTitle = c.BatchContextTitle
+		}
+		entry := inbox.BatchLogEntry{
+			Sequence:  c.BatchSequence,
+			Body:      c.Body,
+			Timestamp: c.BatchTimestamp,
+		}
+		resp.RawEntries = append(resp.RawEntries, entry)
+		resp.FinalEntries = append(resp.FinalEntries, entry)
+		resp.CreatedCaptureIDs = append(resp.CreatedCaptureIDs, c.ID)
+
+		typ := strings.ToUpper(strings.TrimSpace(c.CapturedFrom))
+		if typ == "" {
+			typ = "CAPTURE"
+		}
+		resp.Captures = append(resp.Captures, inboxItemDTO{
 			ID:                c.ID,
-			Type:              strings.ToUpper(strings.TrimSpace(c.CapturedFrom)),
+			Type:              typ,
 			Title:             captureTitle(c),
 			Subtitle:          c.Body,
 			BatchID:           c.BatchID,
@@ -245,8 +297,7 @@ func getInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			BatchContextTitle: c.BatchContextTitle,
 		})
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(items)
+	return resp
 }
 
 func buildBatchLogResponse(record *inbox.BatchLogRecord) inbox.BatchLogResponse {
@@ -285,11 +336,18 @@ func buildBatchLogResponse(record *inbox.BatchLogRecord) inbox.BatchLogResponse 
 }
 
 type inboxBatchRequest struct {
-	Text         string `json:"text"`
-	Source       string `json:"source"`
-	SplitMode    string `json:"splitMode"`
-	Separator    string `json:"separator"`
+	Text      string `json:"text"`
+	Source    string `json:"source"`
+	SplitMode string `json:"splitMode"`
+	Separator string `json:"separator"`
+	// ContextTitle is the display title for the batch, either explicit or the
+	// suggestion the client accepted after reviewing an /analyze response.
 	ContextTitle string `json:"contextTitle"`
+	// FinalSegments, sent only to POST /api/inbox/batch, echoes back the exact
+	// capture candidates the client reviewed and approved from a prior
+	// /analyze response. When present, CreateBatchWithLLM persists these
+	// verbatim instead of re-running (non-deterministic) LLM enrichment.
+	FinalSegments []inbox.FinalBatchSegment `json:"finalSegments,omitempty"`
 }
 
 func analyzeInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
@@ -372,10 +430,11 @@ func decodeInboxBatchRequest(w http.ResponseWriter, r *http.Request) (inbox.Batc
 		splitMode = req.Separator
 	}
 	return inbox.BatchInput{
-		RawText:      text,
-		Source:       req.Source,
-		SplitMode:    splitMode,
-		ContextTitle: req.ContextTitle,
+		RawText:       text,
+		Source:        req.Source,
+		SplitMode:     splitMode,
+		ContextTitle:  req.ContextTitle,
+		FinalSegments: req.FinalSegments,
 	}, true
 }
 

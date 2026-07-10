@@ -84,9 +84,49 @@ describe('InboxBatchDump', () => {
         source: 'text',
         separator: 'lines',
         contextTitle: 'Project idea',
+        finalSegments: [],
       },
     })
     expect(w.emitted('created')?.[0]).toEqual(['batch-1'])
     expect((textarea.element as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('echoes the reviewed final segments back on create', async () => {
+    const reviewedFinalSegments = [
+      { body: 'Project idea', sequence: 0, sourceSequences: [0], confidence: 'high' },
+    ]
+    fetchMock
+      .mockResolvedValueOnce({
+        source: 'text',
+        separator: 'lines',
+        suggestedContextTitle: 'Project idea',
+        segments: [{ body: 'Project idea', timestamp: '', sequence: 0, parseConfidence: 'medium' }],
+        finalSegments: reviewedFinalSegments,
+      })
+      .mockResolvedValueOnce({
+        batchId: 'batch-1',
+        segments: [{ body: 'Project idea', timestamp: '', sequence: 0, parseConfidence: 'medium' }],
+      })
+
+    const w = mount(InboxBatchDump)
+    await w.find('textarea').setValue('Project idea')
+    await w.findAll('button').find(button => button.text().includes('Create captures'))!.trigger('click')
+    await flushPromises()
+
+    await w.findAll('button').find(button => button.text().includes('Create 1 captures'))!.trigger('click')
+    await flushPromises()
+
+    // The captures created must match what the user reviewed in the preview
+    // pane, not a fresh (and possibly different) LLM re-analysis.
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/inbox/batch', {
+      method: 'POST',
+      body: {
+        text: 'Project idea',
+        source: 'text',
+        separator: 'lines',
+        contextTitle: 'Project idea',
+        finalSegments: reviewedFinalSegments,
+      },
+    })
   })
 })

@@ -106,11 +106,25 @@ interface BatchSegment {
   parseConfidence: string
 }
 
+// FinalBatchSegment mirrors inbox.FinalBatchSegment (internal/inbox/batch_enrichment.go):
+// the capture candidates the user reviewed in the preview pane. Echoed back on
+// create so the persisted captures cannot diverge from what was approved.
+interface FinalBatchSegment {
+  body: string
+  sender?: string
+  timestamp?: string
+  sequence: number
+  sourceSequences: number[]
+  kindHint?: string
+  confidence?: string
+}
+
 interface BatchAnalysis {
   source: string
   separator: string
   suggestedContextTitle: string
   segments: BatchSegment[]
+  finalSegments?: FinalBatchSegment[]
 }
 
 const emit = defineEmits<{
@@ -122,6 +136,7 @@ const source = ref('text')
 const separator = ref('auto')
 const contextTitle = ref('')
 const segments = ref<BatchSegment[]>([])
+const finalSegments = ref<FinalBatchSegment[]>([])
 const analyzing = ref(false)
 const creating = ref(false)
 const reviewOpen = ref(false)
@@ -151,6 +166,7 @@ function applyAnalysis(analysis: BatchAnalysis, updateTitle: boolean) {
     contextTitle.value = analysis.suggestedContextTitle || ''
   }
   segments.value = analysis.segments || []
+  finalSegments.value = analysis.finalSegments || []
 }
 
 async function analyze(updateTitle: boolean) {
@@ -188,9 +204,17 @@ async function createBatch() {
   creating.value = true
   reviewError.value = ''
   try {
-    const res = await $fetch<{ batchId: string; segments: BatchSegment[] }>('/api/inbox/batch', { method: 'POST', body: requestBody() })
+    // Echo back the final segments the user just reviewed in the preview pane,
+    // so the server persists exactly those instead of re-running LLM
+    // enrichment (non-deterministic, and would risk creating different
+    // captures than what was shown here).
+    const res = await $fetch<{ batchId: string; segments: BatchSegment[] }>('/api/inbox/batch', {
+      method: 'POST',
+      body: { ...requestBody(), finalSegments: finalSegments.value },
+    })
     text.value = ''
     segments.value = res.segments || []
+    finalSegments.value = []
     reviewOpen.value = false
     emit('created', res.batchId)
   } catch (e) {
