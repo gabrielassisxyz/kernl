@@ -90,13 +90,13 @@ func TestEnricherFallsBackOnInvalidJSON(t *testing.T) {
 	}
 }
 
-func TestEnricherRejectsBadSourceSequences(t *testing.T) {
+func TestEnricherReassignsBadOrMissingSourceSequences(t *testing.T) {
 	llm := &batchTestLLM{content: `{
 		"context_title": "ignored",
 		"segments": [
 			{"body": "Good", "source_sequences": [0]},
 			{"body": "Bad ref", "source_sequences": [99]},
-			{"body": "Empty"}
+			{"body": "Missing refs"}
 		]
 	}`}
 	e := NewBatchEnricher(llm)
@@ -112,15 +112,25 @@ func TestEnricherRejectsBadSourceSequences(t *testing.T) {
 	if result.Status != EnrichmentApplied {
 		t.Fatalf("Status = %q, want applied", result.Status)
 	}
-	if len(result.Segments) != 2 {
-		t.Fatalf("Segments = %d, want 2", len(result.Segments))
+	// Neither the bad-ref nor the no-ref candidate is dropped: content must
+	// never be discarded just because the LLM's source_sequences were wrong
+	// or missing.
+	if len(result.Segments) != 3 {
+		t.Fatalf("Segments = %d, want 3", len(result.Segments))
 	}
 	if result.Segments[0].Body != "Good" {
 		t.Fatalf("Body = %q", result.Segments[0].Body)
 	}
-	// Bad reference gets reassigned; empty body is dropped.
-	if result.Segments[1].Body == "" {
-		t.Fatalf("second segment should carry reassigned content")
+	// Reassigned candidates sort after the real-ref one, in their original order.
+	if result.Segments[1].Body != "Bad ref" {
+		t.Fatalf("Body = %q, want %q", result.Segments[1].Body, "Bad ref")
+	}
+	if result.Segments[2].Body != "Missing refs" {
+		t.Fatalf("Body = %q, want %q", result.Segments[2].Body, "Missing refs")
+	}
+	// Fabricated refs must not borrow sender/timestamp from an unrelated raw segment.
+	if result.Segments[1].Sender != "" || result.Segments[1].Timestamp != "" {
+		t.Fatalf("reassigned segment should not carry attribution from an unrelated raw segment")
 	}
 }
 

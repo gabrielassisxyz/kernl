@@ -193,11 +193,16 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 	}
 
 	rawBySeq := map[int]BatchSegment{}
+	maxRawSeq := -1
 	for _, seg := range input.RawSegments {
 		rawBySeq[seg.Sequence] = seg
+		if seg.Sequence > maxRawSeq {
+			maxRawSeq = seg.Sequence
+		}
 	}
 
 	out := make([]FinalBatchSegment, 0, len(parsed.Segments))
+	fallbackIdx := 0
 	for _, item := range parsed.Segments {
 		body := strings.TrimSpace(item.Body)
 		if body == "" {
@@ -211,9 +216,13 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 			refs = append(refs, seq)
 		}
 		if len(refs) == 0 && len(input.RawSegments) > 0 {
-			// LLM omitted source sequences; keep the candidate but assign it
-			// to the next unused raw sequence so valuable content is not lost.
-			refs = []int{len(out)}
+			// LLM omitted source sequences, or gave only invalid ones; keep
+			// the candidate (never drop valuable content) but key it above
+			// maxRawSeq so it sorts after every candidate that maps to a
+			// real raw sequence, and so the sender/timestamp copy below
+			// cannot mistake it for a real rawBySeq entry.
+			refs = []int{maxRawSeq + 1 + fallbackIdx}
+			fallbackIdx++
 		}
 		if len(refs) == 0 {
 			continue
@@ -225,12 +234,14 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 			KindHint:        normalizeKindHint(item.KindHint),
 			Confidence:      normalizeConfidence(item.Confidence),
 		}
-		// Carry sender/timestamp from the first referenced raw segment when
-		// the candidate maps to exactly one raw message.
+		// Carry sender/timestamp from the referenced raw segment only when
+		// it maps to exactly one *real* raw sequence; a fabricated fallback
+		// ref must not borrow attribution from an unrelated raw segment.
 		if len(refs) == 1 {
-			raw := rawBySeq[refs[0]]
-			seg.Sender = raw.Sender
-			seg.Timestamp = raw.Timestamp
+			if raw, ok := rawBySeq[refs[0]]; ok {
+				seg.Sender = raw.Sender
+				seg.Timestamp = raw.Timestamp
+			}
 		}
 		out = append(out, seg)
 	}
@@ -246,16 +257,6 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 	// Renumber final sequences after sorting.
 	for i := range out {
 		out[i].Sequence = i
-	}
-
-	// Cap final segment count to raw segment count unless there is a strong
-	// reason to split one raw segment semantically. We already filtered empty
-	// bodies and rejected items with bad refs, so this is a defensive guard.
-	if len(out) > len(input.RawSegments) && len(input.RawSegments) > 0 {
-		out = out[:len(input.RawSegments)]
-		for i := range out {
-			out[i].Sequence = i
-		}
 	}
 
 	contextTitle := strings.TrimSpace(parsed.ContextTitle)
