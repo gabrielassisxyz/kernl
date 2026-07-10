@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -43,6 +44,54 @@ func TestSourceFetcherRejectsUnsafeRedirect(t *testing.T) {
 	if redirectSeen {
 		t.Fatalf("CheckRedirect allowed the redirect target to be fetched")
 	}
+}
+
+func TestRejectPrivateDialTargetBlocksResolvedPrivateIPs(t *testing.T) {
+	// rejectPrivateDialTarget runs after DNS resolution, so it protects
+	// against DNS-based SSRF: a hostname that resolves to a private,
+	// loopback, or link-local address is rejected here even though
+	// validateSourceURL's textual host check never resolves DNS and would
+	// let such a hostname through unnoticed.
+	privateAddrs := []string{
+		"127.0.0.1:80",
+		"10.0.0.1:443",
+		"169.254.169.254:80", // cloud metadata endpoint
+		"[::1]:80",
+	}
+	for _, addr := range privateAddrs {
+		if err := rejectPrivateDialTarget("tcp", addr, nil); err == nil {
+			t.Fatalf("expected resolved address %s to be rejected", addr)
+		}
+	}
+	if err := rejectPrivateDialTarget("tcp", "93.184.216.34:443", nil); err != nil {
+		t.Fatalf("expected public resolved address to be allowed, got %v", err)
+	}
+}
+
+func TestNewSourceFetcherProductionClientRejectsLoopbackDial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	// This is the exact construction used in production (internal/api/ingest.go
+	// calls ingest.NewSourceFetcher(nil)). Its Client must refuse to dial the
+	// loopback server even though nothing here goes through validateSourceURL:
+	// this proves the dial-level guard, not the textual check, is what closes
+	// the DNS-rebinding gap.
+	secure := NewSourceFetcher(nil)
+	if _, err := secure.Client.Get(srv.URL); err == nil {
+		t.Fatal("expected the default (secure) fetcher client to reject a loopback dial target")
+	}
+
+	// AllowPrivateHostsForTesting is the opt-in escape hatch tests use to
+	// reach loopback servers; production must never pass this option.
+	testMode := NewSourceFetcher(nil, AllowPrivateHostsForTesting())
+	resp, err := testMode.Client.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("expected AllowPrivateHostsForTesting client to reach the loopback server: %v", err)
+	}
+	resp.Body.Close()
 }
 
 func TestSourceFetcherRejectsBinaryContentType(t *testing.T) {

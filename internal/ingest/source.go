@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -79,21 +80,77 @@ type SourceFetcher struct {
 	Client *http.Client
 }
 
-func NewSourceFetcher(client *http.Client) SourceFetcher {
+// sourceFetcherConfig holds settings for the default HTTP client built by
+// NewSourceFetcher. It is only consulted when the caller passes a nil
+// client and wants the built-in default.
+type sourceFetcherConfig struct {
+	allowPrivateHosts bool
+}
+
+// SourceFetcherOption customizes the default HTTP client built by
+// NewSourceFetcher when no explicit client is supplied.
+type SourceFetcherOption func(*sourceFetcherConfig)
+
+// AllowPrivateHostsForTesting disables the resolved-IP dial guard so tests
+// can exercise the fetch happy-path against loopback servers such as
+// httptest.Server, which listen on 127.0.0.1. Production callers must never
+// use this option: it is only meant for test-constructed fetchers.
+func AllowPrivateHostsForTesting() SourceFetcherOption {
+	return func(c *sourceFetcherConfig) { c.allowPrivateHosts = true }
+}
+
+func NewSourceFetcher(client *http.Client, opts ...SourceFetcherOption) SourceFetcher {
 	if client == nil {
-		client = defaultSourceHTTPClient()
+		var cfg sourceFetcherConfig
+		for _, opt := range opts {
+			opt(&cfg)
+		}
+		client = defaultSourceHTTPClient(cfg.allowPrivateHosts)
 	}
 	return SourceFetcher{Client: client}
 }
 
 // defaultSourceHTTPClient returns a conservative client for fetching external
 // ingest sources. Redirects are followed, but every hop is re-validated to
-// prevent SSRF via open redirectors.
-func defaultSourceHTTPClient() *http.Client {
+// prevent SSRF via open redirectors. The Transport's dialer additionally
+// rejects any resolved IP that isn't public: validateSourceURL only inspects
+// the literal request text, so an attacker-controlled DNS name that resolves
+// to a private/loopback/link-local address (e.g. the cloud metadata IP)
+// would otherwise sail through that check. allowPrivateHosts disables this
+// dial-level guard so tests can dial httptest servers on 127.0.0.1;
+// production must always call this with false.
+func defaultSourceHTTPClient(allowPrivateHosts bool) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if !allowPrivateHosts {
+		dialer := &net.Dialer{Control: rejectPrivateDialTarget}
+		transport.DialContext = dialer.DialContext
+	}
 	return &http.Client{
 		Timeout:       15 * time.Second,
 		CheckRedirect: checkSourceRedirect,
+		Transport:     transport,
 	}
+}
+
+// rejectPrivateDialTarget is invoked by net.Dialer once per candidate
+// address, after DNS resolution and before the socket connects. address is
+// host:port with host already a literal IP, so this enforces the real
+// connection target regardless of what hostname or redirect chain produced
+// it, closing the DNS-based SSRF bypass that a purely textual host check
+// cannot catch.
+func rejectPrivateDialTarget(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("split dial address %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("dial address %q did not resolve to an IP", address)
+	}
+	if !isPublicIP(ip) {
+		return fmt.Errorf("%w: resolved IP %s is not publicly routable", ErrUnsafeSourceURL, ip)
+	}
+	return nil
 }
 
 func checkSourceRedirect(req *http.Request, via []*http.Request) error {
