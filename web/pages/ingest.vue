@@ -35,6 +35,9 @@
           </div>
         </div>
       </div>
+      <!-- Ingest endpoints 503 when no LLM provider is configured; surface that
+           (and any other intake failure) instead of leaving a silent no-op. -->
+      <p v-if="intakeError" class="font-mono-data text-mono-data text-status-failed-text">{{ intakeError }}</p>
     </div>
 
     <div class="flex flex-col">
@@ -128,6 +131,19 @@ const pasting = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const uploadStatus = ref('')
+const intakeError = ref('')
+
+// Nuxt's $fetch surfaces the HTTP status differently depending on where the
+// error originates (ofetch vs. the Nitro server proxy), so check both shapes.
+const is503 = (error: unknown): boolean => {
+  const fetchError = error as { statusCode?: number; response?: { status?: number } } | null | undefined
+  return fetchError?.statusCode === 503 || fetchError?.response?.status === 503
+}
+
+const describeIntakeError = (error: unknown): string =>
+  is503(error)
+    ? 'Ingest requires an LLM provider to be configured.'
+    : 'Something went wrong — please try again.'
 
 const onPasteKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -151,6 +167,7 @@ const submitPaste = async () => {
   const text = pasteText.value.trim()
   if (!text || pasting.value) return
   pasting.value = true
+  intakeError.value = ''
   const before = items.value.length
   try {
     await $fetch('/api/ingest/paste', { method: 'POST', body: { text } })
@@ -158,6 +175,8 @@ const submitPaste = async () => {
     await pollQueueForGrowth(before)
   } catch (error) {
     console.error('Failed to ingest pasted text', error)
+    // Leave pasteText untouched on failure so the user doesn't lose their input.
+    intakeError.value = describeIntakeError(error)
   } finally {
     pasting.value = false
   }
@@ -167,6 +186,7 @@ const onFilePicked = async (e: Event) => {
   const input = e.target as HTMLInputElement
   const files = input.files
   if (!files || files.length === 0) return
+  intakeError.value = ''
   uploadStatus.value = `Uploading ${files.length} file(s)…`
   const before = items.value.length
   try {
@@ -181,6 +201,7 @@ const onFilePicked = async (e: Event) => {
   } catch (error) {
     console.error('Failed to upload file(s)', error)
     uploadStatus.value = 'Upload failed'
+    intakeError.value = describeIntakeError(error)
   } finally {
     input.value = '' // allow re-selecting the same files
   }
@@ -206,6 +227,7 @@ const resolveAction = async (
   action: string,
   extra: Record<string, unknown> = {}
 ) => {
+  intakeError.value = ''
   try {
     await $fetch(`/api/ingest/queue/${id}/resolve`, {
       method: 'POST',
@@ -219,6 +241,7 @@ const resolveAction = async (
     }
   } catch (error) {
     console.error('Failed to process item', error)
+    intakeError.value = describeIntakeError(error)
   }
 }
 

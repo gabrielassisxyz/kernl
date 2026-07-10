@@ -35,7 +35,7 @@ func TestIngestAPI(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterIngestRoutes(mux, a)
 
-	// Test 1: Trigger ingest
+	// Test 1: Trigger ingest is disabled without an LLM.
 	testFile := filepath.Join(tempDir, "test.md")
 	_ = os.WriteFile(testFile, []byte("hello"), 0644)
 
@@ -44,8 +44,8 @@ func TestIngestAPI(t *testing.T) {
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 
-	if w.Code != http.StatusAccepted {
-		t.Errorf("Trigger expected 202, got %d", w.Code)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("Trigger expected 503, got %d", w.Code)
 	}
 
 	// Test 2: List queue (insert dummy first)
@@ -70,19 +70,20 @@ func TestIngestAPI(t *testing.T) {
 		t.Error("Expected at least one item in queue")
 	}
 
-	// Test 3: Resolve
+	// Test 3: Resolve is disabled without an LLM so stale reviews cannot be
+	// mutated while ingest is off.
 	req3 := httptest.NewRequest("POST", "/api/ingest/queue/"+id+"/resolve", nil)
 	w3 := httptest.NewRecorder()
 	mux.ServeHTTP(w3, req3)
 
-	if w3.Code != http.StatusOK {
-		t.Errorf("Resolve expected 200, got %d", w3.Code)
+	if w3.Code != http.StatusServiceUnavailable {
+		t.Errorf("Resolve expected 503, got %d", w3.Code)
 	}
 
 	_ = g.DoRead(req.Context(), func(tx *graph.ReadTx) error {
 		_, err := nodes.GetIngestReview(req.Context(), tx, id)
-		if err == nil {
-			t.Error("Expected node to be deleted")
+		if err != nil {
+			t.Error("Expected node to remain queued")
 		}
 		return nil
 	})

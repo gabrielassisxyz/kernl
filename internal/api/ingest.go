@@ -22,6 +22,13 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 )
 
+type ingestSourceFetcher interface {
+	Fetch(ctx context.Context, rawURL, kind string, maxBytes int64) (ingest.SourceDocument, error)
+}
+
+var defaultIngestSourceFetcher ingestSourceFetcher = ingest.NewSourceFetcher(nil)
+var newIngestLLM = chat.NewProviderFromConfig
+
 func RegisterIngestRoutes(mux *http.ServeMux, a *app.App) {
 	vaultRoot := ""
 	if a.Config != nil {
@@ -30,32 +37,42 @@ func RegisterIngestRoutes(mux *http.ServeMux, a *app.App) {
 	mm := ingest.NewManifestManager(vaultRoot)
 	_ = mm.Load()
 
-	// Use a real LLM-backed extractor only when an LLM is configured; otherwise
-	// fall back to the stub so behavior is unchanged and no tokens are spent.
-	// The same client backs the Update merge planner.
 	llm := buildIngestLLM(a)
-	var extractor ingest.Extractor = &ingest.StubExtractor{}
+	var svc *ingest.Service
 	if llm != nil {
-		extractor = ingest.NewLLMExtractor(llm)
+		svc = ingest.NewService(a.Graph, mm, ingest.NewLLMExtractor(llm))
 	}
-	svc := ingest.NewService(a.Graph, mm, extractor)
 
 	mux.HandleFunc("POST /api/ingest/trigger", ingestTriggerHandler(svc))
 	mux.HandleFunc("POST /api/ingest/paste", ingestPasteHandler(svc, vaultRoot))
 	mux.HandleFunc("POST /api/ingest/upload", ingestUploadHandler(svc, vaultRoot))
+	mux.HandleFunc("POST /api/ingest/source", ingestSourceHandler(svc, a, vaultRoot, defaultIngestSourceFetcher))
 	mux.HandleFunc("GET /api/ingest/queue", ingestQueueListHandler(a))
-	mux.HandleFunc("POST /api/ingest/queue/{id}/resolve", ingestQueueResolveHandler(a))
+	mux.HandleFunc("POST /api/ingest/queue/{id}/resolve", ingestQueueResolveHandler(a, svc != nil))
 	mux.HandleFunc("POST /api/ingest/queue/{id}/merge-plan", ingestMergePlanHandler(a, llm))
 }
 
 // maxIngestBytes caps paste/upload size so a huge file can't stall extraction.
 const maxIngestBytes = 2 << 20 // 2 MiB
 
+const ingestDisabledMessage = "ingest requires an LLM provider; set llm.provider in kernl.yaml"
+
+func requireIngestEnabled(w http.ResponseWriter, svc *ingest.Service) bool {
+	if svc != nil {
+		return true
+	}
+	http.Error(w, ingestDisabledMessage, http.StatusServiceUnavailable)
+	return false
+}
+
 // stageAndProcess writes raw ingest content to a staging file inside the vault
 // and runs it through the SAME ProcessFile pipeline as trigger, so paste and
 // upload share extraction, manifest dedup, and review creation. Processing is
 // detached (the request returns 202) because extraction can call the LLM.
-func stageAndProcess(svc *ingest.Service, vaultRoot string, content []byte) error {
+func stageAndProcess(svc *ingest.Service, vaultRoot string, content []byte, sourceNodeID string) error {
+	if svc == nil {
+		return errors.New(ingestDisabledMessage)
+	}
 	if vaultRoot == "" {
 		return errors.New("no vault configured")
 	}
@@ -71,7 +88,7 @@ func stageAndProcess(svc *ingest.Service, vaultRoot string, content []byte) erro
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		if err := svc.ProcessFile(ctx, staged, ""); err != nil {
+		if err := svc.ProcessFile(ctx, staged, sourceNodeID); err != nil {
 			slog.Error("ingest staged content failed", "error", err)
 		}
 	}()
@@ -80,6 +97,9 @@ func stageAndProcess(svc *ingest.Service, vaultRoot string, content []byte) erro
 
 func ingestPasteHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireIngestEnabled(w, svc) {
+			return
+		}
 		var body struct {
 			Title string `json:"title"`
 			Text  string `json:"text"`
@@ -104,7 +124,7 @@ func ingestPasteHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc 
 			content = "# " + t + "\n\n" + text
 		}
 
-		if err := stageAndProcess(svc, vaultRoot, []byte(content)); err != nil {
+		if err := stageAndProcess(svc, vaultRoot, []byte(content), ""); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -114,6 +134,9 @@ func ingestPasteHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc 
 
 func ingestUploadHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireIngestEnabled(w, svc) {
+			return
+		}
 		if err := r.ParseMultipartForm(maxIngestBytes); err != nil {
 			http.Error(w, "could not parse upload", http.StatusBadRequest)
 			return
@@ -149,7 +172,7 @@ func ingestUploadHandler(svc *ingest.Service, vaultRoot string) http.HandlerFunc
 			return
 		}
 
-		if err := stageAndProcess(svc, vaultRoot, content); err != nil {
+		if err := stageAndProcess(svc, vaultRoot, content, ""); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -163,7 +186,7 @@ func buildIngestLLM(a *app.App) chat.LLMClient {
 	if a.Config == nil || !a.Config.LLM.IsSet() {
 		return nil
 	}
-	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+	llm, err := newIngestLLM(configToLLMProviderConfig(a.Config.LLM))
 	if err != nil {
 		slog.Error("ingest: failed to build LLM client", "error", err)
 		return nil
@@ -173,6 +196,9 @@ func buildIngestLLM(a *app.App) chat.LLMClient {
 
 func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireIngestEnabled(w, svc) {
+			return
+		}
 		var body struct {
 			FilePath string `json:"file_path"`
 			NodeID   string `json:"node_id"`
@@ -196,6 +222,73 @@ func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 	}
 }
 
+func ingestSourceHandler(svc *ingest.Service, a *app.App, vaultRoot string, fetcher ingestSourceFetcher) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireIngestEnabled(w, svc) {
+			return
+		}
+		var body struct {
+			URL   string `json:"url"`
+			Kind  string `json:"kind"`
+			Title string `json:"title"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(body.URL) == "" {
+			http.Error(w, "url is required", http.StatusBadRequest)
+			return
+		}
+		doc, err := fetcher.Fetch(r.Context(), body.URL, body.Kind, maxIngestBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if title := strings.TrimSpace(body.Title); title != "" {
+			doc.Title = title
+		}
+		sourceID, err := createIngestSourceNode(r.Context(), a, doc)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if err := stageAndProcess(svc, vaultRoot, []byte(doc.Markdown()), sourceID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{
+			"sourceNodeId": sourceID,
+			"title":        doc.Title,
+			"kind":         doc.Kind,
+		})
+	}
+}
+
+func createIngestSourceNode(ctx context.Context, a *app.App, doc ingest.SourceDocument) (string, error) {
+	if a == nil || a.Graph == nil {
+		return "", errors.New("graph is not configured")
+	}
+	title := strings.TrimSpace(doc.Title)
+	if title == "" {
+		title = doc.URL
+	}
+	var id string
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateBookmark(ctx, tx, nodes.Bookmark{
+			URL:         doc.URL,
+			Title:       title,
+			Description: "ingest source: " + doc.Kind,
+			Tags:        []string{"ingest-source"},
+		}, nodes.Author{Name: "ingest-source"})
+		return err
+	})
+	return id, err
+}
+
 func ingestQueueListHandler(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var items []*nodes.IngestReview
@@ -217,8 +310,12 @@ func ingestQueueListHandler(a *app.App) http.HandlerFunc {
 	}
 }
 
-func ingestQueueResolveHandler(a *app.App) http.HandlerFunc {
+func ingestQueueResolveHandler(a *app.App, enabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !enabled {
+			http.Error(w, ingestDisabledMessage, http.StatusServiceUnavailable)
+			return
+		}
 		id := r.PathValue("id")
 		if id == "" {
 			http.Error(w, "missing id", http.StatusBadRequest)

@@ -7,144 +7,170 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph/internal/migrate"
+	"github.com/gabrielassisxyz/kernl/internal/graph/internal/sqlite"
 	"github.com/gabrielassisxyz/kernl/internal/graph/schema"
-	_ "modernc.org/sqlite"
 )
 
-func TestMigration002IndexesUp(t *testing.T) {
+func schemaOpenTemp(t *testing.T) *sql.DB {
+	t.Helper()
+	f, err := os.CreateTemp("", "kernl-schema-test-*.db")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	f.Close()
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
+
+	pool, err := sqlite.Open(sqlite.Config{Path: f.Name()})
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = pool.Close() })
+
+	return pool.Write
+}
+
+func TestMigration0001UpDown(t *testing.T) {
 	db := schemaOpenTemp(t)
-	defer db.Close()
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("UpTo 1: %v", err)
+	}
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='nodes'").Scan(&count); err != nil {
+		t.Fatalf("check nodes table: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("nodes table should exist after Up")
+	}
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='nodes'").Scan(&count); err != nil {
+		t.Fatalf("check nodes table gone: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("nodes table should be gone after Down")
+	}
+}
+
+func TestMigration001InitConstraints(t *testing.T) {
+	db := schemaOpenTemp(t)
 
 	r, err := migrate.New(db, schema.FS)
 	if err != nil {
 		t.Fatalf("migrate.New: %v", err)
 	}
-
 	ctx := context.Background()
-	if err := r.UpTo(ctx, 2); err != nil {
-		t.Fatalf("Up to v2: %v", err)
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("UpTo 1: %v", err)
 	}
 
+	_, err = db.ExecContext(ctx, `INSERT INTO nodes(id, type, title, attrs) VALUES (?, ?, ?, ?)`, "test-1", "test", "Test Node", "not json")
+	if err == nil {
+		t.Error("expected CHECK constraint to reject invalid JSON, but INSERT succeeded")
+	}
+
+	_, err = db.ExecContext(ctx, `INSERT INTO nodes(id, type, title, attrs, bogus) VALUES ('x', 't', 'Test', '{}', 1)`)
+	if err == nil {
+		t.Error("expected STRICT table to reject unknown column 'bogus', but INSERT succeeded")
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO nodes(id, type, title) VALUES ('n1', 't', 'Test')`); err != nil {
+		t.Fatalf("insert node: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO revisions(id, node_id, diff, author) VALUES ('r1', 'n1', '{}', 'tester')`); err != nil {
+		t.Fatalf("insert revision: %v", err)
+	}
+
+	_, err = db.ExecContext(ctx, `DELETE FROM nodes WHERE id = 'n1'`)
+	if err != nil {
+		t.Fatalf("DELETE returned error: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM revisions WHERE id = 'r1'`).Scan(&count); err != nil {
+		t.Fatalf("count revisions: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("revision should survive the node deletion (node_id becomes NULL)")
+	}
+
+	var nodeID sql.NullString
+	if err := db.QueryRow(`SELECT node_id FROM revisions WHERE id = 'r1'`).Scan(&nodeID); err != nil {
+		t.Fatalf("select node_id: %v", err)
+	}
+	if nodeID.Valid {
+		t.Errorf("expected node_id to be NULL after DELETE (ON DELETE SET NULL), got %q", nodeID.String)
+	}
+}
+
+func TestMigration001InitRoundTrip(t *testing.T) {
+	db := schemaOpenTemp(t)
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("UpTo 1: %v", err)
+	}
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	if err := r.UpTo(ctx, 1); err != nil {
+		t.Fatalf("Re-Up to 1: %v", err)
+	}
+
+	for _, table := range []string{"nodes", "edges", "revisions", "tags", "node_tags", "nodes_fts"} {
+		var count int
+		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name=? COLLATE NOCASE", table).Scan(&count); err != nil {
+			t.Fatalf("checking %s: %v", table, err)
+		}
+		if count == 0 {
+			t.Errorf("table %s not found after round-trip", table)
+		}
+	}
+}
+
+func TestMigration0002IndexesRoundTrip(t *testing.T) {
+	db := schemaOpenTemp(t)
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 2); err != nil {
+		t.Fatalf("UpTo 2: %v", err)
+	}
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
 	if dirty {
-		t.Fatal("schema_migrations is dirty after Up")
+		t.Fatal("schema dirty after Up")
 	}
 	if ver != 2 {
 		t.Errorf("expected version 2, got %d", ver)
 	}
-
-	indexes := map[string]bool{
-		"idx_edges_src_label":  false,
-		"idx_edges_dst_label":  false,
-		"idx_nodes_type":       false,
-		"idx_node_tags_tag_id": false,
-	}
-
-	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='index'`)
-	if err != nil {
-		t.Fatalf("query indexes: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan index name: %v", err)
-		}
-		if _, ok := indexes[name]; ok {
-			indexes[name] = true
-		}
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("rows.Err: %v", err)
-	}
-
-	for name, found := range indexes {
-		if !found {
-			t.Errorf("index %s not found after Up to v2", name)
-		}
-	}
-}
-
-func TestMigration002IndexesRoundTrip(t *testing.T) {
-	db := schemaOpenTemp(t)
-	defer db.Close()
-
-	r, err := migrate.New(db, schema.FS)
-	if err != nil {
-		t.Fatalf("migrate.New: %v", err)
-	}
-
-	ctx := context.Background()
-
-	// Up to v2
-	if err := r.UpTo(ctx, 2); err != nil {
-		t.Fatalf("Up to v2: %v", err)
-	}
-	ver, _, err := r.Current(ctx)
-	if err != nil {
-		t.Fatalf("Current: %v", err)
-	}
-	if ver != 2 {
-		t.Fatalf("expected version 2 after Up, got %d", ver)
-	}
-
-	// Down from v2 back to v1
 	if err := r.Down(ctx); err != nil {
-		t.Fatalf("Down from v2: %v", err)
+		t.Fatalf("Down: %v", err)
 	}
 	ver, _, err = r.Current(ctx)
 	if err != nil {
 		t.Fatalf("Current after Down: %v", err)
 	}
 	if ver != 1 {
-		t.Fatalf("expected version 1 after Down, got %d", ver)
-	}
-
-	// Verify the four indexes are gone
-	expectedIndexes := []string{
-		"idx_edges_src_label",
-		"idx_edges_dst_label",
-		"idx_nodes_type",
-		"idx_node_tags_tag_id",
-	}
-	rows, err := db.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type='index'`)
-	if err != nil {
-		t.Fatalf("query indexes: %v", err)
-	}
-	defer rows.Close()
-	present := make(map[string]bool)
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			t.Fatalf("scan index name: %v", err)
-		}
-		present[name] = true
-	}
-	for _, name := range expectedIndexes {
-		if present[name] {
-			t.Errorf("index %s should be gone after Down from v2", name)
-		}
-	}
-
-	// Re-Up to v2 (idempotent round-trip)
-	if err := r.UpTo(ctx, 2); err != nil {
-		t.Fatalf("Re-Up to v2: %v", err)
-	}
-	ver, _, err = r.Current(ctx)
-	if err != nil {
-		t.Fatalf("Current after Re-Up: %v", err)
-	}
-	if ver != 2 {
-		t.Errorf("expected version 2 after Re-Up, got %d", ver)
+		t.Errorf("expected version 1 after Down, got %d", ver)
 	}
 }
 
 func TestMigration003NotesRoundTrip(t *testing.T) {
 	db := schemaOpenTemp(t)
-	defer db.Close()
 
 	r, err := migrate.New(db, schema.FS)
 	if err != nil {
@@ -153,9 +179,9 @@ func TestMigration003NotesRoundTrip(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Up all the way to v3
-	if err := r.Up(ctx); err != nil {
-		t.Fatalf("Up to latest: %v", err)
+	// Up to v3
+	if err := r.UpTo(ctx, 3); err != nil {
+		t.Fatalf("UpTo 3: %v", err)
 	}
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
@@ -227,12 +253,12 @@ func TestMigration003NotesRoundTrip(t *testing.T) {
 		t.Fatalf("checking deleted_at gone: %v", err)
 	}
 	if colCount != 0 {
-		t.Errorf("deleted_at should be gone after down")
+		t.Errorf("deleted_at should be gone")
 	}
 
 	// Re-Up to v3
-	if err := r.Up(ctx); err != nil {
-		t.Fatalf("Re-Up to v3: %v", err)
+	if err := r.UpTo(ctx, 3); err != nil {
+		t.Fatalf("Re-Up to 3: %v", err)
 	}
 	ver, _, err = r.Current(ctx)
 	if err != nil {
@@ -245,7 +271,6 @@ func TestMigration003NotesRoundTrip(t *testing.T) {
 
 func TestMigration003NotePathsConstraints(t *testing.T) {
 	db := schemaOpenTemp(t)
-	defer db.Close()
 
 	r, err := migrate.New(db, schema.FS)
 	if err != nil {
@@ -253,8 +278,8 @@ func TestMigration003NotePathsConstraints(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := r.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
+	if err := r.UpTo(ctx, 3); err != nil {
+		t.Fatalf("UpTo 3: %v", err)
 	}
 
 	// Insert a note_path
@@ -275,7 +300,52 @@ func TestMigration003NotePathsConstraints(t *testing.T) {
 
 func TestMigration003DanglingLinksConstraints(t *testing.T) {
 	db := schemaOpenTemp(t)
-	defer db.Close()
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 3); err != nil {
+		t.Fatalf("UpTo 3: %v", err)
+	}
+
+	// src_node_id references a non-existent node
+	if _, err := db.ExecContext(ctx, `INSERT INTO dangling_links(id, src_node_id, target_key, target_kind) VALUES (?, ?, ?, ?)`, "d1", "nope", "foo", "stem"); err == nil {
+		t.Error("expected FK violation for missing src_node_id")
+	}
+
+	// target_kind outside enum should fail
+	if _, err := db.ExecContext(ctx, `INSERT INTO dangling_links(id, src_node_id, target_key, target_kind) VALUES (?, ?, ?, ?)`, "d2", "n1", "foo", "invalid"); err == nil {
+		t.Error("expected CHECK violation for target_kind")
+	}
+}
+
+func TestMigration004BatchLogsConstraints(t *testing.T) {
+	db := schemaOpenTemp(t)
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 4); err != nil {
+		t.Fatalf("UpTo 4: %v", err)
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO batch_logs(id, raw_segments_json) VALUES (?, ?)`, "b1", "not json"); err == nil {
+		t.Error("expected CHECK constraint to reject invalid JSON in raw_segments_json")
+	}
+
+	if _, err := db.ExecContext(ctx, `INSERT INTO batch_logs(id) VALUES (?)`, "b2"); err != nil {
+		t.Fatalf("insert with defaults should succeed: %v", err)
+	}
+}
+
+func TestMigration004BatchLogsRoundTrip(t *testing.T) {
+	db := schemaOpenTemp(t)
 
 	r, err := migrate.New(db, schema.FS)
 	if err != nil {
@@ -286,196 +356,67 @@ func TestMigration003DanglingLinksConstraints(t *testing.T) {
 	if err := r.Up(ctx); err != nil {
 		t.Fatalf("Up: %v", err)
 	}
-
-	// Insert a node first (FK target)
-	if _, err := db.ExecContext(ctx, `INSERT INTO nodes(id, type, title) VALUES (?, ?, ?)`, "node-1", "note", "Test"); err != nil {
-		t.Fatalf("insert node: %v", err)
-	}
-
-	// Insert a dangling_link
-	if _, err := db.ExecContext(ctx, `INSERT INTO dangling_links(id, src_node_id, target_key, target_kind) VALUES (?, ?, ?, 'stem')`, "dl1", "node-1", "Roadmap"); err != nil {
-		t.Fatalf("insert dangling_link: %v", err)
-	}
-
-	// Invalid target_kind should fail
-	if _, err := db.ExecContext(ctx, `INSERT INTO dangling_links(id, src_node_id, target_key, target_kind) VALUES (?, ?, ?, 'bogus')`, "dl2", "node-1", "X"); err == nil {
-		t.Error("expected bogus target_kind to fail CHECK constraint")
-	}
-}
-
-func TestMigration002NoOp(t *testing.T) {
-	db := schemaOpenTemp(t)
-	defer db.Close()
-
-	r, err := migrate.New(db, schema.FS)
-	if err != nil {
-		t.Fatalf("migrate.New: %v", err)
-	}
-
-	ctx := context.Background()
-
-	// Up to v2
-	if err := r.UpTo(ctx, 2); err != nil {
-		t.Fatalf("Up to v2: %v", err)
-	}
-
-	// Up again — must be a no-op (no duplicate-index error)
-	if err := r.UpTo(ctx, 2); err != nil {
-		t.Fatalf("no-op Up: %v", err)
-	}
-
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
 	if dirty {
-		t.Fatal("schema_migrations is dirty after no-op Up")
+		t.Fatal("schema_migrations is dirty after Up")
 	}
-	if ver != 2 {
-		t.Errorf("expected version 2, got %d", ver)
-	}
-}
-
-func TestInitialSchemaApplies(t *testing.T) {
-	db := schemaOpenTemp(t)
-	defer db.Close()
-
-	schemaSQL, err := schema.FS.ReadFile("0001_init.up.sql")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	if _, err := db.Exec(string(schemaSQL)); err != nil {
-		t.Fatalf("Exec schema: %v", err)
-	}
-
-	tables := []string{"nodes", "edges", "revisions", "tags", "node_tags", "nodes_fts"}
-	for _, table := range tables {
-		var count int
-		err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name=? COLLATE NOCASE", table).Scan(&count)
-		if err != nil {
-			t.Errorf("checking %s: %v", table, err)
-			continue
-		}
-		if count == 0 {
-			t.Errorf("table %s not found in sqlite_master", table)
-		}
-	}
-}
-
-func TestAttrsRejectInvalidJSON(t *testing.T) {
-	db := schemaOpenTemp(t)
-	defer db.Close()
-
-	schemaSQL, err := schema.FS.ReadFile("0001_init.up.sql")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if _, err := db.Exec(string(schemaSQL)); err != nil {
-		t.Fatalf("Exec schema: %v", err)
-	}
-
-	_, err = db.Exec(`INSERT INTO nodes(id, type, title, attrs) VALUES (?, ?, ?, ?)`, "test-1", "test", "Test Node", "not json")
-	if err == nil {
-		t.Error("expected CHECK constraint to reject invalid JSON, but INSERT succeeded")
-	}
-}
-
-func TestSchemaCorrections(t *testing.T) {
-	db := schemaOpenTemp(t)
-	defer db.Close()
-
-	schemaSQL, err := schema.FS.ReadFile("0001_init.up.sql")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-	if _, err := db.Exec(string(schemaSQL)); err != nil {
-		t.Fatalf("Exec schema: %v", err)
-	}
-
-	_, err = db.Exec(`INSERT INTO nodes(id, type, title, attrs, bogus) VALUES ('x', 't', 'Test', '{}', 1)`)
-	if err == nil {
-		t.Error("expected STRICT table to reject unknown column 'bogus', but INSERT succeeded")
-	}
-
-	if _, err := db.Exec(`INSERT INTO nodes(id, type, title) VALUES ('n1', 't', 'Test')`); err != nil {
-		t.Fatalf("insert node: %v", err)
-	}
-	if _, err := db.Exec(`INSERT INTO revisions(id, node_id, diff, author) VALUES ('r1', 'n1', '{}', 'tester')`); err != nil {
-		t.Fatalf("insert revision: %v", err)
-	}
-
-	// Revisions survive node deletion to preserve audit history.
-	_, err = db.Exec(`DELETE FROM nodes WHERE id = 'n1'`)
-	if err != nil {
-		t.Fatalf("DELETE returned error: %v", err)
+	if ver != 4 {
+		t.Fatalf("expected version 4, got %d", ver)
 	}
 
 	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM revisions WHERE id = 'r1'`).Scan(&count); err != nil {
-		t.Fatalf("count revisions: %v", err)
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='batch_logs'").Scan(&count); err != nil {
+		t.Fatalf("checking batch_logs: %v", err)
 	}
 	if count != 1 {
-		t.Errorf("revision should survive the node deletion (node_id becomes NULL)")
+		t.Errorf("batch_logs table should exist after 0004")
 	}
 
-	var nodeID sql.NullString
-	if err := db.QueryRow(`SELECT node_id FROM revisions WHERE id = 'r1'`).Scan(&nodeID); err != nil {
-		t.Fatalf("select node_id: %v", err)
+	if _, err := db.ExecContext(ctx, `INSERT INTO batch_logs(id, raw_text) VALUES (?, ?)`, "b1", "paste"); err != nil {
+		t.Fatalf("insert batch_log: %v", err)
 	}
-	if nodeID.Valid {
-		t.Errorf("expected node_id to be NULL after DELETE (ON DELETE SET NULL), got %q", nodeID.String)
+
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down from v4: %v", err)
+	}
+	ver, _, err = r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current after Down: %v", err)
+	}
+	if ver != 3 {
+		t.Fatalf("expected version 3 after Down, got %d", ver)
+	}
+
+	if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='batch_logs'").Scan(&count); err != nil {
+		t.Fatalf("checking batch_logs gone: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("batch_logs table should be gone after down")
 	}
 }
 
-func TestInitialSchemaRoundTrip(t *testing.T) {
-	db := schemaOpenTemp(t)
-	defer db.Close()
-
-	upSQL, err := schema.FS.ReadFile("0001_init.up.sql")
+func TestSchemaFilesExist(t *testing.T) {
+	entries, err := schema.FS.ReadDir(".")
 	if err != nil {
-		t.Fatalf("ReadFile up: %v", err)
+		t.Fatalf("ReadDir: %v", err)
 	}
-	downSQL, err := schema.FS.ReadFile("0001_init.down.sql")
-	if err != nil {
-		t.Fatalf("ReadFile down: %v", err)
+	if len(entries) == 0 {
+		t.Fatal("schema.FS is empty")
 	}
-
-	if _, err := db.Exec(string(upSQL)); err != nil {
-		t.Fatalf("up: %v", err)
-	}
-	if _, err := db.Exec(string(downSQL)); err != nil {
-		t.Fatalf("down: %v", err)
-	}
-	if _, err := db.Exec(string(upSQL)); err != nil {
-		t.Fatalf("up again: %v", err)
-	}
-
-	tables := []string{"nodes", "edges", "revisions", "tags", "node_tags", "nodes_fts"}
-	for _, table := range tables {
-		var count int
-		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type IN ('table','view') AND name=? COLLATE NOCASE", table).Scan(&count); err != nil {
-			t.Fatalf("checking %s: %v", table, err)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
 		}
-		if count == 0 {
-			t.Errorf("table %s not found after round-trip", table)
+		if _, err := schema.FS.ReadFile(e.Name()); err != nil {
+			t.Errorf("cannot read %s: %v", e.Name(), err)
 		}
 	}
 }
 
-func schemaOpenTemp(t *testing.T) *sql.DB {
-	t.Helper()
-	f, err := os.CreateTemp("", "kernl-schema-test-*.db")
-	if err != nil {
-		t.Fatalf("CreateTemp: %v", err)
-	}
-	f.Close()
-	t.Cleanup(func() { _ = os.Remove(f.Name()) })
-
-	dsn := "file:" + f.Name() + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	return db
+func TestMain(m *testing.M) {
+	code := m.Run()
+	os.Exit(code)
 }

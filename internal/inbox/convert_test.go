@@ -457,3 +457,56 @@ func TestProcessConvertInfersTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestProcessCaptureProjectCreatesInitialTasks(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	var captureID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{
+			Body: "Build an ai-memory explainer with task ideas.",
+			Tags: []string{"pending"},
+		}, nodes.Author{Name: "tester"})
+		captureID = id
+		return err
+	}); err != nil {
+		t.Fatalf("CreateCapture: %v", err)
+	}
+
+	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{
+		Target:             "project",
+		ProjectTitle:       "ai-memory explainer",
+		ProjectDescription: "Explain ai-memory from repository material.",
+		InitialTasks:       []string{"Map architecture", "Write usage examples"},
+	}); err != nil {
+		t.Fatalf("ProcessCapture: %v", err)
+	}
+
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		projects, err := nodes.ListProjects(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if len(projects) != 1 {
+			t.Fatalf("expected 1 project, got %d", len(projects))
+		}
+		if projects[0].Title != "ai-memory explainer" {
+			t.Fatalf("project title = %q", projects[0].Title)
+		}
+		tasks, err := nodes.ListTasks(ctx, tx, projects[0].ID)
+		if err != nil {
+			return err
+		}
+		if len(tasks) != 2 {
+			t.Fatalf("expected 2 initial tasks, got %d", len(tasks))
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
+}

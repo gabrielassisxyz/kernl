@@ -1,10 +1,14 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
@@ -46,6 +50,18 @@ func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
 	})
 	mux.HandleFunc("GET /api/inbox/rollups", func(w http.ResponseWriter, r *http.Request) {
 		getRollupsHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/batch/analyze", func(w http.ResponseWriter, r *http.Request) {
+		analyzeInboxBatchHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/batch/preview", func(w http.ResponseWriter, r *http.Request) {
+		previewInboxBatchHandler(w, r)
+	})
+	mux.HandleFunc("POST /api/inbox/batch", func(w http.ResponseWriter, r *http.Request) {
+		createInboxBatchHandler(w, r, a)
+	})
+	mux.HandleFunc("GET /api/inbox/batch-log", func(w http.ResponseWriter, r *http.Request) {
+		getInboxBatchHandler(w, r, a)
 	})
 	mux.HandleFunc("POST /api/inbox", func(w http.ResponseWriter, r *http.Request) {
 		createCaptureHandler(w, r, a)
@@ -93,14 +109,22 @@ func createCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 // by web/pages/inbox.vue (InboxItemData). The raw nodes.Capture struct carries
 // PascalCase fields and no subtitle, so it is mapped explicitly here.
 type inboxItemDTO struct {
-	ID                 string `json:"id"`
-	Type               string `json:"type"`
-	Title              string `json:"title"`
-	Subtitle           string `json:"subtitle"`
-	SuggestedAction    string `json:"suggestedAction"`
-	SuggestedProjectID string `json:"suggestedProjectId"`
-	HasPrep            bool   `json:"hasPrep"`
-	Flagged            bool   `json:"flagged"`
+	ID                          string   `json:"id"`
+	Type                        string   `json:"type"`
+	Title                       string   `json:"title"`
+	Subtitle                    string   `json:"subtitle"`
+	SuggestedAction             string   `json:"suggestedAction"`
+	SuggestedProjectID          string   `json:"suggestedProjectId"`
+	SuggestedProjectTitle       string   `json:"suggestedProjectTitle"`
+	SuggestedProjectDescription string   `json:"suggestedProjectDescription"`
+	SuggestedInitialTasks       []string `json:"suggestedInitialTasks"`
+	BatchID                     string   `json:"batchId"`
+	BatchSource                 string   `json:"batchSource"`
+	BatchSequence               int      `json:"batchSequence"`
+	BatchTimestamp              string   `json:"batchTimestamp"`
+	BatchContextTitle           string   `json:"batchContextTitle"`
+	HasPrep                     bool     `json:"hasPrep"`
+	Flagged                     bool     `json:"flagged"`
 }
 
 // captureTitle derives a display title for a capture: its explicit Title when
@@ -113,13 +137,24 @@ func captureTitle(c *nodes.Capture) string {
 	if i := strings.IndexByte(body, '\n'); i >= 0 {
 		body = body[:i]
 	}
-	if len(body) > 60 {
-		return body[:60] + "…"
+	if utf8.RuneCountInString(body) > 60 {
+		return truncateRunes(body, 60) + "…"
 	}
 	if body == "" {
 		return "Untitled capture"
 	}
 	return body
+}
+
+// truncateRunes returns the first n runes of s. Slicing by byte offset (e.g.
+// body[:60]) corrupts multi-byte UTF-8 text (accented characters, emoji),
+// which this app must handle correctly for Portuguese content.
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }
 
 func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
@@ -154,19 +189,253 @@ func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.Ap
 			typ = "CAPTURE"
 		}
 		items = append(items, inboxItemDTO{
-			ID:                 c.ID,
-			Type:               typ,
-			Title:              captureTitle(c),
-			Subtitle:           c.Body,
-			SuggestedAction:    c.SuggestedAction,
-			SuggestedProjectID: c.SuggestedProjectID,
-			HasPrep:            prepSet[c.ID],
-			Flagged:            c.SuggestedAction != "",
+			ID:                          c.ID,
+			Type:                        typ,
+			Title:                       captureTitle(c),
+			Subtitle:                    c.Body,
+			SuggestedAction:             c.SuggestedAction,
+			SuggestedProjectID:          c.SuggestedProjectID,
+			SuggestedProjectTitle:       c.SuggestedProjectTitle,
+			SuggestedProjectDescription: c.SuggestedProjectDescription,
+			SuggestedInitialTasks:       c.SuggestedInitialTasks,
+			BatchID:                     c.BatchID,
+			BatchSource:                 c.BatchSource,
+			BatchSequence:               c.BatchSequence,
+			BatchTimestamp:              c.BatchTimestamp,
+			BatchContextTitle:           c.BatchContextTitle,
+			HasPrep:                     prepSet[c.ID],
+			Flagged:                     c.SuggestedAction != "",
 		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
+}
+
+func getInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	batchID := strings.TrimSpace(r.URL.Query().Get("batchId"))
+	if batchID == "" {
+		writeError(w, http.StatusBadRequest, "batch id is required")
+		return
+	}
+
+	logStore := inbox.NewBatchLogStore(a.Graph)
+	record, err := logStore.Get(r.Context(), batchID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusInternalServerError, "failed to load batch log")
+		return
+	}
+
+	if record != nil {
+		response := buildBatchLogResponse(record)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	// Fallback for older batches created before batch_logs existed. Return the
+	// same BatchLogResponse object shape as the primary path above so the
+	// client always gets one consistent contract regardless of batch age.
+	var captures []*nodes.Capture
+	if err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
+		var err error
+		captures, err = nodes.ListCaptures(r.Context(), tx, nodes.CaptureFilter{BatchID: batchID})
+		return err
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load batch")
+		return
+	}
+	response := buildBatchLogResponseFromCaptures(batchID, captures)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// buildBatchLogResponseFromCaptures reconstructs a BatchLogResponse for
+// batches created before batch_logs existed, so the primary and fallback
+// paths of getInboxBatchHandler return the same camelCase object shape. The
+// original raw/final split is not recoverable for these legacy batches, so
+// both entry lists are approximated 1:1 from the surviving captures; the
+// richer per-capture view (with the same "CAPTURE" Type default applied by
+// getPendingCapturesHandler) is carried in Captures for callers that want it.
+func buildBatchLogResponseFromCaptures(batchID string, captures []*nodes.Capture) inbox.BatchLogResponse {
+	resp := inbox.BatchLogResponse{
+		BatchID:           batchID,
+		RawEntries:        make([]inbox.BatchLogEntry, 0, len(captures)),
+		FinalEntries:      make([]inbox.BatchLogEntry, 0, len(captures)),
+		CreatedCaptureIDs: make([]string, 0, len(captures)),
+		Captures:          make([]any, 0, len(captures)),
+	}
+	for _, c := range captures {
+		if resp.Source == "" {
+			resp.Source = c.BatchSource
+		}
+		if resp.ContextTitle == "" {
+			resp.ContextTitle = c.BatchContextTitle
+		}
+		entry := inbox.BatchLogEntry{
+			Sequence:  c.BatchSequence,
+			Body:      c.Body,
+			Timestamp: c.BatchTimestamp,
+		}
+		resp.RawEntries = append(resp.RawEntries, entry)
+		resp.FinalEntries = append(resp.FinalEntries, entry)
+		resp.CreatedCaptureIDs = append(resp.CreatedCaptureIDs, c.ID)
+
+		typ := strings.ToUpper(strings.TrimSpace(c.CapturedFrom))
+		if typ == "" {
+			typ = "CAPTURE"
+		}
+		resp.Captures = append(resp.Captures, inboxItemDTO{
+			ID:                c.ID,
+			Type:              typ,
+			Title:             captureTitle(c),
+			Subtitle:          c.Body,
+			BatchID:           c.BatchID,
+			BatchSource:       c.BatchSource,
+			BatchSequence:     c.BatchSequence,
+			BatchTimestamp:    c.BatchTimestamp,
+			BatchContextTitle: c.BatchContextTitle,
+		})
+	}
+	return resp
+}
+
+func buildBatchLogResponse(record *inbox.BatchLogRecord) inbox.BatchLogResponse {
+	var rawSegments []inbox.BatchSegment
+	_ = json.Unmarshal([]byte(record.RawSegmentsJSON), &rawSegments)
+	var finalSegments []inbox.FinalBatchSegment
+	_ = json.Unmarshal([]byte(record.FinalSegmentsJSON), &finalSegments)
+	var createdIDs []string
+	_ = json.Unmarshal([]byte(record.CreatedCaptureIDsJSON), &createdIDs)
+
+	resp := inbox.BatchLogResponse{
+		BatchID:           record.ID,
+		Source:            record.Source,
+		Separator:         record.Separator,
+		ContextTitle:      record.ContextTitle,
+		RawText:           record.RawText,
+		CreatedCaptureIDs: createdIDs,
+		RawEntries:        make([]inbox.BatchLogEntry, 0, len(rawSegments)),
+		FinalEntries:      make([]inbox.BatchLogEntry, 0, len(finalSegments)),
+	}
+	for _, seg := range rawSegments {
+		resp.RawEntries = append(resp.RawEntries, inbox.BatchLogEntry{
+			Sequence:  seg.Sequence,
+			Body:      seg.Body,
+			Timestamp: seg.Timestamp,
+		})
+	}
+	for _, seg := range finalSegments {
+		resp.FinalEntries = append(resp.FinalEntries, inbox.BatchLogEntry{
+			Sequence:  seg.Sequence,
+			Body:      seg.Body,
+			Timestamp: seg.Timestamp,
+		})
+	}
+	return resp
+}
+
+type inboxBatchRequest struct {
+	Text      string `json:"text"`
+	Source    string `json:"source"`
+	SplitMode string `json:"splitMode"`
+	Separator string `json:"separator"`
+	// ContextTitle is the display title for the batch, either explicit or the
+	// suggestion the client accepted after reviewing an /analyze response.
+	ContextTitle string `json:"contextTitle"`
+	// FinalSegments, sent only to POST /api/inbox/batch, echoes back the exact
+	// capture candidates the client reviewed and approved from a prior
+	// /analyze response. When present, CreateBatchWithLLM persists these
+	// verbatim instead of re-running (non-deterministic) LLM enrichment.
+	FinalSegments []inbox.FinalBatchSegment `json:"finalSegments,omitempty"`
+}
+
+func analyzeInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	input, ok := decodeInboxBatchRequest(w, r)
+	if !ok {
+		return
+	}
+	llm := buildOptionalBatchLLM(a)
+	analysis, err := inbox.AnalyzeBatchWithLLM(r.Context(), input, llm)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(analysis)
+}
+
+func previewInboxBatchHandler(w http.ResponseWriter, r *http.Request) {
+	input, ok := decodeInboxBatchRequest(w, r)
+	if !ok {
+		return
+	}
+	segments, err := inbox.PreviewBatch(input)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"segments": segments})
+}
+
+func createInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	input, ok := decodeInboxBatchRequest(w, r)
+	if !ok {
+		return
+	}
+	llm := buildOptionalBatchLLM(a)
+	result, err := inbox.CreateBatchWithLLM(r.Context(), a.Graph, input, llm)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(result)
+}
+
+// buildOptionalBatchLLM returns a configured LLM client when one is available,
+// or nil when LLM enrichment should be skipped. Batch analysis/create must
+// remain usable without an LLM, unlike ingest workflows.
+func buildOptionalBatchLLM(a *app.App) chat.LLMClient {
+	if a.Config == nil || !a.Config.LLM.IsSet() {
+		return nil
+	}
+	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+	if err != nil {
+		slog.Error("batch: failed to build LLM client", "error", err)
+		return nil
+	}
+	return llm
+}
+
+func decodeInboxBatchRequest(w http.ResponseWriter, r *http.Request) (inbox.BatchInput, bool) {
+	var req inboxBatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return inbox.BatchInput{}, false
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		writeError(w, http.StatusBadRequest, "text is required")
+		return inbox.BatchInput{}, false
+	}
+	if len(text) > maxIngestBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "batch content is too large")
+		return inbox.BatchInput{}, false
+	}
+	splitMode := req.SplitMode
+	if strings.TrimSpace(splitMode) == "" {
+		splitMode = req.Separator
+	}
+	return inbox.BatchInput{
+		RawText:       text,
+		Source:        req.Source,
+		SplitMode:     splitMode,
+		ContextTitle:  req.ContextTitle,
+		FinalSegments: req.FinalSegments,
+	}, true
 }
 
 func convertCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
@@ -213,12 +482,15 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	var req struct {
-		Target        string             `json:"target"`        // note | bookmark | task | discard | update | convert
-		ProjectID     string             `json:"projectId"`     // task only
-		LinkTo        string             `json:"linkTo"`        // note/bookmark only
-		Title         string             `json:"title"`         // optional override
-		TargetNoteID  string             `json:"targetNoteId"`  // update only
-		AcceptedHunks []ingest.MergeHunk `json:"acceptedHunks"` // update only
+		Target             string             `json:"target"`             // note | bookmark | task | project | discard | update | convert
+		ProjectID          string             `json:"projectId"`          // task only
+		LinkTo             string             `json:"linkTo"`             // note/bookmark only
+		Title              string             `json:"title"`              // optional override
+		ProjectTitle       string             `json:"projectTitle"`       // project only
+		ProjectDescription string             `json:"projectDescription"` // project only
+		InitialTasks       []string           `json:"initialTasks"`       // project only
+		TargetNoteID       string             `json:"targetNoteId"`       // update only
+		AcceptedHunks      []ingest.MergeHunk `json:"acceptedHunks"`      // update only
 		// The DA's original suggestion, echoed back so we can learn from
 		// overrides. Empty when the client doesn't send it.
 		SuggestedTarget    string `json:"suggestedTarget"`
@@ -238,12 +510,15 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
 
 	err := inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
-		Target:        req.Target,
-		ProjectID:     req.ProjectID,
-		LinkTo:        req.LinkTo,
-		Title:         req.Title,
-		TargetNoteID:  req.TargetNoteID,
-		AcceptedHunks: req.AcceptedHunks,
+		Target:             req.Target,
+		ProjectID:          req.ProjectID,
+		LinkTo:             req.LinkTo,
+		Title:              req.Title,
+		ProjectTitle:       req.ProjectTitle,
+		ProjectDescription: req.ProjectDescription,
+		InitialTasks:       req.InitialTasks,
+		TargetNoteID:       req.TargetNoteID,
+		AcceptedHunks:      req.AcceptedHunks,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
