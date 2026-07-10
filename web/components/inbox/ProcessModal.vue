@@ -106,10 +106,31 @@ watch(() => props.item, (item) => {
   if (!item) return
   draft.target = normalizeTarget(item.suggestedAction) ?? 'note'
   draft.projectId = item.suggestedProjectId ?? ''
-  draft.title = item.suggestedProjectTitle || item.title
+  // Title tracks the capture itself by default; only a project target uses the
+  // suggested project name (see the draft.target watcher below for the same
+  // rule applied when the user switches targets interactively).
+  draft.title = draft.target === 'project' && item.suggestedProjectTitle ? item.suggestedProjectTitle : item.title
   draft.projectDescription = item.suggestedProjectDescription || item.subtitle || ''
   draft.initialTasksText = (item.suggestedInitialTasks || []).join('\n')
 }, { immediate: true })
+
+// Keep the title aligned with the chosen target when the user flips it after
+// opening: project -> suggested project name, note/task/link -> the capture's
+// own title. Only swap the field while it still holds the previous target's
+// un-edited value, so a title the user typed by hand is never overwritten.
+watch(() => draft.target, (target, previousTarget) => {
+  const item = props.item
+  if (!item) return
+  if (target === 'project') {
+    if (item.suggestedProjectTitle && draft.title === item.title) {
+      draft.title = item.suggestedProjectTitle
+    }
+    return
+  }
+  if (previousTarget === 'project' && draft.title === item.suggestedProjectTitle) {
+    draft.title = item.title
+  }
+})
 
 function taskLines(): string[] {
   return draft.initialTasksText
