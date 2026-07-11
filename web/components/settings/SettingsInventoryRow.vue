@@ -1,42 +1,28 @@
 <template>
   <div class="setting-row">
     <div class="setting-copy">
-      <p class="row-title">{{ item.label }}</p>
-      <p class="row-description">{{ item.description }}</p>
-      <p class="row-key">{{ item.key }}</p>
+      <p class="row-title">{{ row.label }}</p>
+      <p class="row-description">{{ row.description }}</p>
+      <p class="row-key">{{ row.key }}</p>
     </div>
     <div class="row-meta">
-      <span class="setting-value" :title="item.value">{{ item.value }}</span>
-      <span class="meta-chip" :class="sourceChipClass(item.source)">{{ item.source }}</span>
-      <span v-if="item.restartRequired" class="meta-chip meta-chip--gate">restart required</span>
-      <span v-if="item.sensitive" class="meta-chip meta-chip--danger">sensitive</span>
-      <span v-if="!item.editable" class="meta-chip">{{ item.editPath }}</span>
+      <span class="setting-value" :title="row.value">{{ row.value }}</span>
+      <span class="meta-chip" :title="row.reason">read-only</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-interface SettingItem {
+interface ReadOnlySettingRow {
   key: string
   label: string
   description: string
   value: string
   source: string
-  editPath: string
-  editable: boolean
-  sensitive: boolean
-  restartRequired: boolean
+  reason: string
 }
 
 defineProps<{
-  item: SettingItem
+  row: ReadOnlySettingRow
 }>()
-
-function sourceChipClass(source: string) {
-  return {
-    'meta-chip--graph': source === 'graph',
-    'meta-chip--local': source === 'localStorage',
-    'meta-chip--yaml': source === 'yaml',
-  }
-}
 </script>

@@ -3,346 +3,549 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/vault"
 )
 
-type settingsInventoryResponse struct {
-	Summary  []settingsSummaryItem `json:"summary"`
-	Sections []settingsSection     `json:"sections"`
+// llmProviders are the providers the chat registry can actually construct.
+var llmProviders = []string{"openai", "anthropic", "ollama", "noop"}
+
+type settingsResponse struct {
+	ConfigPath string `json:"configPath"`
+	// Writable reports whether this process knows which file it loaded. A config
+	// built in memory (tests, embedded harnesses) has nowhere to write back to.
+	Writable bool `json:"writable"`
+	// RestartPending lists the dotted keys whose saved value no longer matches the
+	// value this process is running with. The UI surfaces these instead of
+	// pretending a saved field already took effect.
+	RestartPending []string             `json:"restartPending"`
+	LLM            llmSettings          `json:"llm"`
+	Vault          vaultSettings        `json:"vault"`
+	Inbox          inboxSettings        `json:"inbox"`
+	Runtime        runtimeSettings      `json:"runtime"`
+	Prompts        []readOnlySettingRow `json:"prompts"`
+	Agents         []readOnlySettingRow `json:"agents"`
 }
 
-type settingsSummaryItem struct {
-	ID          string `json:"id"`
+type llmSettings struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Endpoint string `json:"endpoint"`
+	// APIKeySet reports whether a credential exists. The key itself is never
+	// serialized: the settings page must be safe to screenshot.
+	APIKeySet bool `json:"apiKeySet"`
+}
+
+type vaultSettings struct {
+	Root              string `json:"root"`
+	CoalesceWindowMs  int    `json:"coalesceWindowMs"`
+	MoveWindowMs      int    `json:"moveWindowMs"`
+	RescanIntervalSec int    `json:"rescanIntervalSec"`
+}
+
+type inboxSettings struct {
+	AutoPrep bool   `json:"autoPrep"`
+	DASubdir string `json:"daSubdir"`
+}
+
+type runtimeSettings struct {
+	ServerPort          int    `json:"serverPort"`
+	WorktreeRoot        string `json:"worktreeRoot"`
+	MaxConcurrentBeads  int    `json:"maxConcurrentBeads"`
+	RunStatePath        string `json:"runStatePath"`
+	StageRetryAttempts  int    `json:"stageRetryAttempts"`
+	SweepIntervalSec    int    `json:"sweepIntervalSec"`
+	PRStaleWarnDays     int    `json:"prStaleWarnDays"`
+	SweepFailureLimit   int    `json:"sweepFailureLimit"`
+	SweepBackoffMinutes []int  `json:"sweepBackoffMinutes"`
+}
+
+type readOnlySettingRow struct {
+	Key         string `json:"key"`
 	Label       string `json:"label"`
-	Value       string `json:"value"`
-	Status      string `json:"status"`
 	Description string `json:"description"`
+	Value       string `json:"value"`
+	Source      string `json:"source"`
+	Reason      string `json:"reason"`
 }
 
-type settingsSection struct {
-	ID          string        `json:"id"`
-	Title       string        `json:"title"`
-	Description string        `json:"description"`
-	Items       []settingItem `json:"items"`
-}
-
-type settingItem struct {
-	Key             string `json:"key"`
-	Label           string `json:"label"`
-	Description     string `json:"description"`
-	Value           string `json:"value"`
-	Source          string `json:"source"`
-	Status          string `json:"status"`
-	EditPath        string `json:"editPath"`
-	Editable        bool   `json:"editable"`
-	Sensitive       bool   `json:"sensitive"`
-	RestartRequired bool   `json:"restartRequired"`
+// llmUpdate uses a pointer for the credential so the UI can leave it untouched
+// (omitted) without having to echo the key back to the server.
+type llmUpdate struct {
+	Provider string  `json:"provider"`
+	Model    string  `json:"model"`
+	Endpoint string  `json:"endpoint"`
+	APIKey   *string `json:"apiKey"`
 }
 
 func RegisterSettingsRoutes(mux *http.ServeMux, a *app.App) {
-	mux.HandleFunc("GET /api/settings/inventory", settingsInventoryHandler(a))
+	mux.HandleFunc("GET /api/settings", settingsHandler(a))
+	mux.HandleFunc("PUT /api/settings/llm", updateLLMHandler(a))
+	mux.HandleFunc("PUT /api/settings/vault", updateVaultHandler(a))
+	mux.HandleFunc("PUT /api/settings/inbox", updateInboxHandler(a))
+	mux.HandleFunc("PUT /api/settings/runtime", updateRuntimeHandler(a))
 }
 
-func settingsInventoryHandler(a *app.App) http.HandlerFunc {
+func settingsHandler(a *app.App) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
 		if a.Config == nil {
-			writeError(w, http.StatusServiceUnavailable, "settings inventory requires a loaded config")
+			writeError(w, http.StatusServiceUnavailable, "settings require a loaded config")
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(buildSettingsInventory(a.Config))
+		saved, err := savedConfig(a)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(buildSettings(a.ConfigPath, saved, a.Config))
 	}
 }
 
-func buildSettingsInventory(cfg *config.Config) settingsInventoryResponse {
-	sections := []settingsSection{
-		buildDASettingsSection(),
-		buildPromptSettingsSection(),
-		buildEditorSettingsSection(),
-		buildRuntimeSettingsSection(cfg),
-		buildAgentSettingsSection(cfg),
-		buildLLMSettingsSection(cfg),
-		buildVaultSettingsSection(cfg),
-		buildInboxSettingsSection(cfg),
+// savedConfig re-reads the config from disk so the page shows what is persisted,
+// not what this process happens to be holding. They diverge on purpose after a
+// write, and that divergence is what "restart to apply" is built from.
+//
+// serve applies the vault defaults into the running config after boot, so the
+// re-read has to go through the same normalization. Skipping it would make an
+// untouched config report its own defaults as unsaved changes.
+func savedConfig(a *app.App) (*config.Config, error) {
+	if a.ConfigPath == "" {
+		return a.Config, nil
 	}
-
-	return settingsInventoryResponse{
-		Summary:  buildSettingsSummary(cfg),
-		Sections: sections,
+	saved, err := config.Load(a.ConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("re-reading %s: %w", a.ConfigPath, err)
 	}
+	vault.ApplyDefaults(&saved.Vault)
+	return saved, nil
 }
 
-func buildPromptSettingsSection() settingsSection {
-	return settingsSection{
-		ID:          "prompts",
-		Title:       "Prompts",
-		Description: "Prompt surfaces that influence assistant and AI-assisted workflows.",
-		Items: []settingItem{
-			graphEditableItem("prompts.da.systemPrompt", "DA system prompt", "Primary assistant instruction. Edit this from the DA tab.", "/api/da/identity"),
-			{
-				Key:         "prompts.notes.applyInstruction",
-				Label:       "Note edit instruction",
-				Description: "Prompt used when applying an AI edit instruction to a note body.",
-				Value:       "Hardcoded",
-				Source:      "hardcoded",
-				Status:      "readOnly",
-				EditPath:    "requires dedicated API",
-			},
-			{
-				Key:         "prompts.inbox.classifier",
-				Label:       "Inbox classifier",
-				Description: "Prompt family used to classify captures and suggest next actions.",
-				Value:       "Hardcoded",
-				Source:      "hardcoded",
-				Status:      "readOnly",
-				EditPath:    "requires dedicated API",
-			},
-			{
-				Key:         "prompts.inbox.prep",
-				Label:       "Inbox prep",
-				Description: "Prompt family used to prepare DA-authored brief notes from captures.",
-				Value:       "Hardcoded",
-				Source:      "hardcoded",
-				Status:      "readOnly",
-				EditPath:    "requires dedicated API",
-			},
+func buildSettings(configPath string, saved, running *config.Config) settingsResponse {
+	return settingsResponse{
+		ConfigPath:     configPath,
+		Writable:       configPath != "",
+		RestartPending: restartPending(saved, running),
+		LLM: llmSettings{
+			Provider:  saved.LLM.Provider,
+			Model:     saved.LLM.Model,
+			Endpoint:  saved.LLM.Endpoint,
+			APIKeySet: saved.LLM.APIKey != "",
 		},
+		Vault: vaultSettings{
+			Root:              saved.Vault.Root,
+			CoalesceWindowMs:  saved.Vault.CoalesceWindowMs,
+			MoveWindowMs:      saved.Vault.MoveWindowMs,
+			RescanIntervalSec: saved.Vault.RescanIntervalSec,
+		},
+		Inbox: inboxSettings{
+			AutoPrep: saved.Inbox.AutoPrep,
+			DASubdir: saved.Inbox.DASubdir,
+		},
+		Runtime: runtimeSettings{
+			ServerPort:          saved.Server.Port,
+			WorktreeRoot:        saved.Orchestrator.WorktreeRoot,
+			MaxConcurrentBeads:  saved.Orchestrator.MaxConcurrentBeads,
+			RunStatePath:        saved.Orchestrator.RunStatePath,
+			StageRetryAttempts:  saved.Orchestrator.StageRetryAttempts,
+			SweepIntervalSec:    saved.Sweep.AutoIntervalSeconds,
+			PRStaleWarnDays:     saved.Sweep.PRStaleWarnDays,
+			SweepFailureLimit:   saved.Sweep.FailureThreshold,
+			SweepBackoffMinutes: saved.Sweep.BackoffMinutes,
+		},
+		Prompts: promptRows(),
+		Agents:  agentRows(saved),
 	}
 }
 
-func buildSettingsSummary(cfg *config.Config) []settingsSummaryItem {
-	vaultStatus := "missing"
-	vaultValue := "Disabled"
-	if cfg.Vault.Root != "" {
-		vaultStatus = "configured"
-		vaultValue = "Configured"
+// restartPending compares the saved config against the one this process booted
+// with, key by key, and returns the dotted keys that differ.
+func restartPending(saved, running *config.Config) []string {
+	pending := []string{}
+	compare := []struct {
+		key            string
+		saved, running any
+	}{
+		{"llm.provider", saved.LLM.Provider, running.LLM.Provider},
+		{"llm.model", saved.LLM.Model, running.LLM.Model},
+		{"llm.endpoint", saved.LLM.Endpoint, running.LLM.Endpoint},
+		{"llm.api_key", saved.LLM.APIKey != "", running.LLM.APIKey != ""},
+		{"vault.root", saved.Vault.Root, running.Vault.Root},
+		{"vault.coalesceWindowMs", saved.Vault.CoalesceWindowMs, running.Vault.CoalesceWindowMs},
+		{"vault.moveWindowMs", saved.Vault.MoveWindowMs, running.Vault.MoveWindowMs},
+		{"vault.rescanIntervalSec", saved.Vault.RescanIntervalSec, running.Vault.RescanIntervalSec},
+		{"inbox.auto_prep", saved.Inbox.AutoPrep, running.Inbox.AutoPrep},
+		{"inbox.da_subdir", saved.Inbox.DASubdir, running.Inbox.DASubdir},
+		{"server.port", saved.Server.Port, running.Server.Port},
+		{"orchestrator.worktreeRoot", saved.Orchestrator.WorktreeRoot, running.Orchestrator.WorktreeRoot},
+		{"orchestrator.maxConcurrentBeads", saved.Orchestrator.MaxConcurrentBeads, running.Orchestrator.MaxConcurrentBeads},
+		{"orchestrator.runStatePath", saved.Orchestrator.RunStatePath, running.Orchestrator.RunStatePath},
+		{"orchestrator.stageRetryAttempts", saved.Orchestrator.StageRetryAttempts, running.Orchestrator.StageRetryAttempts},
+		{"sweep.auto_interval_seconds", saved.Sweep.AutoIntervalSeconds, running.Sweep.AutoIntervalSeconds},
+		{"sweep.pr_stale_warn_days", saved.Sweep.PRStaleWarnDays, running.Sweep.PRStaleWarnDays},
+		{"sweep.failure_threshold", saved.Sweep.FailureThreshold, running.Sweep.FailureThreshold},
+		{"sweep.backoff_minutes", saved.Sweep.BackoffMinutes, running.Sweep.BackoffMinutes},
 	}
 
-	llmStatus := "missing"
-	llmValue := "Disabled"
-	if cfg.LLM.IsSet() {
-		llmStatus = "configured"
-		llmValue = cfg.LLM.Provider
-		if cfg.LLM.Model != "" {
-			llmValue = cfg.LLM.Provider + " / " + cfg.LLM.Model
+	for _, field := range compare {
+		if !reflect.DeepEqual(field.saved, field.running) {
+			pending = append(pending, field.key)
 		}
 	}
+	return pending
+}
 
-	return []settingsSummaryItem{
+func promptRows() []readOnlySettingRow {
+	return []readOnlySettingRow{
 		{
-			ID:          "da",
-			Label:       "DA identity",
-			Value:       "Editable",
-			Status:      "configured",
-			Description: "Stored in the graph and editable from Settings.",
+			Key:         "prompts.notes.applyInstruction",
+			Label:       "Note edit instruction",
+			Description: "Prompt used when applying an AI edit instruction to a note body.",
+			Value:       "Built in",
+			Source:      "code",
+			Reason:      "Lives in Go. Editing it needs a prompt store, not a config field.",
 		},
 		{
-			ID:          "editor",
-			Label:       "Editor preferences",
-			Value:       "Local",
-			Status:      "configured",
-			Description: "Stored in browser localStorage for this device.",
+			Key:         "prompts.inbox.classifier",
+			Label:       "Inbox classifier",
+			Description: "Prompt family used to classify captures and suggest next actions.",
+			Value:       "Built in",
+			Source:      "code",
+			Reason:      "Lives in Go. Editing it needs a prompt store, not a config field.",
 		},
 		{
-			ID:          "vault",
-			Label:       "Vault",
-			Value:       vaultValue,
-			Status:      vaultStatus,
-			Description: "Loaded from kernl.yaml at server start.",
+			Key:         "prompts.inbox.prep",
+			Label:       "Inbox prep",
+			Description: "Prompt family used to prepare DA-authored brief notes from captures.",
+			Value:       "Built in",
+			Source:      "code",
+			Reason:      "Lives in Go. Editing it needs a prompt store, not a config field.",
 		},
+	}
+}
+
+func agentRows(cfg *config.Config) []readOnlySettingRow {
+	rows := []readOnlySettingRow{
 		{
-			ID:          "llm",
-			Label:       "LLM",
-			Value:       llmValue,
-			Status:      llmStatus,
-			Description: "Provider settings are read from kernl.yaml.",
-		},
-		{
-			ID:          "agents",
+			Key:         "settings.agents",
 			Label:       "Agents",
-			Value:       fmt.Sprintf("%d configured", len(cfg.Settings.Agents)),
-			Status:      configuredStatus(len(cfg.Settings.Agents) > 0),
-			Description: "Dispatch agents and pools are loaded from kernl.yaml.",
+			Description: "CLI agents Kernl can dispatch work to.",
+			Value:       joinOrNone(sortedKeys(cfg.Settings.Agents)),
+			Source:      "yaml",
+			Reason:      "Nested command, args, and env. Editing it safely needs its own editor.",
+		},
+		{
+			Key:         "settings.pools",
+			Label:       "Pools",
+			Description: "Weighted dispatch pools built from the agents above.",
+			Value:       joinOrNone(sortedKeys(cfg.Settings.Pools)),
+			Source:      "yaml",
+			Reason:      "Nested weighted lists. Editing it safely needs its own editor.",
+		},
+		{
+			Key:         "settings.actions.take",
+			Label:       "Take action agent",
+			Description: "Agent used for take-loop sessions.",
+			Value:       orNone(cfg.Settings.Actions.Take),
+			Source:      "yaml",
+			Reason:      "Bound to the agent list above.",
+		},
+		{
+			Key:         "settings.actions.scene",
+			Label:       "Scene action agent",
+			Description: "Agent used for scene sessions.",
+			Value:       orNone(cfg.Settings.Actions.Scene),
+			Source:      "yaml",
+			Reason:      "Bound to the agent list above.",
+		},
+		{
+			Key:         "settings.actions.scopeRefinement",
+			Label:       "Scope refinement agent",
+			Description: "Agent used to refine bead scope.",
+			Value:       orNone(cfg.Settings.Actions.ScopeRefinement),
+			Source:      "yaml",
+			Reason:      "Bound to the agent list above.",
+		},
+		{
+			Key:         "settings.actions.staleGrooming",
+			Label:       "Stale grooming agent",
+			Description: "Agent used for stale-work grooming.",
+			Value:       orNone(cfg.Settings.Actions.StaleGrooming),
+			Source:      "yaml",
+			Reason:      "Bound to the agent list above.",
+		},
+		{
+			Key:         "settings.defaults.interactiveSessionTimeoutMinutes",
+			Label:       "Interactive session timeout",
+			Description: "How long a session waiting on a human stays alive.",
+			Value:       fmt.Sprintf("%d minutes", cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes),
+			Source:      "yaml",
+			Reason:      "Bound to the agent list above.",
 		},
 	}
+	return rows
 }
 
-func buildDASettingsSection() settingsSection {
-	return settingsSection{
-		ID:          "da",
-		Title:       "DA identity",
-		Description: "Assistant name and system prompt stored in the graph.",
-		Items: []settingItem{
-			graphEditableItem("da.displayName", "Display name", "Human-facing assistant name.", "/api/da/identity"),
-			graphEditableItem("da.systemPrompt", "System prompt", "Base instruction used by the local assistant.", "/api/da/identity"),
-		},
+func updateLLMHandler(a *app.App) http.HandlerFunc {
+	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
+		var update llmUpdate
+		if err := json.Unmarshal(body, &update); err != nil {
+			return nil, badRequest("request body is not valid JSON")
+		}
+
+		provider := strings.TrimSpace(update.Provider)
+		model := strings.TrimSpace(update.Model)
+		endpoint := strings.TrimSpace(update.Endpoint)
+
+		if provider != "" && !contains(llmProviders, provider) {
+			return nil, badRequest(fmt.Sprintf("unknown provider %q — pick one of %s", provider, strings.Join(llmProviders, ", ")))
+		}
+		if provider != "" && model == "" {
+			return nil, badRequest("a model is required when a provider is set")
+		}
+		if endpoint != "" {
+			parsed, err := url.Parse(endpoint)
+			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+				return nil, badRequest("endpoint must be an absolute http:// or https:// URL")
+			}
+		}
+
+		updates := []config.Update{
+			{Path: []string{"llm", "provider"}, Value: provider},
+			{Path: []string{"llm", "model"}, Value: model},
+			{Path: []string{"llm", "endpoint"}, Value: endpoint},
+		}
+		// A nil APIKey means "leave the stored credential alone", which is what the
+		// UI sends whenever the user did not retype the key.
+		if update.APIKey != nil {
+			updates = append(updates, config.Update{Path: []string{"llm", "api_key"}, Value: strings.TrimSpace(*update.APIKey)})
+		}
+		return updates, nil
+	})
+}
+
+func updateVaultHandler(a *app.App) http.HandlerFunc {
+	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
+		var update vaultSettings
+		if err := json.Unmarshal(body, &update); err != nil {
+			return nil, badRequest("request body is not valid JSON")
+		}
+
+		root := strings.TrimSpace(update.Root)
+		if root != "" {
+			if !filepath.IsAbs(root) {
+				return nil, badRequest("vault root must be an absolute path")
+			}
+			info, err := os.Stat(root)
+			if err != nil || !info.IsDir() {
+				return nil, badRequest(fmt.Sprintf("vault root %s is not an existing directory", root))
+			}
+		}
+		if err := requireNonNegative("coalesce window", update.CoalesceWindowMs); err != nil {
+			return nil, err
+		}
+		if err := requireNonNegative("move window", update.MoveWindowMs); err != nil {
+			return nil, err
+		}
+		if err := requireNonNegative("rescan interval", update.RescanIntervalSec); err != nil {
+			return nil, err
+		}
+
+		return []config.Update{
+			{Path: []string{"vault", "root"}, Value: root},
+			{Path: []string{"vault", "coalesceWindowMs"}, Value: update.CoalesceWindowMs},
+			{Path: []string{"vault", "moveWindowMs"}, Value: update.MoveWindowMs},
+			{Path: []string{"vault", "rescanIntervalSec"}, Value: update.RescanIntervalSec},
+		}, nil
+	})
+}
+
+func updateInboxHandler(a *app.App) http.HandlerFunc {
+	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
+		var update inboxSettings
+		if err := json.Unmarshal(body, &update); err != nil {
+			return nil, badRequest("request body is not valid JSON")
+		}
+
+		subdir := strings.TrimSpace(update.DASubdir)
+		if subdir == "" {
+			return nil, badRequest("DA subdirectory is required")
+		}
+		// The subdir is joined onto the vault root to write DA-authored notes, so an
+		// absolute or climbing path would let the inbox write outside the vault.
+		if filepath.IsAbs(subdir) || strings.Contains(subdir, "..") {
+			return nil, badRequest("DA subdirectory must be a relative path inside the vault")
+		}
+
+		return []config.Update{
+			{Path: []string{"inbox", "auto_prep"}, Value: update.AutoPrep},
+			{Path: []string{"inbox", "da_subdir"}, Value: subdir},
+		}, nil
+	})
+}
+
+func updateRuntimeHandler(a *app.App) http.HandlerFunc {
+	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
+		var update runtimeSettings
+		if err := json.Unmarshal(body, &update); err != nil {
+			return nil, badRequest("request body is not valid JSON")
+		}
+
+		if update.ServerPort < 1 || update.ServerPort > 65535 {
+			return nil, badRequest("server port must be between 1 and 65535")
+		}
+		if update.MaxConcurrentBeads < 1 || update.MaxConcurrentBeads > 64 {
+			return nil, badRequest("max concurrent beads must be between 1 and 64")
+		}
+		if update.StageRetryAttempts < 0 || update.StageRetryAttempts > 10 {
+			return nil, badRequest("stage retry attempts must be between 0 and 10")
+		}
+		if err := requireAbsolute("worktree root", update.WorktreeRoot); err != nil {
+			return nil, err
+		}
+		if err := requireAbsolute("run-state path", update.RunStatePath); err != nil {
+			return nil, err
+		}
+		if err := requireNonNegative("sweep interval", update.SweepIntervalSec); err != nil {
+			return nil, err
+		}
+		if err := requireNonNegative("PR stale warning", update.PRStaleWarnDays); err != nil {
+			return nil, err
+		}
+		if err := requireNonNegative("failure threshold", update.SweepFailureLimit); err != nil {
+			return nil, err
+		}
+		if len(update.SweepBackoffMinutes) == 0 {
+			return nil, badRequest("the backoff schedule needs at least one step")
+		}
+		for _, minutes := range update.SweepBackoffMinutes {
+			if minutes <= 0 {
+				return nil, badRequest("every backoff step must be a positive number of minutes")
+			}
+		}
+
+		return []config.Update{
+			{Path: []string{"server", "port"}, Value: update.ServerPort},
+			{Path: []string{"orchestrator", "worktreeRoot"}, Value: strings.TrimSpace(update.WorktreeRoot)},
+			{Path: []string{"orchestrator", "maxConcurrentBeads"}, Value: update.MaxConcurrentBeads},
+			{Path: []string{"orchestrator", "runStatePath"}, Value: strings.TrimSpace(update.RunStatePath)},
+			{Path: []string{"orchestrator", "stageRetryAttempts"}, Value: update.StageRetryAttempts},
+			{Path: []string{"sweep", "auto_interval_seconds"}, Value: update.SweepIntervalSec},
+			{Path: []string{"sweep", "pr_stale_warn_days"}, Value: update.PRStaleWarnDays},
+			{Path: []string{"sweep", "failure_threshold"}, Value: update.SweepFailureLimit},
+			{Path: []string{"sweep", "backoff_minutes"}, Value: update.SweepBackoffMinutes},
+		}, nil
+	})
+}
+
+// writeHandler is the shared shape of every settings write: guard that a file
+// exists to write to, validate the body into a whitelisted update set, apply it,
+// then answer with the freshly re-read settings so the UI never has to guess what
+// landed on disk.
+func writeHandler(a *app.App, validate func(body []byte, current *config.Config) ([]config.Update, error)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.Config == nil {
+			writeError(w, http.StatusServiceUnavailable, "settings require a loaded config")
+			return
+		}
+		if a.ConfigPath == "" {
+			writeError(w, http.StatusConflict, "this process was started without a config file, so settings cannot be saved")
+			return
+		}
+
+		body, err := readLimitedBody(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		updates, err := validate(body, a.Config)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		if err := config.Apply(a.ConfigPath, updates); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		saved, err := savedConfig(a)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(buildSettings(a.ConfigPath, saved, a.Config))
 	}
 }
 
-func buildEditorSettingsSection() settingsSection {
-	return settingsSection{
-		ID:          "editor",
-		Title:       "Editor preferences",
-		Description: "Browser-local note editor preferences.",
-		Items: []settingItem{
-			localEditableItem("editor.viewMode", "View mode", "Source, live preview, or reading mode."),
-			localEditableItem("editor.lineNumbers", "Line numbers", "Show line numbers in source/live editor modes."),
-			localEditableItem("editor.typewriter", "Typewriter mode", "Keep the active line near the visual center."),
-			localEditableItem("editor.showId", "Show note ID", "Expose the graph node ID in note properties."),
-			localEditableItem("editor.font", "Editor font", "Sans, serif, or mono reading/editing font."),
-			localEditableItem("editor.fontSize", "Font size", "Local editor text size."),
-			localEditableItem("editor.headingScale", "Heading scale", "Local markdown heading scale."),
-		},
+func readLimitedBody(r *http.Request) ([]byte, error) {
+	decoded, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+	if err != nil {
+		return nil, fmt.Errorf("could not read request body")
 	}
+	return decoded, nil
 }
 
-func buildRuntimeSettingsSection(cfg *config.Config) settingsSection {
-	return settingsSection{
-		ID:          "runtime",
-		Title:       "Runtime",
-		Description: "Server and orchestrator values loaded from kernl.yaml.",
-		Items: []settingItem{
-			yamlReadOnlyItem("server.port", "Server port", "HTTP API and UI port.", fmt.Sprintf("%d", cfg.Server.Port), true),
-			yamlReadOnlyItem("orchestrator.worktreeRoot", "Worktree root", "Base directory for per-bead git worktrees.", cfg.Orchestrator.WorktreeRoot, true),
-			yamlReadOnlyItem("orchestrator.maxConcurrentBeads", "Max concurrent beads", "Maximum parallel beads in one epic wave.", fmt.Sprintf("%d", cfg.Orchestrator.MaxConcurrentBeads), true),
-			yamlReadOnlyItem("orchestrator.runStatePath", "Run-state path", "SQLite run-state database path.", cfg.Orchestrator.RunStatePath, true),
-			yamlReadOnlyItem("orchestrator.stageRetryAttempts", "Stage retry attempts", "Retry budget for stage execution.", fmt.Sprintf("%d", cfg.Orchestrator.StageRetryAttempts), true),
-			yamlReadOnlyItem("sweep.auto_interval_seconds", "Sweep interval", "Automatic sweep cadence in seconds.", fmt.Sprintf("%d", cfg.Sweep.AutoIntervalSeconds), true),
-			yamlReadOnlyItem("sweep.pr_stale_warn_days", "PR stale warning", "Days before sweep flags a stale PR.", fmt.Sprintf("%d", cfg.Sweep.PRStaleWarnDays), true),
-			yamlReadOnlyItem("sweep.failure_threshold", "Failure threshold", "Failure count before backoff behavior escalates.", fmt.Sprintf("%d", cfg.Sweep.FailureThreshold), true),
-			yamlReadOnlyItem("sweep.backoff_minutes", "Backoff minutes", "Retry backoff schedule.", intSliceValue(cfg.Sweep.BackoffMinutes), true),
-		},
+type validationError struct{ msg string }
+
+func (e validationError) Error() string { return e.msg }
+
+func badRequest(msg string) error { return validationError{msg: msg} }
+
+func requireNonNegative(label string, value int) error {
+	if value < 0 {
+		return badRequest(fmt.Sprintf("%s cannot be negative", label))
 	}
+	return nil
 }
 
-func buildAgentSettingsSection(cfg *config.Config) settingsSection {
-	agentIDs := sortedKeys(cfg.Settings.Agents)
-	poolIDs := sortedKeys(cfg.Settings.Pools)
-
-	return settingsSection{
-		ID:          "agents",
-		Title:       "Agents",
-		Description: "Dispatch agents, action bindings, and weighted pools from kernl.yaml.",
-		Items: []settingItem{
-			yamlReadOnlyItem("settings.agents", "Agents", "Configured CLI agents.", strings.Join(agentIDs, ", "), true),
-			yamlReadOnlyItem("settings.pools", "Pools", "Weighted dispatch pools.", strings.Join(poolIDs, ", "), true),
-			yamlReadOnlyItem("settings.actions.take", "Take action agent", "Agent used for take-loop sessions when configured.", cfg.Settings.Actions.Take, true),
-			yamlReadOnlyItem("settings.actions.scene", "Scene action agent", "Agent used for scene sessions when configured.", cfg.Settings.Actions.Scene, true),
-			yamlReadOnlyItem("settings.actions.scopeRefinement", "Scope refinement agent", "Agent used to refine bead scope.", cfg.Settings.Actions.ScopeRefinement, true),
-			yamlReadOnlyItem("settings.actions.staleGrooming", "Stale grooming agent", "Agent used for stale-work grooming.", cfg.Settings.Actions.StaleGrooming, true),
-			yamlReadOnlyItem("settings.defaults.interactiveSessionTimeoutMinutes", "Interactive session timeout", "Default timeout for human-waiting sessions.", fmt.Sprintf("%d minutes", cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes), true),
-		},
+func requireAbsolute(label, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return badRequest(fmt.Sprintf("%s is required", label))
 	}
+	if !filepath.IsAbs(trimmed) {
+		return badRequest(fmt.Sprintf("%s must be an absolute path", label))
+	}
+	return nil
 }
 
-func buildLLMSettingsSection(cfg *config.Config) settingsSection {
-	apiKeyValue := "Not set"
-	if cfg.LLM.APIKey != "" {
-		apiKeyValue = "Configured"
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
 	}
-
-	return settingsSection{
-		ID:          "llm",
-		Title:       "LLM",
-		Description: "Provider settings used by chat, ingest, and note AI features.",
-		Items: []settingItem{
-			yamlReadOnlyItem("llm.provider", "Provider", "LLM provider name.", cfg.LLM.Provider, true),
-			yamlReadOnlyItem("llm.model", "Model", "Model used by the configured provider.", cfg.LLM.Model, true),
-			yamlReadOnlyItem("llm.endpoint", "Endpoint", "Optional custom provider endpoint.", cfg.LLM.Endpoint, true),
-			{
-				Key:             "llm.api_key",
-				Label:           "API key",
-				Description:     "Provider credential. The raw value is never returned by the API.",
-				Value:           apiKeyValue,
-				Source:          "yaml",
-				Status:          "readOnly",
-				EditPath:        "requires dedicated API",
-				Sensitive:       true,
-				RestartRequired: true,
-			},
-		},
-	}
+	return false
 }
 
-func buildVaultSettingsSection(cfg *config.Config) settingsSection {
-	return settingsSection{
-		ID:          "vault",
-		Title:       "Vault",
-		Description: "Notes vault watcher and graph integration.",
-		Items: []settingItem{
-			yamlReadOnlyItem("vault.root", "Vault root", "Absolute path to the notes vault.", cfg.Vault.Root, true),
-			yamlReadOnlyItem("vault.coalesceWindowMs", "Coalesce window", "Filesystem quiet period before emitting a change.", fmt.Sprintf("%d ms", cfg.Vault.CoalesceWindowMs), true),
-			yamlReadOnlyItem("vault.moveWindowMs", "Move window", "Move/delete correlation window.", fmt.Sprintf("%d ms", cfg.Vault.MoveWindowMs), true),
-			yamlReadOnlyItem("vault.rescanIntervalSec", "Rescan interval", "Periodic full rescan interval. Zero disables periodic rescans.", fmt.Sprintf("%d seconds", cfg.Vault.RescanIntervalSec), true),
-		},
+func orNone(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return "Not set"
 	}
+	return value
 }
 
-func buildInboxSettingsSection(cfg *config.Config) settingsSection {
-	return settingsSection{
-		ID:          "inbox",
-		Title:       "Inbox",
-		Description: "DA-assisted inbox preprocessing.",
-		Items: []settingItem{
-			yamlReadOnlyItem("inbox.auto_prep", "Auto prep", "Let the classifier proactively generate primers for question-like captures.", fmt.Sprintf("%t", cfg.Inbox.AutoPrep), true),
-			yamlReadOnlyItem("inbox.da_subdir", "DA subdirectory", "Vault folder for DA-authored prep notes.", cfg.Inbox.DASubdir, true),
-		},
+func joinOrNone(values []string) string {
+	if len(values) == 0 {
+		return "None"
 	}
-}
-
-func graphEditableItem(key, label, description, editPath string) settingItem {
-	return settingItem{
-		Key:         key,
-		Label:       label,
-		Description: description,
-		Value:       "Configured",
-		Source:      "graph",
-		Status:      "editable",
-		EditPath:    editPath,
-		Editable:    true,
-	}
-}
-
-func localEditableItem(key, label, description string) settingItem {
-	return settingItem{
-		Key:         key,
-		Label:       label,
-		Description: description,
-		Value:       "Local preference",
-		Source:      "localStorage",
-		Status:      "editable",
-		EditPath:    "browser localStorage",
-		Editable:    true,
-	}
-}
-
-func yamlReadOnlyItem(key, label, description, value string, restartRequired bool) settingItem {
-	if value == "" {
-		value = "Not set"
-	}
-	return settingItem{
-		Key:             key,
-		Label:           label,
-		Description:     description,
-		Value:           value,
-		Source:          "yaml",
-		Status:          "readOnly",
-		EditPath:        "requires dedicated API",
-		RestartRequired: restartRequired,
-	}
-}
-
-func configuredStatus(configured bool) string {
-	if configured {
-		return "configured"
-	}
-	return "missing"
+	return strings.Join(values, ", ")
 }
 
 func sortedKeys[T any](items map[string]T) []string {
@@ -352,15 +555,4 @@ func sortedKeys[T any](items map[string]T) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func intSliceValue(values []int) string {
-	if len(values) == 0 {
-		return "Not set"
-	}
-	parts := make([]string, 0, len(values))
-	for _, value := range values {
-		parts = append(parts, fmt.Sprintf("%d", value))
-	}
-	return strings.Join(parts, ", ")
 }

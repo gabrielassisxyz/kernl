@@ -1,9 +1,15 @@
+/* The settings surface is one centered column. It is the only page in Kernl that
+   is not a data view, so it does not fill the width: a form stretched across an
+   ultrawide monitor is harder to read, and a form pinned to the left edge leaves
+   the asymmetric void this layout exists to avoid. */
 .settings-page {
   display: flex;
+  width: min(100%, 880px);
   min-height: 100%;
   flex-direction: column;
-  padding: var(--spacing-margin) var(--spacing-margin) calc(var(--spacing-margin) + var(--spacing-section));
-  gap: var(--spacing-section);
+  gap: var(--spacing-component);
+  margin-inline: auto;
+  padding: var(--spacing-margin) var(--spacing-component) calc(var(--spacing-margin) + var(--spacing-section));
 }
 
 .settings-header {
@@ -11,20 +17,71 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--spacing-component);
-  max-width: 1100px;
+  margin-bottom: var(--spacing-base);
 }
 
-.header-actions {
+.settings-title {
+  min-width: 0;
+}
+
+.settings-subtitle {
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  margin-top: var(--spacing-tight);
+}
+
+.settings-path {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+  word-break: break-all;
+}
+
+.restart-banner {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--spacing-base);
+  border: 1px solid color-mix(in srgb, var(--color-status-gate) 40%, var(--color-border-default));
+  background: color-mix(in srgb, var(--color-status-gate) 8%, var(--color-surface));
+  padding: var(--spacing-component);
 }
 
+.restart-icon {
+  color: var(--color-status-gate);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.restart-title {
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: var(--text-body--line-height);
+}
+
+.restart-detail {
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  margin-top: 2px;
+  max-width: 68ch;
+}
+
+.restart-keys {
+  color: var(--color-status-gate);
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+}
+
+/* Wrapping beats an overflow strip: eight sections in a scrolling bar hides the
+   ones that matter behind a scrollbar the user never looks for. */
 .settings-tabs {
   display: flex;
-  min-height: 37px;
-  max-width: 1100px;
-  overflow-x: auto;
+  flex-wrap: wrap;
   border: 1px solid var(--color-border-hairline);
   background: var(--color-surface);
 }
@@ -32,7 +89,7 @@
 .settings-tab {
   min-height: 36px;
   border: 0;
-  border-bottom: 1px solid transparent;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
@@ -52,15 +109,13 @@
 }
 
 .settings-tab--active {
-  border-color: color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  border-bottom-color: var(--color-da-accent);
   color: var(--color-da-accent-text);
 }
 
 .settings-content,
-.settings-loading,
-.settings-stack {
+.settings-loading {
   display: flex;
-  width: min(100%, 1100px);
   flex-direction: column;
   gap: var(--spacing-component);
 }
@@ -71,10 +126,6 @@
 }
 
 .panel-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--spacing-component);
   border-bottom: 1px solid var(--color-border-hairline);
   padding: var(--spacing-component);
 }
@@ -93,49 +144,50 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   margin-top: var(--spacing-tight);
-  max-width: 72ch;
+  max-width: 68ch;
 }
 
-.panel-meta,
-.row-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--spacing-tight);
-}
-
-.summary-list,
 .form-stack {
   display: flex;
   flex-direction: column;
 }
 
-.summary-row,
 .setting-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(240px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
   gap: var(--spacing-component);
   align-items: center;
   border-bottom: 1px solid var(--color-border-hairline);
   padding: var(--spacing-component);
 }
 
-.summary-row:last-child,
 .setting-row:last-child {
   border-bottom: 0;
 }
 
-.setting-row--textarea {
-  align-items: flex-start;
+/* A system prompt needs the full column; a port does not. */
+.setting-row--stacked {
+  grid-template-columns: 1fr;
+  align-items: stretch;
 }
 
 .setting-copy {
   min-width: 0;
 }
 
+.setting-control {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.setting-control > * {
+  width: 100%;
+}
+
 .row-title {
   color: var(--color-text-primary);
+  display: block;
   font-family: var(--font-body);
   font-size: var(--text-body);
   font-weight: 600;
@@ -148,9 +200,14 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   margin-top: 2px;
+  max-width: 60ch;
 }
 
 .row-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-tight);
   color: var(--color-text-faint);
   font-family: var(--font-mono-data);
   font-size: var(--text-mono-data);
@@ -158,12 +215,29 @@
   margin-top: var(--spacing-tight);
 }
 
+.row-pending {
+  border: 1px solid color-mix(in srgb, var(--color-status-gate) 45%, var(--color-border-hairline));
+  color: var(--color-status-gate);
+  padding: 1px 6px;
+}
+
+.row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-tight);
+  min-width: 0;
+}
+
+/* A long value (every pool name, a full path) truncates rather than pushing the
+   chip onto its own line. The full string stays available as a title. */
 .setting-value {
   color: var(--color-text-primary);
+  flex: 0 1 auto;
   font-family: var(--font-mono-data);
   font-size: var(--text-mono-data);
   line-height: var(--text-mono-data--line-height);
-  max-width: 220px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -173,32 +247,29 @@
   border: 1px solid var(--color-border-hairline);
   background: var(--color-surface-container-low);
   color: var(--color-text-muted);
+  flex: none;
   font-family: var(--font-mono-data);
   font-size: var(--text-mono-data);
   line-height: var(--text-mono-data--line-height);
   padding: 1px 6px;
 }
 
-.meta-chip--editable {
-  border-color: color-mix(in srgb, var(--color-status-passed) 45%, var(--color-border-hairline));
-  color: var(--color-status-passed);
+.key-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-tight);
+  width: 100%;
 }
 
-.meta-chip--graph,
-.meta-chip--local,
-.meta-chip--yaml {
-  border-color: color-mix(in srgb, var(--color-da-accent) 35%, var(--color-border-hairline));
-  color: var(--color-da-accent-text);
-}
-
-.meta-chip--gate {
-  border-color: color-mix(in srgb, var(--color-status-gate) 45%, var(--color-border-hairline));
-  color: var(--color-status-gate);
-}
-
-.meta-chip--danger {
-  border-color: color-mix(in srgb, var(--color-status-failed) 45%, var(--color-border-hairline));
-  color: var(--color-status-failed-text);
+.key-clear {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-tight);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-mono-data);
+  line-height: var(--text-mono-data--line-height);
 }
 
 .panel-footer {
@@ -216,17 +287,24 @@
   font-family: var(--font-body);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
+  min-width: 0;
 }
 
 .switch-control {
   position: relative;
   width: 38px;
   height: 22px;
+  flex: none;
   border: 1px solid var(--color-border-default);
   border-radius: var(--radius-full);
   background: var(--color-surface-container-low);
   cursor: pointer;
   transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.setting-control > .switch-control,
+.setting-control > .stepper {
+  width: auto;
 }
 
 .switch-control:focus-visible,
@@ -259,7 +337,6 @@
 .stepper {
   display: inline-flex;
   align-items: center;
-  justify-self: end;
   border: 1px solid var(--color-border-hairline);
   background: var(--color-bg-base);
 }
@@ -295,27 +372,31 @@
   text-align: center;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .settings-tab,
+  .switch-control,
+  .switch-thumb {
+    transition: none;
+  }
+}
+
 @media (max-width: 760px) {
   .settings-page {
     padding: var(--spacing-component);
   }
 
   .settings-header,
-  .panel-heading,
   .panel-footer {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .summary-row,
   .setting-row {
     grid-template-columns: 1fr;
   }
 
-  .row-meta,
-  .panel-meta,
-  .stepper {
+  .setting-control,
+  .row-meta {
     justify-content: flex-start;
-    justify-self: start;
   }
 }

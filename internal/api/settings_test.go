@@ -2,127 +2,228 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/vault"
 )
 
-func TestSettingsInventoryRedactsLLMAPIKey(t *testing.T) {
-	a := &app.App{Config: testSettingsConfig()}
-	a.Config.LLM.APIKey = "sk-secret-value"
-	r := NewRouter(a)
+const settingsFixture = `settings:
+  agents:
+    opencode:
+      command: opencode
 
-	req := httptest.NewRequest("GET", "/api/settings/inventory", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
+registry:
+  repos:
+    - path: /tmp/repo
 
-	if w.Code != 200 {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-	if strings.Contains(w.Body.String(), "sk-secret-value") {
-		t.Fatalf("inventory leaked raw API key: %s", w.Body.String())
-	}
+# Keep this comment: the writer must not eat it.
+llm:
+  provider: openai
+  model: kimi-k2.7
+  api_key: sk-not-a-real-key
+`
 
-	var got settingsInventoryResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	item := findSettingsItem(t, got, "llm.api_key")
-	if item.Value != "Configured" {
-		t.Fatalf("llm.api_key value = %q, want Configured", item.Value)
-	}
-	if !item.Sensitive {
-		t.Fatal("llm.api_key should be marked sensitive")
-	}
-	if item.EditPath != "requires dedicated API" {
-		t.Fatalf("llm.api_key editPath = %q", item.EditPath)
-	}
-}
-
-func TestSettingsInventoryMarksEditableSources(t *testing.T) {
-	got := buildSettingsInventory(testSettingsConfig())
-
-	daItem := findSettingsItem(t, got, "da.systemPrompt")
-	if !daItem.Editable || daItem.Source != "graph" || daItem.EditPath != "/api/da/identity" {
-		t.Fatalf("DA item metadata = %+v", daItem)
-	}
-
-	editorItem := findSettingsItem(t, got, "editor.fontSize")
-	if !editorItem.Editable || editorItem.Source != "localStorage" {
-		t.Fatalf("editor item metadata = %+v", editorItem)
-	}
-
-	runtimeItem := findSettingsItem(t, got, "server.port")
-	if runtimeItem.Editable || runtimeItem.Source != "yaml" || !runtimeItem.RestartRequired {
-		t.Fatalf("runtime item metadata = %+v", runtimeItem)
-	}
-}
-
-func testSettingsConfig() *config.Config {
-	return &config.Config{
-		Settings: config.Settings{
-			Agents: map[string]config.AgentConfig{
-				"opencode": {
-					Command:      "opencode",
-					Model:        "claude-sonnet-4-6",
-					ApprovalMode: "auto",
-				},
-			},
-			Pools: map[string]config.PoolConfig{
-				"implementation": {
-					Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}},
-				},
-			},
-			Defaults: config.DefaultsConfig{InteractiveSessionTimeoutMinutes: 10},
-		},
-		Registry: config.RegistryConfig{
-			Repos: []config.RepoEntry{{Path: "/repo", MemoryManager: "beads"}},
-		},
-		Server: config.ServerConfig{Port: 8080},
-		Orchestrator: config.OrchestratorConfig{
-			WorktreeRoot:       "/tmp/kernl-worktrees",
-			MaxConcurrentBeads: 5,
-			RunStatePath:       "/tmp/kernl-runstate.db",
-			StageRetryAttempts: 2,
-		},
-		Sweep: config.SweepConfig{
-			AutoIntervalSeconds: 60,
-			PRStaleWarnDays:     7,
-			FailureThreshold:    3,
-			BackoffMinutes:      []int{5, 15, 60},
-		},
-		Vault: config.VaultConfig{
-			Root:              "/vault",
-			CoalesceWindowMs:  300,
-			MoveWindowMs:      1000,
-			RescanIntervalSec: 0,
-		},
-		LLM: config.LLMConfig{
-			Provider: "openai",
-			Model:    "gpt-5",
-			Endpoint: "http://localhost:4000",
-			APIKey:   "sk-test",
-		},
-		Inbox: config.InboxConfig{
-			AutoPrep: true,
-			DASubdir: "DA",
-		},
-	}
-}
-
-func findSettingsItem(t *testing.T, inventory settingsInventoryResponse, key string) settingItem {
+// settingsApp builds an App around a real config file on disk, which is the only
+// way to exercise the write path honestly.
+func settingsApp(t *testing.T) (*app.App, string) {
 	t.Helper()
-	for _, section := range inventory.Sections {
-		for _, item := range section.Items {
-			if item.Key == key {
-				return item
-			}
-		}
+
+	path := filepath.Join(t.TempDir(), "kernl.yaml")
+	if err := os.WriteFile(path, []byte(settingsFixture), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
 	}
-	t.Fatalf("settings item %q not found", key)
-	return settingItem{}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("loading fixture: %v", err)
+	}
+	// serve normalizes the vault windows into the running config right after boot,
+	// so the App under test has to start from the same place the real one does.
+	vault.ApplyDefaults(&cfg.Vault)
+	return &app.App{Config: cfg, ConfigPath: path}, path
+}
+
+func getSettings(t *testing.T, a *app.App) settingsResponse {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	settingsHandler(a)(recorder, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/settings = %d, want 200: %s", recorder.Code, recorder.Body)
+	}
+
+	var response settingsResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	return response
+}
+
+func putSettings(t *testing.T, handler http.HandlerFunc, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	recorder := httptest.NewRecorder()
+	handler(recorder, httptest.NewRequest(http.MethodPut, path, strings.NewReader(body)))
+	return recorder
+}
+
+func TestSettingsNeverSerializesTheAPIKey(t *testing.T) {
+	a, _ := settingsApp(t)
+
+	recorder := httptest.NewRecorder()
+	settingsHandler(a)(recorder, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
+
+	if strings.Contains(recorder.Body.String(), "sk-not-a-real-key") {
+		t.Fatal("the raw API key leaked into the settings response")
+	}
+
+	if !getSettings(t, a).LLM.APIKeySet {
+		t.Error("apiKeySet should report that a credential exists")
+	}
+}
+
+func TestUpdateLLMPersistsAndKeepsUnretypedKey(t *testing.T) {
+	a, path := settingsApp(t)
+
+	recorder := putSettings(t, updateLLMHandler(a), "/api/settings/llm",
+		`{"provider":"openai","model":"kimi-k2.8","endpoint":"http://localhost:4000"}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PUT = %d, want 200: %s", recorder.Code, recorder.Body)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config: %v", err)
+	}
+	if saved.LLM.Model != "kimi-k2.8" {
+		t.Errorf("model = %q, want kimi-k2.8", saved.LLM.Model)
+	}
+	if saved.LLM.Endpoint != "http://localhost:4000" {
+		t.Errorf("endpoint = %q, want http://localhost:4000", saved.LLM.Endpoint)
+	}
+	// The UI never echoes the key back, so an omitted apiKey must not wipe it.
+	if saved.LLM.APIKey != "sk-not-a-real-key" {
+		t.Errorf("api key = %q, want the stored key to survive an update that omitted it", saved.LLM.APIKey)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	if !strings.Contains(string(raw), "# Keep this comment: the writer must not eat it.") {
+		t.Error("the write destroyed a user comment")
+	}
+}
+
+func TestUpdateLLMClearsKeyWhenExplicitlyEmptied(t *testing.T) {
+	a, path := settingsApp(t)
+
+	recorder := putSettings(t, updateLLMHandler(a), "/api/settings/llm",
+		`{"provider":"openai","model":"kimi-k2.7","apiKey":""}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PUT = %d, want 200: %s", recorder.Code, recorder.Body)
+	}
+
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("reloading config: %v", err)
+	}
+	if saved.LLM.APIKey != "" {
+		t.Errorf("api key = %q, want it cleared when the client sent an explicit empty string", saved.LLM.APIKey)
+	}
+}
+
+func TestUpdateLLMRejectsUnknownProvider(t *testing.T) {
+	a, path := settingsApp(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+
+	recorder := putSettings(t, updateLLMHandler(a), "/api/settings/llm",
+		`{"provider":"gpt-cloud","model":"whatever"}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("PUT = %d, want 400", recorder.Code)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Error("a rejected update still touched the config file")
+	}
+}
+
+func TestUpdateRuntimeRejectsOutOfRangeValues(t *testing.T) {
+	a, _ := settingsApp(t)
+
+	body := `{"serverPort":70000,"worktreeRoot":"/tmp/wt","maxConcurrentBeads":5,` +
+		`"runStatePath":"/tmp/run.db","stageRetryAttempts":2,"sweepIntervalSec":60,` +
+		`"prStaleWarnDays":7,"sweepFailureLimit":3,"sweepBackoffMinutes":[5,15]}`
+
+	recorder := putSettings(t, updateRuntimeHandler(a), "/api/settings/runtime", body)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("PUT = %d, want 400 for an out-of-range port", recorder.Code)
+	}
+	if !strings.Contains(recorder.Body.String(), "port") {
+		t.Errorf("error should name the offending field, got: %s", recorder.Body)
+	}
+}
+
+func TestUpdateInboxRejectsEscapingSubdir(t *testing.T) {
+	a, _ := settingsApp(t)
+
+	recorder := putSettings(t, updateInboxHandler(a), "/api/settings/inbox",
+		`{"autoPrep":true,"daSubdir":"../../etc"}`)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("PUT = %d, want 400 for a subdir that climbs out of the vault", recorder.Code)
+	}
+}
+
+// serve normalizes the vault windows into the running config after boot. If the
+// settings API re-reads the file without the same normalization, an untouched
+// config reports its own defaults as unsaved changes.
+func TestBootDefaultsAreNotReportedAsPendingChanges(t *testing.T) {
+	a, _ := settingsApp(t)
+
+	if pending := getSettings(t, a).RestartPending; len(pending) != 0 {
+		t.Errorf("restartPending = %v, want none — nothing was written", pending)
+	}
+}
+
+func TestSavedChangeIsReportedAsRestartPending(t *testing.T) {
+	a, _ := settingsApp(t)
+
+	if pending := getSettings(t, a).RestartPending; len(pending) != 0 {
+		t.Fatalf("a freshly loaded config should have nothing pending, got %v", pending)
+	}
+
+	recorder := putSettings(t, updateLLMHandler(a), "/api/settings/llm",
+		`{"provider":"openai","model":"kimi-k2.8"}`)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("PUT = %d, want 200: %s", recorder.Code, recorder.Body)
+	}
+
+	pending := getSettings(t, a).RestartPending
+	if len(pending) != 1 || pending[0] != "llm.model" {
+		t.Errorf("restartPending = %v, want [llm.model] — the running process still holds the old value", pending)
+	}
+}
+
+func TestWritesAreRefusedWithoutAConfigFile(t *testing.T) {
+	a, _ := settingsApp(t)
+	a.ConfigPath = ""
+
+	recorder := putSettings(t, updateInboxHandler(a), "/api/settings/inbox",
+		`{"autoPrep":true,"daSubdir":"DA"}`)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("PUT = %d, want 409 when there is no file to write to", recorder.Code)
+	}
 }
