@@ -126,7 +126,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 const route = useRoute()
-const daRelevantRoutes = new Set(['/chat', '/config/da'])
+const daRelevantRoutes = new Set(['/chat'])
 const daOpen = ref(daRelevantRoutes.has(route.path))
 const currentTime = ref('---- -- -- --:--:--')
 const userPreference = ref(false)
