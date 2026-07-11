@@ -38,8 +38,8 @@ const statusClass = ref('text-status-passed')
 async function load() {
   const res = await fetch('/api/da/identity')
   const data = await res.json()
-  displayName.value = data.display_name || ''
-  systemPrompt.value = data.system_prompt || ''
+  displayName.value = data.display_name || data.DisplayName || ''
+  systemPrompt.value = data.system_prompt || data.SystemPrompt || ''
 }
 
 async function save() {
