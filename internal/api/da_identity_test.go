@@ -22,6 +22,34 @@ func newTestAppWithGraph(t *testing.T) *app.App {
 	}
 }
 
+// Go unmarshals JSON case-insensitively, so decoding into a struct would keep
+// passing if the handler regressed to encoding the domain node's Go field names.
+// The wire keys have to be asserted directly.
+func TestDAIdentityAnswersInCamelCase(t *testing.T) {
+	a := newTestAppWithGraph(t)
+	r := NewRouter(a)
+
+	req := httptest.NewRequest("GET", "/api/da/identity", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	for _, key := range []string{"id", "displayName", "systemPrompt", "createdAt", "updatedAt"} {
+		if _, ok := raw[key]; !ok {
+			t.Errorf("response is missing the %q key: %s", key, w.Body)
+		}
+	}
+	for _, key := range []string{"DisplayName", "SystemPrompt", "display_name", "system_prompt"} {
+		if _, ok := raw[key]; ok {
+			t.Errorf("response still carries the off-contract key %q", key)
+		}
+	}
+}
+
 func TestDAIdentityGetReturnsDefaultOnFirstCall(t *testing.T) {
 	a := newTestAppWithGraph(t)
 	r := NewRouter(a)
@@ -34,7 +62,7 @@ func TestDAIdentityGetReturnsDefaultOnFirstCall(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	var got nodes.DAIdentity
+	var got daIdentityResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -67,9 +95,9 @@ func TestDAIdentityGetIdempotent(t *testing.T) {
 		t.Fatalf("status: %d, %d", w1.Code, w2.Code)
 	}
 
-	var di1 nodes.DAIdentity
+	var di1 daIdentityResponse
 	_ = json.Unmarshal(w1.Body.Bytes(), &di1)
-	var di2 nodes.DAIdentity
+	var di2 daIdentityResponse
 	_ = json.Unmarshal(w2.Body.Bytes(), &di2)
 
 	if di1.ID != di2.ID {
@@ -104,7 +132,7 @@ func TestDAIdentityPutUpdates(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	// PUT update.
-	body := `{"system_prompt":"New prompt","display_name":"New Name"}`
+	body := `{"systemPrompt":"New prompt","displayName":"New Name"}`
 	putReq := httptest.NewRequest("PUT", "/api/da/identity", strings.NewReader(body))
 	putReq.Header.Set("Content-Type", "application/json")
 	putW := httptest.NewRecorder()
@@ -123,7 +151,7 @@ func TestDAIdentityPutUpdates(t *testing.T) {
 		t.Fatalf("GET expected 200, got %d", getW.Code)
 	}
 
-	var got nodes.DAIdentity
+	var got daIdentityResponse
 	_ = json.Unmarshal(getW.Body.Bytes(), &got)
 
 	if got.SystemPrompt != "New prompt" {
@@ -143,8 +171,8 @@ func TestDAIdentityPutOnlyUpdatesProvidedFields(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	// PUT only display_name.
-	body := `{"display_name":"Only Name Changed"}`
+	// PUT only displayName.
+	body := `{"displayName":"Only Name Changed"}`
 	putReq := httptest.NewRequest("PUT", "/api/da/identity", strings.NewReader(body))
 	putReq.Header.Set("Content-Type", "application/json")
 	putW := httptest.NewRecorder()
@@ -154,12 +182,12 @@ func TestDAIdentityPutOnlyUpdatesProvidedFields(t *testing.T) {
 		t.Fatalf("PUT expected 204, got %d: %s", putW.Code, putW.Body.String())
 	}
 
-	// Verify system_prompt unchanged, display_name changed.
+	// Verify systemPrompt unchanged, displayName changed.
 	getReq := httptest.NewRequest("GET", "/api/da/identity", nil)
 	getW := httptest.NewRecorder()
 	r.ServeHTTP(getW, getReq)
 
-	var got nodes.DAIdentity
+	var got daIdentityResponse
 	_ = json.Unmarshal(getW.Body.Bytes(), &got)
 
 	if got.DisplayName != "Only Name Changed" {

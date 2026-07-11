@@ -797,10 +797,8 @@ async function loadDAIdentity() {
     const response = await fetch('/api/da/identity')
     if (!response.ok) throw new Error(await errorText(response))
     const data = await response.json()
-    // The DA endpoint still answers with Go field names rather than the camelCase
-    // the rest of the REST surface uses, so accept both shapes.
-    da.displayName = data.display_name ?? data.DisplayName ?? ''
-    da.systemPrompt = data.system_prompt ?? data.SystemPrompt ?? ''
+    da.displayName = data.displayName ?? ''
+    da.systemPrompt = data.systemPrompt ?? ''
     Object.assign(daSaved, da)
   } catch (error) {
     daError.value = message(error)
@@ -816,7 +814,7 @@ async function saveDAIdentity() {
     const response = await fetch('/api/da/identity', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: da.displayName, system_prompt: da.systemPrompt }),
+      body: JSON.stringify({ displayName: da.displayName, systemPrompt: da.systemPrompt }),
     })
     if (!response.ok) throw new Error(await errorText(response))
 
