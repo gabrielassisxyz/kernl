@@ -24,6 +24,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterStreamRoutes(mux, a)
 	RegisterEpicRoutes(mux, a)
 	RegisterAppRoutes(mux)
+	RegisterSettingsRoutes(mux, a)
 	RegisterDARoutes(mux, a)
 	RegisterChatRoutes(mux, a)
 	RegisterChatResolveRoutes(mux, a)

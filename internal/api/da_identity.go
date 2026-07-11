@@ -13,10 +13,33 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
-// daIdentityState is the deserialized attrs payload for a da_identity node.
+// daIdentityState is the deserialized attrs payload for a da_identity node. This
+// is the storage shape, not the wire shape: it must keep matching what is already
+// written in the graph.
 type daIdentityState struct {
 	SystemPrompt string `json:"system_prompt"`
 	DisplayName  string `json:"display_name"`
+}
+
+// daIdentityResponse is the wire shape. The handler used to encode the domain
+// node straight to the client, which has no JSON tags, so the API answered in Go
+// field names while every other endpoint answers camelCase.
+type daIdentityResponse struct {
+	ID           string    `json:"id"`
+	DisplayName  string    `json:"displayName"`
+	SystemPrompt string    `json:"systemPrompt"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+}
+
+func newDAIdentityResponse(di *nodes.DAIdentity) daIdentityResponse {
+	return daIdentityResponse{
+		ID:           di.ID,
+		DisplayName:  di.DisplayName,
+		SystemPrompt: di.SystemPrompt,
+		CreatedAt:    di.CreatedAt,
+		UpdatedAt:    di.UpdatedAt,
+	}
 }
 
 // scanDAIdentity reads a DAIdentity from a nodes row using the provided querier.
@@ -117,7 +140,7 @@ func daIdentityGetHandler(a *app.App) http.HandlerFunc {
 			}
 		}
 
-		json.NewEncoder(w).Encode(di)
+		_ = json.NewEncoder(w).Encode(newDAIdentityResponse(di))
 	}
 }
 
@@ -126,8 +149,8 @@ func daIdentityPutHandler(a *app.App) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 
 		var body struct {
-			SystemPrompt *string `json:"system_prompt"`
-			DisplayName  *string `json:"display_name"`
+			SystemPrompt *string `json:"systemPrompt"`
+			DisplayName  *string `json:"displayName"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")

@@ -62,9 +62,14 @@
         
         <!-- Footer Nav -->
         <div class="flex flex-col gap-base pb-base w-full items-center">
-          <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-95 transition-[color,transform] duration-150 cursor-pointer" aria-label="Settings">
+          <NuxtLink
+            to="/settings"
+            class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-95 transition-[color,transform] duration-150 cursor-pointer"
+            active-class="text-primary bg-surface-hover"
+            aria-label="Settings"
+          >
             <span class="material-symbols-outlined rail-footer-icon">settings</span>
-          </button>
+          </NuxtLink>
           <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-95 transition-[color,transform] duration-150 cursor-pointer" aria-label="Account">
             <span class="material-symbols-outlined rail-footer-icon">account_circle</span>
           </button>
@@ -121,7 +126,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 const route = useRoute()
-const daRelevantRoutes = new Set(['/chat', '/config/da'])
+const daRelevantRoutes = new Set(['/chat'])
 const daOpen = ref(daRelevantRoutes.has(route.path))
 const currentTime = ref('---- -- -- --:--:--')
 const userPreference = ref(false)

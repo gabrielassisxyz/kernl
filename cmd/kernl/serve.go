@@ -79,6 +79,7 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 	if err != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
 	}
+	a.ConfigPath = configPath
 
 	handler := api.NewRouter(a)
 

@@ -1,0 +1,402 @@
+/* The settings surface is one centered column. It is the only page in Kernl that
+   is not a data view, so it does not fill the width: a form stretched across an
+   ultrawide monitor is harder to read, and a form pinned to the left edge leaves
+   the asymmetric void this layout exists to avoid. */
+.settings-page {
+  display: flex;
+  width: min(100%, 880px);
+  min-height: 100%;
+  flex-direction: column;
+  gap: var(--spacing-component);
+  margin-inline: auto;
+  padding: var(--spacing-margin) var(--spacing-component) calc(var(--spacing-margin) + var(--spacing-section));
+}
+
+.settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--spacing-component);
+  margin-bottom: var(--spacing-base);
+}
+
+.settings-title {
+  min-width: 0;
+}
+
+.settings-subtitle {
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  margin-top: var(--spacing-tight);
+}
+
+.settings-path {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+  word-break: break-all;
+}
+
+.restart-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-base);
+  border: 1px solid color-mix(in srgb, var(--color-status-gate) 40%, var(--color-border-default));
+  background: color-mix(in srgb, var(--color-status-gate) 8%, var(--color-surface));
+  padding: var(--spacing-component);
+}
+
+.restart-icon {
+  color: var(--color-status-gate);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.restart-title {
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: var(--text-body--line-height);
+}
+
+.restart-detail {
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  margin-top: 2px;
+  max-width: 68ch;
+}
+
+.restart-keys {
+  color: var(--color-status-gate);
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+}
+
+/* Wrapping beats an overflow strip: eight sections in a scrolling bar hides the
+   ones that matter behind a scrollbar the user never looks for. */
+.settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--color-border-hairline);
+  background: var(--color-surface);
+}
+
+.settings-tab {
+  min-height: 36px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  padding: 0 var(--spacing-component);
+  transition: color 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  white-space: nowrap;
+}
+
+.settings-tab:hover,
+.settings-tab:focus-visible {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  outline: none;
+}
+
+.settings-tab--active {
+  border-bottom-color: var(--color-da-accent);
+  color: var(--color-da-accent-text);
+}
+
+.settings-content,
+.settings-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-component);
+}
+
+.settings-panel {
+  border: 1px solid var(--color-border-default);
+  background: var(--color-surface);
+}
+
+.panel-heading {
+  border-bottom: 1px solid var(--color-border-hairline);
+  padding: var(--spacing-component);
+}
+
+.panel-heading h2 {
+  color: var(--color-text-primary);
+  font-family: var(--font-headline);
+  font-size: var(--text-headline);
+  font-weight: 600;
+  line-height: var(--text-headline--line-height);
+}
+
+.panel-heading p {
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  margin-top: var(--spacing-tight);
+  max-width: 68ch;
+}
+
+.form-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 300px);
+  gap: var(--spacing-component);
+  align-items: center;
+  border-bottom: 1px solid var(--color-border-hairline);
+  padding: var(--spacing-component);
+}
+
+.setting-row:last-child {
+  border-bottom: 0;
+}
+
+/* A system prompt needs the full column; a port does not. */
+.setting-row--stacked {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.setting-copy {
+  min-width: 0;
+}
+
+.setting-control {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.setting-control > * {
+  width: 100%;
+}
+
+.row-title {
+  color: var(--color-text-primary);
+  display: block;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: var(--text-body--line-height);
+}
+
+.row-description {
+  color: var(--color-text-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  margin-top: 2px;
+  max-width: 60ch;
+}
+
+.row-key {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-tight);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+  line-height: var(--text-mono-data--line-height);
+  margin-top: var(--spacing-tight);
+}
+
+.row-pending {
+  border: 1px solid color-mix(in srgb, var(--color-status-gate) 45%, var(--color-border-hairline));
+  color: var(--color-status-gate);
+  padding: 1px 6px;
+}
+
+.row-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-tight);
+  min-width: 0;
+}
+
+/* A long value (every pool name, a full path) truncates rather than pushing the
+   chip onto its own line. The full string stays available as a title. */
+.setting-value {
+  color: var(--color-text-primary);
+  flex: 0 1 auto;
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+  line-height: var(--text-mono-data--line-height);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta-chip {
+  border: 1px solid var(--color-border-hairline);
+  background: var(--color-surface-container-low);
+  color: var(--color-text-muted);
+  flex: none;
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+  line-height: var(--text-mono-data--line-height);
+  padding: 1px 6px;
+}
+
+.key-control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-tight);
+  width: 100%;
+}
+
+.key-clear {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-tight);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-mono-data);
+  line-height: var(--text-mono-data--line-height);
+}
+
+.panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--spacing-component);
+  border-top: 1px solid var(--color-border-hairline);
+  background: var(--color-surface-container-low);
+  padding: var(--spacing-component);
+}
+
+.save-status {
+  flex: 1 1 auto;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  min-width: 0;
+}
+
+.switch-control {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  flex: none;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-container-low);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.setting-control > .switch-control,
+.setting-control > .stepper {
+  width: auto;
+}
+
+.switch-control:focus-visible,
+.step-button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  outline: none;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-muted);
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+
+.switch-control--on {
+  border-color: color-mix(in srgb, var(--color-da-accent) 55%, var(--color-border-default));
+  background: color-mix(in srgb, var(--color-da-accent) 18%, var(--color-surface-container-low));
+}
+
+.switch-control--on .switch-thumb {
+  background: var(--color-da-accent-text);
+  transform: translateX(16px);
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border-hairline);
+  background: var(--color-bg-base);
+}
+
+.step-button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+}
+
+.step-button:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+
+.step-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.step-value {
+  min-width: 64px;
+  border-inline: 1px solid var(--color-border-hairline);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono-data);
+  font-size: var(--text-mono-data);
+  line-height: 32px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-tab,
+  .switch-control,
+  .switch-thumb {
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-page {
+    padding: var(--spacing-component);
+  }
+
+  .settings-header,
+  .panel-footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .setting-row {
+    grid-template-columns: 1fr;
+  }
+
+  .setting-control,
+  .row-meta {
+    justify-content: flex-start;
+  }
+}

@@ -28,6 +28,12 @@ type App struct {
 	EpicEvents    *epic.EpicEventHub
 	NudgeRegistry *session.NudgeRegistry
 	Graph         *graph.Graph
+
+	// ConfigPath is the kernl.yaml this process loaded. The settings API needs it
+	// to write typed field updates back to the file the user actually edits.
+	// Empty when the app was built from an in-memory config (tests, harnesses),
+	// which makes config writes unavailable rather than silently misdirected.
+	ConfigPath string
 }
 
 func NewApp(cfg *config.Config) (*App, error) {

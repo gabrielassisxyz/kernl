@@ -14,6 +14,7 @@ export default defineNuxtConfig({
     // Material Symbols Outlined — self-hosted subset (46 icons); @font-face + class rule
     '~/assets/css/fonts.css',
     '~/assets/css/tailwind.css',
+    '~/assets/css/settings.css',
   ],
   vite: {
     plugins: [
