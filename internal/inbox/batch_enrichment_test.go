@@ -179,3 +179,58 @@ func TestEnricherSemanticSplitInvalidFallsBack(t *testing.T) {
 		t.Fatalf("fallback should preserve 1 segment, got %d", len(result.Segments))
 	}
 }
+
+// A merged capture inherits the first source message's timestamp. Without it
+// the inbox has no time to show and falls back to "#N", which tells you nothing
+// about when you said it.
+func TestMergedSegmentInheritsFirstSourceTimestamp(t *testing.T) {
+	llm := &batchTestLLM{content: `{
+		"context_title": "morning notes",
+		"segments": [
+			{"body": "The whole thought, merged", "source_sequences": [1, 0], "confidence": "high"}
+		]
+	}`}
+	e := NewBatchEnricher(llm)
+	result := e.Enrich(context.Background(), BatchEnrichmentInput{
+		Source:    "whatsapp",
+		Separator: "whatsapp",
+		RawSegments: []BatchSegment{
+			{Body: "First half", Sender: "Me", Timestamp: "4/1/26 08:37", Sequence: 0, ParseConfidence: "high"},
+			{Body: "Second half", Sender: "Me", Timestamp: "4/1/26 10:18", Sequence: 1, ParseConfidence: "high"},
+		},
+	})
+	if len(result.Segments) != 1 {
+		t.Fatalf("Segments = %d, want 1 merged segment", len(result.Segments))
+	}
+	seg := result.Segments[0]
+	if seg.Timestamp != "4/1/26 08:37" {
+		t.Errorf("merged Timestamp = %q, want the first source message's 08:37", seg.Timestamp)
+	}
+	if seg.Sender != "Me" {
+		t.Errorf("merged Sender = %q, want Me", seg.Sender)
+	}
+}
+
+// A candidate the model invented (no valid source_sequences) is kept, but must
+// not borrow a timestamp from an unrelated message.
+func TestFabricatedSegmentBorrowsNoTimestamp(t *testing.T) {
+	llm := &batchTestLLM{content: `{
+		"segments": [
+			{"body": "Something the model made up", "source_sequences": [42], "confidence": "low"}
+		]
+	}`}
+	e := NewBatchEnricher(llm)
+	result := e.Enrich(context.Background(), BatchEnrichmentInput{
+		Source:    "whatsapp",
+		Separator: "whatsapp",
+		RawSegments: []BatchSegment{
+			{Body: "Real message", Sender: "Me", Timestamp: "4/1/26 08:37", Sequence: 0, ParseConfidence: "high"},
+		},
+	})
+	if len(result.Segments) != 1 {
+		t.Fatalf("Segments = %d, want the candidate kept", len(result.Segments))
+	}
+	if result.Segments[0].Timestamp != "" {
+		t.Errorf("fabricated segment Timestamp = %q, want empty", result.Segments[0].Timestamp)
+	}
+}

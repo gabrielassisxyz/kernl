@@ -227,6 +227,10 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 		if len(refs) == 0 {
 			continue
 		}
+		// The model lists source_sequences in whatever order it pleases; sort so
+		// refs[0] really is the first source message (its timestamp is the one
+		// the merged capture inherits) and so ordering below is deterministic.
+		sort.Ints(refs)
 
 		seg := FinalBatchSegment{
 			Body:            body,
@@ -234,14 +238,14 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 			KindHint:        normalizeKindHint(item.KindHint),
 			Confidence:      normalizeConfidence(item.Confidence),
 		}
-		// Carry sender/timestamp from the referenced raw segment only when
-		// it maps to exactly one *real* raw sequence; a fabricated fallback
-		// ref must not borrow attribution from an unrelated raw segment.
-		if len(refs) == 1 {
-			if raw, ok := rawBySeq[refs[0]]; ok {
-				seg.Sender = raw.Sender
-				seg.Timestamp = raw.Timestamp
-			}
+		// Carry sender/timestamp from the FIRST real raw segment behind this
+		// candidate — a merge of 08:37 and 10:18 is still something you said at
+		// 08:37, and without it the inbox has no time to show and falls back to
+		// a meaningless "#N". A fabricated fallback ref maps to no raw segment,
+		// so it borrows no attribution.
+		if raw, ok := rawBySeq[refs[0]]; ok {
+			seg.Sender = raw.Sender
+			seg.Timestamp = raw.Timestamp
 		}
 		out = append(out, seg)
 	}
