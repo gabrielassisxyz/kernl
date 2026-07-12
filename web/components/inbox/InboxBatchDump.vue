@@ -9,7 +9,7 @@
       :max-rows="10"
       action-label="Create captures"
       action-icon="inbox"
-      :loading="analyzing"
+      :loading="splitting"
       upload-enabled
       upload-label="Upload file"
       @submit="openReview"
@@ -30,7 +30,7 @@
             <UiInput v-model="contextTitle" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70" />
           </UiField>
           <UiField label="Source">
-            <UiSelect v-model="source" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70" @change="reanalyze">
+            <UiSelect v-model="source" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70" @change="resplit">
               <option value="whatsapp">WhatsApp</option>
               <option value="text">Text</option>
               <option value="chat">Chat log</option>
@@ -38,7 +38,7 @@
             </UiSelect>
           </UiField>
           <UiField label="Separator">
-            <UiSelect v-model="separator" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70" @change="reanalyze">
+            <UiSelect v-model="separator" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70" @change="resplit">
               <option value="auto">Auto</option>
               <option value="whatsapp">Chat timestamps</option>
               <option value="lines">One per line</option>
@@ -54,13 +54,33 @@
               Semantic splitting needs the backend to understand the dump; without that, Kernl keeps the dump as one capture.
             </p>
           </div>
+
+          <!-- A merge deletes a message from the record. The model may suggest one;
+               only the human applies it. -->
+          <div v-if="enriching || enriched" class="border border-border-hairline bg-bg-base rounded px-base py-base">
+            <p class="font-mono-data text-mono-data text-text-muted">Suggested merges</p>
+            <p v-if="enriching" class="mt-tight font-body text-body text-text-muted">Looking for messages that say the same thing…</p>
+            <p v-else-if="proposals.length === 0" class="mt-tight font-body text-body text-text-muted">None — every message stays its own capture.</p>
+            <div
+              v-for="(proposal, i) in proposals"
+              :key="i"
+              class="mt-base flex flex-col gap-tight border-t border-border-hairline pt-base first:border-t-0 first:pt-0 first:mt-tight"
+            >
+              <p class="font-mono-data text-mono-data text-text-faint">{{ proposalLabel(proposal) }}</p>
+              <p v-if="proposal.reason" class="font-body text-body text-text-muted">{{ proposal.reason }}</p>
+              <div class="flex items-center gap-base">
+                <UiButton :variant="proposal.accepted ? 'primary' : 'ghost'" @click="proposal.accepted = true">Merge</UiButton>
+                <UiButton :variant="proposal.accepted ? 'ghost' : 'primary'" @click="proposal.accepted = false">Keep separate</UiButton>
+              </div>
+            </div>
+          </div>
           <p v-if="reviewError" class="font-mono-data text-mono-data text-status-failed-text">{{ reviewError }}</p>
         </div>
 
         <div class="border border-border-hairline bg-bg-base rounded overflow-hidden min-w-0">
           <div class="flex items-center justify-between gap-base px-base py-tight border-b border-border-hairline">
             <span class="font-mono-data text-mono-data text-text-muted">Preview</span>
-            <span class="font-mono-data text-mono-data text-text-faint">time + excerpt</span>
+            <span class="font-mono-data text-mono-data text-text-faint">your messages, as written</span>
           </div>
           <div class="max-h-[420px] overflow-y-auto">
             <div
@@ -101,30 +121,44 @@ import UiSelect from '~/components/ui/UiSelect.vue'
 
 interface BatchSegment {
   body: string
+  sender?: string
   timestamp?: string
   sequence: number
   parseConfidence: string
 }
 
-// FinalBatchSegment mirrors inbox.FinalBatchSegment (internal/inbox/batch_enrichment.go):
-// the capture candidates the user reviewed in the preview pane. Echoed back on
-// create so the persisted captures cannot diverge from what was approved.
+// FinalBatchSegment mirrors inbox.FinalBatchSegment (internal/inbox/batch_enrichment.go).
+// Its body is only ever a preview: the server rebuilds every body from the
+// pasted text and honors nothing here but sourceSequences — the merges the user
+// accepted.
 interface FinalBatchSegment {
   body: string
   sender?: string
   timestamp?: string
   sequence: number
   sourceSequences: number[]
-  kindHint?: string
   confidence?: string
 }
 
-interface BatchAnalysis {
+interface MergeProposal {
+  sourceSequences: number[]
+  reason?: string
+}
+
+interface ReviewableMerge extends MergeProposal {
+  accepted: boolean
+}
+
+interface BatchPreview {
   source: string
   separator: string
   suggestedContextTitle: string
   segments: BatchSegment[]
-  finalSegments?: FinalBatchSegment[]
+  finalSegments: FinalBatchSegment[]
+}
+
+interface BatchAnalysis extends BatchPreview {
+  mergeProposals?: MergeProposal[]
 }
 
 const emit = defineEmits<{
@@ -135,15 +169,58 @@ const text = ref('')
 const source = ref('text')
 const separator = ref('auto')
 const contextTitle = ref('')
-const segments = ref<BatchSegment[]>([])
-const finalSegments = ref<FinalBatchSegment[]>([])
-const analyzing = ref(false)
+const rawSegments = ref<BatchSegment[]>([])
+const proposals = ref<ReviewableMerge[]>([])
+const splitting = ref(false)
+const enriching = ref(false)
+const enriched = ref(false)
 const creating = ref(false)
 const reviewOpen = ref(false)
 const error = ref('')
 const reviewError = ref('')
 
 const canSubmit = computed(() => text.value.trim().length > 0)
+
+// The captures as they will be created: one per message, plus the merges the
+// user accepted. Mirrors buildFinalSegments in internal/inbox/batch.go — the
+// server rebuilds this from the same rules, and its answer is the one that counts.
+const finalSegments = computed<FinalBatchSegment[]>(() => {
+  const groupOf = new Map<number, number[]>()
+  for (const proposal of proposals.value) {
+    if (!proposal.accepted) continue
+    const members = proposal.sourceSequences.filter(seq => !groupOf.has(seq))
+    if (members.length < 2) continue
+    members.sort((a, b) => a - b)
+    for (const seq of members) groupOf.set(seq, members)
+  }
+
+  const bySeq = new Map(rawSegments.value.map(seg => [seg.sequence, seg]))
+  const out: FinalBatchSegment[] = []
+  for (const seg of rawSegments.value) {
+    const members = groupOf.get(seg.sequence) ?? [seg.sequence]
+    if (members[0] !== seg.sequence) continue
+    const anchor = bySeq.get(members[0])!
+    out.push({
+      body: members.map(seq => bySeq.get(seq)?.body ?? '').join('\n\n'),
+      sender: anchor.sender,
+      timestamp: anchor.timestamp,
+      sequence: out.length,
+      sourceSequences: members,
+      confidence: anchor.parseConfidence,
+    })
+  }
+  return out
+})
+
+const segments = computed<BatchSegment[]>(() =>
+  finalSegments.value.map(seg => ({
+    body: seg.body,
+    sender: seg.sender,
+    timestamp: seg.timestamp,
+    sequence: seg.sequence,
+    parseConfidence: seg.confidence ?? '',
+  })),
+)
 
 function requestBody() {
   return {
@@ -159,44 +236,78 @@ function segmentTime(segment: BatchSegment): string {
   return match ? match[0].slice(0, 5) : ''
 }
 
-function applyAnalysis(analysis: BatchAnalysis, updateTitle: boolean) {
-  source.value = analysis.source || 'text'
-  separator.value = analysis.separator || 'semantic'
+function proposalLabel(proposal: MergeProposal): string {
+  const bySeq = new Map(rawSegments.value.map(seg => [seg.sequence, seg]))
+  return proposal.sourceSequences
+    .map(seq => {
+      const seg = bySeq.get(seq)
+      return seg ? segmentTime(seg) || `#${seq + 1}` : `#${seq + 1}`
+    })
+    .join(' + ')
+}
+
+function applySplit(preview: BatchPreview, updateTitle: boolean) {
+  source.value = preview.source || 'text'
+  separator.value = preview.separator || 'semantic'
   if (updateTitle || !contextTitle.value.trim()) {
-    contextTitle.value = analysis.suggestedContextTitle || ''
+    contextTitle.value = preview.suggestedContextTitle || ''
   }
-  segments.value = analysis.segments || []
-  finalSegments.value = analysis.finalSegments || []
+  rawSegments.value = preview.segments || []
+  proposals.value = []
+  enriched.value = false
 }
 
-async function analyze(updateTitle: boolean) {
-  const res = await $fetch<BatchAnalysis>('/api/inbox/batch/analyze', { method: 'POST', body: requestBody() })
-  applyAnalysis(res, updateTitle)
-}
-
+// The modal opens on the mechanical split — reading your own messages must not
+// wait on a model. Enrichment lands afterwards, as a layer on top.
 async function openReview() {
   if (!canSubmit.value) return
-  analyzing.value = true
+  splitting.value = true
   error.value = ''
   reviewError.value = ''
   try {
-    await analyze(true)
+    const preview = await $fetch<BatchPreview>('/api/inbox/batch/preview', { method: 'POST', body: requestBody() })
+    applySplit(preview, true)
     reviewOpen.value = true
   } catch (e) {
-    error.value = e instanceof Error ? e.message : 'Could not analyze batch.'
+    error.value = e instanceof Error ? e.message : 'Could not split the paste.'
+    return
   } finally {
-    analyzing.value = false
+    splitting.value = false
+  }
+  enrich(true)
+}
+
+async function enrich(updateTitle: boolean) {
+  enriching.value = true
+  try {
+    const analysis = await $fetch<BatchAnalysis>('/api/inbox/batch/analyze', { method: 'POST', body: requestBody() })
+    // The split stays the parser's; only the title and the merge offers are the
+    // model's, and a merge offer starts out rejected.
+    if (updateTitle && !contextTitle.value.trim()) {
+      contextTitle.value = analysis.suggestedContextTitle || ''
+    }
+    proposals.value = (analysis.mergeProposals || []).map(p => ({ ...p, accepted: false }))
+    enriched.value = true
+  } catch {
+    // Enrichment is optional: without it the batch is still the messages as
+    // pasted, which is the thing that matters.
+    proposals.value = []
+  } finally {
+    enriching.value = false
   }
 }
 
-async function reanalyze() {
+async function resplit() {
   if (!reviewOpen.value || !canSubmit.value) return
   reviewError.value = ''
   try {
-    await analyze(false)
+    const preview = await $fetch<BatchPreview>('/api/inbox/batch/preview', { method: 'POST', body: requestBody() })
+    applySplit(preview, false)
   } catch (e) {
     reviewError.value = e instanceof Error ? e.message : 'Could not refresh preview.'
+    return
   }
+  enrich(false)
 }
 
 async function createBatch() {
@@ -204,17 +315,17 @@ async function createBatch() {
   creating.value = true
   reviewError.value = ''
   try {
-    // Echo back the final segments the user just reviewed in the preview pane,
-    // so the server persists exactly those instead of re-running LLM
-    // enrichment (non-deterministic, and would risk creating different
-    // captures than what was shown here).
+    // rawSegments is the split that was reviewed (it is the LLM's own cut in
+    // semantic mode, which the server cannot re-derive); finalSegments carries
+    // the merges accepted here. The server takes the bodies from neither.
     const res = await $fetch<{ batchId: string; segments: BatchSegment[] }>('/api/inbox/batch', {
       method: 'POST',
-      body: { ...requestBody(), finalSegments: finalSegments.value },
+      body: { ...requestBody(), rawSegments: rawSegments.value, finalSegments: finalSegments.value },
     })
     text.value = ''
-    segments.value = res.segments || []
-    finalSegments.value = []
+    rawSegments.value = []
+    proposals.value = []
+    enriched.value = false
     reviewOpen.value = false
     emit('created', res.batchId)
   } catch (e) {
