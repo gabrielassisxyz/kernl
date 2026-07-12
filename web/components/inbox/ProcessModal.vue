@@ -7,64 +7,107 @@
     @close="$emit('close')"
   >
     <div class="flex flex-col gap-section">
-      <UiField label="Convert to">
-        <div class="grid grid-cols-3 gap-tight">
-          <UiButton
-            v-for="t in TARGETS"
-            :key="t"
-            class="flex-1"
-            size="sm"
-            :variant="draft.target === t ? targetVariant(t) : 'secondary'"
-            :icon="TARGET_META[t].icon"
-            @click="draft.target = t"
-          >
-            {{ TARGET_META[t].label }}
-          </UiButton>
+      <!-- The capture itself, readable end to end. Triage is exactly when you
+           need to read the whole thing, so it is never clipped away for good. -->
+      <UiField label="Capture">
+        <div class="rounded border border-border-hairline bg-surface-container-low px-base py-base">
+          <p
+            class="font-body text-body text-text-primary whitespace-pre-wrap"
+            :class="expanded ? 'max-h-[40vh] overflow-y-auto' : 'line-clamp-3'"
+          >{{ captureBody }}</p>
+          <button
+            v-if="isLongCapture"
+            class="mt-tight font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
+            @click="expanded = !expanded"
+          >{{ expanded ? 'Collapse' : 'Show full capture' }}</button>
         </div>
       </UiField>
 
-      <UiField
-        v-if="draft.target !== 'discard' && draft.target !== 'update' && draft.target !== 'project'"
-        :label="draft.target === 'task' ? 'Project' : 'Link to (optional)'"
-      >
-        <UiSelect v-model="draft.projectId" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50">
-          <option value="">{{ draft.target === 'task' ? 'Unprocessed tasks (no project)' : 'Nothing' }}</option>
-          <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.title }}</option>
-        </UiSelect>
-      </UiField>
+      <!-- One capture becomes N nodes: review, edit, add or drop each one. -->
+      <div class="flex flex-col gap-base">
+        <div
+          v-for="(action, i) in draft.actions"
+          :key="i"
+          class="flex flex-col gap-base rounded border border-border-hairline bg-surface p-component"
+        >
+          <div class="flex items-center justify-between gap-base">
+            <span class="font-mono-data text-mono-data text-text-faint">ACTION {{ i + 1 }}</span>
+            <button
+              v-if="draft.actions.length > 1"
+              class="flex items-center gap-tight font-mono-data text-mono-data text-text-muted hover:text-status-failed-text rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
+              @click="removeAction(i)"
+            >
+              <span class="material-symbols-outlined !text-body">close</span>
+              Remove
+            </button>
+          </div>
 
-      <UiField v-if="draft.target !== 'discard' && draft.target !== 'update'" label="Title">
-        <UiInput v-model="draft.title" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50" />
-      </UiField>
+          <div class="grid grid-cols-3 gap-tight">
+            <UiButton
+              v-for="t in TARGETS"
+              :key="t"
+              size="sm"
+              :variant="action.target === t ? targetVariant(t) : 'secondary'"
+              :icon="TARGET_META[t].icon"
+              @click="setTarget(i, t)"
+            >
+              {{ TARGET_META[t].label }}
+            </UiButton>
+          </div>
 
-      <template v-if="draft.target === 'project'">
-        <UiField label="Description">
-          <UiTextarea v-model="draft.projectDescription" rows="4" classes="w-full rounded border border-border-hairline bg-surface-container-low px-base py-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50 resize-none" />
-        </UiField>
-        <UiField label="Initial tasks" hint="One task per line. Kernl will create up to six tasks under the new project.">
-          <UiTextarea v-model="draft.initialTasksText" rows="5" classes="w-full rounded border border-border-hairline bg-surface-container-low px-base py-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70 disabled:cursor-not-allowed disabled:opacity-50 resize-none" />
-        </UiField>
-      </template>
+          <UiField v-if="action.target !== 'discard' && action.target !== 'update'" label="Title">
+            <UiInput v-model="action.title" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/70" />
+          </UiField>
 
-      <p v-if="draft.target === 'update'" class="font-body text-body text-text-muted">
-        Kernl finds the best-matching note and proposes the changes to merge in.
-        You'll review each suggested edit before anything is written.
-      </p>
+          <UiField
+            v-if="action.target === 'task' || action.target === 'note' || action.target === 'bookmark'"
+            :label="action.target === 'task' ? 'Project' : 'Link to (optional)'"
+          >
+            <UiSelect v-model="action.projectId" classes="h-8 w-full rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70">
+              <option value="">{{ action.target === 'task' ? 'Unprocessed tasks (no project)' : 'Nothing' }}</option>
+              <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.title }}</option>
+            </UiSelect>
+          </UiField>
+
+          <template v-if="action.target === 'project'">
+            <UiField label="Description">
+              <UiTextarea v-model="action.projectDescription" rows="3" classes="w-full rounded border border-border-hairline bg-surface-container-low px-base py-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70 resize-none" />
+            </UiField>
+            <UiField label="Initial tasks" hint="One task per line. Kernl will create up to six tasks under the new project.">
+              <UiTextarea v-model="action.initialTasksText" rows="4" classes="w-full rounded border border-border-hairline bg-surface-container-low px-base py-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70 resize-none" />
+            </UiField>
+          </template>
+
+          <p v-if="action.target === 'update'" class="font-body text-body text-text-muted">
+            Kernl finds the best-matching note and proposes the changes to merge in.
+            You'll review each suggested edit before anything is written.
+          </p>
+        </div>
+
+        <UiButton variant="secondary" size="sm" icon="add" @click="addAction">Add action</UiButton>
+
+        <p v-if="updateConflict" class="font-body text-body text-status-failed-text">
+          An update is reviewed change by change against one note, so it has to be the only action.
+          Remove the others, or pick a different target for this one.
+        </p>
+      </div>
     </div>
 
     <template #footer>
       <div class="flex items-center justify-end gap-base">
         <UiButton variant="ghost" @click="$emit('close')">Cancel</UiButton>
-        <UiButton variant="primary" :loading="busy" @click="confirm">Process</UiButton>
+        <UiButton variant="primary" :loading="busy" :disabled="updateConflict" @click="confirm">
+          {{ confirmLabel }}
+        </UiButton>
       </div>
     </template>
   </UiModal>
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import type { Project } from '~/composables/useProjects'
-import { TARGETS, TARGET_META, normalizeTarget, type Target } from '~/utils/inboxTargets'
+import { TARGETS, TARGET_META, normalizeActions, type CaptureAction, type Target } from '~/utils/inboxTargets'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiField from '~/components/ui/UiField.vue'
@@ -74,6 +117,21 @@ import UiSelect from '~/components/ui/UiSelect.vue'
 import UiTextarea from '~/components/ui/UiTextarea.vue'
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'accent'
 
+// A capture long enough that the collapsed view would hide something.
+const LONG_CAPTURE_CHARS = 180
+
+// DraftAction is one editable row. initialTasksText is the textarea-friendly
+// form of initialTasks; everything else mirrors CaptureAction.
+interface DraftAction {
+  target: Target
+  title: string
+  body: string
+  projectId: string
+  projectDescription: string
+  initialTasksText: string
+  tags: string[]
+}
+
 const props = defineProps<{
   item: InboxItemData | null
   projects: Project[]
@@ -82,90 +140,117 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'confirm', payload: { target: Target; projectId: string; linkTo: string; title: string; projectTitle?: string; projectDescription?: string; initialTasks?: string[] }): void
+  (e: 'confirm', payload: { actions: CaptureAction[] }): void
 }>()
 
-const draft = reactive<{ target: Target; projectId: string; title: string; projectDescription: string; initialTasksText: string }>({
-  target: 'note',
-  projectId: '',
-  title: '',
-  projectDescription: '',
-  initialTasksText: '',
-})
+const draft = reactive<{ actions: DraftAction[] }>({ actions: [] })
+const expanded = ref(false)
+
+const captureBody = computed(() => props.item?.subtitle || props.item?.title || '')
+const isLongCapture = computed(() => captureBody.value.length > LONG_CAPTURE_CHARS || captureBody.value.includes('\n'))
+
+const updateConflict = computed(
+  () => draft.actions.length > 1 && draft.actions.some(a => a.target === 'update'),
+)
+const confirmLabel = computed(() =>
+  draft.actions.length > 1 ? `Process ${draft.actions.length} actions` : 'Process',
+)
 
 function targetVariant(target: Target): ButtonVariant {
   if (target === 'discard') return 'danger'
   if (target === 'task') return 'success'
-  if (target === 'project') return 'accent'
   return 'accent'
 }
 
-// Re-seed the draft from the DA suggestion (or a neutral default) each time a
-// new capture opens the modal.
+// blankAction seeds a new row from the capture itself, so "Add action" starts
+// from something usable rather than an empty form.
+function blankAction(item: InboxItemData): DraftAction {
+  return {
+    target: 'note',
+    title: item.title,
+    body: '',
+    projectId: '',
+    projectDescription: item.subtitle || '',
+    initialTasksText: '',
+    tags: [],
+  }
+}
+
+function toDraft(action: CaptureAction, item: InboxItemData): DraftAction {
+  return {
+    target: action.target,
+    title: action.title || item.title,
+    body: action.body || '',
+    projectId: action.projectId || action.linkTo || '',
+    projectDescription: action.projectDescription || action.body || item.subtitle || '',
+    initialTasksText: (action.initialTasks || []).join('\n'),
+    tags: action.tags || [],
+  }
+}
+
+// Re-seed the draft from the DA's suggested actions (or a single neutral note)
+// each time a capture opens the modal.
 watch(() => props.item, (item) => {
   if (!item) return
-  draft.target = normalizeTarget(item.suggestedAction) ?? 'note'
-  draft.projectId = item.suggestedProjectId ?? ''
-  // Title tracks the capture itself by default; only a project target uses the
-  // suggested project name (see the draft.target watcher below for the same
-  // rule applied when the user switches targets interactively).
-  draft.title = draft.target === 'project' && item.suggestedProjectTitle ? item.suggestedProjectTitle : item.title
-  draft.projectDescription = item.suggestedProjectDescription || item.subtitle || ''
-  draft.initialTasksText = (item.suggestedInitialTasks || []).join('\n')
+  expanded.value = false
+  const suggested = normalizeActions(item.suggestedActions)
+  draft.actions = suggested.length > 0
+    ? suggested.map(a => toDraft(a, item))
+    : [blankAction(item)]
 }, { immediate: true })
 
-// Keep the title aligned with the chosen target when the user flips it after
-// opening: project -> suggested project name, note/task/link -> the capture's
-// own title. Only swap the field while it still holds the previous target's
-// un-edited value, so a title the user typed by hand is never overwritten.
-watch(() => draft.target, (target, previousTarget) => {
-  const item = props.item
-  if (!item) return
-  if (target === 'project') {
-    if (item.suggestedProjectTitle && draft.title === item.title) {
-      draft.title = item.suggestedProjectTitle
-    }
-    return
-  }
-  if (previousTarget === 'project' && draft.title === item.suggestedProjectTitle) {
-    draft.title = item.title
-  }
-})
+function setTarget(index: number, target: Target) {
+  const action = draft.actions[index]
+  // projectId means "parent project" for a task and "link to" for a note or
+  // bookmark; it means nothing for the rest, so drop a stale selection.
+  if (target !== 'task' && target !== 'note' && target !== 'bookmark') action.projectId = ''
+  action.target = target
+}
 
-function taskLines(): string[] {
-  return draft.initialTasksText
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean)
+function addAction() {
+  if (!props.item) return
+  draft.actions.push(blankAction(props.item))
+}
+
+function removeAction(index: number) {
+  draft.actions.splice(index, 1)
+}
+
+function taskLines(text: string): string[] {
+  return text.split('\n').map(line => line.trim()).filter(Boolean)
+}
+
+// toAction projects a draft row back onto the wire shape, sending only the
+// fields its target actually uses.
+function toAction(draftAction: DraftAction): CaptureAction {
+  const { target, title, body, projectId } = draftAction
+  if (target === 'update' || target === 'discard') {
+    return { target, title }
+  }
+  if (target === 'project') {
+    return {
+      target,
+      title,
+      body,
+      projectTitle: title,
+      projectDescription: draftAction.projectDescription,
+      initialTasks: taskLines(draftAction.initialTasksText),
+      tags: draftAction.tags,
+    }
+  }
+  const isTask = target === 'task'
+  return {
+    target,
+    title,
+    body,
+    projectId: isTask ? projectId : '',
+    linkTo: isTask ? '' : projectId,
+    tags: draftAction.tags,
+  }
 }
 
 function confirm() {
-  if (!props.item) return
-  // Update merges into a note (resolved + reviewed by the parent), so it carries
-  // no project/link/title here.
-  if (draft.target === 'update') {
-    emit('confirm', { target: 'update', projectId: '', linkTo: '', title: '' })
-    return
-  }
-  if (draft.target === 'project') {
-    emit('confirm', {
-      target: 'project',
-      projectId: '',
-      linkTo: '',
-      title: draft.title,
-      projectTitle: draft.title,
-      projectDescription: draft.projectDescription,
-      initialTasks: taskLines(),
-    })
-    return
-  }
-  // projectId only applies to a task; for note/bookmark the same select feeds linkTo.
-  const isTask = draft.target === 'task'
-  emit('confirm', {
-    target: draft.target,
-    projectId: isTask ? draft.projectId : '',
-    linkTo: !isTask && draft.target !== 'discard' ? draft.projectId : '',
-    title: draft.title,
-  })
+  if (!props.item || draft.actions.length === 0 || updateConflict.value) return
+  emit('confirm', { actions: draft.actions.map(toAction) })
 }
 </script>

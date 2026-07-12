@@ -63,7 +63,7 @@
             <template v-for="item in group.items" :key="item.id">
               <InboxItem
                 :item="item"
-                :suggestion="suggestionFor(item)"
+                :chips="chipsFor(item)"
                 :selected="selected.has(item.id)"
                 :isCursor="cursor === itemIndex(item.id)"
                 :prepping="preppingId === item.id"
@@ -90,7 +90,7 @@
             v-for="item in group.items"
             :key="item.id"
             :item="item"
-            :suggestion="suggestionFor(item)"
+            :chips="chipsFor(item)"
             :selected="selected.has(item.id)"
             :isCursor="cursor === itemIndex(item.id)"
             :prepping="preppingId === item.id"
@@ -207,7 +207,15 @@ import ProcessModal from '~/components/inbox/ProcessModal.vue'
 import DiffSuggest from '~/components/notes/DiffSuggest.vue'
 import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
 import { useProjects } from '~/composables/useProjects'
-import { TARGET_META, normalizeTarget, type Target } from '~/utils/inboxTargets'
+import {
+  TARGET_META,
+  hasConflictingUpdate,
+  isUpdateOnly,
+  normalizeActions,
+  type CaptureAction,
+  type Target,
+} from '~/utils/inboxTargets'
+import type { SuggestionChip } from '~/components/inbox/InboxItem.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiToast from '~/components/ui/UiToast.vue'
@@ -223,17 +231,12 @@ interface ProcessedRow {
 }
 
 interface ProcessPayload {
-  target: Target
-  projectId: string
-  linkTo: string
-  title: string
-  projectTitle?: string
-  projectDescription?: string
-  initialTasks?: string[]
+  /** the nodes this capture becomes — one capture is routinely several things */
+  actions: CaptureAction[]
   targetNoteId?: string
   acceptedHunks?: { id: string; content: string }[]
-  suggestedTarget?: string
-  suggestedProjectId?: string
+  /** the DA's proposal, echoed back so the backend can learn from the edits */
+  suggestedActions?: CaptureAction[]
 }
 
 interface InboxGroup {
@@ -250,7 +253,7 @@ const { projects, load: loadProjects } = useProjects()
 
 const items = computed(() => data.value || [])
 const processed = computed(() => processedData.value || [])
-const flaggedCount = computed(() => items.value.filter(i => !!normalizeTarget(i.suggestedAction)).length)
+const flaggedCount = computed(() => items.value.filter(i => actionsFor(i).length > 0).length)
 
 const tab = ref<'unprocessed' | 'processed'>('unprocessed')
 const tabs = computed(() => [
@@ -280,14 +283,30 @@ function showToast(msg: string) {
 
 const projectTitle = (id?: string) => projects.value.find(p => p.id === id)?.title || ''
 
-function suggestionFor(item: InboxItemData): { target: Target; projectTitle: string; initialTaskCount?: number } | null {
-  const target = normalizeTarget(item.suggestedAction)
-  if (!target) return null
-  return {
-    target,
-    projectTitle: item.suggestedProjectTitle || projectTitle(item.suggestedProjectId),
-    initialTaskCount: item.suggestedInitialTasks?.length || 0,
+/** the nodes the DA proposes this capture becomes; empty while unclassified */
+function actionsFor(item: InboxItemData): CaptureAction[] {
+  return normalizeActions(item.suggestedActions)
+}
+
+// chipsFor renders the proposal for the row: null while the DA is still
+// classifying, otherwise one chip per node the capture will become.
+function chipsFor(item: InboxItemData): SuggestionChip[] | null {
+  const actions = actionsFor(item)
+  if (actions.length === 0) return null
+  return actions.map(action => ({ target: action.target, label: chipLabel(action) }))
+}
+
+function chipLabel(action: CaptureAction): string {
+  const base = TARGET_META[action.target].label
+  if (action.target === 'task') {
+    const parent = projectTitle(action.projectId)
+    return parent ? `Task · ${parent}` : 'Task · Unprocessed'
   }
+  if (action.target === 'project') {
+    const count = action.initialTasks?.length || 0
+    return count ? `Project · ${count} tasks` : 'Project'
+  }
+  return base
 }
 
 const openBatchLogs = reactive(new Set<string>())
@@ -352,33 +371,32 @@ async function postProcess(id: string, payload: ProcessPayload) {
   if (cursor.value >= orderedItems.value.length) cursor.value = Math.max(0, orderedItems.value.length - 1)
 }
 
+// accept takes the DA's whole proposal as-is: every node it suggested, in one
+// post. Nothing is dropped just because the capture turned out to be two things.
 async function accept(item: InboxItemData, quiet = false) {
-  const s = suggestionFor(item)
-  if (!s) return
+  const actions = actionsFor(item)
+  if (actions.length === 0) return
   // Update is never one-click: it opens the merge review so the user vets every
   // change before it touches a note.
-  if (s.target === 'update') { await startCaptureMerge(item); return }
+  if (isUpdateOnly(actions)) { await startCaptureMerge(item); return }
   busy.value = true
   try {
-    await postProcess(item.id, {
-      target: s.target,
-      projectId: item.suggestedProjectId || '',
-      linkTo: '',
-      title: item.suggestedProjectTitle || item.title,
-      projectTitle: item.suggestedProjectTitle || item.title,
-      projectDescription: item.suggestedProjectDescription || item.subtitle || '',
-      initialTasks: item.suggestedInitialTasks || [],
-    })
+    await postProcess(item.id, { actions, suggestedActions: actions })
     undoStack.value.push(item.id)
     await refreshProcessed()
-    if (!quiet) showToast(`Processed: ${item.title}`)
+    if (!quiet) showToast(processedToast(item, actions))
   } catch (e) { console.error('accept failed', e) } finally { busy.value = false }
+}
+
+function processedToast(item: InboxItemData, actions: CaptureAction[]): string {
+  if (actions.length > 1) return `Processed into ${actions.length} nodes: ${item.title}`
+  return `Processed: ${item.title}`
 }
 
 async function discard(item: InboxItemData, quiet = false) {
   busy.value = true
   try {
-    await postProcess(item.id, { target: 'discard', projectId: '', linkTo: '', title: item.title })
+    await postProcess(item.id, { actions: [{ target: 'discard', title: item.title }] })
     undoStack.value.push(item.id)
     await refreshProcessed()
     if (!quiet) showToast(`Discarded: ${item.title}`)
@@ -389,8 +407,8 @@ async function acceptSelected() {
   // Update needs an interactive review, so it is excluded from batch accept;
   // those rows stay for one-by-one handling.
   const targets = items.value.filter(i => {
-    const t = normalizeTarget(i.suggestedAction)
-    return selected.has(i.id) && t && t !== 'update'
+    const actions = actionsFor(i)
+    return selected.has(i.id) && actions.length > 0 && !isUpdateOnly(actions)
   })
   for (const i of targets) await accept(i, true)
   showToast(`Processed ${targets.length} — U to undo last`)
@@ -403,28 +421,25 @@ async function discardSelected() {
 
 function openModal(item: InboxItemData) { modalItem.value = item }
 
-async function confirmModal(payload: ProcessPayload) {
+async function confirmModal(payload: { actions: CaptureAction[] }) {
   const item = modalItem.value
-  if (!item) return
-  // Update hands off to the merge review instead of processing immediately.
-  if (payload.target === 'update') {
+  if (!item || payload.actions.length === 0) return
+  // An update is reviewed hunk by hunk against one note, so it cannot be one leg
+  // of a fan-out (the modal blocks that) and it hands off to the merge review.
+  if (hasConflictingUpdate(payload.actions)) return
+  if (isUpdateOnly(payload.actions)) {
     modalItem.value = null
     await startCaptureMerge(item)
     return
   }
   busy.value = true
   try {
-    // Echo the DA's original suggestion so the backend can learn from any
-    // override the user just made in the modal.
-    await postProcess(item.id, {
-      ...payload,
-      suggestedTarget: item.suggestedAction || '',
-      suggestedProjectId: item.suggestedProjectId || '',
-    })
+    // Echo the DA's original proposal so the backend can learn from the edits.
+    await postProcess(item.id, { actions: payload.actions, suggestedActions: actionsFor(item) })
     undoStack.value.push(item.id)
     await refreshProcessed()
     modalItem.value = null
-    showToast(`Processed: ${item.title}`)
+    showToast(processedToast(item, payload.actions))
   } catch (e) { console.error('process failed', e) } finally { busy.value = false }
 }
 
@@ -443,7 +458,7 @@ async function startCaptureMerge(item: InboxItemData) {
     if (!plan || !plan.targetNoteId) {
       busy.value = true
       try {
-        await postProcess(item.id, { target: 'note', projectId: '', linkTo: '', title: item.title })
+        await postProcess(item.id, { actions: [{ target: 'note', title: item.title }] })
         undoStack.value.push(item.id)
         await refreshProcessed()
         showToast(`No matching note — saved as a note: ${item.title}`)
@@ -483,7 +498,11 @@ async function finalizeMerge() {
   merge.value = null
   busy.value = true
   try {
-    await postProcess(captureId, { target: 'update', projectId: '', linkTo: '', title: '', targetNoteId, acceptedHunks: accepted })
+    await postProcess(captureId, {
+      actions: [{ target: 'update', title: '' }],
+      targetNoteId,
+      acceptedHunks: accepted,
+    })
     undoStack.value.push(captureId)
     await refreshProcessed()
     showToast(`Merged into ${targetTitle || 'note'}: ${captureTitle}`)
@@ -555,7 +574,7 @@ function onKey(e: KeyboardEvent) {
   const item = orderedItems.value[cursor.value]
   if (e.key === 'ArrowDown') { e.preventDefault(); cursor.value = (cursor.value + 1) % orderedItems.value.length }
   else if (e.key === 'ArrowUp') { e.preventDefault(); cursor.value = (cursor.value - 1 + orderedItems.value.length) % orderedItems.value.length }
-  else if (e.key === 'Enter') { if (item) suggestionFor(item) ? accept(item) : openModal(item) }
+  else if (e.key === 'Enter') { if (item) actionsFor(item).length > 0 ? accept(item) : openModal(item) }
   else if (e.key === 'e' || e.key === 'E') { if (item) openModal(item) }
   else if (e.key === 'd' || e.key === 'D') { if (item) discard(item) }
   else if (e.key === 'x' || e.key === 'X') { if (item) toggleSelect(item.id) }
@@ -565,7 +584,7 @@ function onKey(e: KeyboardEvent) {
 // The DA classifies captures in a background loop with no push channel, so poll
 // while any item is still awaiting a suggestion; stop once all are classified
 // or the tab is hidden, and resume on focus.
-const AWAITING = (i: InboxItemData) => !i.suggestedAction
+const AWAITING = (i: InboxItemData) => actionsFor(i).length === 0
 const hasPendingClassification = computed(() => items.value.some(AWAITING))
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
