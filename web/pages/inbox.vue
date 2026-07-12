@@ -159,12 +159,20 @@
         :key="p.captureId"
         class="flex items-center gap-component p-component border-b border-border-hairline"
       >
-        <span class="material-symbols-outlined !text-[16px] shrink-0" :class="becameText(p.became)">{{ becameIcon(p.became) }}</span>
+        <span class="material-symbols-outlined !text-[16px] shrink-0" :class="becameText(leadType(p))">{{ becameIcon(leadType(p)) }}</span>
         <div class="flex flex-col flex-1 min-w-0">
-          <div class="flex items-center gap-base">
-            <span class="font-mono-data text-mono-data" :class="becameText(p.became)">{{ becameLabel(p) }}</span>
+          <!-- One capture is routinely several nodes. Show all of them: a capture
+               that became 6 nodes and reads as 1 looks like data loss. -->
+          <div class="flex items-center gap-base flex-wrap">
+            <span v-if="p.discarded" class="font-mono-data text-mono-data text-text-muted">Discarded</span>
+            <span
+              v-for="node in p.became"
+              :key="node.id"
+              class="font-mono-data text-mono-data"
+              :class="becameText(node.type)"
+            >{{ becameLabel(node) }}</span>
           </div>
-          <h3 class="font-headline text-text-primary truncate" :class="p.became === 'discard' ? 'line-through text-text-muted' : ''">{{ p.title }}</h3>
+          <h3 class="font-headline text-text-primary truncate" :class="p.discarded ? 'line-through text-text-muted' : ''">{{ p.title }}</h3>
         </div>
         <button class="shrink-0 font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="reopenCapture(p.captureId)">↩ Undo</button>
       </div>
@@ -220,13 +228,19 @@ import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiToast from '~/components/ui/UiToast.vue'
 
+interface ProcessedNode {
+  id: string
+  type: string
+  title: string
+  projectId: string
+}
+
 interface ProcessedRow {
   captureId: string
   title: string
-  became: string
-  targetId: string
-  targetTitle: string
-  projectId: string
+  /** every node the capture became — a fan-out is several, not one */
+  became: ProcessedNode[]
+  discarded: boolean
   at: string
 }
 
@@ -559,9 +573,12 @@ async function undo() {
 const knownTarget = (b: string): b is Target => b in TARGET_META
 const becameIcon = (b: string) => (knownTarget(b) ? TARGET_META[b].icon : 'help')
 const becameText = (b: string) => (knownTarget(b) ? TARGET_META[b].text : 'text-text-muted')
-function becameLabel(p: ProcessedRow): string {
-  const base = knownTarget(p.became) ? TARGET_META[p.became].label : p.became
-  return p.projectId ? `${base} · ${projectTitle(p.projectId)}` : base
+// The row's icon follows the first node the capture became; the chips below it
+// name them all.
+const leadType = (p: ProcessedRow) => (p.discarded ? 'discard' : (p.became[0]?.type ?? ''))
+function becameLabel(node: ProcessedNode): string {
+  const base = knownTarget(node.type) ? TARGET_META[node.type].label : node.type
+  return node.projectId ? `${base} · ${projectTitle(node.projectId)}` : base
 }
 
 // ---- keyboard ----

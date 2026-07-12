@@ -11,16 +11,24 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
-// ProcessedItem is a capture that has been triaged or discarded, paired with the
-// node it became (for triaged captures). It powers the inbox "Processed" view.
+// ProcessedItem is a capture that has left the pending queue, paired with every
+// node it became. A capture routinely fans out into several nodes — a note and
+// the task it implies, a list that was four tasks — and showing only the first
+// of them reads as data loss.
 type ProcessedItem struct {
-	CaptureID   string    `json:"captureId"`
-	Title       string    `json:"title"`
-	Became      string    `json:"became"` // note | bookmark | task | discard
-	TargetID    string    `json:"targetId"`
-	TargetTitle string    `json:"targetTitle"`
-	ProjectID   string    `json:"projectId"`
-	At          time.Time `json:"at"`
+	CaptureID string          `json:"captureId"`
+	Title     string          `json:"title"`
+	Became    []ProcessedNode `json:"became"`
+	Discarded bool            `json:"discarded"`
+	At        time.Time       `json:"at"`
+}
+
+// ProcessedNode is one node a capture became.
+type ProcessedNode struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"` // note | bookmark | task | project | update
+	Title     string `json:"title"`
+	ProjectID string `json:"projectId"`
 }
 
 // ListProcessed returns captures that have left the pending queue (triaged or
@@ -38,15 +46,20 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 		}
 
 		for _, c := range caps {
-			item := ProcessedItem{CaptureID: c.ID, Title: captureDisplayTitle(c), At: c.UpdatedAt}
+			item := ProcessedItem{
+				CaptureID: c.ID,
+				Title:     captureDisplayTitle(c),
+				At:        c.UpdatedAt,
+				Became:    []ProcessedNode{},
+			}
 
 			if hasTag(c.Tags, "discarded") {
-				item.Became = "discard"
+				item.Discarded = true
 				out = append(out, item)
 				continue
 			}
 
-			// Triaged: find the node derived from this capture.
+			// Triaged: every node derived from this capture, not just the first.
 			in, err := edges.Incoming(ctx, tx, c.ID)
 			if err != nil {
 				return err
@@ -66,17 +79,14 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 				if err != nil {
 					continue // derived node gone (e.g. undone) — skip the link
 				}
+				node := ProcessedNode{ID: e.Src, Type: typ, Title: title}
 				if e.Label == mergedIntoLabel {
-					item.Became = "update"
-				} else {
-					item.Became = typ
+					node.Type = "update"
 				}
-				item.TargetID = e.Src
-				item.TargetTitle = title
 				if projectID.Valid {
-					item.ProjectID = projectID.String
+					node.ProjectID = projectID.String
 				}
-				break
+				item.Became = append(item.Became, node)
 			}
 			out = append(out, item)
 		}

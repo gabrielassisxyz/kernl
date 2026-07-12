@@ -276,11 +276,66 @@ func TestListProcessed(t *testing.T) {
 	for _, it := range items {
 		byCapture[it.CaptureID] = it
 	}
-	if got := byCapture[taskCap]; got.Became != "task" || got.ProjectID != projectID || got.TargetTitle != "Do a thing" {
-		t.Errorf("task item = %+v, want became=task project=%s title=Do a thing", got, projectID)
+	got := byCapture[taskCap]
+	if len(got.Became) != 1 {
+		t.Fatalf("task item became %d nodes, want 1: %+v", len(got.Became), got)
 	}
-	if got := byCapture[junkCap]; got.Became != "discard" || got.TargetID != "" {
-		t.Errorf("discard item = %+v, want became=discard no target", got)
+	if node := got.Became[0]; node.Type != "task" || node.ProjectID != projectID || node.Title != "Do a thing" {
+		t.Errorf("task item = %+v, want type=task project=%s title=Do a thing", node, projectID)
+	}
+	if junk := byCapture[junkCap]; !junk.Discarded || len(junk.Became) != 0 {
+		t.Errorf("discard item = %+v, want discarded with no derived node", junk)
+	}
+}
+
+// A capture routinely becomes several nodes. Processed must list all of them:
+// a capture that fanned into 4 and reads as 1 looks like the other 3 were lost.
+func TestListProcessedShowsEveryNodeOfAFanOut(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	var captureID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var e error
+		captureID, e = nodes.CreateCapture(ctx, tx, nodes.Capture{
+			Body: "1h por dia é facil falar, mas preciso visualizar o progresso",
+			Tags: []string{"pending"},
+		}, nodes.Author{Name: "t"})
+		return e
+	}); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	vault := t.TempDir()
+	if err := inbox.ProcessCapture(ctx, g, vault, nil, captureID, inbox.ProcessRequest{
+		Actions: []inbox.Action{
+			{Target: "note", Title: "Consistency beats intensity"},
+			{Target: "task", Title: "Find a concrete way to visualize progress"},
+		},
+	}); err != nil {
+		t.Fatalf("process: %v", err)
+	}
+
+	items, err := inbox.ListProcessed(ctx, g)
+	if err != nil {
+		t.Fatalf("ListProcessed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("processed items = %d, want 1", len(items))
+	}
+	if len(items[0].Became) != 2 {
+		t.Fatalf("capture became %d nodes, want both the note and the task: %+v", len(items[0].Became), items[0].Became)
+	}
+	types := map[string]bool{}
+	for _, node := range items[0].Became {
+		types[node.Type] = true
+	}
+	if !types["note"] || !types["task"] {
+		t.Errorf("became = %+v, want a note and a task", items[0].Became)
 	}
 }
 
