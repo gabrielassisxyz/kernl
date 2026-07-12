@@ -26,19 +26,24 @@ else
     skip "npm not found"
 fi
 
-# The Go packages embed web/.output/public (see web/embed.go). Make sure it
-# exists so the Go toolchain can compile; build it for real if it's missing.
+# The Go packages embed web/.output/public (see web/embed.go), so a stale build
+# here is silently baked into the binary: the UI you test is not the UI you
+# wrote. Rebuild when the output is missing OR older than any web/ source —
+# checking only for existence lets an old build pass as ok forever.
 section "web assets (embed prerequisite)"
-if [ ! -e web/.output/public ]; then
-    if command -v npm >/dev/null 2>&1; then
-        (cd web && npm run generate) && ok || bad
-    else
-        mkdir -p web/.output/public
-        printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
-        skip "npm not found — wrote a placeholder so the embed compiles"
-    fi
-else
+built=web/.output/public/index.html
+if [ -e "$built" ] && [ -z "$(find web -type f -newer "$built" \
+        -not -path 'web/node_modules/*' \
+        -not -path 'web/.output/*' \
+        -not -path 'web/.nuxt/*' \
+        -print -quit)" ]; then
     ok
+elif command -v npm >/dev/null 2>&1; then
+    (cd web && npm run generate) && ok || bad
+else
+    mkdir -p web/.output/public
+    printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
+    skip "npm not found — wrote a placeholder so the embed compiles"
 fi
 
 section "gofmt"
