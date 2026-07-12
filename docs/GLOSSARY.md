@@ -64,6 +64,8 @@ A lease system that records which agent is working on which bead, with canonical
 
 A **label, not a node**. A tag is the graph's cross-type matching axis: the one thing that can connect a note, a task, a project and a bookmark because they are about the same subject. Tags nest by convention — the name is a flat string with `/` separators (`homelab/nas`), and querying a parent includes its descendants. A tag page is therefore a *query*, not a destination: it has no description, no content and no edges of its own.
 
+Tag names are **normalised on write**: trimmed, lowercased, and rejected if they break the nesting convention (`/foo`, `foo//bar`). Lowercasing is what makes a tag a matching axis rather than prose — `tags.name` is `UNIQUE`, so `Homelab` and `homelab` would otherwise be two subjects that never meet. The rules live in `internal/graph/tagname/`, a leaf package, because there are two write paths (`tags.Add` and the nodes chokepoint) and they must not drift.
+
 **Why not an Area (PARA)?** An Area is a *drawer* — another hierarchy to file things into, which does not remove the "unfiled" bucket, it renames it. A tag is an *edge*. If a handful of tags later prove to be life anchors that need substance of their own, they get promoted to nodes *then*, with real usage data: tag → Area is easy, Area → tag is a painful migration. See `artifacts/plans/2026-07-11-universal-tags-plan.md`.
 
 ## system tag
