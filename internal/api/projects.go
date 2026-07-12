@@ -20,6 +20,7 @@ type projectDTO struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
+	Tags        []string  `json:"tags"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 	TaskCount   int       `json:"taskCount"`
@@ -86,6 +87,7 @@ func listProjectsHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				Title:       p.Title,
 				Description: p.Description,
 				Status:      p.Status,
+				Tags:        tagList(p.Tags),
 				CreatedAt:   p.CreatedAt,
 				UpdatedAt:   p.UpdatedAt,
 				TaskCount:   total[p.ID],
@@ -105,9 +107,10 @@ func listProjectsHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Status      string `json:"status"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Status      string   `json:"status"`
+		Tags        []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid project body: "+err.Error())
@@ -128,6 +131,7 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			Title:       title,
 			Description: req.Description,
 			Status:      req.Status,
+			Tags:        req.Tags,
 		}, nodes.Author{Name: "api"})
 		if err != nil {
 			return err
@@ -156,18 +160,19 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	// Pointer fields distinguish "absent" from "set to empty" — clearing the
-	// description is a legitimate edit, dropping the title is not.
+	// description or the tag list is a legitimate edit, dropping the title is not.
 	var req struct {
-		Title       *string `json:"title"`
-		Description *string `json:"description"`
-		Status      *string `json:"status"`
+		Title       *string   `json:"title"`
+		Description *string   `json:"description"`
+		Status      *string   `json:"status"`
+		Tags        *[]string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Title == nil && req.Description == nil && req.Status == nil {
-		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, or status")
+	if req.Title == nil && req.Description == nil && req.Status == nil && req.Tags == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, status, or tags")
 		return
 	}
 	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
@@ -214,7 +219,12 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			}
 		}
 		if req.Status != nil {
-			return nodes.SetProjectStatus(ctx, tx, id, *req.Status, nodes.Author{Name: "api"})
+			if err := nodes.SetProjectStatus(ctx, tx, id, *req.Status, nodes.Author{Name: "api"}); err != nil {
+				return err
+			}
+		}
+		if req.Tags != nil {
+			return nodes.SetProjectTags(ctx, tx, id, *req.Tags, nodes.Author{Name: "api"})
 		}
 		return nil
 	})

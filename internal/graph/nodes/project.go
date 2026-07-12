@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -20,6 +21,7 @@ type Project struct {
 	Title       string
 	Description string
 	Status      string // active | paused | done | archived
+	Tags        []string
 }
 
 // DefaultProjectStatus is applied when a project is created without one.
@@ -35,10 +37,10 @@ func (p Project) NodeAttrs() []byte {
 	return data
 }
 
-func (p Project) NodeTags() []string { return nil }
+func (p Project) NodeTags() []string { return p.Tags }
 
 func (p Project) FTSFields() FTSFields {
-	return FTSFields{Title: p.Title, Body: p.Description}
+	return FTSFields{Title: p.Title, Body: p.Description, Tags: strings.Join(p.Tags, " ")}
 }
 
 // CreateProject inserts a new project node and returns its ID.
@@ -62,7 +64,14 @@ func GetProject(ctx context.Context, tx *graph.ReadTx, id string) (*Project, err
 	if err != nil {
 		return nil, fmt.Errorf("GetProject: %w", err)
 	}
-	return scanProject(id, title, attrsRaw, createdAt, updatedAt)
+	p, err := scanProject(id, title, attrsRaw, createdAt, updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if p.Tags, err = selectTagsForNode(tx, id); err != nil {
+		return nil, err
+	}
+	return p, nil
 }
 
 // ListProjects returns all non-deleted projects, newest first.
@@ -88,7 +97,18 @@ func ListProjects(ctx context.Context, tx *graph.ReadTx) ([]*Project, error) {
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Hydrate tags after the cursor is closed — selectTagsForNode issues its own
+	// query on the same transaction.
+	for _, p := range out {
+		if p.Tags, err = selectTagsForNode(tx, p.ID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // SetProjectStatus updates a project's status in place. Returns ErrNotFound
@@ -137,6 +157,32 @@ func UpdateProjectMeta(ctx context.Context, tx *graph.WriteTx, id, title, descri
 		return graph.ErrNotFound
 	}
 	return nil
+}
+
+// SetProjectTags replaces the tag set on a project, leaving its other fields
+// alone. The project is read back and re-written through the shared chokepoint
+// so tag reconciliation, the FTS index and the revision history all stay
+// consistent. Callers that want to clear every tag pass an empty slice; callers
+// that do not mean to touch tags must not call this at all — the update path
+// reconciles against the tags it is handed, so a nil slice removes them all.
+func SetProjectTags(ctx context.Context, tx *graph.WriteTx, id string, tags []string, author Author) error {
+	var title, attrsRaw, createdAt, updatedAt sql.NullString
+	err := tx.QueryRow(
+		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'project' AND deleted_at IS NULL`,
+		id,
+	).Scan(&title, &attrsRaw, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return graph.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("SetProjectTags: %w", err)
+	}
+	p, err := scanProject(id, title, attrsRaw, createdAt, updatedAt)
+	if err != nil {
+		return err
+	}
+	p.Tags = dedupStrings(tags)
+	return updateNode(ctx, tx, *p, author)
 }
 
 // DeleteProject removes a project node, preserving history via the shared

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -114,6 +115,68 @@ func TestPatchProjectTitleAndDescription(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Errorf("patch %s: expected 400, got %d", payload, w.Code)
 		}
+	}
+}
+
+func TestProjectTagsRoundTrip(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+
+	body, _ := json.Marshal(map[string]any{
+		"title": "Homelab rebuild",
+		"tags":  []string{"homelab"},
+	})
+	req := httptest.NewRequest("POST", "/api/projects", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create project: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := listProjectsViaAPI(t, r); len(got) != 1 || !slices.Equal(got[0].Tags, []string{"homelab"}) {
+		t.Fatalf("tags after create = %v, want [homelab]", got)
+	}
+
+	patchProject := func(payload string, wantCode int) {
+		t.Helper()
+		req := httptest.NewRequest("PATCH", "/api/projects/"+created.ID, strings.NewReader(payload))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != wantCode {
+			t.Fatalf("patch %s: expected %d, got %d: %s", payload, wantCode, w.Code, w.Body.String())
+		}
+	}
+
+	// A title-only patch must leave the tags alone.
+	patchProject(`{"title":"Homelab rebuild v2"}`, http.StatusNoContent)
+	got := listProjectsViaAPI(t, r)
+	if got[0].Title != "Homelab rebuild v2" {
+		t.Errorf("title = %q, want updated", got[0].Title)
+	}
+	if !slices.Equal(got[0].Tags, []string{"homelab"}) {
+		t.Errorf("title patch wiped tags: %v", got[0].Tags)
+	}
+
+	// Tags patched alongside a title: both land, neither clobbers the other.
+	patchProject(`{"title":"Homelab","tags":["homelab","infra"]}`, http.StatusNoContent)
+	got = listProjectsViaAPI(t, r)
+	if got[0].Title != "Homelab" {
+		t.Errorf("title = %q, want Homelab", got[0].Title)
+	}
+	if tags := sortedTags(got[0].Tags); !slices.Equal(tags, []string{"homelab", "infra"}) {
+		t.Errorf("tags = %v, want [homelab infra]", tags)
+	}
+
+	// An explicit empty list clears every tag.
+	patchProject(`{"tags":[]}`, http.StatusNoContent)
+	if got := listProjectsViaAPI(t, r); len(got[0].Tags) != 0 {
+		t.Errorf("tags = %v, want empty after explicit clear", got[0].Tags)
 	}
 }
 
