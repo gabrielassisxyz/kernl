@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -22,6 +23,7 @@ type Task struct {
 	Description string
 	Status      string // todo | in_progress | done
 	ProjectID   string // empty when the task is not assigned to a project
+	Tags        []string
 }
 
 // Task status vocabulary. DefaultTaskStatus is applied on create when unset.
@@ -43,10 +45,10 @@ func (t Task) NodeAttrs() []byte {
 	return data
 }
 
-func (t Task) NodeTags() []string { return nil }
+func (t Task) NodeTags() []string { return t.Tags }
 
 func (t Task) FTSFields() FTSFields {
-	return FTSFields{Title: t.Title, Body: t.Description}
+	return FTSFields{Title: t.Title, Body: t.Description, Tags: strings.Join(t.Tags, " ")}
 }
 
 // CreateTask inserts a new task node and returns its ID. The caller is
@@ -71,7 +73,14 @@ func GetTask(ctx context.Context, tx *graph.ReadTx, id string) (*Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("GetTask: %w", err)
 	}
-	return scanTask(id, title, attrsRaw, createdAt, updatedAt)
+	t, err := scanTask(id, title, attrsRaw, createdAt, updatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if t.Tags, err = selectTagsForNode(tx, id); err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
 // ListTasks returns non-deleted tasks, newest first. When projectID is
@@ -104,7 +113,18 @@ func ListTasks(ctx context.Context, tx *graph.ReadTx, projectID string) ([]*Task
 		}
 		out = append(out, t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Hydrate tags after the cursor is closed — selectTagsForNode issues its own
+	// query on the same transaction.
+	for _, t := range out {
+		if t.Tags, err = selectTagsForNode(tx, t.ID); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // SetTaskStatus updates a task's status in place. Returns ErrNotFound when the
@@ -129,6 +149,32 @@ func SetTaskStatus(ctx context.Context, tx *graph.WriteTx, id, status string, au
 		return graph.ErrNotFound
 	}
 	return nil
+}
+
+// SetTaskTags replaces the tag set on a task, leaving its other fields alone.
+// The task is read back and re-written through the shared chokepoint so tag
+// reconciliation, the FTS index and the revision history all stay consistent.
+// Callers that want to clear every tag pass an empty slice; callers that do not
+// mean to touch tags must not call this at all — the update path reconciles
+// against the tags it is handed, so a nil slice removes them all.
+func SetTaskTags(ctx context.Context, tx *graph.WriteTx, id string, tags []string, author Author) error {
+	var title, attrsRaw, createdAt, updatedAt sql.NullString
+	err := tx.QueryRow(
+		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'task' AND deleted_at IS NULL`,
+		id,
+	).Scan(&title, &attrsRaw, &createdAt, &updatedAt)
+	if err == sql.ErrNoRows {
+		return graph.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("SetTaskTags: %w", err)
+	}
+	t, err := scanTask(id, title, attrsRaw, createdAt, updatedAt)
+	if err != nil {
+		return err
+	}
+	t.Tags = dedupStrings(tags)
+	return updateNode(ctx, tx, *t, author)
 }
 
 // DeleteTask removes a task, preserving a tombstone revision.
