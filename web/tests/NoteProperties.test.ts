@@ -91,4 +91,74 @@ describe('NoteProperties', () => {
 
     expect(wrapper.text()).toContain('source mode')
   })
+
+  // A note's tags are graph objects: they share one namespace with every task,
+  // project and bookmark the user tagged. The panel must therefore show — and
+  // write — the same canonical name the tag tree is keyed by, or a note filed
+  // under `homelab` would read as if it were filed under `Homelab`.
+  describe('tags obey the canonical tag rules', () => {
+    const addTag = async (wrapper: ReturnType<typeof mountBlock>, value: string) => {
+      const input = wrapper.get('input[aria-label="Add value to tags"]')
+      await input.setValue(value)
+      await input.trigger('keydown.enter')
+      await new Promise(r => setTimeout(r, 0))
+    }
+
+    it('renders a hand-edited tag under its canonical name', () => {
+      const wrapper = mountBlock({ tags: ['Homelab', 'homelab/NAS'] })
+
+      expect(wrapper.text()).toContain('homelab')
+      expect(wrapper.text()).toContain('homelab/nas')
+      expect(wrapper.text()).not.toContain('Homelab')
+      expect(wrapper.text()).not.toContain('NAS')
+    })
+
+    it('writes the canonical name into the frontmatter', async () => {
+      const wrapper = mountBlock({ tags: [] })
+      await addTag(wrapper, 'Homelab/NAS')
+
+      expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ tags: ['homelab/nas'] })
+    })
+
+    it('canonicalises the existing list on the next edit, so the file converges', async () => {
+      const wrapper = mountBlock({ tags: ['Homelab'] })
+      await addTag(wrapper, 'storage')
+
+      expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ tags: ['homelab', 'storage'] })
+    })
+
+    it('removes the pill it rendered, even when the file spelled it differently', async () => {
+      const wrapper = mountBlock({ tags: ['Homelab', 'storage'] })
+      await wrapper.get('button[aria-label="Remove homelab"]').trigger('click')
+
+      expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ tags: ['storage'] })
+    })
+
+    it('refuses a reserved sys/ tag instead of letting reconcile drop it in silence', async () => {
+      const wrapper = mountBlock({ tags: [] })
+      await addTag(wrapper, 'sys/pending')
+
+      expect(wrapper.emitted('update:data')).toBeUndefined()
+      expect(wrapper.text()).toContain('reserved')
+    })
+
+    it('refuses a name that breaks the nesting convention', async () => {
+      const wrapper = mountBlock({ tags: [] })
+      await addTag(wrapper, 'foo//bar')
+
+      expect(wrapper.emitted('update:data')).toBeUndefined()
+      expect(wrapper.text()).toContain('empty segment')
+    })
+
+    // Casing is the point of an alias — only `tags` is a graph namespace.
+    it('leaves other list properties alone', async () => {
+      const wrapper = mountBlock({ aliases: [] })
+      const input = wrapper.get('input[aria-label="Add value to aliases"]')
+      await input.setValue('Kernl HQ')
+      await input.trigger('keydown.enter')
+      await new Promise(r => setTimeout(r, 0))
+
+      expect(wrapper.emitted('update:data')?.[0]?.[0]).toEqual({ aliases: ['Kernl HQ'] })
+    })
+  })
 })

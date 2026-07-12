@@ -28,7 +28,7 @@
 
         <!-- List / tags: inline pills + a borderless add field. -->
         <div v-if="row.type === 'list'" class="note-properties__tags">
-          <span v-for="tag in listValue(row.value)" :key="tag" class="note-properties__tag">
+          <span v-for="tag in displayValues(row)" :key="tag" class="note-properties__tag">
             <span class="note-properties__tag-hash">#</span>{{ tag }}
             <button
               v-if="!readonly && !row.locked"
@@ -45,11 +45,12 @@
             v-model="tagDrafts[row.key]"
             class="note-properties__input note-properties__tag-input"
             :aria-label="`Add value to ${row.key}`"
-            :placeholder="listValue(row.value).length ? '' : 'Empty'"
+            :placeholder="displayValues(row).length ? '' : 'Empty'"
             @keydown.enter.prevent="addTag(row.key)"
             @keydown="onTagSeparator(row.key, $event)"
             @blur="addTag(row.key)"
           >
+          <p v-if="row.key === TAGS_KEY && tagError" class="note-properties__tag-error">{{ tagError }}</p>
         </div>
 
         <!-- Scalar (text / date): borderless input that reads as text until focused. -->
@@ -114,6 +115,7 @@ import {
   type FrontmatterData,
   type PropertyType,
 } from '~/utils/frontmatter'
+import { normalizeTag as canonicalTag } from '~/utils/tagName'
 
 interface PropertyRow {
   key: string
@@ -121,6 +123,13 @@ interface PropertyRow {
   type: PropertyType
   locked: boolean
 }
+
+// `tags` is the one frontmatter list whose values are also graph objects: they
+// land in node_tags and share a namespace with every task, project and bookmark
+// the user tagged. So they obey the canonical tag rules (lowercased, `/`-nested,
+// `sys/` reserved) rather than the looser rules that apply to an arbitrary list
+// property like `aliases`, where the user's own casing is the point.
+const TAGS_KEY = 'tags'
 
 const props = withDefaults(defineProps<{
   data?: FrontmatterData | null
@@ -137,6 +146,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ (e: 'update:data', data: FrontmatterData): void }>()
 
 const tagDrafts = ref<Record<string, string>>({})
+const tagError = ref<string | null>(null)
 const adding = ref(false)
 const newKey = ref('')
 const newType = ref<PropertyType>('text')
@@ -179,15 +189,58 @@ function commitScalar(key: string, event: Event): void {
   }, 0)
 }
 
+// The values a row renders. For `tags` these are the canonical names — the same
+// strings the tag tree and every other node's tags are keyed by — so a note
+// whose file says `Homelab` shows the `homelab` it is actually filed under. Any
+// tag edit then writes that canonical form back to the frontmatter, so the file
+// converges on the name the graph already uses.
+function displayValues(row: PropertyRow): string[] {
+  const raw = listValue(row.value)
+  return row.key === TAGS_KEY ? canonicalList(raw) : raw
+}
+
+function canonicalList(raw: string[]): string[] {
+  const out: string[] = []
+  for (const item of raw) {
+    const { name } = canonicalTag(item)
+    if (name && !out.includes(name)) out.push(name)
+  }
+  return out
+}
+
 function addTag(key: string): void {
   // Defer execution so that if this blur was triggered by a click on the
   // CodeMirror editor, we don't dispatch a state change while CM is handling
   // its mousedown/focus event.
   setTimeout(() => {
-    const tag = normalizeTag(tagDrafts.value[key] || '')
-    if (!tag) return
-    const values = listValue((props.data || {})[key])
-    if (!values.includes(tag)) emitUpdate({ ...(props.data || {}), [key]: [...values, tag] })
+    const draft = tagDrafts.value[key] || ''
+
+    if (key !== TAGS_KEY) {
+      const value = normalizeTag(draft)
+      if (!value) return
+      const values = listValue((props.data || {})[key])
+      if (!values.includes(value)) emitUpdate({ ...(props.data || {}), [key]: [...values, value] })
+      tagDrafts.value[key] = ''
+      return
+    }
+
+    if (!draft.trim()) {
+      tagError.value = null
+      return
+    }
+
+    const { name, error } = canonicalTag(draft)
+    if (!name) {
+      // Reconcile drops a reserved or malformed tag on its way to the graph and
+      // says nothing, so the note would keep a tag that files it under nothing.
+      // Refuse it here, where there is someone to tell.
+      tagError.value = error ?? null
+      return
+    }
+
+    tagError.value = null
+    const values = canonicalList(listValue((props.data || {})[key]))
+    if (!values.includes(name)) emitUpdate({ ...(props.data || {}), [key]: [...values, name] })
     tagDrafts.value[key] = ''
   }, 0)
 }
@@ -201,9 +254,14 @@ function onTagSeparator(key: string, event: KeyboardEvent): void {
 }
 
 function removeTag(key: string, tag: string): void {
+  // Filter the same list the pill was rendered from, or removing `homelab` off a
+  // file that literally says `Homelab` would match nothing and quietly no-op.
+  const values = key === TAGS_KEY
+    ? canonicalList(listValue((props.data || {})[key]))
+    : listValue((props.data || {})[key])
   emitUpdate({
     ...(props.data || {}),
-    [key]: listValue((props.data || {})[key]).filter((item) => item !== tag),
+    [key]: values.filter((item) => item !== tag),
   })
 }
 
@@ -379,6 +437,15 @@ function initialValueForType(type: PropertyType): unknown {
 
 .note-properties__tag-hash {
   color: color-mix(in srgb, var(--color-node-note) 80%, var(--color-text-faint));
+}
+
+.note-properties__tag-error {
+  flex: 1 0 100%;
+  margin-top: 2px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-status-failed-text);
 }
 
 .note-properties__tag-x {
