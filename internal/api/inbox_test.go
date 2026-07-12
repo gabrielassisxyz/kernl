@@ -352,3 +352,47 @@ func keysOf(m map[string]any) []string {
 	}
 	return out
 }
+
+// Most tasks were never briefed, so an empty briefing is the ordinary answer to
+// this question — not a failure to answer it. Reporting the absence as 404 made
+// the browser log a failed request every time a task drawer opened, noise the
+// client cannot suppress because it comes from the network layer, not the code.
+func TestBriefingOfAnUnbriefedTaskIsAnEmptyAnswerNotAnError(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	var taskID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var e error
+		taskID, e = nodes.CreateTask(ctx, tx, nodes.Task{Title: "Never briefed"}, nodes.Author{Name: "tester"})
+		return e
+	}); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, &app.App{
+		Graph:  g,
+		Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}},
+	})
+
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/nodes/"+taskID+"/briefing", nil))
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET briefing of an unbriefed task = %d, want %d", rr.Code, http.StatusOK)
+	}
+	var briefing *struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &briefing); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if briefing != nil {
+		t.Errorf("briefing = %+v, want null", briefing)
+	}
+}

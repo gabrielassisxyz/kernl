@@ -168,9 +168,10 @@ watch(() => props.task?.id, async (id) => {
   briefing.value = null
   if (!id) return
   try {
-    briefing.value = await $fetch<{ id: string; title: string; body: string }>(`/api/nodes/${id}/briefing`)
+    // An unbriefed task answers with null, not 404 — absence is a normal answer.
+    briefing.value = await $fetch<{ id: string; title: string; body: string } | null>(`/api/nodes/${id}/briefing`)
   } catch {
-    briefing.value = null // 404 = no briefing
+    briefing.value = null // the request itself failed; the drawer still opens
   }
 }, { immediate: true })
 

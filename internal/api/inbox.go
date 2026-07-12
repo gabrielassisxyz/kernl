@@ -657,7 +657,12 @@ func getBriefingHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	if noteID == "" {
-		http.Error(w, "no briefing", http.StatusNotFound)
+		// Most tasks were never briefed, so "no briefing" is the ordinary answer
+		// to this question, not a failure to answer it. Reporting it as 404 made
+		// every task drawer open log a failed request in the browser console —
+		// noise the client cannot suppress, because it is the network layer, not
+		// the code, that complains. The absence is the payload.
+		writeJSON(w, nil)
 		return
 	}
 	writePrepNote(w, r, a, noteID)
