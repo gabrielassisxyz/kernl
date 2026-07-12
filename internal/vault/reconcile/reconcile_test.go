@@ -550,6 +550,40 @@ func TestOnCreate_SystemTagInFrontmatterIsDropped(t *testing.T) {
 	}
 }
 
+// A tag name the nesting convention cannot represent is dropped at the same
+// boundary, for the same reason: the note is worth more than the bad tag.
+func TestOnCreate_MalformedTagInFrontmatterIsDropped(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "malformed.md")
+	writeFile(t, path, "---\nid: malformed-node\ntitle: Malformed\ntags: [Homelab/NAS, \"foo//bar\", \"/leading\"]\n---\n\nContent.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		n, err := nodes.GetNote(ctx, tx, "malformed-node")
+		if err != nil {
+			return err
+		}
+		if n.Body == "" {
+			t.Error("the note itself must still be reconciled")
+		}
+		// The one well-formed tag survives, normalised.
+		if len(n.Tags) != 1 || n.Tags[0] != "homelab/nas" {
+			t.Errorf("note tags = %v, want [homelab/nas]", n.Tags)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read note: %v", err)
+	}
+}
+
 // TestOnCreate_AuthorAbsentDefaultsToHuman verifies that absent frontmatter
 // author defaults to "human".
 func TestOnCreate_AuthorAbsentDefaultsToHuman(t *testing.T) {

@@ -140,6 +140,44 @@ func TestSystemTagsRejectedAtAPI(t *testing.T) {
 	}
 }
 
+// A tag name that breaks the `/` nesting convention is a client error: stored
+// as-is it would be a tag no tree and no descendant query could ever reach.
+func TestAPIRejectsMalformedTags(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+
+	post := func(path string, body map[string]any) int {
+		raw, _ := json.Marshal(body)
+		req := httptest.NewRequest("POST", path, bytes.NewReader(raw))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for _, tag := range []string{"/foo", "foo/", "foo//bar", "   "} {
+		if code := post("/api/tasks", map[string]any{
+			"title": "Malformed", "tags": []string{tag},
+		}); code != http.StatusBadRequest {
+			t.Errorf("create task with tag %q: expected 400, got %d", tag, code)
+		}
+		if code := post("/api/projects", map[string]any{
+			"title": "Malformed", "tags": []string{tag},
+		}); code != http.StatusBadRequest {
+			t.Errorf("create project with tag %q: expected 400, got %d", tag, code)
+		}
+	}
+
+	id := createTaskViaAPI(t, r, "Legit")
+	patchTaskViaAPI(t, r, id, `{"tags":["foo//bar"]}`, http.StatusBadRequest)
+
+	// Nesting itself is legal — that is the whole point of the convention.
+	if code := post("/api/tasks", map[string]any{
+		"title": "Nested", "tags": []string{"homelab/nas"},
+	}); code != http.StatusCreated {
+		t.Errorf("create task tagged \"homelab/nas\": expected 201, got %d", code)
+	}
+}
+
 func createTaskViaAPI(t *testing.T, r http.Handler, title string) string {
 	t.Helper()
 	body, _ := json.Marshal(map[string]any{"title": title, "tags": []string{"homelab"}})

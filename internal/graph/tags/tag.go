@@ -9,6 +9,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/internal/ids"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tagname"
 )
 
 // Author is re-exported from the nodes package.
@@ -22,8 +23,13 @@ func Add(ctx context.Context, tx *graph.WriteTx, nodeID string, tag string, auth
 	if !author.Valid() {
 		return graph.ErrAuthorRequired
 	}
-	if tag == "" {
+	if strings.TrimSpace(tag) == "" {
 		return graph.ErrEmptyTag
+	}
+
+	tag, err := tagname.Normalize(tag)
+	if err != nil {
+		return fmt.Errorf("tags.Add: %w", err)
 	}
 
 	// Ensure tag exists in the tags table.
@@ -39,7 +45,7 @@ func Add(ctx context.Context, tx *graph.WriteTx, nodeID string, tag string, auth
 
 	// Insert the node_tags link. The FK on node_id will fail if the node does
 	// not exist; we translate that into graph.ErrNotFound.
-	_, err := tx.Exec(`INSERT OR IGNORE INTO node_tags(node_id, tag_id) VALUES (?, ?)`, nodeID, tagID)
+	_, err = tx.Exec(`INSERT OR IGNORE INTO node_tags(node_id, tag_id) VALUES (?, ?)`, nodeID, tagID)
 	if err != nil {
 		if isForeignKeyError(err) {
 			return graph.ErrNotFound
@@ -60,10 +66,17 @@ func Remove(ctx context.Context, tx *graph.WriteTx, nodeID string, tag string, a
 		return graph.ErrAuthorRequired
 	}
 
+	// Tags are stored normalised, so the name to remove has to be normalised to
+	// find its row. A name too malformed to normalise cannot have been stored.
+	tag, err := tagname.Normalize(tag)
+	if err != nil {
+		return graph.ErrNotFound
+	}
+
 	// Lookup the tag id. If the tag does not exist at all, the node_tags row
 	// cannot exist either.
 	var tagID string
-	err := tx.QueryRow(`SELECT id FROM tags WHERE name = ?`, tag).Scan(&tagID)
+	err = tx.QueryRow(`SELECT id FROM tags WHERE name = ?`, tag).Scan(&tagID)
 	if err == sql.ErrNoRows {
 		return graph.ErrNotFound
 	}

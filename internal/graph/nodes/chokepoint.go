@@ -93,8 +93,12 @@ func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec No
 		return "", fmt.Errorf("createNode: update fts_rowid: %w", err)
 	}
 
-	// Insert tags (deduplicate to avoid UNIQUE constraint violations)
-	tags := dedupStrings(spec.NodeTags())
+	// Insert tags (normalise, which also deduplicates names that differed only
+	// by case or padding, avoiding UNIQUE constraint violations)
+	tags, err := normalizeTags(spec.NodeTags())
+	if err != nil {
+		return "", fmt.Errorf("createNode: %w", err)
+	}
 	for _, tag := range tags {
 		if err := upsertTag(ctx, tx, tag); err != nil {
 			return "", err
@@ -204,8 +208,13 @@ func updateNode(ctx context.Context, tx *graph.WriteTx, spec NodeSpec, author Au
 		return fmt.Errorf("updateNode: update node: %w", err)
 	}
 
-	// Reconcile tags
-	newTags := spec.NodeTags()
+	// Reconcile tags. The incoming names are normalised before the diff so that
+	// re-saving a node with "Homelab" against a stored "homelab" is a no-op
+	// rather than a remove-then-add of the same tag.
+	newTags, err := normalizeTags(spec.NodeTags())
+	if err != nil {
+		return fmt.Errorf("updateNode: %w", err)
+	}
 	toAdd, toRemove := diffTags(prevTags, newTags)
 
 	for _, tag := range toRemove {

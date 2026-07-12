@@ -21,6 +21,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tagname"
 	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
 	"github.com/gabrielassisxyz/kernl/internal/vault/wikilink"
@@ -700,7 +701,7 @@ func parseAndInject(absPath string, raw []byte) (*frontmatter.Frontmatter, []byt
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse: %w", err)
 	}
-	fm.Tags = dropSystemTags(absPath, fm.Tags)
+	fm.Tags = sanitizeTags(absPath, fm.Tags)
 
 	if fm.ID == "" {
 		newUUID := uuid.Must(uuid.NewV7()).String()
@@ -717,19 +718,28 @@ func parseAndInject(absPath string, raw []byte) (*frontmatter.Frontmatter, []byt
 	return fm, raw, nil
 }
 
-// dropSystemTags strips reserved `sys/` tags authored in a note's frontmatter.
-// The vault is the source of truth for a note's tags, so without this a user
-// typing `tags: [sys/pending]` into a markdown file would mint a system tag in
-// the graph and, for a capture, forge its way back into the inbox queue. The
-// tag is dropped rather than failing the reconcile: a malformed tag must not
-// cost the user the rest of the file's content.
-func dropSystemTags(absPath string, fmTags []string) []string {
+// sanitizeTags strips the tags a note's frontmatter must not put into the
+// graph: reserved `sys/` tags, and names that break the nesting convention
+// (`foo//bar`, `/foo`). The vault is the source of truth for a note's tags, so
+// without this a user typing `tags: [sys/pending]` into a markdown file would
+// mint a system tag in the graph and, for a capture, forge its way back into
+// the inbox queue. Offenders are dropped rather than failing the reconcile: a
+// malformed tag must not cost the user the rest of the file's content.
+func sanitizeTags(absPath string, fmTags []string) []string {
 	kept := make([]string, 0, len(fmTags))
 	for _, t := range fmTags {
 		if tags.IsSystem(t) {
 			slog.Warn("reconcile: dropped reserved system tag from frontmatter",
 				"path", absPath,
 				"tag", t,
+			)
+			continue
+		}
+		if err := tagname.Validate(t); err != nil {
+			slog.Warn("reconcile: dropped malformed tag from frontmatter",
+				"path", absPath,
+				"tag", t,
+				"error", err,
 			)
 			continue
 		}

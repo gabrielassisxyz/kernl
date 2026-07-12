@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/gabrielassisxyz/kernl/internal/graph/tagname"
 )
 
 // tagQuerier is satisfied by both read and write transactions.
@@ -30,6 +32,23 @@ func selectTagsForNode(q tagQuerier, nodeID string) ([]string, error) {
 		tags = append(tags, name)
 	}
 	return tags, rows.Err()
+}
+
+// normalizeTags canonicalises the tags a node spec carries, so that every tag
+// entering the graph through the chokepoint obeys the same nesting and casing
+// rules as one written via tags.Add. Blank entries are dropped rather than
+// rejected, matching what dedupStrings has always done with them; a name that
+// breaks the nesting convention is an error, because storing it would create a
+// tag no query could ever reach.
+func normalizeTags(in []string) ([]string, error) {
+	kept := make([]string, 0, len(in))
+	for _, s := range in {
+		if strings.TrimSpace(s) == "" {
+			continue
+		}
+		kept = append(kept, s)
+	}
+	return tagname.NormalizeAll(kept)
 }
 
 func dedupStrings(in []string) []string {

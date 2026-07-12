@@ -10,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tagname"
 	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
@@ -87,7 +88,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "task title is required")
 		return
 	}
-	if err := tags.RejectSystem(req.Tags); err != nil {
+	if err := validateUserTags(req.Tags); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -161,7 +162,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	if req.Tags != nil {
-		if err := tags.RejectSystem(*req.Tags); err != nil {
+		if err := validateUserTags(*req.Tags); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
@@ -189,6 +190,16 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateUserTags guards the boundary where tags arrive from a human: the
+// reserved system namespace is off limits, and a name that breaks the nesting
+// convention is a client error, not a write failure deeper down.
+func validateUserTags(names []string) error {
+	if err := tags.RejectSystem(names); err != nil {
+		return err
+	}
+	return tagname.ValidateAll(names)
 }
 
 // tagList normalises a possibly-nil tag slice into a JSON array, so clients can
