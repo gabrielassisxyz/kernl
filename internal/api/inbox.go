@@ -388,10 +388,13 @@ type inboxBatchRequest struct {
 	// ContextTitle is the display title for the batch, either explicit or the
 	// suggestion the client accepted after reviewing an /analyze response.
 	ContextTitle string `json:"contextTitle"`
-	// FinalSegments, sent only to POST /api/inbox/batch, echoes back the exact
-	// capture candidates the client reviewed and approved from a prior
-	// /analyze response. When present, CreateBatchWithLLM persists these
-	// verbatim instead of re-running (non-deterministic) LLM enrichment.
+	// RawSegments echoes the split the client reviewed, needed only for the
+	// semantic separator (its cut points come from the LLM and cannot be
+	// re-derived). Bodies are checked against Text before anything is written.
+	RawSegments []inbox.BatchSegment `json:"rawSegments,omitempty"`
+	// FinalSegments, sent only to POST /api/inbox/batch, carries the merge
+	// decisions the human made in the review modal. The bodies it contains are
+	// ignored: capture bodies are rebuilt from the pasted text.
 	FinalSegments []inbox.FinalBatchSegment `json:"finalSegments,omitempty"`
 }
 
@@ -410,18 +413,21 @@ func analyzeInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App
 	json.NewEncoder(w).Encode(analysis)
 }
 
+// previewInboxBatchHandler returns the mechanical split with no LLM in the path,
+// so the review modal opens on the user's own messages immediately. Enrichment
+// (a title, merges to consider) is a second call that lands on top.
 func previewInboxBatchHandler(w http.ResponseWriter, r *http.Request) {
 	input, ok := decodeInboxBatchRequest(w, r)
 	if !ok {
 		return
 	}
-	segments, err := inbox.PreviewBatch(input)
+	preview, err := inbox.PreviewBatchSplit(input)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"segments": segments})
+	json.NewEncoder(w).Encode(preview)
 }
 
 func createInboxBatchHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
@@ -479,6 +485,7 @@ func decodeInboxBatchRequest(w http.ResponseWriter, r *http.Request) (inbox.Batc
 		Source:        req.Source,
 		SplitMode:     splitMode,
 		ContextTitle:  req.ContextTitle,
+		RawSegments:   req.RawSegments,
 		FinalSegments: req.FinalSegments,
 	}, true
 }
