@@ -98,6 +98,7 @@
       :project-title="selected ? projectTitles[selected.projectId] : undefined"
       @close="selected = null"
       @set-status="changeStatus"
+      @set-due-date="changeDueDate"
     />
 
     <TaskCreateModal
@@ -121,7 +122,7 @@ import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiSkeleton from '~/components/ui/UiSkeleton.vue'
 
-const { tasks, loading, error, load, setStatus } = useTasks()
+const { tasks, loading, error, load, setStatus, setDueDate } = useTasks()
 const { projects, load: loadProjects } = useProjects()
 
 const route = useRoute()
@@ -196,6 +197,13 @@ function openDetail(task: Task) {
 async function changeStatus(id: string, status: string) {
   await setStatus(id, status as TaskStatus)
   if (selected.value?.id === id) selected.value = { ...selected.value, status: status as TaskStatus }
+  reload()
+}
+
+// An empty string clears the deadline.
+async function changeDueDate(id: string, dueDate: string) {
+  await setDueDate(id, dueDate)
+  if (selected.value?.id === id) selected.value = { ...selected.value, dueDate }
   reload()
 }
 

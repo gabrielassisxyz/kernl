@@ -137,7 +137,10 @@ type captureActionDTO struct {
 	ProjectDescription string   `json:"projectDescription"`
 	InitialTasks       []string `json:"initialTasks"`
 	Tags               []string `json:"tags"`
-	LinkTo             string   `json:"linkTo"`
+	// DueDate is a calendar day (YYYY-MM-DD), like taskDTO's — empty when the
+	// action has none. On a task action only.
+	DueDate string `json:"dueDate"`
+	LinkTo  string `json:"linkTo"`
 }
 
 func toCaptureActionDTOs(actions []nodes.CaptureAction) []captureActionDTO {
@@ -152,15 +155,23 @@ func toCaptureActionDTOs(actions []nodes.CaptureAction) []captureActionDTO {
 			ProjectDescription: a.ProjectDescription,
 			InitialTasks:       a.InitialTasks,
 			Tags:               a.Tags,
+			DueDate:            nodes.FormatDueDate(a.DueDate),
 			LinkTo:             a.LinkTo,
 		})
 	}
 	return out
 }
 
-func fromCaptureActionDTOs(actions []captureActionDTO) []inbox.Action {
+// fromCaptureActionDTOs maps the posted actions back. A due date the client sends
+// malformed is reported rather than silently dropped: the capture is being
+// triaged once, and a deadline that vanishes here vanishes for good.
+func fromCaptureActionDTOs(actions []captureActionDTO) ([]inbox.Action, error) {
 	out := make([]inbox.Action, 0, len(actions))
 	for _, a := range actions {
+		dueDate, err := nodes.ParseDueDate(a.DueDate)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, inbox.Action{
 			Target:             a.Target,
 			Title:              a.Title,
@@ -170,10 +181,11 @@ func fromCaptureActionDTOs(actions []captureActionDTO) []inbox.Action {
 			ProjectDescription: a.ProjectDescription,
 			InitialTasks:       a.InitialTasks,
 			Tags:               a.Tags,
+			DueDate:            dueDate,
 			LinkTo:             a.LinkTo,
 		})
 	}
-	return out
+	return out, nil
 }
 
 // captureTitle derives a display title for a capture: its explicit Title when
@@ -549,12 +561,18 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
+	actions, err := fromCaptureActionDTOs(req.Actions)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	vaultRoot := a.Config.Vault.Root
 	bookmarksDir := filepath.Join(vaultRoot, ".kernl", "bookmarks")
 	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
 
-	err := inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
-		Actions:       fromCaptureActionDTOs(req.Actions),
+	err = inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
+		Actions:       actions,
 		TargetNoteID:  req.TargetNoteID,
 		AcceptedHunks: req.AcceptedHunks,
 	})

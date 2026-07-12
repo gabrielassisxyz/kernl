@@ -219,7 +219,8 @@ func TestClassifyReadsGraphForProjectAssociation(t *testing.T) {
 	capturing := &promptCapturingLLM{onPrompt: func(p string) { seenPrompt = p }, reply: `{"actions":[{"target":"task","project_id":"` + projectID + `"}]}`}
 	c := NewClassifier(g, capturing, ClassifierOptions{})
 
-	got, err := c.classify(ctx, "turn azimute-cobalto-17 into a task", []*nodes.Project{{ID: projectID, Title: "Atlas Verde"}})
+	capture := &nodes.Capture{Body: "turn azimute-cobalto-17 into a task"}
+	got, err := c.classify(ctx, capture, []*nodes.Project{{ID: projectID, Title: "Atlas Verde"}})
 	if err != nil {
 		t.Fatal(err)
 	}

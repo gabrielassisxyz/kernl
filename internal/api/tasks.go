@@ -14,14 +14,18 @@ import (
 
 // taskDTO is the camelCase shape the web client consumes.
 type taskDTO struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Description string    `json:"description"`
-	Status      string    `json:"status"`
-	ProjectID   string    `json:"projectId"`
-	Tags        []string  `json:"tags"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	Status      string   `json:"status"`
+	ProjectID   string   `json:"projectId"`
+	Tags        []string `json:"tags"`
+	// DueDate is a calendar day (YYYY-MM-DD), empty when the task has none —
+	// deliberately not an RFC3339 timestamp like the two below: a due date
+	// rendered through a timezone is a due date that shows up a day early.
+	DueDate   string    `json:"dueDate"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func RegisterTaskRoutes(mux *http.ServeMux, a *app.App) {
@@ -55,6 +59,7 @@ func listTasksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				Status:      t.Status,
 				ProjectID:   t.ProjectID,
 				Tags:        tagList(t.Tags),
+				DueDate:     nodes.FormatDueDate(t.DueDate),
 				CreatedAt:   t.CreatedAt,
 				UpdatedAt:   t.UpdatedAt,
 			})
@@ -77,6 +82,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		Status      string   `json:"status"`
 		ProjectID   string   `json:"projectId"`
 		Tags        []string `json:"tags"`
+		DueDate     string   `json:"dueDate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid task body: "+err.Error())
@@ -86,13 +92,18 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "task title is required")
 		return
 	}
+	dueDate, err := nodes.ParseDueDate(req.DueDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
 	title := strings.TrimSpace(req.Title)
 	var id string
 	var companion CompanionFile
-	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var err error
 		id, err = nodes.CreateTask(ctx, tx, nodes.Task{
 			Title:       title,
@@ -100,6 +111,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			Status:      req.Status,
 			ProjectID:   req.ProjectID,
 			Tags:        req.Tags,
+			DueDate:     dueDate,
 		}, author)
 		if err != nil {
 			return err
@@ -138,22 +150,32 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	// Pointer fields distinguish "absent" from "set to empty": an omitted tags
-	// key leaves the task's tags alone, while `"tags": []` clears them.
+	// key leaves the task's tags alone, while `"tags": []` clears them. Same for
+	// dueDate — `"dueDate": ""` is how a due date is removed.
 	var req struct {
-		Status *string   `json:"status"`
-		Tags   *[]string `json:"tags"`
+		Status  *string   `json:"status"`
+		Tags    *[]string `json:"tags"`
+		DueDate *string   `json:"dueDate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Status == nil && req.Tags == nil {
-		writeError(w, http.StatusBadRequest, "nothing to update: provide status or tags")
+	if req.Status == nil && req.Tags == nil && req.DueDate == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide status, tags or dueDate")
 		return
 	}
 	if req.Status != nil && *req.Status == "" {
 		writeError(w, http.StatusBadRequest, "status cannot be empty")
 		return
+	}
+	var dueDate *time.Time
+	if req.DueDate != nil {
+		var err error
+		if dueDate, err = nodes.ParseDueDate(*req.DueDate); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	ctx := r.Context()
@@ -161,6 +183,11 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		if req.Status != nil {
 			if err := nodes.SetTaskStatus(ctx, tx, id, *req.Status, author); err != nil {
+				return err
+			}
+		}
+		if req.DueDate != nil {
+			if err := nodes.SetTaskDueDate(ctx, tx, id, dueDate, author); err != nil {
 				return err
 			}
 		}

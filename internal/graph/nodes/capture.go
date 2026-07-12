@@ -33,6 +33,10 @@ type CaptureAction struct {
 	ProjectDescription string   `json:"project_description"`
 	InitialTasks       []string `json:"initial_tasks"`
 	Tags               []string `json:"tags"`
+	// DueDate is the day a task action is due (task only), nil when the capture
+	// states no deadline. A relative deadline ("tomorrow") is resolved against
+	// the CAPTURE's own date, so a months-old backlog does not all come due today.
+	DueDate *time.Time `json:"due_date"`
 	// LinkTo relates the created note/bookmark to an existing node.
 	LinkTo string `json:"link_to"`
 }

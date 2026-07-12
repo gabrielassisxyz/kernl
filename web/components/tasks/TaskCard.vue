@@ -13,10 +13,18 @@
       </h3>
     </div>
 
-    <div v-if="projectTitle" class="pl-component">
-      <span class="inline-flex items-center gap-tight font-mono-data text-mono-data text-text-faint">
+    <div v-if="projectTitle || task.dueDate" class="pl-component flex items-center gap-component">
+      <span v-if="projectTitle" class="inline-flex items-center gap-tight font-mono-data text-mono-data text-text-faint">
         <span class="material-symbols-outlined !text-mono-data">folder_open</span>
         {{ projectTitle }}
+      </span>
+      <span
+        v-if="task.dueDate"
+        class="inline-flex items-center gap-tight font-mono-data text-mono-data"
+        :class="late ? 'text-status-failed-text' : 'text-text-faint'"
+      >
+        <span class="material-symbols-outlined !text-mono-data">event</span>
+        {{ formatDueDate(task.dueDate) }}
       </span>
     </div>
   </div>
@@ -25,6 +33,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Task, TaskStatus } from '~/composables/useTasks'
+import { formatDueDate, isOverdue } from '~/utils/time'
 
 const props = defineProps<{ task: Task; projectTitle?: string }>()
 defineEmits<{ (e: 'open', task: Task): void }>()
@@ -35,4 +44,7 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   done: 'bg-status-passed',
 }
 const dotClass = computed(() => STATUS_DOT[props.task.status] ?? 'bg-text-dim')
+
+// A finished task is never late, however old its deadline.
+const late = computed(() => props.task.status !== 'done' && isOverdue(props.task.dueDate))
 </script>
