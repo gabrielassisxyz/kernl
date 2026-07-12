@@ -131,9 +131,7 @@ func TestProcessTaskUnderProject(t *testing.T) {
 	}
 
 	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{
-		Target:    "task",
-		ProjectID: projectID,
-		Title:     "Fix inbox triage",
+		Actions: []inbox.Action{{Target: "task", ProjectID: projectID, Title: "Fix inbox triage"}},
 	}); err != nil {
 		t.Fatalf("ProcessCapture: %v", err)
 	}
@@ -199,7 +197,9 @@ func TestProcessTaskUnfiled(t *testing.T) {
 		t.Fatalf("CreateCapture: %v", err)
 	}
 
-	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{Target: "task"}); err != nil {
+	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{
+		Actions: []inbox.Action{{Target: "task"}},
+	}); err != nil {
 		t.Fatalf("ProcessCapture: %v", err)
 	}
 
@@ -256,7 +256,9 @@ func TestListProcessed(t *testing.T) {
 		t.Fatalf("setup: %v", err)
 	}
 
-	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, taskCap, inbox.ProcessRequest{Target: "task", ProjectID: projectID, Title: "Do a thing"}); err != nil {
+	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, taskCap, inbox.ProcessRequest{
+		Actions: []inbox.Action{{Target: "task", ProjectID: projectID, Title: "Do a thing"}},
+	}); err != nil {
 		t.Fatalf("process task: %v", err)
 	}
 	if err := inbox.Process(ctx, g, t.TempDir(), nil, junkCap, "discard"); err != nil {
@@ -381,7 +383,9 @@ func TestReopenTask(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateCapture: %v", err)
 	}
-	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{Target: "task"}); err != nil {
+	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{
+		Actions: []inbox.Action{{Target: "task"}},
+	}); err != nil {
 		t.Fatalf("ProcessCapture: %v", err)
 	}
 	if err := inbox.Reopen(ctx, g, t.TempDir(), captureID); err != nil {
@@ -479,10 +483,12 @@ func TestProcessCaptureProjectCreatesInitialTasks(t *testing.T) {
 	}
 
 	if err := inbox.ProcessCapture(ctx, g, t.TempDir(), nil, captureID, inbox.ProcessRequest{
-		Target:             "project",
-		ProjectTitle:       "ai-memory explainer",
-		ProjectDescription: "Explain ai-memory from repository material.",
-		InitialTasks:       []string{"Map architecture", "Write usage examples"},
+		Actions: []inbox.Action{{
+			Target:             "project",
+			ProjectTitle:       "ai-memory explainer",
+			ProjectDescription: "Explain ai-memory from repository material.",
+			InitialTasks:       []string{"Map architecture", "Write usage examples"},
+		}},
 	}); err != nil {
 		t.Fatalf("ProcessCapture: %v", err)
 	}

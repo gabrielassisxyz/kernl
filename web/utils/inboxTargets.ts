@@ -31,3 +31,44 @@ export function normalizeTarget(raw: string | undefined | null): Target | null {
   const s = raw.startsWith('convert_to_') ? raw.slice('convert_to_'.length) : raw
   return (TARGETS as string[]).includes(s) ? (s as Target) : null
 }
+
+// CaptureAction is one node a capture becomes. A capture is routinely several
+// things at once, so both the DA's suggestion and what the user posts back are
+// a list of these. Mirrors the API's camelCase captureActionDTO.
+export interface CaptureAction {
+  target: Target
+  title: string
+  body?: string
+  projectId?: string
+  projectTitle?: string
+  projectDescription?: string
+  initialTasks?: string[]
+  tags?: string[]
+  linkTo?: string
+}
+
+/** The raw wire shape: target is any string until we validate it. */
+export interface RawCaptureAction extends Omit<CaptureAction, 'target'> {
+  target: string
+}
+
+// normalizeActions drops anything whose target we cannot render, so one bad
+// suggestion never blanks out the whole row.
+export function normalizeActions(raw: RawCaptureAction[] | undefined | null): CaptureAction[] {
+  if (!raw) return []
+  const out: CaptureAction[] = []
+  for (const action of raw) {
+    const target = normalizeTarget(action.target)
+    if (!target) continue
+    out.push({ ...action, target })
+  }
+  return out
+}
+
+// An update merges into an existing note, reviewed hunk by hunk — the backend
+// rejects it alongside any other action.
+export const isUpdateOnly = (actions: CaptureAction[]): boolean =>
+  actions.length === 1 && actions[0].target === 'update'
+
+export const hasConflictingUpdate = (actions: CaptureAction[]): boolean =>
+  actions.length > 1 && actions.some(a => a.target === 'update')

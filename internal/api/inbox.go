@@ -109,22 +109,71 @@ func createCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 // by web/pages/inbox.vue (InboxItemData). The raw nodes.Capture struct carries
 // PascalCase fields and no subtitle, so it is mapped explicitly here.
 type inboxItemDTO struct {
-	ID                          string   `json:"id"`
-	Type                        string   `json:"type"`
-	Title                       string   `json:"title"`
-	Subtitle                    string   `json:"subtitle"`
-	SuggestedAction             string   `json:"suggestedAction"`
-	SuggestedProjectID          string   `json:"suggestedProjectId"`
-	SuggestedProjectTitle       string   `json:"suggestedProjectTitle"`
-	SuggestedProjectDescription string   `json:"suggestedProjectDescription"`
-	SuggestedInitialTasks       []string `json:"suggestedInitialTasks"`
-	BatchID                     string   `json:"batchId"`
-	BatchSource                 string   `json:"batchSource"`
-	BatchSequence               int      `json:"batchSequence"`
-	BatchTimestamp              string   `json:"batchTimestamp"`
-	BatchContextTitle           string   `json:"batchContextTitle"`
-	HasPrep                     bool     `json:"hasPrep"`
-	Flagged                     bool     `json:"flagged"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Title    string `json:"title"`
+	Subtitle string `json:"subtitle"`
+	// SuggestedActions is the list of nodes the DA proposes this capture becomes
+	// — a capture is routinely several things at once. Empty while unclassified.
+	SuggestedActions  []captureActionDTO `json:"suggestedActions"`
+	BatchID           string             `json:"batchId"`
+	BatchSource       string             `json:"batchSource"`
+	BatchSequence     int                `json:"batchSequence"`
+	BatchTimestamp    string             `json:"batchTimestamp"`
+	BatchContextTitle string             `json:"batchContextTitle"`
+	HasPrep           bool               `json:"hasPrep"`
+	Flagged           bool               `json:"flagged"`
+}
+
+// captureActionDTO is the camelCase wire view of a nodes.CaptureAction (whose
+// json tags are the snake_case attrs shape). It is both what the DA suggests and
+// what the inbox modal posts back.
+type captureActionDTO struct {
+	Target             string   `json:"target"`
+	Title              string   `json:"title"`
+	Body               string   `json:"body"`
+	ProjectID          string   `json:"projectId"`
+	ProjectTitle       string   `json:"projectTitle"`
+	ProjectDescription string   `json:"projectDescription"`
+	InitialTasks       []string `json:"initialTasks"`
+	Tags               []string `json:"tags"`
+	LinkTo             string   `json:"linkTo"`
+}
+
+func toCaptureActionDTOs(actions []nodes.CaptureAction) []captureActionDTO {
+	out := make([]captureActionDTO, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, captureActionDTO{
+			Target:             a.Target,
+			Title:              a.Title,
+			Body:               a.Body,
+			ProjectID:          a.ProjectID,
+			ProjectTitle:       a.ProjectTitle,
+			ProjectDescription: a.ProjectDescription,
+			InitialTasks:       a.InitialTasks,
+			Tags:               a.Tags,
+			LinkTo:             a.LinkTo,
+		})
+	}
+	return out
+}
+
+func fromCaptureActionDTOs(actions []captureActionDTO) []inbox.Action {
+	out := make([]inbox.Action, 0, len(actions))
+	for _, a := range actions {
+		out = append(out, inbox.Action{
+			Target:             a.Target,
+			Title:              a.Title,
+			Body:               a.Body,
+			ProjectID:          a.ProjectID,
+			ProjectTitle:       a.ProjectTitle,
+			ProjectDescription: a.ProjectDescription,
+			InitialTasks:       a.InitialTasks,
+			Tags:               a.Tags,
+			LinkTo:             a.LinkTo,
+		})
+	}
+	return out
 }
 
 // captureTitle derives a display title for a capture: its explicit Title when
@@ -189,22 +238,18 @@ func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.Ap
 			typ = "CAPTURE"
 		}
 		items = append(items, inboxItemDTO{
-			ID:                          c.ID,
-			Type:                        typ,
-			Title:                       captureTitle(c),
-			Subtitle:                    c.Body,
-			SuggestedAction:             c.SuggestedAction,
-			SuggestedProjectID:          c.SuggestedProjectID,
-			SuggestedProjectTitle:       c.SuggestedProjectTitle,
-			SuggestedProjectDescription: c.SuggestedProjectDescription,
-			SuggestedInitialTasks:       c.SuggestedInitialTasks,
-			BatchID:                     c.BatchID,
-			BatchSource:                 c.BatchSource,
-			BatchSequence:               c.BatchSequence,
-			BatchTimestamp:              c.BatchTimestamp,
-			BatchContextTitle:           c.BatchContextTitle,
-			HasPrep:                     prepSet[c.ID],
-			Flagged:                     c.SuggestedAction != "",
+			ID:                c.ID,
+			Type:              typ,
+			Title:             captureTitle(c),
+			Subtitle:          c.Body,
+			SuggestedActions:  toCaptureActionDTOs(c.SuggestedActions),
+			BatchID:           c.BatchID,
+			BatchSource:       c.BatchSource,
+			BatchSequence:     c.BatchSequence,
+			BatchTimestamp:    c.BatchTimestamp,
+			BatchContextTitle: c.BatchContextTitle,
+			HasPrep:           prepSet[c.ID],
+			Flagged:           len(c.SuggestedActions) > 0,
 		})
 	}
 
@@ -470,10 +515,9 @@ func convertCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 }
 
 // processCaptureHandler is the structured successor to convertCaptureHandler:
-// it accepts an explicit target plus optional project/link/title so the inbox
-// modal can file a capture as a task under a project, link a note/bookmark to
-// another node, or override the title — none of which the single {action} field
-// can express.
+// it accepts the list of nodes the capture becomes, each with its own title,
+// project, tags and link — so one capture can land as a note *and* the task it
+// implies, which the single {action} field cannot express.
 func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -482,26 +526,19 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	var req struct {
-		Target             string             `json:"target"`             // note | bookmark | task | project | discard | update | convert
-		ProjectID          string             `json:"projectId"`          // task only
-		LinkTo             string             `json:"linkTo"`             // note/bookmark only
-		Title              string             `json:"title"`              // optional override
-		ProjectTitle       string             `json:"projectTitle"`       // project only
-		ProjectDescription string             `json:"projectDescription"` // project only
-		InitialTasks       []string           `json:"initialTasks"`       // project only
-		TargetNoteID       string             `json:"targetNoteId"`       // update only
-		AcceptedHunks      []ingest.MergeHunk `json:"acceptedHunks"`      // update only
+		Actions       []captureActionDTO `json:"actions"`
+		TargetNoteID  string             `json:"targetNoteId"`  // update only
+		AcceptedHunks []ingest.MergeHunk `json:"acceptedHunks"` // update only
 		// The DA's original suggestion, echoed back so we can learn from
 		// overrides. Empty when the client doesn't send it.
-		SuggestedTarget    string `json:"suggestedTarget"`
-		SuggestedProjectID string `json:"suggestedProjectId"`
+		SuggestedActions []captureActionDTO `json:"suggestedActions"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if req.Target == "" {
-		http.Error(w, "target is required", http.StatusBadRequest)
+	if len(req.Actions) == 0 {
+		http.Error(w, "at least one action is required", http.StatusBadRequest)
 		return
 	}
 
@@ -510,38 +547,45 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
 
 	err := inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
-		Target:             req.Target,
-		ProjectID:          req.ProjectID,
-		LinkTo:             req.LinkTo,
-		Title:              req.Title,
-		ProjectTitle:       req.ProjectTitle,
-		ProjectDescription: req.ProjectDescription,
-		InitialTasks:       req.InitialTasks,
-		TargetNoteID:       req.TargetNoteID,
-		AcceptedHunks:      req.AcceptedHunks,
+		Actions:       fromCaptureActionDTOs(req.Actions),
+		TargetNoteID:  req.TargetNoteID,
+		AcceptedHunks: req.AcceptedHunks,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Learn from overrides: if the user accepted a different target or project
-	// than the DA suggested, record the pair for later prompt tuning.
-	if req.SuggestedTarget != "" && req.SuggestedTarget != req.Target {
-		_ = suggestlog.Log(vaultRoot, suggestlog.Edit{
-			Surface: "inbox", Field: "target",
-			Original: req.SuggestedTarget, Edited: req.Target, Context: id,
-		})
-	}
-	if req.Target == "task" && req.SuggestedProjectID != req.ProjectID {
-		_ = suggestlog.Log(vaultRoot, suggestlog.Edit{
-			Surface: "inbox", Field: "projectId",
-			Original: req.SuggestedProjectID, Edited: req.ProjectID, Context: id,
-		})
-	}
+	logSuggestionOverride(vaultRoot, id, req.SuggestedActions, req.Actions)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// logSuggestionOverride records the pair (what the DA proposed, what the user
+// actually processed) whenever they differ, for later prompt tuning. With
+// fan-out the interesting edit is the shape of the whole list — a split the DA
+// missed, a target flipped, a title rewritten — so the list is logged as one
+// unit rather than field by field.
+func logSuggestionOverride(vaultRoot, captureID string, suggested, accepted []captureActionDTO) {
+	if len(suggested) == 0 {
+		return
+	}
+	original, err := json.Marshal(suggested)
+	if err != nil {
+		return
+	}
+	edited, err := json.Marshal(accepted)
+	if err != nil {
+		return
+	}
+	if string(original) == string(edited) {
+		return
+	}
+	_ = suggestlog.Log(vaultRoot, suggestlog.Edit{
+		Surface: "inbox", Field: "actions",
+		Original: string(original), Edited: string(edited), Context: captureID,
+	})
 }
 
 // mergePlanCaptureHandler plans an "Update" for a capture: it resolves the

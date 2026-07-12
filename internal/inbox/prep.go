@@ -80,10 +80,12 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 			}
 		}
 
-		// Related project (only when the classifier already tied one in).
-		if capture.SuggestedProjectID != "" {
-			project, _ = nodes.GetProject(ctx, tx, capture.SuggestedProjectID)
-			projectTasks, _ = nodes.ListTasks(ctx, tx, capture.SuggestedProjectID)
+		// Related project (only when the classifier already tied one in). A
+		// capture can fan out into several actions; the first one naming an
+		// existing project is the one worth briefing against.
+		if projectID := suggestedProjectID(capture); projectID != "" {
+			project, _ = nodes.GetProject(ctx, tx, projectID)
+			projectTasks, _ = nodes.ListTasks(ctx, tx, projectID)
 		}
 		return nil
 	})
@@ -185,6 +187,17 @@ func buildPrepPrompt(c *nodes.Capture, notes []planning.ContextNote, bookmarks [
 	}
 	b.WriteString("Primer:\n")
 	return b.String()
+}
+
+// suggestedProjectID returns the first existing project the classifier tied any
+// of the capture's suggested actions to, or "" when none does.
+func suggestedProjectID(c *nodes.Capture) string {
+	for _, action := range c.SuggestedActions {
+		if action.ProjectID != "" {
+			return action.ProjectID
+		}
+	}
+	return ""
 }
 
 // salientTerms pulls up to max distinct content words (len >= 4) from s for

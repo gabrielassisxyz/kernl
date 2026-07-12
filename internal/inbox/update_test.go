@@ -48,7 +48,7 @@ func TestProcessCaptureUpdate(t *testing.T) {
 	}
 
 	err := inbox.ProcessCapture(ctx, g, vault, nil, captureID, inbox.ProcessRequest{
-		Target:        "update",
+		Actions:       []inbox.Action{{Target: "update"}},
 		TargetNoteID:  noteID,
 		AcceptedHunks: []ingest.MergeHunk{{ID: "0", Content: "Benefits from a long cold ferment."}},
 	})
@@ -130,7 +130,9 @@ func TestProcessCaptureUpdateNoTargetFallsBack(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	err := inbox.ProcessCapture(ctx, g, vault, nil, captureID, inbox.ProcessRequest{Target: "update"})
+	err := inbox.ProcessCapture(ctx, g, vault, nil, captureID, inbox.ProcessRequest{
+		Actions: []inbox.Action{{Target: "update"}},
+	})
 	if err != nil {
 		t.Fatalf("ProcessCapture update: %v", err)
 	}

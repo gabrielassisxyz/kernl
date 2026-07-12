@@ -117,7 +117,7 @@ func TestProcessLinksBriefing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prep: %v", err)
 	}
-	if err := ProcessCapture(ctx, g, vaultRoot, nil, captureID, ProcessRequest{Target: "task"}); err != nil {
+	if err := ProcessCapture(ctx, g, vaultRoot, nil, captureID, ProcessRequest{Actions: []Action{{Target: "task"}}}); err != nil {
 		t.Fatalf("ProcessCapture: %v", err)
 	}
 
@@ -163,7 +163,7 @@ func TestDiscardDeletesPrep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prep: %v", err)
 	}
-	if err := ProcessCapture(ctx, g, vaultRoot, nil, captureID, ProcessRequest{Target: "discard"}); err != nil {
+	if err := ProcessCapture(ctx, g, vaultRoot, nil, captureID, ProcessRequest{Actions: []Action{{Target: "discard"}}}); err != nil {
 		t.Fatalf("ProcessCapture discard: %v", err)
 	}
 

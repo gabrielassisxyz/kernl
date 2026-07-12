@@ -11,30 +11,50 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 )
 
+// CaptureAction is one node a capture should become. A capture is frequently
+// more than one thing — a reflection that also implies a next step is a note
+// *and* a task; a "tomorrow:" list is four tasks — so both the classifier's
+// suggestion and the processing decision are a list of these, never a single
+// target.
+type CaptureAction struct {
+	// Target is the node kind: note | bookmark | task | project | update |
+	// discard | convert (infers note/bookmark from the body).
+	Target string `json:"target"`
+	// Title is what makes a fanned-out action reviewable at a glance; empty
+	// falls back to the capture's own title.
+	Title string `json:"title"`
+	// Body defaults to the capture body when empty — set it when one action
+	// only owns a fragment of a composite capture.
+	Body string `json:"body"`
+	// ProjectID files a task under an existing project (task only).
+	ProjectID string `json:"project_id"`
+	// ProjectTitle/ProjectDescription/InitialTasks describe a new project.
+	ProjectTitle       string   `json:"project_title"`
+	ProjectDescription string   `json:"project_description"`
+	InitialTasks       []string `json:"initial_tasks"`
+	Tags               []string `json:"tags"`
+	// LinkTo relates the created note/bookmark to an existing node.
+	LinkTo string `json:"link_to"`
+}
+
 // Capture represents content captured from an external source.
 type Capture struct {
-	ID              string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Title           string
-	Body            string
-	CapturedFrom    string
-	Tags            []string
-	SuggestedAction string
-	// SuggestedProjectID is set by the classifier when it suggests filing the
-	// capture as a task under a specific project; empty otherwise.
-	SuggestedProjectID string
-	// SuggestedProjectTitle/Description/InitialTasks are set when the classifier
-	// suggests promoting the capture into a new project.
-	SuggestedProjectTitle       string
-	SuggestedProjectDescription string
-	SuggestedInitialTasks       []string
-	BatchID                     string
-	BatchSource                 string
-	BatchSequence               int
-	BatchSender                 string
-	BatchTimestamp              string
-	BatchContextTitle           string
+	ID           string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	Title        string
+	Body         string
+	CapturedFrom string
+	Tags         []string
+	// SuggestedActions is the classifier's proposal: the list of nodes this
+	// capture should fan out into. Empty means it has not been classified yet.
+	SuggestedActions  []CaptureAction
+	BatchID           string
+	BatchSource       string
+	BatchSequence     int
+	BatchSender       string
+	BatchTimestamp    string
+	BatchContextTitle string
 }
 
 // Meta returns the common metadata for this node.
@@ -45,19 +65,15 @@ func (c Capture) Meta() *Meta {
 // NodeAttrs marshals type-specific fields for the nodes.attrs column.
 func (c Capture) NodeAttrs() []byte {
 	attrs := map[string]any{
-		"body":                          c.Body,
-		"captured_from":                 c.CapturedFrom,
-		"suggested_action":              c.SuggestedAction,
-		"suggested_project_id":          c.SuggestedProjectID,
-		"suggested_project_title":       c.SuggestedProjectTitle,
-		"suggested_project_description": c.SuggestedProjectDescription,
-		"suggested_initial_tasks":       c.SuggestedInitialTasks,
-		"batch_id":                      c.BatchID,
-		"batch_source":                  c.BatchSource,
-		"batch_sequence":                c.BatchSequence,
-		"batch_sender":                  c.BatchSender,
-		"batch_timestamp":               c.BatchTimestamp,
-		"batch_context_title":           c.BatchContextTitle,
+		"body":                c.Body,
+		"captured_from":       c.CapturedFrom,
+		"suggested_actions":   c.SuggestedActions,
+		"batch_id":            c.BatchID,
+		"batch_source":        c.BatchSource,
+		"batch_sequence":      c.BatchSequence,
+		"batch_sender":        c.BatchSender,
+		"batch_timestamp":     c.BatchTimestamp,
+		"batch_context_title": c.BatchContextTitle,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -80,19 +96,15 @@ type CaptureFilter struct {
 }
 
 type captureAttrs struct {
-	Body                        string   `json:"body"`
-	CapturedFrom                string   `json:"captured_from"`
-	SuggestedAction             string   `json:"suggested_action"`
-	SuggestedProjectID          string   `json:"suggested_project_id"`
-	SuggestedProjectTitle       string   `json:"suggested_project_title"`
-	SuggestedProjectDescription string   `json:"suggested_project_description"`
-	SuggestedInitialTasks       []string `json:"suggested_initial_tasks"`
-	BatchID                     string   `json:"batch_id"`
-	BatchSource                 string   `json:"batch_source"`
-	BatchSequence               int      `json:"batch_sequence"`
-	BatchSender                 string   `json:"batch_sender"`
-	BatchTimestamp              string   `json:"batch_timestamp"`
-	BatchContextTitle           string   `json:"batch_context_title"`
+	Body              string          `json:"body"`
+	CapturedFrom      string          `json:"captured_from"`
+	SuggestedActions  []CaptureAction `json:"suggested_actions"`
+	BatchID           string          `json:"batch_id"`
+	BatchSource       string          `json:"batch_source"`
+	BatchSequence     int             `json:"batch_sequence"`
+	BatchSender       string          `json:"batch_sender"`
+	BatchTimestamp    string          `json:"batch_timestamp"`
+	BatchContextTitle string          `json:"batch_context_title"`
 }
 
 // CreateCapture inserts a new capture node and returns its ID.
@@ -106,7 +118,7 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	var createdAt, updatedAt sql.NullString
 
 	err := tx.QueryRow(
-		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'capture'`,
+		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'capture' AND deleted_at IS NULL`,
 		id,
 	).Scan(&title, &attrsRaw, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
@@ -129,24 +141,20 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	}
 
 	return &Capture{
-		ID:                          id,
-		CreatedAt:                   tryParseTime(createdAt.String),
-		UpdatedAt:                   tryParseTime(updatedAt.String),
-		Title:                       title.String,
-		Body:                        attrs.Body,
-		CapturedFrom:                attrs.CapturedFrom,
-		Tags:                        tags,
-		SuggestedAction:             attrs.SuggestedAction,
-		SuggestedProjectID:          attrs.SuggestedProjectID,
-		SuggestedProjectTitle:       attrs.SuggestedProjectTitle,
-		SuggestedProjectDescription: attrs.SuggestedProjectDescription,
-		SuggestedInitialTasks:       attrs.SuggestedInitialTasks,
-		BatchID:                     attrs.BatchID,
-		BatchSource:                 attrs.BatchSource,
-		BatchSequence:               attrs.BatchSequence,
-		BatchSender:                 attrs.BatchSender,
-		BatchTimestamp:              attrs.BatchTimestamp,
-		BatchContextTitle:           attrs.BatchContextTitle,
+		ID:                id,
+		CreatedAt:         tryParseTime(createdAt.String),
+		UpdatedAt:         tryParseTime(updatedAt.String),
+		Title:             title.String,
+		Body:              attrs.Body,
+		CapturedFrom:      attrs.CapturedFrom,
+		Tags:              tags,
+		SuggestedActions:  attrs.SuggestedActions,
+		BatchID:           attrs.BatchID,
+		BatchSource:       attrs.BatchSource,
+		BatchSequence:     attrs.BatchSequence,
+		BatchSender:       attrs.BatchSender,
+		BatchTimestamp:    attrs.BatchTimestamp,
+		BatchContextTitle: attrs.BatchContextTitle,
 	}, nil
 }
 
@@ -162,7 +170,7 @@ func DeleteCapture(ctx context.Context, tx *graph.WriteTx, id string, author Aut
 
 // ListCaptures returns captures matching the filter.
 func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Capture, error) {
-	query := `SELECT id, title, attrs, created_at, updated_at FROM nodes WHERE type = 'capture'`
+	query := `SELECT id, title, attrs, created_at, updated_at FROM nodes WHERE type = 'capture' AND deleted_at IS NULL`
 	var args []any
 
 	if f.CapturedFromPrefix != "" {
@@ -218,24 +226,20 @@ func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Ca
 		}
 
 		out = append(out, &Capture{
-			ID:                          id,
-			CreatedAt:                   tryParseTime(createdAt.String),
-			UpdatedAt:                   tryParseTime(updatedAt.String),
-			Title:                       title.String,
-			Body:                        attrs.Body,
-			CapturedFrom:                attrs.CapturedFrom,
-			Tags:                        tags,
-			SuggestedAction:             attrs.SuggestedAction,
-			SuggestedProjectID:          attrs.SuggestedProjectID,
-			SuggestedProjectTitle:       attrs.SuggestedProjectTitle,
-			SuggestedProjectDescription: attrs.SuggestedProjectDescription,
-			SuggestedInitialTasks:       attrs.SuggestedInitialTasks,
-			BatchID:                     attrs.BatchID,
-			BatchSource:                 attrs.BatchSource,
-			BatchSequence:               attrs.BatchSequence,
-			BatchSender:                 attrs.BatchSender,
-			BatchTimestamp:              attrs.BatchTimestamp,
-			BatchContextTitle:           attrs.BatchContextTitle,
+			ID:                id,
+			CreatedAt:         tryParseTime(createdAt.String),
+			UpdatedAt:         tryParseTime(updatedAt.String),
+			Title:             title.String,
+			Body:              attrs.Body,
+			CapturedFrom:      attrs.CapturedFrom,
+			Tags:              tags,
+			SuggestedActions:  attrs.SuggestedActions,
+			BatchID:           attrs.BatchID,
+			BatchSource:       attrs.BatchSource,
+			BatchSequence:     attrs.BatchSequence,
+			BatchSender:       attrs.BatchSender,
+			BatchTimestamp:    attrs.BatchTimestamp,
+			BatchContextTitle: attrs.BatchContextTitle,
 		})
 	}
 	return out, rows.Err()

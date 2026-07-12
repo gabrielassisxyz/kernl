@@ -32,20 +32,24 @@
       <p v-if="showSubtitle" class="font-body text-text-muted truncate text-mono-data">{{ item.subtitle }}</p>
     </div>
 
-    <!-- DA suggestion chip -->
-    <div class="shrink-0 flex items-center">
-      <span v-if="!suggestion" class="flex items-center gap-tight font-mono-data text-mono-data text-text-faint">
+    <!-- DA suggestion: one chip per node the capture becomes -->
+    <div class="shrink-0 flex items-center gap-tight">
+      <span v-if="!chips" class="flex items-center gap-tight font-mono-data text-mono-data text-text-faint">
         <span class="material-symbols-outlined !text-body animate-spin">progress_activity</span>
         DA classifying…
       </span>
-      <span
-        v-else
-        class="flex items-center gap-tight px-base py-0.5 rounded border font-mono-data text-mono-data"
-        :class="TARGET_META[suggestion.target].chip"
-      >
-        <span class="material-symbols-outlined !text-body">{{ TARGET_META[suggestion.target].icon }}</span>
-        {{ chipLabel }}
-      </span>
+      <template v-else>
+        <span
+          v-for="(chip, i) in visibleChips"
+          :key="i"
+          class="flex items-center gap-tight px-base py-0.5 rounded border font-mono-data text-mono-data"
+          :class="TARGET_META[chip.target].chip"
+        >
+          <span class="material-symbols-outlined !text-body">{{ TARGET_META[chip.target].icon }}</span>
+          {{ chip.label }}
+        </span>
+        <span v-if="overflowCount > 0" class="font-mono-data text-mono-data text-text-faint">+{{ overflowCount }}</span>
+      </template>
     </div>
 
     <!-- row actions (always visible). Manual processing never depends on a DA suggestion. -->
@@ -54,7 +58,7 @@
       <button v-if="item.hasPrep" class="px-base py-0.5 rounded border border-da-accent/40 text-da-accent-text hover:bg-da-accent/10 transition-colors" @click.stop="$emit('peek')">◆ Brief</button>
       <button v-else class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-da-accent-text hover:border-da-accent/40 transition-colors disabled:opacity-50" :disabled="prepping" @click.stop="$emit('prep')">{{ prepping ? '…' : 'Prep' }}</button>
       <div class="w-[1px] h-3 bg-border-hairline"></div>
-      <template v-if="suggestion">
+      <template v-if="chips && chips.length > 0">
         <button class="px-base py-0.5 rounded border border-status-passed/40 text-status-passed hover:bg-status-passed/10 transition-colors" @click.stop="$emit('accept')">Accept</button>
         <button class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-text-primary transition-colors" @click.stop="$emit('edit')">Edit</button>
       </template>
@@ -66,18 +70,15 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { TARGET_META, type Target } from '~/utils/inboxTargets'
+import { TARGET_META, type RawCaptureAction, type Target } from '~/utils/inboxTargets'
 
 export interface InboxItemData {
   id: string
   type: string
   title: string
   subtitle: string
-  suggestedAction?: string
-  suggestedProjectId?: string
-  suggestedProjectTitle?: string
-  suggestedProjectDescription?: string
-  suggestedInitialTasks?: string[]
+  /** the nodes the DA proposes this capture becomes; empty while unclassified */
+  suggestedActions?: RawCaptureAction[]
   batchId?: string
   batchSource?: string
   batchSequence?: number
@@ -87,10 +88,18 @@ export interface InboxItemData {
   flagged?: boolean
 }
 
+/** one rendered suggestion chip: what the capture becomes, in one glance */
+export interface SuggestionChip {
+  target: Target
+  label: string
+}
+
+const MAX_VISIBLE_CHIPS = 3
+
 const props = defineProps<{
   item: InboxItemData
-  /** normalized DA suggestion (target + resolved project title), or null while unclassified */
-  suggestion: { target: Target; projectTitle: string; initialTaskCount?: number } | null
+  /** the DA's proposal, one chip per node — null while still classifying */
+  chips: SuggestionChip[] | null
   selected?: boolean
   isCursor?: boolean
   prepping?: boolean
@@ -106,14 +115,10 @@ defineEmits<{
   (e: 'peek'): void
 }>()
 
-const chipLabel = computed(() => {
-  const s = props.suggestion!
-  const base = TARGET_META[s.target].label
-  if (s.target === 'task') return s.projectTitle ? `Task · ${s.projectTitle}` : 'Task · Unprocessed'
-  if (s.target === 'project') return s.initialTaskCount ? `Project · ${s.initialTaskCount} tasks` : 'Project'
-  if (s.target === 'note' && s.projectTitle) return `Note · ${s.projectTitle}`
-  return base
-})
+// A capture can fan out into more chips than the row can hold; show the first
+// few and count the rest, so the row stays one line.
+const visibleChips = computed(() => (props.chips || []).slice(0, MAX_VISIBLE_CHIPS))
+const overflowCount = computed(() => Math.max(0, (props.chips?.length || 0) - MAX_VISIBLE_CHIPS))
 
 const batchNumber = computed(() => String((props.item.batchSequence ?? 0) + 1).padStart(2, '0'))
 const batchTime = computed(() => {
