@@ -218,10 +218,10 @@ Capture:
 // targetVocabulary is the shared definition of what each node kind means and
 // when a capture must be split into several. Both prompts embed it verbatim so
 // the single-capture and batch paths cannot drift apart.
-const targetVocabulary = `A capture is often MORE THAN ONE THING. Return one action per distinct item — never fold two things into one.
+const targetVocabulary = `A capture is often MORE THAN ONE THING. Work in two steps: FIRST split the capture into distinct items, THEN pick a target for each one. Never fold two items into one action.
 
 Targets:
-- "project": anything that can be broken into smaller actionable pieces. This is the rule: if it decomposes, it is a project — no matter how small it sounds.
+- "project": ONE outcome that breaks down into smaller pieces which all serve that same outcome. If it decomposes toward one goal, it is a project — no matter how small it sounds.
 - "task": one concrete action, done in one sitting, indivisible. A question is a task (answering it is the action; the note is what gets written once it is answered).
 - "update": the capture extends or revises a topic that almost certainly already has its own note. Use it alone, never combined with other actions.
 - "note": durable knowledge, a reflection, or an insight worth preserving.
@@ -229,10 +229,13 @@ Targets:
 - "discard": this fragment is noise. Discarding one action does not discard the capture.
 
 Splitting rules:
-- A message holding several items (a "tomorrow:" list, two unrelated ideas typed in one go) yields ONE ACTION PER ITEM.
-- A reflection that also implies an action is a "note" AND a "task".
+- A message holding several items (two unrelated ideas typed in one go) yields ONE ACTION PER ITEM.
+- An agenda list ("tomorrow:", "today:", "plan:", a list of errands) is a LIST OF SEPARATE ITEMS: one action per line. It is NOT a project — a list is not an outcome. Only group the lines into a project when EVERY line serves one shared outcome; if even one line belongs elsewhere, they are separate actions.
+- Judge by the items, not by how the capture labels itself. A capture calling itself a "plan" or a "project" is still a list of separate items when its lines do not share one outcome.
+- A reflection that also implies an action is a "note" AND a "task". A sentence about how you think, feel, or work — an insight, a realization, a self-observation — is a note, even when it sits in the same message as an action.
 - A verb-initial bookmark ("Reread: <url>", "Watch: <url>") is a "bookmark" AND a "task".
-- Do not shrink a project into a task because it sounds small; do not classify an actionable idea as a note because it is phrased informally.`
+- Do not shrink a project into a task because it sounds small; do not classify an actionable idea as a note because it is phrased informally.
+- Never invent a project whose initial_tasks only restate the capture ("define X", "do X", "adjust X"). One action, split into synonyms of itself, is still ONE TASK.`
 
 // actionFieldRules describes the per-action fields. The title rule is the one
 // that makes a long paste reviewable: the user reads titles, not bodies.
@@ -274,7 +277,7 @@ The captures came from one paste/import. They may be fragments of a single proje
 
 %s
 
-When one sequence describes a project and later sequences list tasks for it, put those later task titles in the project's initial_tasks and mark those support sequences as "discard" unless they should also remain standalone.
+When one sequence describes a project and LATER SEQUENCES list tasks for it, put those later task titles in the project's initial_tasks and mark those support sequences as "discard" unless they should also remain standalone. This is about grouping ACROSS sequences — a list of items inside a SINGLE sequence still splits into one action per item, by the rules above.
 
 Projects:
 %s
