@@ -127,7 +127,7 @@ func (c *Classifier) classifyGroup(ctx context.Context, group []*nodes.Capture, 
 		actions, ok := suggestions[cap.ID]
 		if !ok {
 			var err error
-			actions, err = c.classify(ctx, cap.Body, projects)
+			actions, err = c.classify(ctx, cap, projects)
 			if err != nil {
 				slog.Error("failed to classify capture", "id", cap.ID, "err", err)
 				continue
@@ -178,7 +178,8 @@ func (c *Classifier) saveSuggestion(ctx context.Context, cap *nodes.Capture, act
 // a capture is routinely several things — a reflection that also implies a next
 // step, a "tomorrow:" message that is four tasks — and collapsing that into one
 // node is where information was being lost.
-func (c *Classifier) classify(ctx context.Context, text string, projects []*nodes.Project) ([]nodes.CaptureAction, error) {
+func (c *Classifier) classify(ctx context.Context, capture *nodes.Capture, projects []*nodes.Project) ([]nodes.CaptureAction, error) {
+	text := capture.Body
 	var projectList strings.Builder
 	for _, p := range projects {
 		fmt.Fprintf(&projectList, "- %s: %s\n", p.ID, p.Title)
@@ -200,19 +201,95 @@ Projects:
 %s
 Related notes already in the knowledge base (match the capture against these — if one names a project, prefer that project_id):
 %s
+%s
 Respond with ONLY a JSON object, no prose:
-{"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[]}]}
+{"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[],"due_date":null}]}
 
 %s
 
 Capture:
-%s`, targetVocabulary, projectList.String(), relevant, actionFieldRules, text)
+%s`, targetVocabulary, projectList.String(), relevant, dateAnchorBlock([]time.Time{captureReferenceTime(capture)}), actionFieldRules, text)
 
 	resp, err := c.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
 		return nil, err
 	}
 	return parseActions(resp.Content, projects), nil
+}
+
+// captureReferenceTime is the moment a capture was WRITTEN — the only sane
+// origin for a relative deadline. The WhatsApp header timestamp wins when there
+// is one, because a paste of a months-old export is created in the graph today:
+// "amanhã" in a message from April 1st is April 2nd, not tomorrow.
+func captureReferenceTime(capture *nodes.Capture) time.Time {
+	if ref, ok := parseBatchTimestamp(capture.BatchTimestamp); ok {
+		return ref
+	}
+	if !capture.CreatedAt.IsZero() {
+		return capture.CreatedAt
+	}
+	return time.Now()
+}
+
+// parseBatchTimestamp reads the "date time" string parseWhatsAppHeader produced.
+// WhatsApp writes the date in the exporting phone's locale; the exports we
+// handle are month-first (4/1/26 is April 1st), so that is tried first and
+// day-first only as the fallback that rescues a day past the 12th.
+func parseBatchTimestamp(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		"1/2/06 15:04", "1/2/06 15:04:05", "1/2/2006 15:04", "1/2/2006 15:04:05",
+		"2/1/06 15:04", "2/1/06 15:04:05", "2/1/2006 15:04", "2/1/2006 15:04:05",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
+}
+
+// dateAnchorBlock hands the model a lookup table instead of a date to compute:
+// every relative word a capture might use, already resolved against the day that
+// capture was written. The model's job is to COPY one of these, never to do
+// arithmetic and never to reach for the real today.
+func dateAnchorBlock(refs []time.Time) string {
+	var b strings.Builder
+	b.WriteString("Date anchors. A relative deadline is resolved against the day the CAPTURE was written — NEVER against the real current date, which is irrelevant here (this inbox is months behind). Copy the date from the line for that capture:\n")
+	seen := map[string]bool{}
+	for _, ref := range refs {
+		line := dateAnchorLine(ref)
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// dateAnchorLine resolves the relative words that actually turn up in a WhatsApp
+// inbox. A weekday means its NEXT occurrence after the capture ("by friday" said
+// on a Wednesday is that same week's Friday); the capture's own weekday means a
+// week later, which is what "next wednesday" means when said on a Wednesday.
+func dateAnchorLine(ref time.Time) string {
+	day := ref.Format(nodes.DueDateLayout)
+	var b strings.Builder
+	fmt.Fprintf(&b, "- written %s (%s): today=%s tomorrow=%s day-after-tomorrow=%s",
+		day, ref.Weekday(), day,
+		ref.AddDate(0, 0, 1).Format(nodes.DueDateLayout),
+		ref.AddDate(0, 0, 2).Format(nodes.DueDateLayout),
+	)
+	for i := 1; i <= 7; i++ {
+		next := ref.AddDate(0, 0, i)
+		fmt.Fprintf(&b, " %s=%s", strings.ToLower(next.Weekday().String()), next.Format(nodes.DueDateLayout))
+	}
+	fmt.Fprintf(&b, " next-week=%s", ref.AddDate(0, 0, 7).Format(nodes.DueDateLayout))
+	return b.String()
 }
 
 // targetVocabulary is the shared definition of what each node kind means and
@@ -243,7 +320,8 @@ const actionFieldRules = `Field rules:
 - title: ALWAYS write one. Short, imperative, human. Never the truncated body.
 - body: the fragment of the capture this action owns. Omit when the action owns the whole capture.
 - project_id: an existing project id from the list above, for a task that belongs to it.
-- project_title/project_description/initial_tasks: only for "project"; 3-6 short initial_tasks.`
+- project_title/project_description/initial_tasks: only for "project"; 3-6 short initial_tasks.
+- due_date: "YYYY-MM-DD", on a "task" only. Set it ONLY when the capture itself states a deadline ("amanhã", "tomorrow", "até sexta", "by friday", "this weekend", an explicit date). Take the value from the date anchors above — do not compute it, and do not use the real current date. No deadline stated → null. NEVER invent one: a task with no due date is normal.`
 
 func (c *Classifier) classifyBatch(ctx context.Context, group []*nodes.Capture, projects []*nodes.Project) (map[string][]nodes.CaptureAction, error) {
 	var projectList strings.Builder
@@ -255,11 +333,16 @@ func (c *Classifier) classifyBatch(ctx context.Context, group []*nodes.Capture, 
 	}
 	contextTitle := ""
 	var batch strings.Builder
+	refs := make([]time.Time, 0, len(group))
 	for _, cap := range group {
 		if cap.BatchContextTitle != "" {
 			contextTitle = cap.BatchContextTitle
 		}
-		fmt.Fprintf(&batch, "[%d]", cap.BatchSequence)
+		ref := captureReferenceTime(cap)
+		refs = append(refs, ref)
+		// Each capture carries the day it was written: a paste spans days, so a
+		// deadline is relative to ITS line, not to the batch or to today.
+		fmt.Fprintf(&batch, "[%d] (written %s)", cap.BatchSequence, ref.Format(nodes.DueDateLayout))
 		if cap.BatchSender != "" {
 			fmt.Fprintf(&batch, " %s:", cap.BatchSender)
 		}
@@ -283,12 +366,13 @@ Projects:
 %s
 Related notes:
 %s
+%s
 Respond with ONLY a JSON object. Each sequence gets its OWN LIST of actions:
-{"items":[{"sequence":0,"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[]}]}]}
+{"items":[{"sequence":0,"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[],"due_date":null}]}]}
 
 %s
 
-%s`, targetVocabulary, projectList.String(), relevant, actionFieldRules, contextBlock.String())
+%s`, targetVocabulary, projectList.String(), relevant, dateAnchorBlock(refs), actionFieldRules, contextBlock.String())
 	resp, err := c.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
 		return nil, err
@@ -345,6 +429,7 @@ type rawAction struct {
 	ProjectDescription string   `json:"project_description"`
 	InitialTasks       []string `json:"initial_tasks"`
 	Tags               []string `json:"tags"`
+	DueDate            string   `json:"due_date"`
 }
 
 // parseActions extracts the proposed action list from the model output,
@@ -404,8 +489,9 @@ func parseBatchActions(raw string, group []*nodes.Capture, projects []*nodes.Pro
 
 // normalizeActions cleans the model's proposals: it drops actions with no
 // recognisable target, keeps project_id only on a task and only when it names a
-// real project (a hallucinated or stale id is dropped to unfiled), and keeps the
-// project fields only on a project.
+// real project (a hallucinated or stale id is dropped to unfiled), keeps the
+// project fields only on a project, and keeps a due date only on a task and only
+// when it is a date we can read.
 func normalizeActions(raw []rawAction, projects []*nodes.Project) []nodes.CaptureAction {
 	out := make([]nodes.CaptureAction, 0, len(raw))
 	for _, item := range raw {
@@ -421,6 +507,9 @@ func normalizeActions(raw []rawAction, projects []*nodes.Project) []nodes.Captur
 		}
 		if target == "task" {
 			action.ProjectID = knownProjectID(strings.TrimSpace(item.ProjectID), projects)
+			// A date we cannot read is dropped, not guessed at: this is a
+			// proposal the human reviews, and a wrong deadline is worse than none.
+			action.DueDate, _ = nodes.ParseDueDate(item.DueDate)
 		}
 		if target == "project" {
 			action.ProjectTitle = strings.TrimSpace(item.ProjectTitle)
