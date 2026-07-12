@@ -60,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import TagNodeList from '~/components/tags/TagNodeList.vue'
 import TagTree from '~/components/tags/TagTree.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
@@ -72,8 +72,18 @@ import { labelForType } from '~/utils/nodeTypes'
 const { tree, loading, error, loadTree } = useTags()
 
 const route = useRoute()
-const selectedTag = ref(typeof route.query.tag === 'string' ? route.query.tag : '')
+
+// The URL *is* the selection, not a copy of it. Reading `route.query` once into a
+// ref looks equivalent but is not: this page is prerendered, so at setup time on
+// a cold load the query string does not exist yet, and a ref seeded from it would
+// stay empty while the router hydrated the real URL underneath — every shared
+// /tags?tag=… link would open on the empty state.
+const selectedTag = computed(() => (typeof route.query.tag === 'string' ? route.query.tag : ''))
 const typeFilter = ref('')
+
+// The type chips belong to whichever subject is on screen; keep them from
+// outliving it when the tag changes (including via back/forward).
+watch(selectedTag, () => { typeFilter.value = '' })
 
 onMounted(loadTree)
 
@@ -105,9 +115,8 @@ const typeChips = computed(() => {
 })
 
 function selectTag(name: string) {
-  selectedTag.value = name
-  typeFilter.value = ''
-  // Keep the URL shareable: a tag page is a query, and this is the query.
+  // Navigating is the whole update: `selectedTag` reads the query back out, so
+  // the URL a user copies always reproduces what they are looking at.
   navigateTo({ path: '/tags', query: { tag: name } })
 }
 
