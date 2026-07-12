@@ -19,6 +19,7 @@ type taskDTO struct {
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
 	ProjectID   string    `json:"projectId"`
+	Tags        []string  `json:"tags"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
@@ -53,6 +54,7 @@ func listTasksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				Description: t.Description,
 				Status:      t.Status,
 				ProjectID:   t.ProjectID,
+				Tags:        tagList(t.Tags),
 				CreatedAt:   t.CreatedAt,
 				UpdatedAt:   t.UpdatedAt,
 			})
@@ -70,10 +72,11 @@ func listTasksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	var req struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		Status      string `json:"status"`
-		ProjectID   string `json:"projectId"`
+		Title       string   `json:"title"`
+		Description string   `json:"description"`
+		Status      string   `json:"status"`
+		ProjectID   string   `json:"projectId"`
+		Tags        []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid task body: "+err.Error())
@@ -96,6 +99,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			Description: req.Description,
 			Status:      req.Status,
 			ProjectID:   req.ProjectID,
+			Tags:        req.Tags,
 		}, author)
 		if err != nil {
 			return err
@@ -133,21 +137,37 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "missing task id")
 		return
 	}
+	// Pointer fields distinguish "absent" from "set to empty": an omitted tags
+	// key leaves the task's tags alone, while `"tags": []` clears them.
 	var req struct {
-		Status string `json:"status"`
+		Status *string   `json:"status"`
+		Tags   *[]string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Status == "" {
-		writeError(w, http.StatusBadRequest, "status is required")
+	if req.Status == nil && req.Tags == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide status or tags")
+		return
+	}
+	if req.Status != nil && *req.Status == "" {
+		writeError(w, http.StatusBadRequest, "status cannot be empty")
 		return
 	}
 
 	ctx := r.Context()
+	author := nodes.Author{Name: "api"}
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		return nodes.SetTaskStatus(ctx, tx, id, req.Status, nodes.Author{Name: "api"})
+		if req.Status != nil {
+			if err := nodes.SetTaskStatus(ctx, tx, id, *req.Status, author); err != nil {
+				return err
+			}
+		}
+		if req.Tags != nil {
+			return nodes.SetTaskTags(ctx, tx, id, *req.Tags, author)
+		}
+		return nil
 	})
 	if err == graph.ErrNotFound {
 		writeError(w, http.StatusNotFound, "task not found")
@@ -158,4 +178,13 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// tagList normalises a possibly-nil tag slice into a JSON array, so clients can
+// treat tags as an array unconditionally rather than guarding against null.
+func tagList(tags []string) []string {
+	if tags == nil {
+		return []string{}
+	}
+	return tags
 }
