@@ -277,6 +277,11 @@ func resolveActions(requested []Action, capture *nodes.Capture) ([]Action, error
 		if action.Title == "" {
 			action.Title = capture.Title
 		}
+		// Only a task has a due date. Drop one left behind by a target the user
+		// changed in the editor, rather than writing it into a note's attrs.
+		if action.Target != "task" {
+			action.DueDate = nil
+		}
 		out = append(out, action)
 	}
 	for _, action := range out {
@@ -366,6 +371,7 @@ func createTaskFromAction(ctx context.Context, tx *graph.WriteTx, action Action,
 		Description: action.Body,
 		ProjectID:   action.ProjectID,
 		Tags:        action.Tags,
+		DueDate:     action.DueDate,
 	}
 	if t.Title == "" {
 		t.Title = "Capture Task"
