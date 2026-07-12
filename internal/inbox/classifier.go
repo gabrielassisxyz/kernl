@@ -32,14 +32,6 @@ type ClassifierOptions struct {
 	DASubdir  string
 }
 
-type classificationSuggestion struct {
-	Target                      string
-	ProjectID                   string
-	SuggestedProjectTitle       string
-	SuggestedProjectDescription string
-	SuggestedInitialTasks       []string
-}
-
 func NewClassifier(g *graph.Graph, llm chat.LLMClient, opts ClassifierOptions) *Classifier {
 	return &Classifier{
 		graph: g,
@@ -78,7 +70,7 @@ func (c *Classifier) processPending(ctx context.Context) error {
 			return err
 		}
 		for _, cap := range caps {
-			if cap.SuggestedAction == "" {
+			if len(cap.SuggestedActions) == 0 {
 				pending = append(pending, cap)
 			}
 		}
@@ -122,7 +114,7 @@ func (c *Classifier) classifyGroup(ctx context.Context, group []*nodes.Capture, 
 	if len(group) == 0 {
 		return nil
 	}
-	suggestions := map[string]classificationSuggestion{}
+	suggestions := map[string][]nodes.CaptureAction{}
 	if len(group) > 1 {
 		batchSuggestions, err := c.classifyBatch(ctx, group, projects)
 		if err == nil {
@@ -132,16 +124,16 @@ func (c *Classifier) classifyGroup(ctx context.Context, group []*nodes.Capture, 
 		}
 	}
 	for _, cap := range group {
-		suggestion, ok := suggestions[cap.ID]
+		actions, ok := suggestions[cap.ID]
 		if !ok {
 			var err error
-			suggestion, err = c.classify(ctx, cap.Body, projects)
+			actions, err = c.classify(ctx, cap.Body, projects)
 			if err != nil {
 				slog.Error("failed to classify capture", "id", cap.ID, "err", err)
 				continue
 			}
 		}
-		if err := c.saveSuggestion(ctx, cap, suggestion); err != nil {
+		if err := c.saveSuggestion(ctx, cap, actions); err != nil {
 			slog.Error("failed to save classification", "id", cap.ID, "err", err)
 			continue
 		}
@@ -156,29 +148,37 @@ func (c *Classifier) classifyGroup(ctx context.Context, group []*nodes.Capture, 
 	return nil
 }
 
-func (c *Classifier) saveSuggestion(ctx context.Context, cap *nodes.Capture, suggestion classificationSuggestion) error {
-	if suggestion.Target == "update" {
+// saveSuggestion persists the proposed actions on the capture. An "update" that
+// resolves to no existing note is demoted to a plain note, so a suggestion the
+// user accepts can never lose the capture. An update is exclusive (ProcessCapture
+// rejects it alongside other actions), so a fan-out that contains one drops it.
+func (c *Classifier) saveSuggestion(ctx context.Context, cap *nodes.Capture, actions []nodes.CaptureAction) error {
+	for i := range actions {
+		if actions[i].Target != "update" {
+			continue
+		}
+		if len(actions) > 1 {
+			actions[i].Target = "note"
+			continue
+		}
 		if id, _ := ingest.ResolveMergeTargetFor(ctx, c.graph, cap.Body, cap.ID); id == "" {
-			suggestion.Target = "note"
+			actions[i].Target = "note"
 		}
 	}
 	return c.graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		if cap.SuggestedAction != "" {
+		if len(cap.SuggestedActions) > 0 {
 			return nil
 		}
-		cap.SuggestedAction = suggestion.Target
-		cap.SuggestedProjectID = suggestion.ProjectID
-		cap.SuggestedProjectTitle = suggestion.SuggestedProjectTitle
-		cap.SuggestedProjectDescription = suggestion.SuggestedProjectDescription
-		cap.SuggestedInitialTasks = suggestion.SuggestedInitialTasks
+		cap.SuggestedActions = actions
 		return nodes.UpdateCapture(ctx, tx, *cap, nodes.Author{Name: "classifier"})
 	})
 }
 
-// classify asks the LLM which node kind a capture should become and preserves
-// enough structured detail for the inbox to create a project when the capture
-// is a multi-step effort.
-func (c *Classifier) classify(ctx context.Context, text string, projects []*nodes.Project) (classificationSuggestion, error) {
+// classify asks the LLM what a capture should become. The answer is a LIST:
+// a capture is routinely several things — a reflection that also implies a next
+// step, a "tomorrow:" message that is four tasks — and collapsing that into one
+// node is where information was being lost.
+func (c *Classifier) classify(ctx context.Context, text string, projects []*nodes.Project) ([]nodes.CaptureAction, error) {
 	var projectList strings.Builder
 	for _, p := range projects {
 		fmt.Fprintf(&projectList, "- %s: %s\n", p.ID, p.Title)
@@ -195,50 +195,54 @@ func (c *Classifier) classify(ctx context.Context, text string, projects []*node
 
 	prompt := fmt.Sprintf(`You triage an Inbox capture into the user's Kernl graph.
 
-Pick exactly one target:
-- "project": a multi-step outcome, build idea, research/design effort, feature, tool, investigation, or initiative that should own follow-up tasks.
-- "task": one concrete action that can be done in one sitting, or a next step inside an existing project.
-- "update": the capture extends, revises, or adds a detail to a topic that almost certainly already has its own note in the knowledge base.
-- "note": durable knowledge, a question, reflection, or idea to preserve, with no clear execution outcome yet.
-- "bookmark": a URL or external reference to save.
-- "discard": noise with no value.
-
-Decision rules:
-- If the capture implies more than one step, prefer "project" over "task" or "note".
-- If it is an actionable build/research idea and no matching project exists, choose "project".
-- If it clearly belongs to an existing project, choose "task" and set project_id.
-- Use "note" only when the value is remembering/thinking, not doing.
-- Do not classify an actionable project idea as "note" just because it is phrased informally.
-
+%s
 Projects:
 %s
 Related notes already in the knowledge base (match the capture against these — if one names a project, prefer that project_id):
 %s
 Respond with ONLY a JSON object, no prose:
-{
-  "target": "project|task|update|note|bookmark|discard",
-  "project_id": "",
-  "project_title": "",
-  "project_description": "",
-  "initial_tasks": []
-}
+{"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[]}]}
 
-Field rules:
-- project_id: existing project id only, for task when relevant.
-- project_title/project_description: only when target is "project".
-- initial_tasks: 3-6 short tasks only when target is "project".
+%s
 
 Capture:
-%s`, projectList.String(), relevant, text)
+%s`, targetVocabulary, projectList.String(), relevant, actionFieldRules, text)
 
 	resp, err := c.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
-		return classificationSuggestion{}, err
+		return nil, err
 	}
-	return parseClassification(resp.Content, projects), nil
+	return parseActions(resp.Content, projects), nil
 }
 
-func (c *Classifier) classifyBatch(ctx context.Context, group []*nodes.Capture, projects []*nodes.Project) (map[string]classificationSuggestion, error) {
+// targetVocabulary is the shared definition of what each node kind means and
+// when a capture must be split into several. Both prompts embed it verbatim so
+// the single-capture and batch paths cannot drift apart.
+const targetVocabulary = `A capture is often MORE THAN ONE THING. Return one action per distinct item — never fold two things into one.
+
+Targets:
+- "project": anything that can be broken into smaller actionable pieces. This is the rule: if it decomposes, it is a project — no matter how small it sounds.
+- "task": one concrete action, done in one sitting, indivisible. A question is a task (answering it is the action; the note is what gets written once it is answered).
+- "update": the capture extends or revises a topic that almost certainly already has its own note. Use it alone, never combined with other actions.
+- "note": durable knowledge, a reflection, or an insight worth preserving.
+- "bookmark": a URL or external reference to save.
+- "discard": this fragment is noise. Discarding one action does not discard the capture.
+
+Splitting rules:
+- A message holding several items (a "tomorrow:" list, two unrelated ideas typed in one go) yields ONE ACTION PER ITEM.
+- A reflection that also implies an action is a "note" AND a "task".
+- A verb-initial bookmark ("Reread: <url>", "Watch: <url>") is a "bookmark" AND a "task".
+- Do not shrink a project into a task because it sounds small; do not classify an actionable idea as a note because it is phrased informally.`
+
+// actionFieldRules describes the per-action fields. The title rule is the one
+// that makes a long paste reviewable: the user reads titles, not bodies.
+const actionFieldRules = `Field rules:
+- title: ALWAYS write one. Short, imperative, human. Never the truncated body.
+- body: the fragment of the capture this action owns. Omit when the action owns the whole capture.
+- project_id: an existing project id from the list above, for a task that belongs to it.
+- project_title/project_description/initial_tasks: only for "project"; 3-6 short initial_tasks.`
+
+func (c *Classifier) classifyBatch(ctx context.Context, group []*nodes.Capture, projects []*nodes.Project) (map[string][]nodes.CaptureAction, error) {
 	var projectList strings.Builder
 	for _, p := range projects {
 		fmt.Fprintf(&projectList, "- %s: %s\n", p.ID, p.Title)
@@ -268,13 +272,7 @@ func (c *Classifier) classifyBatch(ctx context.Context, group []*nodes.Capture, 
 
 The captures came from one paste/import. They may be fragments of a single project idea. Do not treat each line in isolation.
 
-Pick one target per sequence:
-- "project": the sequence is the main multi-step outcome or initiative.
-- "task": the sequence is a concrete next step, especially if it belongs to an existing project.
-- "update": the sequence extends an existing note.
-- "note": durable knowledge with no clear execution outcome.
-- "bookmark": a URL or external reference.
-- "discard": support text already captured by a project/task suggestion or noise.
+%s
 
 When one sequence describes a project and later sequences list tasks for it, put those later task titles in the project's initial_tasks and mark those support sequences as "discard" unless they should also remain standalone.
 
@@ -282,15 +280,17 @@ Projects:
 %s
 Related notes:
 %s
-Respond with ONLY a JSON object:
-{"items":[{"sequence":0,"target":"project|task|update|note|bookmark|discard","project_id":"","project_title":"","project_description":"","initial_tasks":[]}]}
+Respond with ONLY a JSON object. Each sequence gets its OWN LIST of actions:
+{"items":[{"sequence":0,"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[]}]}]}
 
-%s`, projectList.String(), relevant, contextBlock.String())
+%s
+
+%s`, targetVocabulary, projectList.String(), relevant, actionFieldRules, contextBlock.String())
 	resp, err := c.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
 		return nil, err
 	}
-	return parseBatchClassification(resp.Content, group, projects), nil
+	return parseBatchActions(resp.Content, group, projects), nil
 }
 
 // relatedContext searches the graph for notes matching the capture and, when a
@@ -332,71 +332,50 @@ func (c *Classifier) relatedContext(ctx context.Context, text string, projects [
 	return b.String()
 }
 
-// parseClassification extracts the target and project id from the model output,
-// tolerating prose around the JSON. The target falls back to "note" when
-// unrecognised; project_id is kept only for a task target and only when it
-// matches a real project (a hallucinated or stale id is dropped to unfiled).
-func parseClassification(raw string, projects []*nodes.Project) classificationSuggestion {
-	out := classificationSuggestion{Target: "note"}
-	if obj := extractJSONObject(raw); obj != "" {
-		var parsed struct {
-			Target             string   `json:"target"`
-			ProjectID          string   `json:"project_id"`
-			ProjectTitle       string   `json:"project_title"`
-			ProjectDescription string   `json:"project_description"`
-			InitialTasks       []string `json:"initial_tasks"`
-		}
-		if json.Unmarshal([]byte(obj), &parsed) == nil {
-			if t := normalizeTarget(parsed.Target); t != "" {
-				out.Target = t
-			}
-			out.ProjectID = strings.TrimSpace(parsed.ProjectID)
-			out.SuggestedProjectTitle = strings.TrimSpace(parsed.ProjectTitle)
-			out.SuggestedProjectDescription = strings.TrimSpace(parsed.ProjectDescription)
-			out.SuggestedInitialTasks = cleanInitialTasks(parsed.InitialTasks, 6)
-		}
-	} else {
-		// No JSON — fall back to keyword sniffing on the raw text.
-		if t := normalizeTarget(raw); t != "" {
-			out.Target = t
-		}
-	}
+// rawAction is the model's proposal for one node, before normalization.
+type rawAction struct {
+	Target             string   `json:"target"`
+	Title              string   `json:"title"`
+	Body               string   `json:"body"`
+	ProjectID          string   `json:"project_id"`
+	ProjectTitle       string   `json:"project_title"`
+	ProjectDescription string   `json:"project_description"`
+	InitialTasks       []string `json:"initial_tasks"`
+	Tags               []string `json:"tags"`
+}
 
-	if out.Target != "task" {
-		out.ProjectID = ""
+// parseActions extracts the proposed action list from the model output,
+// tolerating prose around the JSON. Output that carries no usable action at all
+// falls back to a single note, so a capture is never dropped on a bad response.
+func parseActions(raw string, projects []*nodes.Project) []nodes.CaptureAction {
+	obj := extractJSONObject(raw)
+	if obj == "" {
+		// No JSON — fall back to keyword sniffing on the raw text.
+		return []nodes.CaptureAction{{Target: fallbackTarget(raw)}}
 	}
-	if out.Target != "project" {
-		out.SuggestedProjectTitle = ""
-		out.SuggestedProjectDescription = ""
-		out.SuggestedInitialTasks = nil
+	var parsed struct {
+		Actions []rawAction `json:"actions"`
 	}
-	if out.Target != "task" {
-		return out
+	if json.Unmarshal([]byte(obj), &parsed) != nil {
+		return []nodes.CaptureAction{{Target: fallbackTarget(raw)}}
 	}
-	// Validate the project id against the real list; drop anything unknown.
-	for _, p := range projects {
-		if p.ID == out.ProjectID {
-			return out
-		}
+	out := normalizeActions(parsed.Actions, projects)
+	if len(out) == 0 {
+		return []nodes.CaptureAction{{Target: fallbackTarget(raw)}}
 	}
-	out.ProjectID = ""
 	return out
 }
 
-func parseBatchClassification(raw string, group []*nodes.Capture, projects []*nodes.Project) map[string]classificationSuggestion {
-	out := map[string]classificationSuggestion{}
+func parseBatchActions(raw string, group []*nodes.Capture, projects []*nodes.Project) map[string][]nodes.CaptureAction {
+	out := map[string][]nodes.CaptureAction{}
 	obj := extractJSONObject(raw)
 	if obj == "" {
 		return out
 	}
 	var parsed struct {
 		Items []struct {
-			Sequence           int      `json:"sequence"`
-			Target             string   `json:"target"`
-			ProjectID          string   `json:"project_id"`
-			ProjectTitle       string   `json:"project_title"`
-			ProjectDescription string   `json:"project_description"`
-			InitialTasks       []string `json:"initial_tasks"`
+			Sequence int         `json:"sequence"`
+			Actions  []rawAction `json:"actions"`
 		} `json:"items"`
 	}
 	if json.Unmarshal([]byte(obj), &parsed) != nil {
@@ -411,16 +390,61 @@ func parseBatchClassification(raw string, group []*nodes.Capture, projects []*no
 		if !ok {
 			continue
 		}
-		suggestion := parseClassification(mustJSON(map[string]any{
-			"target":              item.Target,
-			"project_id":          item.ProjectID,
-			"project_title":       item.ProjectTitle,
-			"project_description": item.ProjectDescription,
-			"initial_tasks":       item.InitialTasks,
-		}), projects)
-		out[cap.ID] = suggestion
+		actions := normalizeActions(item.Actions, projects)
+		if len(actions) == 0 {
+			continue // leave it to the per-capture fallback in classifyGroup
+		}
+		out[cap.ID] = actions
 	}
 	return out
+}
+
+// normalizeActions cleans the model's proposals: it drops actions with no
+// recognisable target, keeps project_id only on a task and only when it names a
+// real project (a hallucinated or stale id is dropped to unfiled), and keeps the
+// project fields only on a project.
+func normalizeActions(raw []rawAction, projects []*nodes.Project) []nodes.CaptureAction {
+	out := make([]nodes.CaptureAction, 0, len(raw))
+	for _, item := range raw {
+		target := normalizeTarget(item.Target)
+		if target == "" {
+			continue
+		}
+		action := nodes.CaptureAction{
+			Target: target,
+			Title:  strings.TrimSpace(item.Title),
+			Body:   strings.TrimSpace(item.Body),
+			Tags:   cleanTags(item.Tags),
+		}
+		if target == "task" {
+			action.ProjectID = knownProjectID(strings.TrimSpace(item.ProjectID), projects)
+		}
+		if target == "project" {
+			action.ProjectTitle = strings.TrimSpace(item.ProjectTitle)
+			action.ProjectDescription = strings.TrimSpace(item.ProjectDescription)
+			action.InitialTasks = cleanInitialTasks(item.InitialTasks, 6)
+		}
+		out = append(out, action)
+	}
+	return out
+}
+
+// fallbackTarget sniffs a target out of unstructured model output; anything
+// unrecognisable becomes a note, which preserves the capture.
+func fallbackTarget(raw string) string {
+	if t := normalizeTarget(raw); t != "" {
+		return t
+	}
+	return "note"
+}
+
+func knownProjectID(id string, projects []*nodes.Project) string {
+	for _, p := range projects {
+		if p.ID == id {
+			return id
+		}
+	}
+	return ""
 }
 
 // normalizeTarget maps free text onto a known target, or "" if none is present.
@@ -458,9 +482,18 @@ func cleanInitialTasks(tasks []string, max int) []string {
 	return out
 }
 
-func mustJSON(v any) string {
-	data, _ := json.Marshal(v)
-	return string(data)
+func cleanTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.ToLower(strings.TrimSpace(tag))
+		if tag != "" {
+			out = append(out, tag)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // extractJSONObject returns the first {...} span in s, or "" if there is none.

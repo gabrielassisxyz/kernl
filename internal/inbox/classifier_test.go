@@ -62,8 +62,8 @@ func TestClassifier(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if cap.SuggestedAction != "bookmark" {
-			t.Errorf("expected bookmark, got %q", cap.SuggestedAction)
+		if len(cap.SuggestedActions) != 1 || cap.SuggestedActions[0].Target != "bookmark" {
+			t.Errorf("expected one bookmark action, got %#v", cap.SuggestedActions)
 		}
 		return nil
 	})
@@ -72,7 +72,7 @@ func TestClassifier(t *testing.T) {
 	}
 }
 
-func TestParseClassification(t *testing.T) {
+func TestParseActions(t *testing.T) {
 	projects := []*nodes.Project{{ID: "p-web", Title: "Web UI"}, {ID: "p-core", Title: "Core"}}
 	cases := []struct {
 		name        string
@@ -80,20 +80,104 @@ func TestParseClassification(t *testing.T) {
 		wantTarget  string
 		wantProject string
 	}{
-		{"json task with valid project", `{"target":"task","project_id":"p-web"}`, "task", "p-web"},
-		{"json task hallucinated project dropped", `{"target":"task","project_id":"p-ghost"}`, "task", ""},
-		{"json note ignores project", `{"target":"note","project_id":"p-web"}`, "note", ""},
-		{"json with surrounding prose", "Sure!\n{\"target\": \"bookmark\"}\nDone.", "bookmark", ""},
+		{"task with valid project", `{"actions":[{"target":"task","project_id":"p-web"}]}`, "task", "p-web"},
+		{"task hallucinated project dropped", `{"actions":[{"target":"task","project_id":"p-ghost"}]}`, "task", ""},
+		{"note ignores project", `{"actions":[{"target":"note","project_id":"p-web"}]}`, "note", ""},
+		{"surrounding prose tolerated", "Sure!\n{\"actions\":[{\"target\":\"bookmark\"}]}\nDone.", "bookmark", ""},
 		{"no json falls back to keyword", "this should be a discard", "discard", ""},
 		{"garbage falls back to note", "??!!", "note", ""},
+		{"empty action list falls back to note", `{"actions":[]}`, "note", ""},
+		{"unknown target dropped, falls back to note", `{"actions":[{"target":"sandwich"}]}`, "note", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := parseClassification(tc.raw, projects)
-			if got.Target != tc.wantTarget || got.ProjectID != tc.wantProject {
-				t.Errorf("parseClassification(%q) = (%q, %q), want (%q, %q)", tc.raw, got.Target, got.ProjectID, tc.wantTarget, tc.wantProject)
+			got := parseActions(tc.raw, projects)
+			if len(got) != 1 {
+				t.Fatalf("parseActions(%q) = %#v, want exactly 1 action", tc.raw, got)
+			}
+			if got[0].Target != tc.wantTarget || got[0].ProjectID != tc.wantProject {
+				t.Errorf("parseActions(%q) = (%q, %q), want (%q, %q)", tc.raw, got[0].Target, got[0].ProjectID, tc.wantTarget, tc.wantProject)
 			}
 		})
+	}
+}
+
+// The whole point of the rework: one capture, several actions, each with its
+// own title and body fragment.
+func TestParseActionsSplitsCompositeCapture(t *testing.T) {
+	raw := `{"actions":[
+		{"target":"note","title":"Writing is prompting","body":"Writing well is the same skill as prompting well."},
+		{"target":"task","title":"Adjust phone modes","body":"Set up focus modes on the phone."},
+		{"target":"discard","title":"Filler"}
+	]}`
+	got := parseActions(raw, nil)
+	if len(got) != 3 {
+		t.Fatalf("parseActions returned %d actions, want 3", len(got))
+	}
+	want := []struct{ target, title string }{
+		{"note", "Writing is prompting"},
+		{"task", "Adjust phone modes"},
+		{"discard", "Filler"},
+	}
+	for i, w := range want {
+		if got[i].Target != w.target || got[i].Title != w.title {
+			t.Errorf("action %d = (%q, %q), want (%q, %q)", i, got[i].Target, got[i].Title, w.target, w.title)
+		}
+	}
+	if got[0].Body != "Writing well is the same skill as prompting well." {
+		t.Errorf("per-action body not preserved: %q", got[0].Body)
+	}
+}
+
+// An update cannot be combined with other actions (ProcessCapture rejects it),
+// so a fan-out containing one keeps the capture by demoting it to a note.
+func TestSaveSuggestionDemotesUpdateInsideFanOut(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	var capID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		capID, err = nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "two things", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewClassifier(g, &mockLLM{}, ClassifierOptions{})
+	var capture *nodes.Capture
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		capture, err = nodes.GetCapture(ctx, tx, capID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.saveSuggestion(ctx, capture, []nodes.CaptureAction{
+		{Target: "update", Title: "Extend the note"},
+		{Target: "task", Title: "Do the thing"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		saved, err := nodes.GetCapture(ctx, tx, capID)
+		if err != nil {
+			return err
+		}
+		if len(saved.SuggestedActions) != 2 {
+			t.Fatalf("expected 2 actions, got %#v", saved.SuggestedActions)
+		}
+		if saved.SuggestedActions[0].Target != "note" {
+			t.Errorf("update inside a fan-out should be demoted to note, got %q", saved.SuggestedActions[0].Target)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -132,7 +216,7 @@ func TestClassifyReadsGraphForProjectAssociation(t *testing.T) {
 
 	// The mock echoes the prompt back so we can assert the project hint reached it.
 	var seenPrompt string
-	capturing := &promptCapturingLLM{onPrompt: func(p string) { seenPrompt = p }, reply: `{"target":"task","project_id":"` + projectID + `"}`}
+	capturing := &promptCapturingLLM{onPrompt: func(p string) { seenPrompt = p }, reply: `{"actions":[{"target":"task","project_id":"` + projectID + `"}]}`}
 	c := NewClassifier(g, capturing, ClassifierOptions{})
 
 	got, err := c.classify(ctx, "turn azimute-cobalto-17 into a task", []*nodes.Project{{ID: projectID, Title: "Atlas Verde"}})
@@ -145,8 +229,8 @@ func TestClassifyReadsGraphForProjectAssociation(t *testing.T) {
 	if !strings.Contains(seenPrompt, projectID) {
 		t.Error("prompt should surface the note's project association")
 	}
-	if got.Target != "task" || got.ProjectID != projectID {
-		t.Errorf("expected task attached to %s, got (%q, %q)", projectID, got.Target, got.ProjectID)
+	if len(got) != 1 || got[0].Target != "task" || got[0].ProjectID != projectID {
+		t.Errorf("expected one task attached to %s, got %#v", projectID, got)
 	}
 }
 
@@ -172,9 +256,9 @@ func TestClassifyBatchKeepsRelatedMessagesTogether(t *testing.T) {
 	llm := &promptCapturingLLM{
 		onPrompt: func(p string) { seenPrompt = p },
 		reply: `{"items":[
-			{"sequence":0,"target":"project","project_title":"ai-memory explainer","project_description":"Explain ai-memory from the repo context.","initial_tasks":["Map the repo architecture","Write usage examples"]},
-			{"sequence":1,"target":"discard"},
-			{"sequence":2,"target":"discard"}
+			{"sequence":0,"actions":[{"target":"project","title":"ai-memory explainer","project_title":"ai-memory explainer","project_description":"Explain ai-memory from the repo context.","initial_tasks":["Map the repo architecture","Write usage examples"]}]},
+			{"sequence":1,"actions":[{"target":"discard"}]},
+			{"sequence":2,"actions":[{"target":"discard"}]}
 		]}`,
 	}
 	classifier := NewClassifier(g, llm, ClassifierOptions{})
@@ -193,14 +277,18 @@ func TestClassifyBatchKeepsRelatedMessagesTogether(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if first.SuggestedAction != "project" {
-		t.Fatalf("first SuggestedAction = %q, want project", first.SuggestedAction)
+	if len(first.SuggestedActions) != 1 {
+		t.Fatalf("SuggestedActions = %#v, want 1", first.SuggestedActions)
 	}
-	if first.SuggestedProjectTitle != "ai-memory explainer" {
-		t.Fatalf("SuggestedProjectTitle = %q", first.SuggestedProjectTitle)
+	action := first.SuggestedActions[0]
+	if action.Target != "project" {
+		t.Fatalf("first action target = %q, want project", action.Target)
 	}
-	if len(first.SuggestedInitialTasks) != 2 {
-		t.Fatalf("SuggestedInitialTasks = %#v, want 2 tasks", first.SuggestedInitialTasks)
+	if action.ProjectTitle != "ai-memory explainer" {
+		t.Fatalf("ProjectTitle = %q", action.ProjectTitle)
+	}
+	if len(action.InitialTasks) != 2 {
+		t.Fatalf("InitialTasks = %#v, want 2 tasks", action.InitialTasks)
 	}
 }
 
