@@ -9,6 +9,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 )
@@ -40,7 +41,7 @@ func TestProcessCaptureUpdate(t *testing.T) {
 		}
 		captureID, err = nodes.CreateCapture(ctx, tx, nodes.Capture{
 			Body: "Sourdough also benefits from a long cold ferment.",
-			Tags: []string{"pending"},
+			Tags: []string{tags.Pending},
 		}, nodes.Author{Name: "test"})
 		return err
 	}); err != nil {
@@ -69,7 +70,7 @@ func TestProcessCaptureUpdate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetCapture: %v", err)
 		}
-		if !hasTagT(c.Tags, "triaged") || hasTagT(c.Tags, "pending") {
+		if !hasTagT(c.Tags, tags.Triaged) || hasTagT(c.Tags, tags.Pending) {
 			t.Errorf("expected capture triaged, got tags %v", c.Tags)
 		}
 		in, _ := edges.Incoming(ctx, tx, captureID)
@@ -102,7 +103,7 @@ func TestProcessCaptureUpdate(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetCapture: %v", err)
 		}
-		if !hasTagT(c.Tags, "pending") {
+		if !hasTagT(c.Tags, tags.Pending) {
 			t.Errorf("expected capture re-pended after undo, got tags %v", c.Tags)
 		}
 		return nil
@@ -123,7 +124,7 @@ func TestProcessCaptureUpdateNoTargetFallsBack(t *testing.T) {
 		var err error
 		captureID, err = nodes.CreateCapture(ctx, tx, nodes.Capture{
 			Body: "An entirely novel unmatched thought.",
-			Tags: []string{"pending"},
+			Tags: []string{tags.Pending},
 		}, nodes.Author{Name: "test"})
 		return err
 	}); err != nil {

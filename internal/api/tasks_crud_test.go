@@ -96,6 +96,68 @@ func TestTaskTagsRoundTrip(t *testing.T) {
 	patchTaskViaAPI(t, r, "nope", `{"tags":["x"]}`, http.StatusNotFound)
 }
 
+// The `sys/` namespace belongs to the machine. A user who could author one
+// could forge a capture back into the inbox queue by tagging it sys/pending, so
+// the API refuses it on the way in rather than filtering it on the way out.
+func TestSystemTagsRejectedAtAPI(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+
+	post := func(path string, body map[string]any) int {
+		raw, _ := json.Marshal(body)
+		req := httptest.NewRequest("POST", path, bytes.NewReader(raw))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	if code := post("/api/tasks", map[string]any{
+		"title": "Sneaky", "tags": []string{"homelab", "sys/pending"},
+	}); code != http.StatusBadRequest {
+		t.Errorf("create task with sys/ tag: expected 400, got %d", code)
+	}
+	if code := post("/api/projects", map[string]any{
+		"title": "Sneaky", "tags": []string{"sys/audit"},
+	}); code != http.StatusBadRequest {
+		t.Errorf("create project with sys/ tag: expected 400, got %d", code)
+	}
+
+	// And on the way through a patch, where the tag set is replaced wholesale.
+	id := createTaskViaAPI(t, r, "Legit")
+	patchTaskViaAPI(t, r, id, `{"tags":["sys/triaged"]}`, http.StatusBadRequest)
+
+	// A rejected patch must not have touched the tags it was replacing.
+	tasks := listTasksViaAPI(t, r)
+	if len(tasks) != 1 || len(tasks[0].Tags) != 1 || tasks[0].Tags[0] != "homelab" {
+		t.Errorf("rejected patch disturbed the task's tags: %v", tasks[0].Tags)
+	}
+
+	// A subject that merely starts with "sys" is an ordinary user tag.
+	if code := post("/api/tasks", map[string]any{
+		"title": "Fine", "tags": []string{"sysadmin"},
+	}); code != http.StatusCreated {
+		t.Errorf("create task tagged \"sysadmin\": expected 201, got %d", code)
+	}
+}
+
+func createTaskViaAPI(t *testing.T, r http.Handler, title string) string {
+	t.Helper()
+	body, _ := json.Marshal(map[string]any{"title": title, "tags": []string{"homelab"}})
+	req := httptest.NewRequest("POST", "/api/tasks", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create task: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	return resp.ID
+}
+
 func sortedTags(in []string) []string {
 	out := slices.Clone(in)
 	slices.Sort(out)

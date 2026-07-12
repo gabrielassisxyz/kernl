@@ -10,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 // taskDTO is the camelCase shape the web client consumes.
@@ -86,6 +87,10 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "task title is required")
 		return
 	}
+	if err := tags.RejectSystem(req.Tags); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
@@ -114,7 +119,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "tasks", title, "task")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, "tasks", title)
 		return err
 	})
 	if err != nil {
@@ -154,6 +159,12 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	if req.Status != nil && *req.Status == "" {
 		writeError(w, http.StatusBadRequest, "status cannot be empty")
 		return
+	}
+	if req.Tags != nil {
+		if err := tags.RejectSystem(*req.Tags); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	ctx := r.Context()

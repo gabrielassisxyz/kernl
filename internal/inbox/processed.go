@@ -9,6 +9,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 // ProcessedItem is a capture that has been triaged or discarded, paired with the
@@ -31,7 +32,7 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 	var out []ProcessedItem
 	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		caps, err := nodes.ListCaptures(ctx, tx, nodes.CaptureFilter{
-			Tags: []string{"triaged", "discarded"},
+			Tags: []string{tags.Triaged, tags.Discarded},
 		})
 		if err != nil {
 			return err
@@ -40,7 +41,7 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 		for _, c := range caps {
 			item := ProcessedItem{CaptureID: c.ID, Title: captureDisplayTitle(c), At: c.UpdatedAt}
 
-			if hasTag(c.Tags, "discarded") {
+			if hasTag(c.Tags, tags.Discarded) {
 				item.Became = "discard"
 				out = append(out, item)
 				continue

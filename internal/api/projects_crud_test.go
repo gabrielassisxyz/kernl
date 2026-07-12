@@ -48,9 +48,15 @@ func listProjectsViaAPI(t *testing.T, r http.Handler) []projectDTO {
 	return out
 }
 
-// The companion note must carry its tag as YAML frontmatter, not as a literal
-// "#project" appended to the body (UAT seed finding).
-func TestCompanionNoteTagsInFrontmatter(t *testing.T) {
+// A companion note must not be tagged with the kind of the entity it describes.
+// Tags are the user's subjects — a "project" tag would sit in the tag surface as
+// if the user had chosen it, and every companion note would share it. The note's
+// kind is already carried by its folder and its describes edge.
+//
+// The body assertion guards the original UAT finding that produced this test: a
+// tag must never be a literal "#project" hashtag appended to the body, which
+// never reached the tag index and read as noise.
+func TestCompanionNoteCarriesNoMachineTag(t *testing.T) {
 	a, vault := newCompanionTestApp(t)
 	r := NewRouter(a)
 
@@ -65,8 +71,8 @@ func TestCompanionNoteTagsInFrontmatter(t *testing.T) {
 	if len(fm) < 3 {
 		t.Fatalf("companion file has no frontmatter:\n%s", content)
 	}
-	if !strings.Contains(fm[1], "tags:") || !strings.Contains(fm[1], "- project") {
-		t.Errorf("frontmatter missing tags list:\n%s", fm[1])
+	if strings.Contains(fm[1], "- project") {
+		t.Errorf("companion frontmatter carries the machine tag \"project\":\n%s", fm[1])
 	}
 	if strings.Contains(fm[2], "#project") {
 		t.Errorf("body still carries a literal #project hashtag:\n%s", fm[2])

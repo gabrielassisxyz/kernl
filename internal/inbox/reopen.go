@@ -11,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 // Reopen reverses a Process: it removes the node the capture became and returns
@@ -89,11 +90,11 @@ func Reopen(ctx context.Context, g *graph.Graph, vaultRoot string, captureID str
 
 		var newTags []string
 		for _, tag := range capture.Tags {
-			if tag != "triaged" && tag != "discarded" {
+			if tag != tags.Triaged && tag != tags.Discarded {
 				newTags = append(newTags, tag)
 			}
 		}
-		newTags = append(newTags, "pending")
+		newTags = append(newTags, tags.Pending)
 		capture.Tags = newTags
 		if err := nodes.UpdateCapture(ctx, tx, *capture, author); err != nil {
 			return fmt.Errorf("update capture: %w", err)

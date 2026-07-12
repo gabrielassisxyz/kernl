@@ -10,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
 )
 
@@ -29,7 +30,7 @@ func TestProcess(t *testing.T) {
 		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{
 			Title: "Test Capture",
 			Body:  "Test Body",
-			Tags:  []string{"pending"},
+			Tags:  []string{tags.Pending},
 		}, nodes.Author{Name: "tester"})
 		captureID = id
 		return err
@@ -52,10 +53,10 @@ func TestProcess(t *testing.T) {
 
 		hasTriaged := false
 		for _, tag := range cap.Tags {
-			if tag == "triaged" {
+			if tag == tags.Triaged {
 				hasTriaged = true
 			}
-			if tag == "pending" {
+			if tag == tags.Pending {
 				t.Errorf("expected 'pending' tag to be removed")
 			}
 		}
@@ -123,7 +124,7 @@ func TestProcessTaskUnderProject(t *testing.T) {
 			return err
 		}
 		projectID = pid
-		cid, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "fix the inbox", Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+		cid, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "fix the inbox", Tags: []string{tags.Pending}}, nodes.Author{Name: "tester"})
 		captureID = cid
 		return err
 	}); err != nil {
@@ -192,7 +193,7 @@ func TestProcessTaskUnfiled(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "some loose idea", Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "some loose idea", Tags: []string{tags.Pending}}, nodes.Author{Name: "tester"})
 		captureID = id
 		return err
 	}); err != nil {
@@ -244,12 +245,12 @@ func TestListProcessed(t *testing.T) {
 			return err
 		}
 		projectID = pid
-		a, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "do a thing", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		a, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "do a thing", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		if err != nil {
 			return err
 		}
 		taskCap = a
-		b, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "junk", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		b, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "junk", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		junkCap = b
 		return err
 	}); err != nil {
@@ -295,7 +296,7 @@ func TestReopenNote(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "a thought", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "a thought", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		captureID = id
 		return err
 	}); err != nil {
@@ -342,10 +343,10 @@ func TestReopenNote(t *testing.T) {
 		}
 		pending, triaged := false, false
 		for _, tg := range cap.Tags {
-			if tg == "pending" {
+			if tg == tags.Pending {
 				pending = true
 			}
-			if tg == "triaged" {
+			if tg == tags.Triaged {
 				triaged = true
 			}
 		}
@@ -375,7 +376,7 @@ func TestReopenTask(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "do it", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "do it", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		captureID = id
 		return err
 	}); err != nil {
@@ -424,7 +425,7 @@ func TestProcessConvertInfersTarget(t *testing.T) {
 
 			var captureID string
 			if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-				id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: tc.body, Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+				id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: tc.body, Tags: []string{tags.Pending}}, nodes.Author{Name: "tester"})
 				captureID = id
 				return err
 			}); err != nil {
@@ -470,7 +471,7 @@ func TestProcessCaptureProjectCreatesInitialTasks(t *testing.T) {
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{
 			Body: "Build an ai-memory explainer with task ideas.",
-			Tags: []string{"pending"},
+			Tags: []string{tags.Pending},
 		}, nodes.Author{Name: "tester"})
 		captureID = id
 		return err

@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 // projectDTO is the camelCase shape the web client consumes.
@@ -120,6 +121,10 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "project title is required")
 		return
 	}
+	if err := tags.RejectSystem(req.Tags); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	ctx := r.Context()
 	title := strings.TrimSpace(req.Title)
@@ -136,7 +141,7 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err != nil {
 			return err
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "projects", title, "project")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, "projects", title)
 		return err
 	})
 	if err != nil {
@@ -182,6 +187,12 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	if req.Status != nil && *req.Status == "" {
 		writeError(w, http.StatusBadRequest, "status cannot be empty")
 		return
+	}
+	if req.Tags != nil {
+		if err := tags.RejectSystem(*req.Tags); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 
 	ctx := r.Context()

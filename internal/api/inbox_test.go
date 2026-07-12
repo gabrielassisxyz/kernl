@@ -14,6 +14,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 func TestInboxAPI(t *testing.T) {
@@ -30,7 +31,7 @@ func TestInboxAPI(t *testing.T) {
 		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{
 			Title: "API Capture",
 			Body:  "https://example.com",
-			Tags:  []string{"pending"},
+			Tags:  []string{tags.Pending},
 		}, nodes.Author{Name: "tester"})
 		captureID = id
 		return err
@@ -88,7 +89,7 @@ func TestInboxAPI(t *testing.T) {
 
 		hasTriaged := false
 		for _, tag := range cap.Tags {
-			if tag == "triaged" {
+			if tag == tags.Triaged {
 				hasTriaged = true
 			}
 		}
@@ -115,7 +116,7 @@ func TestInboxPendingDTOShape(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "buy milk", Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "buy milk", Tags: []string{tags.Pending}}, nodes.Author{Name: "tester"})
 		captureID = id
 		return err
 	}); err != nil {

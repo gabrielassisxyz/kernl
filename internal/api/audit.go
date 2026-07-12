@@ -11,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 type DecisionResponse struct {
@@ -31,7 +32,7 @@ func RegisterAuditRoutes(mux *http.ServeMux, a *app.App) {
 		var response []DecisionResponse
 		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
 			decisions, err := nodes.ListDecisions(r.Context(), tx, nodes.DecisionFilter{
-				Tags:  []string{"autonomous"},
+				Tags:  []string{tags.Autonomous},
 				Limit: 100,
 			})
 			if err != nil {

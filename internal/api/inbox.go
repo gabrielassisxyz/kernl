@@ -15,6 +15,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 	"github.com/gabrielassisxyz/kernl/internal/suggestlog"
@@ -91,7 +92,7 @@ func createCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		id, e = nodes.CreateCapture(r.Context(), tx, nodes.Capture{
 			Body:         body,
 			CapturedFrom: "web",
-			Tags:         []string{"pending"},
+			Tags:         []string{tags.Pending},
 		}, nodes.Author{Name: "web"})
 		return e
 	})
@@ -165,7 +166,7 @@ func getPendingCapturesHandler(w http.ResponseWriter, r *http.Request, a *app.Ap
 	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var err error
 		pending, err = nodes.ListCaptures(ctx, tx, nodes.CaptureFilter{
-			Tags: []string{"pending"},
+			Tags: []string{tags.Pending},
 		})
 		if err != nil {
 			return err

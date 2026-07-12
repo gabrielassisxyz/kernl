@@ -3,6 +3,7 @@ package schema_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 
@@ -353,8 +354,10 @@ func TestMigration004BatchLogsRoundTrip(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := r.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
+	// UpTo(4), not Up(): this test is about migration 0004, so it must not
+	// assume 0004 is the newest one.
+	if err := r.UpTo(ctx, 4); err != nil {
+		t.Fatalf("UpTo 4: %v", err)
 	}
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
@@ -395,6 +398,115 @@ func TestMigration004BatchLogsRoundTrip(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("batch_logs table should be gone after down")
+	}
+}
+
+// Seeds a pre-0005 database with the flat machine-tag names and asserts the
+// migration moves them into the `sys/` namespace without disturbing anything a
+// human would recognise as a subject of their own.
+func TestMigration0005SystemTags(t *testing.T) {
+	db := schemaOpenTemp(t)
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 4); err != nil {
+		t.Fatalf("UpTo 4: %v", err)
+	}
+
+	// A note carrying both a machine tag and a real user tag: the node_tags link
+	// must survive the rename (it points at the tag id, not the name) and must
+	// be severed only for the tags that are dropped outright.
+	if _, err := db.Exec(`INSERT INTO nodes(id, type, title) VALUES ('n1', 'note', 'A Note')`); err != nil {
+		t.Fatalf("seed node: %v", err)
+	}
+	seeded := []string{"pending", "triaged", "discarded", "audit", "autonomous", "ingest-source", "capture", "converted", "telos", "homelab"}
+	for i, name := range seeded {
+		tagID := fmt.Sprintf("t%d", i)
+		if _, err := db.Exec(`INSERT INTO tags(id, name) VALUES (?, ?)`, tagID, name); err != nil {
+			t.Fatalf("seed tag %q: %v", name, err)
+		}
+		if _, err := db.Exec(`INSERT INTO node_tags(node_id, tag_id) VALUES ('n1', ?)`, tagID); err != nil {
+			t.Fatalf("seed node_tag %q: %v", name, err)
+		}
+	}
+
+	if err := r.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+
+	renamed := map[string]string{
+		"pending":       "sys/pending",
+		"triaged":       "sys/triaged",
+		"discarded":     "sys/discarded",
+		"audit":         "sys/audit",
+		"autonomous":    "sys/autonomous",
+		"ingest-source": "sys/ingest-source",
+	}
+	for old, want := range renamed {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM tags WHERE name = ?`, old).Scan(&count); err != nil {
+			t.Fatalf("count %q: %v", old, err)
+		}
+		if count != 0 {
+			t.Errorf("tag %q still present after migration", old)
+		}
+		// The rename must keep the node attached to the tag.
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM node_tags nt JOIN tags t ON t.id = nt.tag_id WHERE t.name = ? AND nt.node_id = 'n1'`,
+			want,
+		).Scan(&count); err != nil {
+			t.Fatalf("count link %q: %v", want, err)
+		}
+		if count != 1 {
+			t.Errorf("tag %q: expected the node_tags link to survive the rename, got %d links", want, count)
+		}
+	}
+
+	// capture/converted are dropped, links and all: nothing reads them, and a
+	// note's tags are owned by its vault frontmatter, which may not author sys/.
+	for _, dropped := range []string{"capture", "converted"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM tags WHERE name IN (?, ?)`, dropped, "sys/"+dropped).Scan(&count); err != nil {
+			t.Fatalf("count %q: %v", dropped, err)
+		}
+		if count != 0 {
+			t.Errorf("tag %q should be gone after migration, not renamed", dropped)
+		}
+	}
+	var orphanLinks int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM node_tags nt LEFT JOIN tags t ON t.id = nt.tag_id WHERE t.id IS NULL`).Scan(&orphanLinks); err != nil {
+		t.Fatalf("count orphan links: %v", orphanLinks)
+	}
+	if orphanLinks != 0 {
+		t.Errorf("dropped tags left %d dangling node_tags rows", orphanLinks)
+	}
+
+	// telos is authored by hand in the vault, and homelab is an ordinary
+	// subject: both are user content and must be left exactly as they are.
+	for _, untouched := range []string{"telos", "homelab"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM tags WHERE name = ?`, untouched).Scan(&count); err != nil {
+			t.Fatalf("count %q: %v", untouched, err)
+		}
+		if count != 1 {
+			t.Errorf("user tag %q was modified by the migration", untouched)
+		}
+	}
+
+	// Down restores the flat names for the renamed tags.
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down: %v", err)
+	}
+	for old := range renamed {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM tags WHERE name = ?`, old).Scan(&count); err != nil {
+			t.Fatalf("count %q after down: %v", old, err)
+		}
+		if count != 1 {
+			t.Errorf("down migration did not restore tag %q", old)
+		}
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 // LogAutonomousDecision creates a Decision node recording an auto-approved action.
@@ -21,7 +22,7 @@ func LogAutonomousDecision(ctx context.Context, g *graph.Graph, epicID, beadID, 
 			Context:   action,
 			Outcome:   "Approved automatically via autonomous mode",
 			DecidedAt: time.Now(),
-			Tags:      []string{"audit", "autonomous"},
+			Tags:      []string{tags.Audit, tags.Autonomous},
 		}
 
 		author := nodes.Author{Name: "kernl-dispatch"}

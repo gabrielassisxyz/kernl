@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
@@ -72,7 +73,7 @@ func (c *Classifier) processPending(ctx context.Context) error {
 
 	err := c.graph.DoRead(ctx, func(tx *graph.ReadTx) error {
 		caps, err := nodes.ListCaptures(ctx, tx, nodes.CaptureFilter{
-			Tags: []string{"pending"},
+			Tags: []string{tags.Pending},
 		})
 		if err != nil {
 			return err

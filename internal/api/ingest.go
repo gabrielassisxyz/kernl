@@ -19,6 +19,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 )
 
@@ -282,7 +283,7 @@ func createIngestSourceNode(ctx context.Context, a *app.App, doc ingest.SourceDo
 			URL:         doc.URL,
 			Title:       title,
 			Description: "ingest source: " + doc.Kind,
-			Tags:        []string{"ingest-source"},
+			Tags:        []string{tags.IngestSource},
 		}, nodes.Author{Name: "ingest-source"})
 		return err
 	})

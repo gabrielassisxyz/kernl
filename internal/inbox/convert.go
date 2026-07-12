@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
@@ -132,11 +133,16 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 
 		switch targetType {
 		case "note":
+			// No machine tags on the note. A note is file-backed, so reconcile
+			// rewrites its tags from the file's frontmatter — the vault owns a
+			// note's tags, and the vault must never author `sys/` ones. The
+			// provenance the old "capture"/"converted" tags carried is already
+			// held by `origin: capture` and the derived_from edge below, and
+			// nothing ever read them. Tags on a note are the user's subjects.
 			n := nodes.Note{
 				Title:  title,
 				Body:   capture.Body,
 				Origin: "capture",
-				Tags:   []string{"capture", "converted"},
 			}
 			if n.Title == "" {
 				n.Title = "Capture Note"
@@ -148,7 +154,7 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 			}
 
 			slug := "capture-" + time.Now().Format("20060102150405")
-			md := fmt.Sprintf("---\nid: %s\ntitle: %q\ntags: [capture, converted]\norigin: capture\n---\n\n%s", targetID, n.Title, capture.Body)
+			md := fmt.Sprintf("---\nid: %s\ntitle: %q\norigin: capture\n---\n\n%s", targetID, n.Title, capture.Body)
 			path := filepath.Join(vaultRoot, slug+".md")
 			if err := os.WriteFile(path, []byte(md), 0644); err != nil {
 				return fmt.Errorf("write note md: %w", err)
@@ -301,14 +307,14 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 		// Update Capture tags
 		var newTags []string
 		for _, tag := range capture.Tags {
-			if tag != "pending" {
+			if tag != tags.Pending {
 				newTags = append(newTags, tag)
 			}
 		}
 		if targetType == "discard" {
-			newTags = append(newTags, "discarded")
+			newTags = append(newTags, tags.Discarded)
 		} else {
-			newTags = append(newTags, "triaged")
+			newTags = append(newTags, tags.Triaged)
 		}
 		capture.Tags = newTags
 

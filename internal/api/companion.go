@@ -50,6 +50,12 @@ func companionSlug(label, fallback string) string {
 //
 // TODO(6A): lifecycle (rename/delete) sync out of scope for now — renaming or
 // deleting the entity does not yet rename/remove its companion note.
+//
+// tags are the USER's subjects. Callers must not pass the entity's kind
+// ("task", "project", "bookmark") here: a tag is a navigation axis shared with
+// everything else the user tagged, and a machine label would sit in it as if it
+// were a subject of their own. The note's kind is already carried by its folder
+// and its describes edge.
 func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, entityID, folder, label string, tags ...string) (CompanionFile, error) {
 	noteID := uuid.Must(uuid.NewV7()).String()
 	slug := companionSlug(label, noteID)

@@ -501,6 +501,55 @@ func TestAE6_R20_AuthorFromFrontmatter(t *testing.T) {
 	}
 }
 
+// A note's tags are authored in its vault file, which makes the frontmatter the
+// second way into the tag table — and the one the API's 400 cannot see. A user
+// typing `tags: [sys/pending]` into a markdown file must not mint a system tag.
+// The tag is dropped, not the file: a bad tag may not cost the user their note.
+func TestOnCreate_SystemTagInFrontmatterIsDropped(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "smuggler.md")
+	writeFile(t, path, "---\nid: smuggle-node\ntitle: Smuggler\ntags: [homelab, sys/pending, sysadmin]\n---\n\nContent.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		n, err := nodes.GetNote(ctx, tx, "smuggle-node")
+		if err != nil {
+			return err
+		}
+		if n.Body == "" {
+			t.Error("the note itself must still be reconciled")
+		}
+		for _, tag := range n.Tags {
+			if tag == "sys/pending" {
+				t.Errorf("frontmatter smuggled a system tag into the graph: %v", n.Tags)
+			}
+		}
+		// The user's own tags survive — including one that merely looks like it.
+		want := map[string]bool{"homelab": false, "sysadmin": false}
+		for _, tag := range n.Tags {
+			if _, ok := want[tag]; ok {
+				want[tag] = true
+			}
+		}
+		for tag, found := range want {
+			if !found {
+				t.Errorf("user tag %q was dropped along with the system tag: %v", tag, n.Tags)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("read note: %v", err)
+	}
+}
+
 // TestOnCreate_AuthorAbsentDefaultsToHuman verifies that absent frontmatter
 // author defaults to "human".
 func TestOnCreate_AuthorAbsentDefaultsToHuman(t *testing.T) {

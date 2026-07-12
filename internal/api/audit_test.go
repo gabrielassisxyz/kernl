@@ -10,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
 
@@ -22,7 +23,7 @@ func TestAuditDecisionsHandler(t *testing.T) {
 		// Non-autonomous decision
 		_, err := nodes.CreateDecision(ctx, tx, nodes.Decision{
 			Title: "Human Decision",
-			Tags:  []string{"audit"},
+			Tags:  []string{tags.Audit},
 		}, nodes.Author{Name: "user"})
 		if err != nil {
 			return err
@@ -35,7 +36,7 @@ func TestAuditDecisionsHandler(t *testing.T) {
 			Context:   "action",
 			Outcome:   "success",
 			DecidedAt: time.Now(),
-			Tags:      []string{"audit", "autonomous"},
+			Tags:      []string{tags.Audit, tags.Autonomous},
 		}, nodes.Author{Name: "agent"})
 		if err != nil {
 			return err

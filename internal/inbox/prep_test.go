@@ -9,6 +9,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 func TestPrep(t *testing.T) {
@@ -22,7 +23,7 @@ func TestPrep(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "How does a nuclear plant work?", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "How does a nuclear plant work?", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		captureID = id
 		return err
 	}); err != nil {
@@ -107,7 +108,7 @@ func TestProcessLinksBriefing(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "Build a skill?", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "Build a skill?", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		captureID = id
 		return err
 	}); err != nil {
@@ -153,7 +154,7 @@ func TestDiscardDeletesPrep(t *testing.T) {
 
 	var captureID string
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "noise?", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "noise?", Tags: []string{tags.Pending}}, nodes.Author{Name: "t"})
 		captureID = id
 		return err
 	}); err != nil {

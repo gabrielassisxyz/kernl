@@ -59,3 +59,17 @@ A set of beads within an epic that have no remaining unsatisfied dependencies an
 ## knots (dormant)
 
 A lease system that records which agent is working on which bead, with canonical metadata (agent name, type, provider). Single-bead sessions create a Knots lease on spawn and release it on completion. Scene (parent-with-children) sessions do not create leases. Marked **dormant** — the implementation is deferred but the concept is reserved in the domain model. See `orchestrator/specs/00-architecture.md` §5.4.
+
+## tag
+
+A **label, not a node**. A tag is the graph's cross-type matching axis: the one thing that can connect a note, a task, a project and a bookmark because they are about the same subject. Tags nest by convention — the name is a flat string with `/` separators (`homelab/nas`), and querying a parent includes its descendants. A tag page is therefore a *query*, not a destination: it has no description, no content and no edges of its own.
+
+**Why not an Area (PARA)?** An Area is a *drawer* — another hierarchy to file things into, which does not remove the "unfiled" bucket, it renames it. A tag is an *edge*. If a handful of tags later prove to be life anchors that need substance of their own, they get promoted to nodes *then*, with real usage data: tag → Area is easy, Area → tag is a painful migration. See `artifacts/plans/2026-07-11-universal-tags-plan.md`.
+
+## system tag
+
+A machine-authored tag, namespaced under the reserved `sys/` prefix (`sys/pending`, `sys/triaged`, `sys/audit`) and hidden from user-facing tag surfaces by default. The prefix rides the `/` nesting convention, so the same rule that hides a subtree hides system tags — no schema column, no denylist.
+
+Users cannot author one: the API rejects a `sys/` tag with a 400, and the vault reconciler drops one found in a note's YAML frontmatter. Both boundaries are load-bearing, because a note's tags are authored in its file, not through the API — without the vault guard, typing `tags: [sys/pending]` into a markdown file would forge a capture back into the inbox queue.
+
+The inverse also holds: **system tags never land on notes.** A note is file-backed, so the vault owns its tags — and the vault may not author `sys/`. Machine provenance on a note belongs in its `origin` field and its edges. `telos` is *not* a system tag: the user writes it by hand in the vault, and the system merely reads it. See `internal/graph/tags/system.go`.

@@ -10,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 type mockLLM struct {
@@ -36,7 +37,7 @@ func TestClassifier(t *testing.T) {
 		c := nodes.Capture{
 			Body:         "https://example.com",
 			CapturedFrom: "cli",
-			Tags:         []string{"pending"},
+			Tags:         []string{tags.Pending},
 		}
 		id, err := nodes.CreateCapture(context.Background(), tx, c, nodes.Author{Name: "test"})
 		if err != nil {

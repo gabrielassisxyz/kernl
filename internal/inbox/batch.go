@@ -14,6 +14,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 )
 
 const (
@@ -290,7 +291,7 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 			id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{
 				Body:              segment.Body,
 				CapturedFrom:      source,
-				Tags:              []string{"pending"},
+				Tags:              []string{tags.Pending},
 				BatchID:           batchID.String(),
 				BatchSource:       source,
 				BatchSequence:     segment.Sequence,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/tags"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
 )
 
@@ -21,7 +22,7 @@ func TestRollups(t *testing.T) {
 	// Three captures created "now" — all land on the same calendar day.
 	for _, body := range []string{"one", "two", "three"} {
 		if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-			_, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: body, Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+			_, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: body, Tags: []string{tags.Pending}}, nodes.Author{Name: "tester"})
 			return err
 		}); err != nil {
 			t.Fatalf("CreateCapture: %v", err)
