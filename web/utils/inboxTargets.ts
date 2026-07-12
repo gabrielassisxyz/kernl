@@ -44,6 +44,8 @@ export interface CaptureAction {
   projectDescription?: string
   initialTasks?: string[]
   tags?: string[]
+  /** Calendar day "YYYY-MM-DD", on a task only. Empty when none was proposed. */
+  dueDate?: string
   linkTo?: string
 }
 

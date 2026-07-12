@@ -62,6 +62,26 @@
             </UiSelect>
           </section>
 
+          <section>
+            <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Due date</h3>
+            <div class="flex items-center gap-base">
+              <input
+                type="date"
+                :value="task.dueDate"
+                class="h-9 rounded border border-border-hairline bg-bg-base px-component font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70"
+                @change="$emit('set-due-date', task!.id, ($event.target as HTMLInputElement).value)"
+              />
+              <button
+                v-if="task.dueDate"
+                class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer"
+                @click="$emit('set-due-date', task!.id, '')"
+              >
+                Clear
+              </button>
+              <span v-if="late" class="font-mono-data text-mono-data text-status-failed-text">Overdue</span>
+            </div>
+          </section>
+
           <section v-if="task.description">
             <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Description</h3>
             <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ task.description }}</p>
@@ -82,12 +102,19 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { Task, TaskStatus } from '~/composables/useTasks'
 import { TASK_STATUSES } from '~/composables/useTasks'
-import { formatTimestamp } from '~/utils/time'
+import { formatTimestamp, isOverdue } from '~/utils/time'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
 import UiSelect from '~/components/ui/UiSelect.vue'
 
 const props = defineProps<{ task: Task | null; projectTitle?: string }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'set-status', id: string, status: string): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'set-status', id: string, status: string): void
+  (e: 'set-due-date', id: string, dueDate: string): void
+}>()
+
+// A finished task is never late, however old its deadline.
+const late = computed(() => !!props.task && props.task.status !== 'done' && isOverdue(props.task.dueDate))
 
 // --- Dialog semantics & focus management ---
 const panelRef = ref<HTMLElement | null>(null)

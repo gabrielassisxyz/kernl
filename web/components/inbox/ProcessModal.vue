@@ -69,6 +69,25 @@
             </UiSelect>
           </UiField>
 
+          <!-- The DA proposes a due date only when the capture states one, and
+               dates it from the day the message was written — not today. -->
+          <UiField v-if="action.target === 'task'" label="Due date">
+            <div class="flex items-center gap-base">
+              <UiInput
+                v-model="action.dueDate"
+                type="date"
+                classes="h-8 rounded border border-border-hairline bg-surface-container-low px-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70"
+              />
+              <button
+                v-if="action.dueDate"
+                class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer"
+                @click="action.dueDate = ''"
+              >
+                Clear
+              </button>
+            </div>
+          </UiField>
+
           <template v-if="action.target === 'project'">
             <UiField label="Description">
               <UiTextarea v-model="action.projectDescription" rows="3" classes="w-full rounded border border-border-hairline bg-surface-container-low px-base py-base font-body text-body text-text-primary outline-none transition-colors focus:border-primary/70 resize-none" />
@@ -130,6 +149,7 @@ interface DraftAction {
   projectDescription: string
   initialTasksText: string
   tags: string[]
+  dueDate: string
 }
 
 const props = defineProps<{
@@ -173,6 +193,7 @@ function blankAction(item: InboxItemData): DraftAction {
     projectDescription: item.subtitle || '',
     initialTasksText: '',
     tags: [],
+    dueDate: '',
   }
 }
 
@@ -185,6 +206,7 @@ function toDraft(action: CaptureAction, item: InboxItemData): DraftAction {
     projectDescription: action.projectDescription || action.body || item.subtitle || '',
     initialTasksText: (action.initialTasks || []).join('\n'),
     tags: action.tags || [],
+    dueDate: action.dueDate || '',
   }
 }
 
@@ -246,6 +268,9 @@ function toAction(draftAction: DraftAction): CaptureAction {
     projectId: isTask ? projectId : '',
     linkTo: isTask ? '' : projectId,
     tags: draftAction.tags,
+    // Only a task has a deadline: a date left behind by a target the user
+    // changed mid-review is dropped rather than written onto a note.
+    dueDate: isTask ? draftAction.dueDate : '',
   }
 }
 

@@ -24,6 +24,10 @@
         </UiField>
       </div>
 
+      <UiField label="Due date">
+        <UiInput v-model="dueDate" type="date" />
+      </UiField>
+
       <p v-if="error" class="font-mono-data text-mono-data text-status-failed-text">{{ error }}</p>
     </form>
 
@@ -59,6 +63,7 @@ const title = ref('')
 const description = ref('')
 const projectId = ref(props.defaultProjectId ?? '')
 const status = ref<TaskStatus>('todo')
+const dueDate = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const titleInput = ref<{ focus: () => void } | null>(null)
@@ -78,6 +83,7 @@ async function submit() {
       description: description.value.trim(),
       projectId: projectId.value,
       status: status.value,
+      dueDate: dueDate.value,
     })
     emit('created', id)
     emit('close')

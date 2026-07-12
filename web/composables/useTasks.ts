@@ -7,6 +7,8 @@ export interface Task {
   description: string
   status: TaskStatus
   projectId: string
+  /** Calendar day "YYYY-MM-DD", empty when the task has no deadline. */
+  dueDate: string
   createdAt: string
   updatedAt: string
 }
@@ -24,6 +26,7 @@ export interface NewTask {
   description?: string
   status?: TaskStatus
   projectId?: string
+  dueDate?: string
 }
 
 /**
@@ -73,5 +76,15 @@ export function useTasks() {
     if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
   }
 
-  return { tasks, loading, error, load, create, setStatus }
+  /** An empty string clears the due date. */
+  async function setDueDate(id: string, dueDate: string): Promise<void> {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dueDate }),
+    })
+    if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
+  }
+
+  return { tasks, loading, error, load, create, setStatus, setDueDate }
 }
