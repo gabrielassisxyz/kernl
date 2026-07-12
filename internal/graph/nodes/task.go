@@ -24,6 +24,10 @@ type Task struct {
 	Status      string // todo | in_progress | done
 	ProjectID   string // empty when the task is not assigned to a project
 	Tags        []string
+	// DueDate is the day the task is due, nil when it has none. A due date is a
+	// calendar day, not an instant — it is stored and carried as midnight UTC so
+	// it cannot slide across midnight when read back in another timezone.
+	DueDate *time.Time
 }
 
 // Task status vocabulary. DefaultTaskStatus is applied on create when unset.
@@ -34,14 +38,49 @@ const (
 	DefaultTaskStatus    = TaskStatusTodo
 )
 
+// DueDateLayout is the one form a due date takes outside the Task struct: in the
+// attrs blob, on the wire, and in what the classifier proposes. A calendar day,
+// never a timestamp.
+const DueDateLayout = "2006-01-02"
+
+// ParseDueDate reads a YYYY-MM-DD due date. An empty string means "no due date"
+// (nil, no error); anything unparseable is an error, so a malformed date is
+// rejected at the boundary instead of silently becoming "none".
+func ParseDueDate(s string) (*time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	due, err := time.Parse(DueDateLayout, s)
+	if err != nil {
+		return nil, fmt.Errorf("parse due date %q: want %s", s, DueDateLayout)
+	}
+	return &due, nil
+}
+
+// FormatDueDate renders a due date as YYYY-MM-DD, or "" when there is none.
+func FormatDueDate(due *time.Time) string {
+	if due == nil {
+		return ""
+	}
+	return due.Format(DueDateLayout)
+}
+
 func (t Task) Meta() *Meta { return &Meta{ID: t.ID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt} }
 
+// NodeAttrs serializes the task into the generic attrs blob — which is why a new
+// field like dueDate needs no schema migration. The key is omitted entirely when
+// there is no due date, so "unset" and "empty" cannot drift apart.
 func (t Task) NodeAttrs() []byte {
-	data, _ := json.Marshal(map[string]any{
+	attrs := map[string]any{
 		"description": t.Description,
 		"status":      t.Status,
 		"projectId":   t.ProjectID,
-	})
+	}
+	if t.DueDate != nil {
+		attrs["dueDate"] = FormatDueDate(t.DueDate)
+	}
+	data, _ := json.Marshal(attrs)
 	return data
 }
 
@@ -158,23 +197,50 @@ func SetTaskStatus(ctx context.Context, tx *graph.WriteTx, id, status string, au
 // mean to touch tags must not call this at all — the update path reconciles
 // against the tags it is handed, so a nil slice removes them all.
 func SetTaskTags(ctx context.Context, tx *graph.WriteTx, id string, tags []string, author Author) error {
+	t, err := loadTaskForWrite(tx, id)
+	if err != nil {
+		return err
+	}
+	t.Tags = dedupStrings(tags)
+	return updateNode(ctx, tx, *t, author)
+}
+
+// SetTaskDueDate sets or clears a task's due date, leaving its other fields
+// alone. A nil due removes it. Like SetTaskTags this goes through the shared
+// chokepoint, so the FTS index and the revision history stay consistent.
+func SetTaskDueDate(ctx context.Context, tx *graph.WriteTx, id string, due *time.Time, author Author) error {
+	t, err := loadTaskForWrite(tx, id)
+	if err != nil {
+		return err
+	}
+	t.DueDate = due
+	return updateNode(ctx, tx, *t, author)
+}
+
+// loadTaskForWrite reads a task, tags included, for a read-modify-write update.
+// The tags matter even to a caller that does not touch them: updateNode
+// reconciles the tag set against the struct it is handed, so a task loaded
+// without its tags is a task about to lose them.
+func loadTaskForWrite(tx *graph.WriteTx, id string) (*Task, error) {
 	var title, attrsRaw, createdAt, updatedAt sql.NullString
 	err := tx.QueryRow(
 		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'task' AND deleted_at IS NULL`,
 		id,
 	).Scan(&title, &attrsRaw, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
-		return graph.ErrNotFound
+		return nil, graph.ErrNotFound
 	}
 	if err != nil {
-		return fmt.Errorf("SetTaskTags: %w", err)
+		return nil, fmt.Errorf("loadTaskForWrite: %w", err)
 	}
 	t, err := scanTask(id, title, attrsRaw, createdAt, updatedAt)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	t.Tags = dedupStrings(tags)
-	return updateNode(ctx, tx, *t, author)
+	if t.Tags, err = selectTagsForNode(tx, id); err != nil {
+		return nil, err
+	}
+	return t, nil
 }
 
 // DeleteTask removes a task, preserving a tombstone revision.
@@ -187,6 +253,7 @@ func scanTask(id string, title, attrsRaw, createdAt, updatedAt sql.NullString) (
 		Description string `json:"description"`
 		Status      string `json:"status"`
 		ProjectID   string `json:"projectId"`
+		DueDate     string `json:"dueDate"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -196,6 +263,13 @@ func scanTask(id string, title, attrsRaw, createdAt, updatedAt sql.NullString) (
 	if attrs.Status == "" {
 		attrs.Status = DefaultTaskStatus
 	}
+	// A stored date we cannot read is a bug worth seeing, not a due date to drop:
+	// scanTask feeds the read-modify-write updates below, so silently dropping it
+	// here would erase it on the next tag or due-date edit.
+	dueDate, err := ParseDueDate(attrs.DueDate)
+	if err != nil {
+		return nil, fmt.Errorf("scanTask: %w", err)
+	}
 	return &Task{
 		ID:          id,
 		CreatedAt:   tryParseTime(createdAt.String),
@@ -204,5 +278,6 @@ func scanTask(id string, title, attrsRaw, createdAt, updatedAt sql.NullString) (
 		Description: attrs.Description,
 		Status:      attrs.Status,
 		ProjectID:   attrs.ProjectID,
+		DueDate:     dueDate,
 	}, nil
 }
