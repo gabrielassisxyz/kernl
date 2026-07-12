@@ -385,37 +385,50 @@ func hasWhatsAppHeader(raw string) bool {
 	return false
 }
 
+// parseWhatsAppBatch splits an exported chat into one segment per message,
+// folding continuation lines back into the message they belong to. The body is
+// the message as it was written: interior blank lines are kept, because a
+// multi-paragraph message is multi-paragraph on purpose. Only the outer edges
+// are trimmed.
 func parseWhatsAppBatch(raw string) []BatchSegment {
 	var out []BatchSegment
 	var current *BatchSegment
+	var body []string
+
+	flush := func() {
+		if current == nil {
+			return
+		}
+		current.Body = strings.TrimSpace(strings.Join(body, "\n"))
+		out = append(out, *current)
+		current, body = nil, nil
+	}
+
 	for _, line := range strings.Split(raw, "\n") {
-		date, sender, body, _, ok := parseWhatsAppHeader(line)
+		line = strings.TrimSuffix(line, "\r")
+		date, sender, first, _, ok := parseWhatsAppHeader(line)
 		if ok {
-			if current != nil {
-				out = append(out, *current)
-			}
+			flush()
 			current = &BatchSegment{
-				Body:            strings.TrimSpace(body),
 				Sender:          strings.TrimSpace(sender),
 				Timestamp:       strings.TrimSpace(date),
 				Sequence:        len(out),
 				ParseConfidence: "high",
 			}
+			body = []string{first}
 			continue
 		}
 		if current == nil {
-			text := strings.TrimSpace(line)
-			if text == "" {
+			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			current = &BatchSegment{Body: text, Sequence: len(out), ParseConfidence: "low"}
+			current = &BatchSegment{Sequence: len(out), ParseConfidence: "low"}
+			body = []string{line}
 			continue
 		}
-		current.Body = strings.TrimSpace(current.Body + "\n" + line)
+		body = append(body, line)
 	}
-	if current != nil {
-		out = append(out, *current)
-	}
+	flush()
 	return cleanSegments(out)
 }
 

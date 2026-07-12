@@ -48,11 +48,32 @@ func TestPreviewBatchParsesWhatsAppTimeFirstMessages(t *testing.T) {
 	if segments[0].Timestamp != "7/4/2026 13:54" {
 		t.Fatalf("Timestamp = %q, want 7/4/2026 13:54", segments[0].Timestamp)
 	}
-	if segments[0].Body != "substitutos para opencode:\n- mariozechner/pi-coding-agent" {
+	// The blank line the author typed is part of the message: a body is kept as
+	// written, not reflowed.
+	if segments[0].Body != "substitutos para opencode:\n\n- mariozechner/pi-coding-agent" {
 		t.Fatalf("first body = %q", segments[0].Body)
 	}
 	if segments[1].Body != "meu objetivo principal é ter dados confiáveis" {
 		t.Fatalf("second body = %q", segments[1].Body)
+	}
+}
+
+// The capture body is the primary source: whatever the author typed, byte for
+// byte. A multi-paragraph message must survive the parser with its paragraph
+// breaks — the reflowed one-paragraph version is a different document.
+func TestPreviewBatchKeepsMessageParagraphsVerbatim(t *testing.T) {
+	message := "falar \"trablhar 1h por dia\" é facil, mas tenho dificuldade de internalizar.\n\nou me falta entender o que estou construindo, sei la\n\npreciso de uma forma de visualizar esse progresso"
+	raw := "4/1/26, 16:34 - Gabriel Assis: " + message + "\n4/1/26, 19:46 - Gabriel Assis: next message"
+
+	segments, err := PreviewBatch(BatchInput{RawText: raw})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 2 {
+		t.Fatalf("expected 2 segments, got %d: %#v", len(segments), segments)
+	}
+	if segments[0].Body != message {
+		t.Fatalf("body was rewritten by the parser:\n got: %q\nwant: %q", segments[0].Body, message)
 	}
 }
 
