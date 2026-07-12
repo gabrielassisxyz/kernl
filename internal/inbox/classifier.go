@@ -221,7 +221,7 @@ Capture:
 const targetVocabulary = `A capture is often MORE THAN ONE THING. Work in two steps: FIRST split the capture into distinct items, THEN pick a target for each one. Never fold two items into one action.
 
 Targets:
-- "project": ONE outcome that breaks down into smaller pieces which all serve that same outcome. If it decomposes toward one goal, it is a project — no matter how small it sounds.
+- "project": TWO tests, both required. (1) ONE outcome: you can name the state of the world when it is done. (2) MORE THAN ONE STEP to get there. A COLLECTION — a list, a backlog, a dump of items — is NOT a project, however long it is: it has no single outcome, so it is N items, each classified on its own.
 - "task": one concrete action, done in one sitting, indivisible. A question is a task (answering it is the action; the note is what gets written once it is answered).
 - "update": the capture extends or revises a topic that almost certainly already has its own note. Use it alone, never combined with other actions.
 - "note": durable knowledge, a reflection, or an insight worth preserving.
@@ -234,7 +234,7 @@ Splitting rules:
 - Judge by the items, not by how the capture labels itself. A capture calling itself a "plan" or a "project" is still a list of separate items when its lines do not share one outcome.
 - A reflection that also implies an action is a "note" AND a "task". A sentence about how you think, feel, or work — an insight, a realization, a self-observation — is a note, even when it sits in the same message as an action.
 - A verb-initial bookmark ("Reread: <url>", "Watch: <url>") is a "bookmark" AND a "task".
-- Do not shrink a project into a task because it sounds small; do not classify an actionable idea as a note because it is phrased informally.
+- Do not shrink a project into a task because it sounds small: "more than one step" is the floor, not "sounds ambitious". Do not classify an actionable idea as a note because it is phrased informally.
 - Never invent a project whose initial_tasks only restate the capture ("define X", "do X", "adjust X"). One action, split into synonyms of itself, is still ONE TASK.`
 
 // actionFieldRules describes the per-action fields. The title rule is the one

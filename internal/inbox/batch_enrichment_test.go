@@ -15,9 +15,8 @@ func (m *batchTestLLM) Chat(ctx context.Context, messages []chat.Message, tools 
 	return &chat.ChatResponse{Content: m.content}, nil
 }
 
-func TestEnricherUnavailableWithoutLLM(t *testing.T) {
-	e := NewBatchEnricher(nil)
-	input := BatchEnrichmentInput{
+func twoRawSegments() BatchEnrichmentInput {
+	return BatchEnrichmentInput{
 		Source:      "whatsapp",
 		Separator:   "whatsapp",
 		ContextHint: "planning",
@@ -26,80 +25,81 @@ func TestEnricherUnavailableWithoutLLM(t *testing.T) {
 			{Body: "Task idea", Sequence: 1, ParseConfidence: "high"},
 		},
 	}
-	result := e.Enrich(context.Background(), input)
+}
+
+func TestEnricherUnavailableWithoutLLM(t *testing.T) {
+	result := NewBatchEnricher(nil).Enrich(context.Background(), twoRawSegments())
 	if result.Status != EnrichmentUnavailable {
 		t.Fatalf("Status = %q, want unavailable", result.Status)
 	}
-	if len(result.Segments) != 2 {
-		t.Fatalf("Segments = %d, want 2", len(result.Segments))
+	if len(result.MergeProposals) != 0 {
+		t.Fatalf("MergeProposals = %v, want none without an LLM", result.MergeProposals)
 	}
 	if result.ContextTitle != "planning" {
 		t.Fatalf("ContextTitle = %q", result.ContextTitle)
 	}
 }
 
-func TestEnricherGroupsRelatedSegments(t *testing.T) {
+func TestEnricherProposesMerges(t *testing.T) {
 	llm := &batchTestLLM{content: `{
 		"context_title": "ai-memory explainer",
-		"segments": [
-			{"body": "Build an ai-memory explainer project with architecture map and usage examples", "source_sequences": [0, 1, 2], "kind_hint": "project", "confidence": "high"}
+		"merges": [
+			{"source_sequences": [1, 0], "reason": "same request, restated"}
 		]
 	}`}
-	e := NewBatchEnricher(llm)
-	input := BatchEnrichmentInput{
-		Source:    "whatsapp",
-		Separator: "whatsapp",
-		RawSegments: []BatchSegment{
-			{Body: "Build an ai-memory explainer project", Sequence: 0, ParseConfidence: "high"},
-			{Body: "Task: map the repo architecture", Sequence: 1, ParseConfidence: "high"},
-			{Body: "Task: write usage examples", Sequence: 2, ParseConfidence: "high"},
-		},
-	}
-	result := e.Enrich(context.Background(), input)
+	result := NewBatchEnricher(llm).Enrich(context.Background(), twoRawSegments())
 	if result.Status != EnrichmentApplied {
 		t.Fatalf("Status = %q, want applied", result.Status)
 	}
 	if result.ContextTitle != "ai-memory explainer" {
 		t.Fatalf("ContextTitle = %q", result.ContextTitle)
 	}
-	if len(result.Segments) != 1 {
-		t.Fatalf("Segments = %d, want 1", len(result.Segments))
+	if len(result.MergeProposals) != 1 {
+		t.Fatalf("MergeProposals = %d, want 1", len(result.MergeProposals))
 	}
-	if len(result.Segments[0].SourceSequences) != 3 {
-		t.Fatalf("SourceSequences = %v", result.Segments[0].SourceSequences)
+	got := result.MergeProposals[0]
+	if len(got.SourceSequences) != 2 || got.SourceSequences[0] != 0 || got.SourceSequences[1] != 1 {
+		t.Fatalf("SourceSequences = %v, want [0 1] in source order", got.SourceSequences)
+	}
+	if got.Reason == "" {
+		t.Fatal("a merge proposal must say why, so it can be judged")
 	}
 }
 
-func TestEnricherFallsBackOnInvalidJSON(t *testing.T) {
-	llm := &batchTestLLM{content: "not json"}
-	e := NewBatchEnricher(llm)
-	input := BatchEnrichmentInput{
-		Source:    "whatsapp",
-		Separator: "whatsapp",
-		RawSegments: []BatchSegment{
-			{Body: "Project idea", Sequence: 0, ParseConfidence: "high"},
-			{Body: "Task idea", Sequence: 1, ParseConfidence: "high"},
-		},
+// The enrichment prompt has no field for message text, but a model can always
+// answer with whatever it likes. Whatever it invents, it cannot reach a body.
+func TestEnricherIgnoresBodiesFromTheModel(t *testing.T) {
+	llm := &batchTestLLM{content: `{
+		"context_title": "tidied up",
+		"segments": [{"body": "A tidy paraphrase of everything", "source_sequences": [0, 1]}],
+		"merges": []
+	}`}
+	result := NewBatchEnricher(llm).Enrich(context.Background(), twoRawSegments())
+	if len(result.MergeProposals) != 0 {
+		t.Fatalf("MergeProposals = %v, want none", result.MergeProposals)
 	}
-	result := e.Enrich(context.Background(), input)
+}
+
+func TestEnricherFailsOnInvalidJSON(t *testing.T) {
+	llm := &batchTestLLM{content: "not json"}
+	result := NewBatchEnricher(llm).Enrich(context.Background(), twoRawSegments())
 	if result.Status != EnrichmentFailed {
 		t.Fatalf("Status = %q, want failed", result.Status)
 	}
-	if len(result.Segments) != 2 {
-		t.Fatalf("fallback should preserve 2 segments, got %d", len(result.Segments))
+	if len(result.MergeProposals) != 0 {
+		t.Fatalf("a failed enrichment must propose nothing, got %v", result.MergeProposals)
 	}
 }
 
-func TestEnricherReassignsBadOrMissingSourceSequences(t *testing.T) {
+func TestEnricherDropsUnusableMergeProposals(t *testing.T) {
 	llm := &batchTestLLM{content: `{
-		"context_title": "ignored",
-		"segments": [
-			{"body": "Good", "source_sequences": [0]},
-			{"body": "Bad ref", "source_sequences": [99]},
-			{"body": "Missing refs"}
+		"merges": [
+			{"source_sequences": [0], "reason": "a merge of one is not a merge"},
+			{"source_sequences": [0, 99], "reason": "99 does not exist, leaving one member"},
+			{"source_sequences": [3, 3], "reason": "the same message twice"},
+			{"source_sequences": [0, 1], "reason": "this one is real"}
 		]
 	}`}
-	e := NewBatchEnricher(llm)
 	input := BatchEnrichmentInput{
 		Source:    "text",
 		Separator: "lines",
@@ -108,129 +108,95 @@ func TestEnricherReassignsBadOrMissingSourceSequences(t *testing.T) {
 			{Body: "second", Sequence: 1, ParseConfidence: "medium"},
 		},
 	}
-	result := e.Enrich(context.Background(), input)
-	if result.Status != EnrichmentApplied {
-		t.Fatalf("Status = %q, want applied", result.Status)
+	result := NewBatchEnricher(llm).Enrich(context.Background(), input)
+	if len(result.MergeProposals) != 1 {
+		t.Fatalf("MergeProposals = %#v, want only the usable one", result.MergeProposals)
 	}
-	// Neither the bad-ref nor the no-ref candidate is dropped: content must
-	// never be discarded just because the LLM's source_sequences were wrong
-	// or missing.
-	if len(result.Segments) != 3 {
-		t.Fatalf("Segments = %d, want 3", len(result.Segments))
-	}
-	if result.Segments[0].Body != "Good" {
-		t.Fatalf("Body = %q", result.Segments[0].Body)
-	}
-	// Reassigned candidates sort after the real-ref one, in their original order.
-	if result.Segments[1].Body != "Bad ref" {
-		t.Fatalf("Body = %q, want %q", result.Segments[1].Body, "Bad ref")
-	}
-	if result.Segments[2].Body != "Missing refs" {
-		t.Fatalf("Body = %q, want %q", result.Segments[2].Body, "Missing refs")
-	}
-	// Fabricated refs must not borrow sender/timestamp from an unrelated raw segment.
-	if result.Segments[1].Sender != "" || result.Segments[1].Timestamp != "" {
-		t.Fatalf("reassigned segment should not carry attribution from an unrelated raw segment")
+	if got := result.MergeProposals[0].SourceSequences; len(got) != 2 {
+		t.Fatalf("SourceSequences = %v, want [0 1]", got)
 	}
 }
 
-func TestEnricherSemanticSplit(t *testing.T) {
+// Overlapping proposals cannot be accepted or rejected independently — the
+// message in both would be duplicated or dropped depending on click order — so
+// the first claim on a message wins and the rest of that proposal is discarded.
+func TestEnricherDropsOverlappingMergeProposals(t *testing.T) {
 	llm := &batchTestLLM{content: `{
-		"segments": [
-			{"body": "First idea"},
-			{"body": "Second idea"}
+		"merges": [
+			{"source_sequences": [0, 1], "reason": "first claim"},
+			{"source_sequences": [1, 2], "reason": "overlaps on 1"}
 		]
 	}`}
-	e := NewBatchEnricher(llm)
 	input := BatchEnrichmentInput{
-		Source:      "text",
-		Separator:   "semantic",
-		ContextHint: "notes",
+		Source:    "text",
+		Separator: "lines",
 		RawSegments: []BatchSegment{
-			{Body: "First idea. Second idea.", Sequence: 0, ParseConfidence: "low"},
+			{Body: "first", Sequence: 0, ParseConfidence: "medium"},
+			{Body: "second", Sequence: 1, ParseConfidence: "medium"},
+			{Body: "third", Sequence: 2, ParseConfidence: "medium"},
 		},
 	}
-	result := e.EnrichSemantic(context.Background(), input)
-	if result.Status != EnrichmentApplied {
-		t.Fatalf("Status = %q, want applied", result.Status)
-	}
-	if len(result.Segments) != 2 {
-		t.Fatalf("Segments = %d, want 2", len(result.Segments))
-	}
-	if result.Segments[0].Body != "First idea" {
-		t.Fatalf("first body = %q", result.Segments[0].Body)
+	result := NewBatchEnricher(llm).Enrich(context.Background(), input)
+	if len(result.MergeProposals) != 1 {
+		t.Fatalf("MergeProposals = %#v, want the overlapping one dropped", result.MergeProposals)
 	}
 }
 
-func TestEnricherSemanticSplitInvalidFallsBack(t *testing.T) {
+func TestSemanticSplitAcceptsVerbatimSegments(t *testing.T) {
+	llm := &batchTestLLM{content: `{
+		"segments": [
+			{"body": "First idea."},
+			{"body": "Second idea."}
+		]
+	}`}
+	segments, status := NewBatchEnricher(llm).SplitSemantic(context.Background(), BatchEnrichmentInput{
+		Source:      "text",
+		Separator:   "semantic",
+		RawSegments: []BatchSegment{{Body: "First idea. Second idea.", Sequence: 0, ParseConfidence: "low"}},
+	})
+	if status != EnrichmentApplied {
+		t.Fatalf("Status = %q, want applied", status)
+	}
+	if len(segments) != 2 || segments[0].Body != "First idea." {
+		t.Fatalf("segments = %#v", segments)
+	}
+}
+
+// The semantic split is the one place a model chooses where the text is cut, so
+// it is the one place it could smuggle in a rewrite. A body that is not literally
+// in the source discredits the whole split: better one honest capture than two
+// tidied-up ones.
+func TestSemanticSplitRejectsRewrittenSegments(t *testing.T) {
+	llm := &batchTestLLM{content: `{
+		"segments": [
+			{"body": "First idea."},
+			{"body": "Second idea, but polished by the model."}
+		]
+	}`}
+	segments, status := NewBatchEnricher(llm).SplitSemantic(context.Background(), BatchEnrichmentInput{
+		Source:      "text",
+		Separator:   "semantic",
+		RawSegments: []BatchSegment{{Body: "First idea. Second idea.", Sequence: 0, ParseConfidence: "low"}},
+	})
+	if status != EnrichmentFailed {
+		t.Fatalf("Status = %q, want failed", status)
+	}
+	if segments != nil {
+		t.Fatalf("segments = %#v, want none", segments)
+	}
+}
+
+func TestSemanticSplitFailsOnInvalidJSON(t *testing.T) {
 	llm := &batchTestLLM{content: "not json"}
-	e := NewBatchEnricher(llm)
-	input := BatchEnrichmentInput{
+	segments, status := NewBatchEnricher(llm).SplitSemantic(context.Background(), BatchEnrichmentInput{
 		Source:      "text",
 		Separator:   "semantic",
-		ContextHint: "notes",
 		RawSegments: []BatchSegment{{Body: "Dense paragraph.", Sequence: 0, ParseConfidence: "low"}},
-	}
-	result := e.EnrichSemantic(context.Background(), input)
-	if result.Status != EnrichmentFailed {
-		t.Fatalf("Status = %q, want failed", result.Status)
-	}
-	if len(result.Segments) != 1 {
-		t.Fatalf("fallback should preserve 1 segment, got %d", len(result.Segments))
-	}
-}
-
-// A merged capture inherits the first source message's timestamp. Without it
-// the inbox has no time to show and falls back to "#N", which tells you nothing
-// about when you said it.
-func TestMergedSegmentInheritsFirstSourceTimestamp(t *testing.T) {
-	llm := &batchTestLLM{content: `{
-		"context_title": "morning notes",
-		"segments": [
-			{"body": "The whole thought, merged", "source_sequences": [1, 0], "confidence": "high"}
-		]
-	}`}
-	e := NewBatchEnricher(llm)
-	result := e.Enrich(context.Background(), BatchEnrichmentInput{
-		Source:    "whatsapp",
-		Separator: "whatsapp",
-		RawSegments: []BatchSegment{
-			{Body: "First half", Sender: "Me", Timestamp: "4/1/26 08:37", Sequence: 0, ParseConfidence: "high"},
-			{Body: "Second half", Sender: "Me", Timestamp: "4/1/26 10:18", Sequence: 1, ParseConfidence: "high"},
-		},
 	})
-	if len(result.Segments) != 1 {
-		t.Fatalf("Segments = %d, want 1 merged segment", len(result.Segments))
+	if status != EnrichmentFailed {
+		t.Fatalf("Status = %q, want failed", status)
 	}
-	seg := result.Segments[0]
-	if seg.Timestamp != "4/1/26 08:37" {
-		t.Errorf("merged Timestamp = %q, want the first source message's 08:37", seg.Timestamp)
-	}
-	if seg.Sender != "Me" {
-		t.Errorf("merged Sender = %q, want Me", seg.Sender)
-	}
-}
-
-// A candidate the model invented (no valid source_sequences) is kept, but must
-// not borrow a timestamp from an unrelated message.
-func TestFabricatedSegmentBorrowsNoTimestamp(t *testing.T) {
-	llm := &batchTestLLM{content: `{
-		"segments": [
-			{"body": "Something the model made up", "source_sequences": [42], "confidence": "low"}
-		]
-	}`}
-	e := NewBatchEnricher(llm)
-	result := e.Enrich(context.Background(), BatchEnrichmentInput{
-		Source:    "whatsapp",
-		Separator: "whatsapp",
-		RawSegments: []BatchSegment{
-			{Body: "Real message", Sender: "Me", Timestamp: "4/1/26 08:37", Sequence: 0, ParseConfidence: "high"},
-		},
-	})
-	if len(result.Segments) != 1 {
-		t.Fatalf("Segments = %d, want the candidate kept", len(result.Segments))
-	}
-	if result.Segments[0].Timestamp != "" {
-		t.Errorf("fabricated segment Timestamp = %q, want empty", result.Segments[0].Timestamp)
+	if segments != nil {
+		t.Fatalf("segments = %#v, want none", segments)
 	}
 }

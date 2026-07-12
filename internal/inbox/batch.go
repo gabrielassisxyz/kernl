@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -33,10 +34,16 @@ type BatchInput struct {
 	Source       string
 	SplitMode    string
 	ContextTitle string
-	// FinalSegments carries capture candidates the client already reviewed and
-	// approved in a prior /api/inbox/batch/analyze round-trip. When set,
-	// CreateBatchWithLLM persists them verbatim instead of re-running LLM
-	// enrichment, so the created captures cannot diverge from what the user saw.
+	// RawSegments is the split the client reviewed. It matters only for the
+	// semantic separator, whose cut points come from the LLM and so cannot be
+	// re-derived on create; every other separator is a pure function of RawText
+	// and is re-parsed server-side. Whatever arrives here is still checked
+	// against RawText: a body that is not verbatim source text is rejected.
+	RawSegments []BatchSegment
+	// FinalSegments carries the capture candidates the client approved. Only
+	// their SourceSequences are honored — which raw messages the user chose to
+	// merge. The bodies are rebuilt from RawSegments, never taken from the
+	// request, so no caller (and no model behind one) can rewrite the source.
 	FinalSegments []FinalBatchSegment
 }
 
@@ -57,6 +64,10 @@ type BatchAnalysis struct {
 	EnrichmentStatus      EnrichmentStatus    `json:"enrichmentStatus"`
 	EnrichmentError       string              `json:"enrichmentError,omitempty"`
 	FinalSegments         []FinalBatchSegment `json:"finalSegments,omitempty"`
+	// MergeProposals are the merges the LLM suggests. They are offers the human
+	// accepts or rejects; an analysis never returns them already applied, so the
+	// capture count of a paste does not depend on what the model decided.
+	MergeProposals []MergeProposal `json:"mergeProposals,omitempty"`
 }
 
 type BatchCreateResult struct {
@@ -81,6 +92,12 @@ func AnalyzeBatch(input BatchInput) (*BatchAnalysis, error) {
 	return AnalyzeBatchWithLLM(context.Background(), input, nil)
 }
 
+// AnalyzeBatchWithLLM returns the split the user is about to review. The
+// captures it proposes are exactly the messages the deterministic parser found:
+// the LLM contributes a context title and a list of merges it would suggest,
+// and nothing else. Two runs of the same paste therefore always propose the
+// same number of captures, whatever the model answered — the whole point, after
+// one run of the same fixture produced 25 captures and the next produced 20.
 func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClient) (*BatchAnalysis, error) {
 	rawSegments, err := previewBatchInternal(input)
 	if err != nil {
@@ -91,55 +108,149 @@ func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClie
 	}
 
 	source, separator := resolveBatchSourceAndSeparator(input)
-
 	contextTitle := strings.TrimSpace(input.ContextTitle)
-
 	enricher := NewBatchEnricher(llm)
-	var enrichment *BatchEnrichmentResult
-	if separator == BatchSplitSemantic && llm != nil {
-		enrichment = enricher.EnrichSemantic(ctx, BatchEnrichmentInput{
+
+	// The semantic separator is the one case where the model decides the cut
+	// points — there is nothing else to split on. It hands back slices of the
+	// source, which SplitSemantic verifies are verbatim before we adopt them.
+	status := EnrichmentNone
+	if separator == BatchSplitSemantic {
+		split, splitStatus := enricher.SplitSemantic(ctx, BatchEnrichmentInput{
 			Source:      source,
 			Separator:   separator,
 			ContextHint: contextTitle,
 			RawSegments: rawSegments,
 		})
-	} else {
-		enrichment = enricher.Enrich(ctx, BatchEnrichmentInput{
-			Source:      source,
-			Separator:   separator,
-			ContextHint: contextTitle,
-			RawSegments: rawSegments,
-		})
+		status = splitStatus
+		if len(split) > 0 {
+			rawSegments = split
+		}
 	}
 
-	var finalSegments []FinalBatchSegment
-	if enrichment != nil {
-		finalSegments = enrichment.Segments
+	enrichment := enricher.Enrich(ctx, BatchEnrichmentInput{
+		Source:      source,
+		Separator:   separator,
+		ContextHint: contextTitle,
+		RawSegments: rawSegments,
+	})
+	if separator != BatchSplitSemantic {
+		status = enrichment.Status
 	}
 
-	// Build UI-compatible BatchSegment view from final segments.
+	finalSegments := buildFinalSegments(rawSegments, nil)
 	viewSegments := viewSegmentsFromFinal(finalSegments)
 
-	var finalContextTitle string
-	if enrichment != nil && strings.TrimSpace(enrichment.ContextTitle) != "" {
-		finalContextTitle = enrichment.ContextTitle
-	}
+	finalContextTitle := strings.TrimSpace(enrichment.ContextTitle)
 	if finalContextTitle == "" {
 		finalContextTitle = suggestedContextTitle(contextTitle, viewSegments)
 	}
 
-	analysis := &BatchAnalysis{
+	return &BatchAnalysis{
 		Source:                source,
 		Separator:             separator,
 		SuggestedContextTitle: finalContextTitle,
 		Segments:              viewSegments,
 		RawSegments:           rawSegments,
 		FinalSegments:         finalSegments,
+		MergeProposals:        enrichment.MergeProposals,
+		EnrichmentStatus:      status,
+	}, nil
+}
+
+// buildFinalSegments is the only constructor of capture candidates, and it can
+// only assemble text that came out of the parser. mergeGroups are the merges the
+// human accepted; every raw segment not named in one stays its own capture.
+//
+// A merged body is its source messages joined, in order, with a blank line
+// between them — nothing is summarized away, and the merge stays legible as the
+// several messages it was.
+func buildFinalSegments(raw []BatchSegment, mergeGroups [][]int) []FinalBatchSegment {
+	bySeq := make(map[int]BatchSegment, len(raw))
+	for _, seg := range raw {
+		bySeq[seg.Sequence] = seg
 	}
-	if enrichment != nil {
-		analysis.EnrichmentStatus = enrichment.Status
+
+	// Each raw message belongs to at most one group; a group is anchored at its
+	// first member so the merged capture keeps that message's place in the paste.
+	groupOf := map[int][]int{}
+	for _, group := range mergeGroups {
+		members := make([]int, 0, len(group))
+		for _, seq := range group {
+			if _, ok := bySeq[seq]; ok && groupOf[seq] == nil {
+				members = append(members, seq)
+			}
+		}
+		if len(members) < 2 {
+			continue
+		}
+		sort.Ints(members)
+		for _, seq := range members {
+			groupOf[seq] = members
+		}
 	}
-	return analysis, nil
+
+	out := make([]FinalBatchSegment, 0, len(raw))
+	for _, seg := range raw {
+		members := groupOf[seg.Sequence]
+		if members == nil {
+			members = []int{seg.Sequence}
+		} else if members[0] != seg.Sequence {
+			continue // already emitted at the group's anchor
+		}
+
+		bodies := make([]string, 0, len(members))
+		confidence := ""
+		for _, seq := range members {
+			bodies = append(bodies, bySeq[seq].Body)
+			if confidence == "" {
+				confidence = bySeq[seq].ParseConfidence
+			}
+		}
+
+		// Sender and timestamp come from the first message in the group: a merge
+		// of 08:37 and 10:18 is still something you said at 08:37.
+		anchor := bySeq[members[0]]
+		out = append(out, FinalBatchSegment{
+			Body:            strings.Join(bodies, "\n\n"),
+			Sender:          anchor.Sender,
+			Timestamp:       anchor.Timestamp,
+			Sequence:        len(out),
+			SourceSequences: members,
+			Confidence:      confidence,
+		})
+	}
+	return out
+}
+
+// mergeGroupsFrom reads the merge decisions out of the candidates the client
+// approved. Only the grouping survives the trip; the bodies do not.
+func mergeGroupsFrom(segments []FinalBatchSegment) [][]int {
+	groups := make([][]int, 0, len(segments))
+	for _, seg := range segments {
+		if len(seg.SourceSequences) < 2 {
+			continue
+		}
+		groups = append(groups, seg.SourceSequences)
+	}
+	return groups
+}
+
+// assertVerbatim fails the request when a segment body is not literally present
+// in the pasted text. The parser cannot produce such a body; only a rewrite can,
+// so this is the backstop that keeps a paraphrase from ever reaching the graph.
+func assertVerbatim(rawText string, segments []BatchSegment) error {
+	source := normalizeNewlines(rawText)
+	for _, seg := range segments {
+		if !strings.Contains(source, normalizeNewlines(seg.Body)) {
+			return fmt.Errorf("segment %d is not verbatim source text: a capture body must be the message as it was written", seg.Sequence)
+		}
+	}
+	return nil
+}
+
+func normalizeNewlines(s string) string {
+	return strings.ReplaceAll(s, "\r\n", "\n")
 }
 
 // resolveBatchSourceAndSeparator applies the auto-detection fallback shared by
@@ -176,12 +287,38 @@ func viewSegmentsFromFinal(finalSegments []FinalBatchSegment) []BatchSegment {
 	return out
 }
 
-func PreviewBatch(input BatchInput) ([]BatchSegment, error) {
-	return previewBatchInternal(input)
+// BatchPreview is the mechanical split — what the parser found, with no LLM in
+// the path. The review modal opens on this, so the user is reading their own
+// messages while enrichment is still thinking.
+type BatchPreview struct {
+	Source                string              `json:"source"`
+	Separator             string              `json:"separator"`
+	SuggestedContextTitle string              `json:"suggestedContextTitle"`
+	Segments              []BatchSegment      `json:"segments"`
+	FinalSegments         []FinalBatchSegment `json:"finalSegments"`
+}
+
+// PreviewBatchSplit parses the paste and proposes one capture per message. It
+// never merges: a merge needs a human, and this call has not asked one yet.
+func PreviewBatchSplit(input BatchInput) (*BatchPreview, error) {
+	rawSegments, err := previewBatchInternal(input)
+	if err != nil {
+		return nil, err
+	}
+	source, separator := resolveBatchSourceAndSeparator(input)
+	finalSegments := buildFinalSegments(rawSegments, nil)
+	viewSegments := viewSegmentsFromFinal(finalSegments)
+	return &BatchPreview{
+		Source:                source,
+		Separator:             separator,
+		SuggestedContextTitle: suggestedContextTitle(strings.TrimSpace(input.ContextTitle), viewSegments),
+		Segments:              viewSegments,
+		FinalSegments:         finalSegments,
+	}, nil
 }
 
 func previewBatchInternal(input BatchInput) ([]BatchSegment, error) {
-	raw := strings.TrimSpace(input.RawText)
+	raw := strings.TrimSpace(normalizeNewlines(input.RawText))
 	if raw == "" {
 		return nil, fmt.Errorf("text is required")
 	}
@@ -211,31 +348,42 @@ func CreateBatch(ctx context.Context, g *graph.Graph, input BatchInput) (*BatchC
 	return CreateBatchWithLLM(ctx, g, input, nil)
 }
 
-// resolveBatchAnalysisForCreate returns the BatchAnalysis to persist for a
-// create call. When the client supplies final segments it already reviewed
-// (from a prior AnalyzeBatchWithLLM round-trip), those are used verbatim and
-// only the raw segments are recomputed via the deterministic parser for the
-// batch log. This avoids re-running non-deterministic LLM grouping a second
-// time and guarantees the persisted captures match what the user approved.
-// If no final segments are supplied, fall back to the original behavior of
-// analyzing (and possibly LLM-enriching) the input from scratch.
+// resolveBatchAnalysisForCreate returns the BatchAnalysis to persist.
+//
+// When the client posts back candidates it reviewed, only its merge decisions
+// are taken; the bodies are rebuilt from the source text. So the captures that
+// land in the graph are the messages that were pasted, grouped the way the human
+// asked — never a body a model (or a hand-written request) supplied.
+//
+// With nothing reviewed — the CLI, a test — the batch is created from the
+// deterministic split, unmerged.
 func resolveBatchAnalysisForCreate(ctx context.Context, input BatchInput, llm chat.LLMClient) (*BatchAnalysis, error) {
 	if len(input.FinalSegments) == 0 {
 		return AnalyzeBatchWithLLM(ctx, input, llm)
 	}
-	rawSegments, err := previewBatchInternal(input)
-	if err != nil {
+
+	rawSegments := input.RawSegments
+	if len(rawSegments) == 0 {
+		parsed, err := previewBatchInternal(input)
+		if err != nil {
+			return nil, err
+		}
+		rawSegments = parsed
+	}
+	if err := assertVerbatim(input.RawText, rawSegments); err != nil {
 		return nil, err
 	}
+
+	finalSegments := buildFinalSegments(rawSegments, mergeGroupsFrom(input.FinalSegments))
 	source, separator := resolveBatchSourceAndSeparator(input)
-	viewSegments := viewSegmentsFromFinal(input.FinalSegments)
+	viewSegments := viewSegmentsFromFinal(finalSegments)
 	return &BatchAnalysis{
 		Source:                source,
 		Separator:             separator,
 		SuggestedContextTitle: suggestedContextTitle(strings.TrimSpace(input.ContextTitle), viewSegments),
 		Segments:              viewSegments,
 		RawSegments:           rawSegments,
-		FinalSegments:         input.FinalSegments,
+		FinalSegments:         finalSegments,
 	}, nil
 }
 
@@ -258,20 +406,6 @@ func CreateBatchWithLLM(ctx context.Context, g *graph.Graph, input BatchInput, l
 	}
 
 	finalSegments := analysis.FinalSegments
-	if len(finalSegments) == 0 {
-		finalSegments = make([]FinalBatchSegment, 0, len(analysis.Segments))
-		for _, seg := range analysis.Segments {
-			finalSegments = append(finalSegments, FinalBatchSegment{
-				Body:            seg.Body,
-				Sender:          seg.Sender,
-				Timestamp:       seg.Timestamp,
-				Sequence:        seg.Sequence,
-				SourceSequences: []int{seg.Sequence},
-				Confidence:      seg.ParseConfidence,
-			})
-		}
-	}
-
 	rawSegments := analysis.RawSegments
 
 	rawSegmentsJSON, err := json.Marshal(rawSegments)
@@ -385,37 +519,50 @@ func hasWhatsAppHeader(raw string) bool {
 	return false
 }
 
+// parseWhatsAppBatch splits an exported chat into one segment per message,
+// folding continuation lines back into the message they belong to. The body is
+// the message as it was written: interior blank lines are kept, because a
+// multi-paragraph message is multi-paragraph on purpose. Only the outer edges
+// are trimmed.
 func parseWhatsAppBatch(raw string) []BatchSegment {
 	var out []BatchSegment
 	var current *BatchSegment
+	var body []string
+
+	flush := func() {
+		if current == nil {
+			return
+		}
+		current.Body = strings.TrimSpace(strings.Join(body, "\n"))
+		out = append(out, *current)
+		current, body = nil, nil
+	}
+
 	for _, line := range strings.Split(raw, "\n") {
-		date, sender, body, _, ok := parseWhatsAppHeader(line)
+		line = strings.TrimSuffix(line, "\r")
+		date, sender, first, _, ok := parseWhatsAppHeader(line)
 		if ok {
-			if current != nil {
-				out = append(out, *current)
-			}
+			flush()
 			current = &BatchSegment{
-				Body:            strings.TrimSpace(body),
 				Sender:          strings.TrimSpace(sender),
 				Timestamp:       strings.TrimSpace(date),
 				Sequence:        len(out),
 				ParseConfidence: "high",
 			}
+			body = []string{first}
 			continue
 		}
 		if current == nil {
-			text := strings.TrimSpace(line)
-			if text == "" {
+			if strings.TrimSpace(line) == "" {
 				continue
 			}
-			current = &BatchSegment{Body: text, Sequence: len(out), ParseConfidence: "low"}
+			current = &BatchSegment{Sequence: len(out), ParseConfidence: "low"}
+			body = []string{line}
 			continue
 		}
-		current.Body = strings.TrimSpace(current.Body + "\n" + line)
+		body = append(body, line)
 	}
-	if current != nil {
-		out = append(out, *current)
-	}
+	flush()
 	return cleanSegments(out)
 }
 

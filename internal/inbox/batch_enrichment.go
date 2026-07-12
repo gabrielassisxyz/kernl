@@ -29,23 +29,37 @@ type BatchEnrichmentInput struct {
 	RawSegments []BatchSegment `json:"rawSegments"`
 }
 
-// FinalBatchSegment is one capture candidate produced by enrichment.
+// FinalBatchSegment is one capture candidate: the text of one raw message, or
+// of several raw messages the user chose to merge.
+//
+// Body is never LLM output. It is built from the raw segments named by
+// SourceSequences (see buildFinalSegments) — the model may propose how the
+// messages group, never what they say.
 type FinalBatchSegment struct {
 	Body            string `json:"body"`
 	Sender          string `json:"sender,omitempty"`
 	Timestamp       string `json:"timestamp,omitempty"`
 	Sequence        int    `json:"sequence"`
 	SourceSequences []int  `json:"sourceSequences"`
-	KindHint        string `json:"kindHint,omitempty"`
 	Confidence      string `json:"confidence,omitempty"`
 }
 
-// BatchEnrichmentResult is the LLM output normalized to final candidates.
+// MergeProposal is the LLM saying "these raw messages are one thought". It is
+// an offer, not a decision: nothing merges until the human accepts it. An
+// unreviewed merge that collapsed two messages on its own would delete one of
+// them from the record.
+type MergeProposal struct {
+	SourceSequences []int  `json:"sourceSequences"`
+	Reason          string `json:"reason,omitempty"`
+}
+
+// BatchEnrichmentResult is the LLM's layer on top of the deterministic parse:
+// a title for the paste, and merges it suggests. It carries no bodies.
 type BatchEnrichmentResult struct {
-	ContextTitle string              `json:"contextTitle"`
-	Segments     []FinalBatchSegment `json:"segments"`
-	Status       EnrichmentStatus    `json:"status"`
-	Err          error               `json:"-"`
+	ContextTitle   string           `json:"contextTitle"`
+	MergeProposals []MergeProposal  `json:"mergeProposals"`
+	Status         EnrichmentStatus `json:"status"`
+	Err            error            `json:"-"`
 }
 
 // BatchEnricher performs optional LLM-based enrichment on top of a
@@ -55,83 +69,74 @@ type BatchEnricher struct {
 }
 
 // NewBatchEnricher creates an enricher. A nil llm means enrichment is
-// unavailable; calls degrade to the deterministic input unchanged.
+// unavailable; calls degrade to the deterministic parse unchanged.
 func NewBatchEnricher(llm chat.LLMClient) *BatchEnricher {
 	return &BatchEnricher{llm: llm}
 }
 
-// Enrich asks the LLM to group related raw segments and suggest a context
-// title. When the LLM is nil, missing, or returns invalid output, the result
-// mirrors the deterministic input with a clear status.
+// Enrich asks the LLM to suggest a context title and which raw segments belong
+// together. When the LLM is nil, missing, or returns invalid output, the batch
+// simply keeps its deterministic split and no merge is proposed.
 func (e *BatchEnricher) Enrich(ctx context.Context, input BatchEnrichmentInput) *BatchEnrichmentResult {
 	if e.llm == nil {
-		return fallbackEnrichment(input, EnrichmentUnavailable)
+		return &BatchEnrichmentResult{ContextTitle: input.ContextHint, Status: EnrichmentUnavailable}
 	}
 	if len(input.RawSegments) == 0 {
-		return fallbackEnrichment(input, EnrichmentNone)
+		return &BatchEnrichmentResult{ContextTitle: input.ContextHint, Status: EnrichmentNone}
 	}
 
 	prompt := buildBatchEnrichmentPrompt(input)
 	resp, err := e.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
 		slog.Warn("batch enrichment llm call failed", "error", err)
-		return fallbackEnrichment(input, EnrichmentFailed)
+		return &BatchEnrichmentResult{ContextTitle: input.ContextHint, Status: EnrichmentFailed, Err: err}
 	}
 
 	result, ok := parseBatchEnrichmentResponse(resp.Content, input)
 	if !ok {
-		return fallbackEnrichment(input, EnrichmentFailed)
+		return &BatchEnrichmentResult{ContextTitle: input.ContextHint, Status: EnrichmentFailed}
 	}
 	result.Status = EnrichmentApplied
 	return result
 }
 
-// EnrichSemantic asks the LLM to split a dense text into raw-like segments
-// and then group/title them. This is the LLM-backed path for the
-// "semantic" separator; without an LLM it returns a single low-confidence
-// segment.
-func (e *BatchEnricher) EnrichSemantic(ctx context.Context, input BatchEnrichmentInput) *BatchEnrichmentResult {
+// SplitSemantic asks the LLM where to cut a dense, separator-less paste. It
+// returns segments, not rewrites: every returned body must appear verbatim in
+// the source text, or the whole split is rejected and the caller keeps the
+// deterministic single segment. This is the only path where the model decides
+// segment boundaries, so it is the only one that has to be policed this way.
+func (e *BatchEnricher) SplitSemantic(ctx context.Context, input BatchEnrichmentInput) ([]BatchSegment, EnrichmentStatus) {
 	if e.llm == nil {
-		return fallbackEnrichment(input, EnrichmentUnavailable)
+		return nil, EnrichmentUnavailable
+	}
+	if len(input.RawSegments) == 0 {
+		return nil, EnrichmentNone
 	}
 
+	source := input.RawSegments[0].Body
 	prompt := buildSemanticSplitPrompt(input)
 	resp, err := e.llm.Chat(ctx, []chat.Message{{Role: "user", Content: prompt}}, nil)
 	if err != nil {
 		slog.Warn("semantic split llm call failed", "error", err)
-		return fallbackEnrichment(input, EnrichmentFailed)
+		return nil, EnrichmentFailed
 	}
 
-	segments, ok := parseSemanticSegments(resp.Content)
-	if !ok || len(segments) == 0 {
-		return fallbackEnrichment(input, EnrichmentFailed)
+	segments, ok := parseSemanticSegments(resp.Content, source)
+	if !ok {
+		return nil, EnrichmentFailed
 	}
-	for i := range segments {
-		segments[i].Sequence = i
-	}
-	return e.Enrich(ctx, BatchEnrichmentInput{
-		Source:      input.Source,
-		Separator:   input.Separator,
-		ContextHint: input.ContextHint,
-		RawSegments: toBatchSegmentsForEnrichment(segments),
-	})
-}
-
-func toBatchSegmentsForEnrichment(segments []BatchSegment) []BatchSegment {
-	out := make([]BatchSegment, len(segments))
-	copy(out, segments)
-	return out
+	return segments, EnrichmentApplied
 }
 
 func buildBatchEnrichmentPrompt(input BatchEnrichmentInput) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are helping organize a pasted batch of notes/messages into clean Inbox captures.\n\n")
+	fmt.Fprintf(&b, "You are helping organize a pasted batch of notes/messages into Inbox captures.\n\n")
 	fmt.Fprintf(&b, "Source: %s\n", input.Source)
 	fmt.Fprintf(&b, "Separator: %s\n", input.Separator)
 	if input.ContextHint != "" {
 		fmt.Fprintf(&b, "User context title hint: %s\n", input.ContextHint)
 	}
-	fmt.Fprintf(&b, "\nRaw segments (one per line, but adjacent or related items may belong together):\n")
+	fmt.Fprintf(&b, "\nMessages, one per numbered block:\n")
 	for _, seg := range input.RawSegments {
 		fmt.Fprintf(&b, "[%d]", seg.Sequence)
 		if seg.Sender != "" {
@@ -139,23 +144,20 @@ func buildBatchEnrichmentPrompt(input BatchEnrichmentInput) string {
 		}
 		fmt.Fprintf(&b, " %s\n", seg.Body)
 	}
-	fmt.Fprintf(&b, "\nInstructions:\n")
-	fmt.Fprintf(&b, "- Group related raw segments into one final capture candidate when they describe the same project/idea/task set.\n")
-	fmt.Fprintf(&b, "- Preserve unrelated raw segments as separate candidates.\n")
-	fmt.Fprintf(&b, "- Do not delete valuable content. Support-only messages may be summarized inside a grouped candidate or listed as their own candidate.\n")
+	fmt.Fprintf(&b, "\nYour job:\n")
+	fmt.Fprintf(&b, "- Each message is already its own capture. Leave it that way unless two or more messages are literally the SAME thought: restated (the user typed the same request twice), finished in the next message, or an item added to a list an earlier message started (a bullet that belongs to that list).\n")
+	fmt.Fprintf(&b, "- Merging is destructive and the default is NOT to merge. Same topic is NOT enough. Related is NOT enough. Two ideas about one project stay two captures.\n")
+	fmt.Fprintf(&b, "- A merge you propose is only a suggestion; a human accepts or rejects it. Say why in one short clause.\n")
+	fmt.Fprintf(&b, "- Never rewrite, summarize, translate or retitle a message. You do not output message text at all.\n")
 	fmt.Fprintf(&b, "- Suggest one concise context title for the whole paste.\n")
 	fmt.Fprintf(&b, "- Respond with ONLY a JSON object, no prose.\n")
 	fmt.Fprintf(&b, "{\n")
 	fmt.Fprintf(&b, "  \"context_title\": \"string\",\n")
-	fmt.Fprintf(&b, "  \"segments\": [\n")
-	fmt.Fprintf(&b, "    {\n")
-	fmt.Fprintf(&b, "      \"body\": \"string\",\n")
-	fmt.Fprintf(&b, "      \"source_sequences\": [0],\n")
-	fmt.Fprintf(&b, "      \"kind_hint\": \"project|task|note|bookmark|update|discard\",\n")
-	fmt.Fprintf(&b, "      \"confidence\": \"high|medium|low\"\n")
-	fmt.Fprintf(&b, "    }\n")
+	fmt.Fprintf(&b, "  \"merges\": [\n")
+	fmt.Fprintf(&b, "    { \"source_sequences\": [0, 4], \"reason\": \"same request, restated\" }\n")
 	fmt.Fprintf(&b, "  ]\n")
 	fmt.Fprintf(&b, "}\n")
+	fmt.Fprintf(&b, "An empty \"merges\" list is a perfectly good answer.\n")
 	return b.String()
 }
 
@@ -169,6 +171,7 @@ func buildSemanticSplitPrompt(input BatchEnrichmentInput) string {
 	fmt.Fprintf(&b, "Text:\n%s\n\n", input.RawSegments[0].Body)
 	fmt.Fprintf(&b, "Instructions:\n")
 	fmt.Fprintf(&b, "- Divide the text into logical segments (one idea, task, or note per segment).\n")
+	fmt.Fprintf(&b, "- COPY each segment out of the text character for character. Do not rewrite, summarize, fix typos, or translate — an edited segment is rejected and the split is thrown away.\n")
 	fmt.Fprintf(&b, "- Preserve ordering.\n")
 	fmt.Fprintf(&b, "- Respond with ONLY a JSON object: {\"segments\":[{\"body\":\"...\"}]}\n")
 	return b.String()
@@ -181,87 +184,50 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 	}
 	var parsed struct {
 		ContextTitle string `json:"context_title"`
-		Segments     []struct {
-			Body            string `json:"body"`
+		Merges       []struct {
 			SourceSequences []int  `json:"source_sequences"`
-			KindHint        string `json:"kind_hint"`
-			Confidence      string `json:"confidence"`
-		} `json:"segments"`
+			Reason          string `json:"reason"`
+		} `json:"merges"`
 	}
 	if err := json.Unmarshal([]byte(obj), &parsed); err != nil {
 		return nil, false
 	}
 
-	rawBySeq := map[int]BatchSegment{}
-	maxRawSeq := -1
+	known := map[int]bool{}
 	for _, seg := range input.RawSegments {
-		rawBySeq[seg.Sequence] = seg
-		if seg.Sequence > maxRawSeq {
-			maxRawSeq = seg.Sequence
-		}
+		known[seg.Sequence] = true
 	}
 
-	out := make([]FinalBatchSegment, 0, len(parsed.Segments))
-	fallbackIdx := 0
-	for _, item := range parsed.Segments {
-		body := strings.TrimSpace(item.Body)
-		if body == "" {
-			continue
-		}
-		refs := make([]int, 0, len(item.SourceSequences))
-		for _, seq := range item.SourceSequences {
-			if _, ok := rawBySeq[seq]; !ok {
+	// A raw message belongs to at most one proposal: overlapping merges cannot
+	// be accepted independently, and a message in two groups would be duplicated
+	// or lost depending on the order the user clicked.
+	claimed := map[int]bool{}
+	proposals := make([]MergeProposal, 0, len(parsed.Merges))
+	for _, m := range parsed.Merges {
+		refs := make([]int, 0, len(m.SourceSequences))
+		seen := map[int]bool{}
+		for _, seq := range m.SourceSequences {
+			if !known[seq] || seen[seq] || claimed[seq] {
 				continue
 			}
+			seen[seq] = true
 			refs = append(refs, seq)
 		}
-		if len(refs) == 0 && len(input.RawSegments) > 0 {
-			// LLM omitted source sequences, or gave only invalid ones; keep
-			// the candidate (never drop valuable content) but key it above
-			// maxRawSeq so it sorts after every candidate that maps to a
-			// real raw sequence, and so the sender/timestamp copy below
-			// cannot mistake it for a real rawBySeq entry.
-			refs = []int{maxRawSeq + 1 + fallbackIdx}
-			fallbackIdx++
-		}
-		if len(refs) == 0 {
+		if len(refs) < 2 {
 			continue
 		}
-		// The model lists source_sequences in whatever order it pleases; sort so
-		// refs[0] really is the first source message (its timestamp is the one
-		// the merged capture inherits) and so ordering below is deterministic.
 		sort.Ints(refs)
-
-		seg := FinalBatchSegment{
-			Body:            body,
+		for _, seq := range refs {
+			claimed[seq] = true
+		}
+		proposals = append(proposals, MergeProposal{
 			SourceSequences: refs,
-			KindHint:        normalizeKindHint(item.KindHint),
-			Confidence:      normalizeConfidence(item.Confidence),
-		}
-		// Carry sender/timestamp from the FIRST real raw segment behind this
-		// candidate — a merge of 08:37 and 10:18 is still something you said at
-		// 08:37, and without it the inbox has no time to show and falls back to
-		// a meaningless "#N". A fabricated fallback ref maps to no raw segment,
-		// so it borrows no attribution.
-		if raw, ok := rawBySeq[refs[0]]; ok {
-			seg.Sender = raw.Sender
-			seg.Timestamp = raw.Timestamp
-		}
-		out = append(out, seg)
+			Reason:          strings.TrimSpace(m.Reason),
+		})
 	}
-
-	if len(out) == 0 {
-		return nil, false
-	}
-
-	// Preserve deterministic ordering by first referenced raw sequence.
-	sort.SliceStable(out, func(i, j int) bool {
-		return out[i].SourceSequences[0] < out[j].SourceSequences[0]
+	sort.SliceStable(proposals, func(i, j int) bool {
+		return proposals[i].SourceSequences[0] < proposals[j].SourceSequences[0]
 	})
-	// Renumber final sequences after sorting.
-	for i := range out {
-		out[i].Sequence = i
-	}
 
 	contextTitle := strings.TrimSpace(parsed.ContextTitle)
 	if contextTitle == "" {
@@ -269,12 +235,15 @@ func parseBatchEnrichmentResponse(raw string, input BatchEnrichmentInput) (*Batc
 	}
 
 	return &BatchEnrichmentResult{
-		ContextTitle: contextTitle,
-		Segments:     out,
+		ContextTitle:   contextTitle,
+		MergeProposals: proposals,
 	}, true
 }
 
-func parseSemanticSegments(raw string) ([]BatchSegment, bool) {
+// parseSemanticSegments accepts only segments the model copied out of source.
+// A body that is not a substring of the source is a rewrite, and one rewrite is
+// enough to distrust the whole response.
+func parseSemanticSegments(raw string, source string) ([]BatchSegment, bool) {
 	obj := extractJSONObject(raw)
 	if obj == "" {
 		return nil, false
@@ -288,14 +257,18 @@ func parseSemanticSegments(raw string) ([]BatchSegment, bool) {
 		return nil, false
 	}
 	out := make([]BatchSegment, 0, len(parsed.Segments))
-	for i, item := range parsed.Segments {
+	for _, item := range parsed.Segments {
 		body := strings.TrimSpace(item.Body)
 		if body == "" {
 			continue
 		}
+		if !strings.Contains(source, body) {
+			slog.Warn("semantic split rejected: segment is not verbatim source text")
+			return nil, false
+		}
 		out = append(out, BatchSegment{
 			Body:            body,
-			Sequence:        i,
+			Sequence:        len(out),
 			ParseConfidence: "medium",
 		})
 	}
@@ -303,42 +276,4 @@ func parseSemanticSegments(raw string) ([]BatchSegment, bool) {
 		return nil, false
 	}
 	return out, true
-}
-
-func fallbackEnrichment(input BatchEnrichmentInput, status EnrichmentStatus) *BatchEnrichmentResult {
-	segments := make([]FinalBatchSegment, 0, len(input.RawSegments))
-	for _, seg := range input.RawSegments {
-		segments = append(segments, FinalBatchSegment{
-			Body:            seg.Body,
-			Sender:          seg.Sender,
-			Timestamp:       seg.Timestamp,
-			Sequence:        seg.Sequence,
-			SourceSequences: []int{seg.Sequence},
-			KindHint:        "",
-			Confidence:      seg.ParseConfidence,
-		})
-	}
-	return &BatchEnrichmentResult{
-		ContextTitle: input.ContextHint,
-		Segments:     segments,
-		Status:       status,
-	}
-}
-
-func normalizeKindHint(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	switch s {
-	case "project", "task", "note", "bookmark", "update", "discard":
-		return s
-	}
-	return ""
-}
-
-func normalizeConfidence(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	switch s {
-	case "high", "medium", "low":
-		return s
-	}
-	return "medium"
 }
