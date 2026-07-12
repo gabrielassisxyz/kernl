@@ -3,22 +3,22 @@
     <div v-if="loading" class="tag-hierarchy__status">Loading…</div>
     <p v-else-if="isEmpty" class="tag-hierarchy__status">No tags yet. Add tags in a note's properties.</p>
     <div v-else class="tag-hierarchy__groups">
-      <div v-for="(node, name) in tree" :key="name" class="tag-group">
+      <div v-for="tag in tags" :key="tag.name" class="tag-group">
         <button
           type="button"
           class="tag-group__head"
-          :aria-expanded="!!expanded[name]"
-          :aria-controls="`tag-group-${name}`"
-          @click="toggle(name)"
+          :aria-expanded="!!expanded[tag.name]"
+          :aria-controls="`tag-group-${tag.name}`"
+          @click="toggle(tag.name)"
         >
-          <span class="material-symbols-outlined tag-group__chevron !text-[18px]" :class="{ 'is-open': expanded[name] }" aria-hidden="true">expand_more</span>
+          <span class="material-symbols-outlined tag-group__chevron !text-[18px]" :class="{ 'is-open': expanded[tag.name] }" aria-hidden="true">expand_more</span>
           <span class="material-symbols-outlined tag-group__icon !text-[15px]" aria-hidden="true">tag</span>
-          <span class="tag-group__name">{{ name }}</span>
-          <span class="tag-group__count">{{ node.files.length }}</span>
+          <span class="tag-group__name">{{ tag.name }}</span>
+          <span class="tag-group__count">{{ tag.count }}</span>
         </button>
-        <div v-if="expanded[name]" :id="`tag-group-${name}`" class="tag-group__files">
+        <div v-if="expanded[tag.name]" :id="`tag-group-${tag.name}`" class="tag-group__files">
           <button
-            v-for="file in node.files"
+            v-for="file in files[tag.name] || []"
             :key="file"
             type="button"
             class="tag-file"
@@ -44,28 +44,55 @@ const props = defineProps({
 
 defineEmits(['select'])
 
-const tree = ref({})
+// Tags are a universal axis now, so this pane reads the generic tag endpoints and
+// narrows them to notes. It stays a flat, note-only list on purpose — the nested,
+// mixed-type tag surface is a separate component.
+const tags = ref([])
+const files = ref({})
 const expanded = ref({})
 const loading = ref(true)
 
-const isEmpty = computed(() => Object.keys(tree.value).length === 0)
+const isEmpty = computed(() => tags.value.length === 0)
 
 const displayName = (file) => {
   const base = file.split('/').pop() || file
   return base.replace(/\.md$/, '')
 }
 
-const toggle = (name) => {
+// The API returns the hierarchy the `/` convention implies; this pane renders full
+// tag names side by side, so flatten it back down.
+const flatten = (nodes, out = []) => {
+  for (const node of nodes) {
+    const count = node.byType?.note ?? 0
+    // A tag with no notes under it has nothing to show in a notes sidebar.
+    if (count > 0) out.push({ name: node.name, count })
+    flatten(node.children || [], out)
+  }
+  return out
+}
+
+const toggle = async (name) => {
   expanded.value[name] = !expanded.value[name]
+  if (!expanded.value[name] || files.value[name]) return
+
+  try {
+    // Tag names contain `/`, hence the query parameter rather than a path segment.
+    const res = await fetch(`/api/tags/nodes?tag=${encodeURIComponent(name)}&type=note`)
+    if (res.ok) {
+      const nodes = await res.json()
+      // Notes are file-backed: the editor opens them by vault path, not node id.
+      files.value[name] = nodes.map((n) => n.path).filter(Boolean).sort()
+    }
+  } catch (e) {
+    console.error('Error fetching notes for tag', name, e)
+  }
 }
 
 onMounted(async () => {
   try {
-    // Tag hierarchy comes from the graph in one request (node_tags + note_paths),
-    // shaped as { tag: { files: [...] } } — no per-file frontmatter parsing.
-    const res = await fetch('/api/notes/tags')
+    const res = await fetch('/api/tags')
     if (res.ok) {
-      tree.value = await res.json()
+      tags.value = flatten(await res.json())
     }
   } catch (e) {
     console.error('Error fetching tags', e)

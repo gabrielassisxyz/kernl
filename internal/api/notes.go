@@ -16,18 +16,6 @@ import (
 )
 
 func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
-	// Tag hierarchy sourced from the graph (one request, vs the editor's old
-	// N+1 fetch-every-file-and-parse-frontmatter approach).
-	mux.HandleFunc("GET /api/notes/tags", func(w http.ResponseWriter, r *http.Request) {
-		tree, err := notes.TagTree(r.Context(), a.Graph)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(tree)
-	})
-
 	// DA diff-suggest: given a note path and an instruction, ask the LLM for a
 	// revised version and return line-aligned hunks the editor surfaces for
 	// accept/reject. The user always commits — the LLM never writes directly.

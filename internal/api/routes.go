@@ -35,6 +35,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterIngestRoutes(mux, a)
 	RegisterInboxRoutes(mux, a)
 	RegisterNotesRoutes(mux, a)
+	RegisterTagRoutes(mux, a)
 	RegisterNodeSearchRoutes(mux, a)
 	RegisterNodeRelatedRoutes(mux, a)
 	RegisterEdgeRoutes(mux, a)
