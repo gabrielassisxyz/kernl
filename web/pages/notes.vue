@@ -142,7 +142,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, nextTick, onMounted, watch, defineAsyncComponent } from 'vue'
 import TagNodeList from '~/components/tags/TagNodeList.vue'
 import TagTree from '~/components/tags/TagTree.vue'
 import NoteList from '~/components/notes/NoteList.vue'
@@ -178,19 +178,24 @@ const newNoteTag = ref('') // when set, the new note is created pre-tagged (e.g.
 const titleInput = ref(null)
 const creating = ref(false)
 
-// Deep links from other surfaces: ?path= opens an existing note (e.g. Memory's
-// "Edit" on a Telos note); ?new=<tag> opens the create dialog pre-tagged.
+// Deep links from other surfaces: ?path= opens an existing note (the tags page,
+// Memory's "Edit" on a Telos note); ?new=<tag> opens the create dialog pre-tagged.
+//
+// Watched rather than read on mount: this page is prerendered, so on a cold load
+// the query string reaches the router only after hydration — after mount. Reading
+// it there worked for in-app navigation, where the route is already settled, and
+// silently did nothing for a pasted or reloaded link.
 const route = useRoute()
-onMounted(() => {
-  const path = typeof route.query.path === 'string' ? route.query.path : ''
+watch(() => [route.query.path, route.query.new], ([rawPath, rawTag]) => {
+  const path = typeof rawPath === 'string' ? rawPath : ''
   if (path) {
     activeTab.value = 'files'
     selectFile(path)
     return
   }
-  const tag = typeof route.query.new === 'string' ? route.query.new : ''
+  const tag = typeof rawTag === 'string' ? rawTag : ''
   if (tag) openNewNote(tag)
-})
+}, { immediate: true })
 
 onMounted(loadTree)
 
