@@ -106,7 +106,7 @@ func GetCapture(ctx context.Context, tx *graph.ReadTx, id string) (*Capture, err
 	var createdAt, updatedAt sql.NullString
 
 	err := tx.QueryRow(
-		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'capture'`,
+		`SELECT title, attrs, created_at, updated_at FROM nodes WHERE id = ? AND type = 'capture' AND deleted_at IS NULL`,
 		id,
 	).Scan(&title, &attrsRaw, &createdAt, &updatedAt)
 	if err == sql.ErrNoRows {
@@ -162,7 +162,7 @@ func DeleteCapture(ctx context.Context, tx *graph.WriteTx, id string, author Aut
 
 // ListCaptures returns captures matching the filter.
 func ListCaptures(ctx context.Context, tx *graph.ReadTx, f CaptureFilter) ([]*Capture, error) {
-	query := `SELECT id, title, attrs, created_at, updated_at FROM nodes WHERE type = 'capture'`
+	query := `SELECT id, title, attrs, created_at, updated_at FROM nodes WHERE type = 'capture' AND deleted_at IS NULL`
 	var args []any
 
 	if f.CapturedFromPrefix != "" {
