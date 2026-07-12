@@ -147,7 +147,7 @@ const removing = ref(false)
 const deleteError = ref<string | null>(null)
 const editModalRef = ref<InstanceType<typeof ProjectEditModal> | null>(null)
 
-async function saveEdit(patch: { title: string; description: string; status: ProjectStatus }) {
+async function saveEdit(patch: { title: string; description: string; status: ProjectStatus; tags: string[] }) {
   if (!editing.value) return
   editModalRef.value?.setSaving(true)
   editModalRef.value?.setError(null)

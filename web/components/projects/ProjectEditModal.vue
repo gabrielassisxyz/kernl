@@ -15,6 +15,10 @@
         </UiSelect>
       </UiField>
 
+      <UiField label="Tags">
+        <TagInput v-model="tags" aria-label="Project tags" />
+      </UiField>
+
       <p v-if="error" class="font-mono-data text-mono-data text-status-failed-text">{{ error }}</p>
     </form>
 
@@ -38,16 +42,18 @@ import UiInput from '~/components/ui/UiInput.vue'
 import UiModal from '~/components/ui/UiModal.vue'
 import UiSelect from '~/components/ui/UiSelect.vue'
 import UiTextarea from '~/components/ui/UiTextarea.vue'
+import TagInput from '~/components/tags/TagInput.vue'
 
 const props = defineProps<{ project: Project }>()
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'save', patch: { title: string; description: string; status: ProjectStatus }): void
+  (e: 'save', patch: { title: string; description: string; status: ProjectStatus; tags: string[] }): void
 }>()
 
 const title = ref(props.project.title)
 const description = ref(props.project.description)
 const status = ref<ProjectStatus>(props.project.status)
+const tags = ref<string[]>([...(props.project.tags ?? [])])
 const saving = ref(false)
 const error = ref<string | null>(null)
 const titleInput = ref<{ focus: () => void } | null>(null)
@@ -60,6 +66,7 @@ function submit() {
     title: title.value.trim(),
     description: description.value.trim(),
     status: status.value,
+    tags: tags.value,
   })
 }
 

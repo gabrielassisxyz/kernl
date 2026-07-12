@@ -15,6 +15,10 @@
         </UiSelect>
       </UiField>
 
+      <UiField label="Tags">
+        <TagInput v-model="tags" aria-label="Project tags" />
+      </UiField>
+
       <p v-if="error" class="font-mono-data text-mono-data text-status-failed-text">{{ error }}</p>
     </form>
 
@@ -38,6 +42,7 @@ import UiInput from '~/components/ui/UiInput.vue'
 import UiModal from '~/components/ui/UiModal.vue'
 import UiSelect from '~/components/ui/UiSelect.vue'
 import UiTextarea from '~/components/ui/UiTextarea.vue'
+import TagInput from '~/components/tags/TagInput.vue'
 
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', id: string): void }>()
 
@@ -46,6 +51,7 @@ const { create } = useProjects()
 const title = ref('')
 const description = ref('')
 const status = ref<ProjectStatus>('active')
+const tags = ref<string[]>([])
 const saving = ref(false)
 const error = ref<string | null>(null)
 const titleInput = ref<{ focus: () => void } | null>(null)
@@ -61,6 +67,7 @@ async function submit() {
       title: title.value.trim(),
       description: description.value.trim(),
       status: status.value,
+      tags: tags.value,
     })
     emit('created', id)
     emit('close')

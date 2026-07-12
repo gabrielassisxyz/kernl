@@ -24,6 +24,10 @@
         </UiField>
       </div>
 
+      <UiField label="Tags">
+        <TagInput v-model="tags" aria-label="Task tags" />
+      </UiField>
+
       <p v-if="error" class="font-mono-data text-mono-data text-status-failed-text">{{ error }}</p>
     </form>
 
@@ -48,6 +52,7 @@ import UiInput from '~/components/ui/UiInput.vue'
 import UiModal from '~/components/ui/UiModal.vue'
 import UiSelect from '~/components/ui/UiSelect.vue'
 import UiTextarea from '~/components/ui/UiTextarea.vue'
+import TagInput from '~/components/tags/TagInput.vue'
 
 const props = defineProps<{ defaultProjectId?: string }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'created', id: string): void }>()
@@ -59,6 +64,7 @@ const title = ref('')
 const description = ref('')
 const projectId = ref(props.defaultProjectId ?? '')
 const status = ref<TaskStatus>('todo')
+const tags = ref<string[]>([])
 const saving = ref(false)
 const error = ref<string | null>(null)
 const titleInput = ref<{ focus: () => void } | null>(null)
@@ -78,6 +84,7 @@ async function submit() {
       description: description.value.trim(),
       projectId: projectId.value,
       status: status.value,
+      tags: tags.value,
     })
     emit('created', id)
     emit('close')

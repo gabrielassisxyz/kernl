@@ -62,6 +62,11 @@
             </UiSelect>
           </section>
 
+          <section>
+            <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Tags</h3>
+            <TagInput v-model="tags" aria-label="Task tags" />
+          </section>
+
           <section v-if="task.description">
             <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Description</h3>
             <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ task.description }}</p>
@@ -85,9 +90,32 @@ import { TASK_STATUSES } from '~/composables/useTasks'
 import { formatTimestamp } from '~/utils/time'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
 import UiSelect from '~/components/ui/UiSelect.vue'
+import TagInput from '~/components/tags/TagInput.vue'
 
 const props = defineProps<{ task: Task | null; projectTitle?: string }>()
-const emit = defineEmits<{ (e: 'close'): void; (e: 'set-status', id: string, status: string): void }>()
+const emit = defineEmits<{
+  (e: 'close'): void
+  (e: 'set-status', id: string, status: string): void
+  (e: 'set-tags', id: string, tags: string[]): void
+}>()
+
+// This drawer is where a task's tags are edited — the tasks page has no edit modal.
+// The write is immediate (a chip added is a chip meant), and the parent owns it, the
+// same way it owns the status write.
+const tags = ref<string[]>([])
+watch(() => props.task, (task) => {
+  tags.value = [...(task?.tags ?? [])]
+}, { immediate: true })
+
+watch(tags, (next) => {
+  const id = props.task?.id
+  if (!id) return
+  const current = props.task?.tags ?? []
+  // Only a real change is worth a request: this also fires when the drawer opens
+  // and the watch above seeds the chips from the task.
+  if (next.length === current.length && next.every((t, i) => t === current[i])) return
+  emit('set-tags', id, next)
+})
 
 // --- Dialog semantics & focus management ---
 const panelRef = ref<HTMLElement | null>(null)

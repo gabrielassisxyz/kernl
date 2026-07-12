@@ -98,6 +98,7 @@
       :project-title="selected ? projectTitles[selected.projectId] : undefined"
       @close="selected = null"
       @set-status="changeStatus"
+      @set-tags="changeTags"
     />
 
     <TaskCreateModal
@@ -121,7 +122,7 @@ import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiSkeleton from '~/components/ui/UiSkeleton.vue'
 
-const { tasks, loading, error, load, setStatus } = useTasks()
+const { tasks, loading, error, load, update, setStatus } = useTasks()
 const { projects, load: loadProjects } = useProjects()
 
 const route = useRoute()
@@ -199,13 +200,22 @@ async function changeStatus(id: string, status: string) {
   reload()
 }
 
+async function changeTags(id: string, tags: string[]) {
+  await update(id, { tags })
+  if (selected.value?.id === id) selected.value = { ...selected.value, tags }
+  reload()
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && selected.value) selected.value = null
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadProjects()
-  reload()
+  await load(projectFilter.value || undefined)
+  // Deep link from the tags page: ?task=<id> opens that task's drawer.
+  const id = typeof route.query.task === 'string' ? route.query.task : ''
+  if (id) selected.value = tasks.value.find((t) => t.id === id) ?? null
   window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {

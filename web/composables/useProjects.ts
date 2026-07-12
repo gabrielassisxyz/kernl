@@ -6,6 +6,7 @@ export interface Project {
   title: string
   description: string
   status: ProjectStatus
+  tags: string[]
   createdAt: string
   updatedAt: string
   taskCount: number
@@ -25,6 +26,7 @@ export interface NewProject {
   title: string
   description?: string
   status?: ProjectStatus
+  tags?: string[]
 }
 
 /**
@@ -74,7 +76,9 @@ export function useProjects() {
 
   async function update(
     id: string,
-    patch: { title?: string; description?: string; status?: ProjectStatus }
+    // An omitted field is left alone; `tags: []` clears them, so a partial edit
+    // must not send the key at all.
+    patch: { title?: string; description?: string; status?: ProjectStatus; tags?: string[] }
   ): Promise<void> {
     const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
       method: 'PATCH',

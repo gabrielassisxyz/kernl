@@ -51,11 +51,23 @@
           :query="query"
           @select="selectFile"
         />
-        <TagHierarchy
-          v-if="activeTab === 'tags'"
-          :selected="selectedFile"
-          @select="selectFile"
-        />
+        <div v-if="activeTab === 'tags'" class="vault__tags">
+          <TagTree
+            :tree="tagTree"
+            :loading="tagsLoading"
+            :error="tagsError"
+            :selected="selectedTag"
+            type="note"
+            empty-text="No tags yet. Add tags in a note's properties."
+            @select="selectedTag = $event"
+          />
+          <TagNodeList
+            v-if="selectedTag"
+            :tag="selectedTag"
+            type="note"
+            @open="(node) => selectFile(node.path)"
+          />
+        </div>
       </div>
      </div>
     </aside>
@@ -131,8 +143,10 @@
 
 <script setup>
 import { ref, computed, nextTick, onMounted, defineAsyncComponent } from 'vue'
-import TagHierarchy from '~/components/notes/TagHierarchy.vue'
+import TagNodeList from '~/components/tags/TagNodeList.vue'
+import TagTree from '~/components/tags/TagTree.vue'
 import NoteList from '~/components/notes/NoteList.vue'
+import { useTags } from '~/composables/useTags'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiField from '~/components/ui/UiField.vue'
 import UiInput from '~/components/ui/UiInput.vue'
@@ -149,6 +163,11 @@ const TABS = [
 
 const selectedFile = ref(null)
 const noteListRef = ref(null)
+
+// The Tags tab browses the universal tag tree narrowed to notes; the tags page
+// (/tags) is the same tree across every node type.
+const { tree: tagTree, loading: tagsLoading, error: tagsError, loadTree } = useTags()
+const selectedTag = ref('')
 const activeTab = ref('files')
 const query = ref('')
 const sidebarCollapsed = ref(false)
@@ -172,6 +191,8 @@ onMounted(() => {
   const tag = typeof route.query.new === 'string' ? route.query.new : ''
   if (tag) openNewNote(tag)
 })
+
+onMounted(loadTree)
 
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
@@ -487,6 +508,14 @@ const confirmNewNote = async () => {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* The tag tree on top, the notes under the picked tag below it. */
+.vault__tags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-base);
+  padding: var(--spacing-base);
 }
 
 /* --- Workspace --- */

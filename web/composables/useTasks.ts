@@ -7,6 +7,7 @@ export interface Task {
   description: string
   status: TaskStatus
   projectId: string
+  tags: string[]
   createdAt: string
   updatedAt: string
 }
@@ -24,6 +25,15 @@ export interface NewTask {
   description?: string
   status?: TaskStatus
   projectId?: string
+  tags?: string[]
+}
+
+// A PATCH body. The API accepts status and tags only — a task's title, body and
+// project are set at creation. An omitted field is left alone; `tags: []` clears
+// them, so a partial edit must not send the key at all.
+export interface TaskPatch {
+  status?: TaskStatus
+  tags?: string[]
 }
 
 /**
@@ -64,14 +74,16 @@ export function useTasks() {
     return id
   }
 
-  async function setStatus(id: string, status: TaskStatus): Promise<void> {
+  async function update(id: string, patch: TaskPatch): Promise<void> {
     const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
+      body: JSON.stringify(patch),
     })
     if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
   }
 
-  return { tasks, loading, error, load, create, setStatus }
+  const setStatus = (id: string, status: TaskStatus): Promise<void> => update(id, { status })
+
+  return { tasks, loading, error, load, create, update, setStatus }
 }

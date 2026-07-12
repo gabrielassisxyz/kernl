@@ -34,6 +34,10 @@
             <span class="material-symbols-outlined rail-icon">neurology</span>
             <span class="rail-label">Memory</span>
           </NuxtLink>
+          <NuxtLink to="/tags" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
+            <span class="material-symbols-outlined rail-icon">tag</span>
+            <span class="rail-label">Tags</span>
+          </NuxtLink>
           <NuxtLink to="/projects" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
             <span class="material-symbols-outlined rail-icon">folder_open</span>
             <span class="rail-label">Projects</span>
