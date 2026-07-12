@@ -145,7 +145,7 @@ func buildBatchEnrichmentPrompt(input BatchEnrichmentInput) string {
 		fmt.Fprintf(&b, " %s\n", seg.Body)
 	}
 	fmt.Fprintf(&b, "\nYour job:\n")
-	fmt.Fprintf(&b, "- Each message is already its own capture. Leave it that way unless two or more messages are literally the SAME thought, restated or continued (the user typed it twice, or finished a sentence in the next message).\n")
+	fmt.Fprintf(&b, "- Each message is already its own capture. Leave it that way unless two or more messages are literally the SAME thought: restated (the user typed the same request twice), finished in the next message, or an item added to a list an earlier message started (a bullet that belongs to that list).\n")
 	fmt.Fprintf(&b, "- Merging is destructive and the default is NOT to merge. Same topic is NOT enough. Related is NOT enough. Two ideas about one project stay two captures.\n")
 	fmt.Fprintf(&b, "- A merge you propose is only a suggestion; a human accepts or rejects it. Say why in one short clause.\n")
 	fmt.Fprintf(&b, "- Never rewrite, summarize, translate or retitle a message. You do not output message text at all.\n")
