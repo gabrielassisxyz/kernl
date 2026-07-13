@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -320,6 +321,12 @@ func chatEventsHandler(a *app.App) http.HandlerFunc {
 		}
 
 		writer := &sseEventWriter{w: w, flusher: flusher}
+		// The engine leaves a goroutine behind (the learned-candidate proposal),
+		// and it outlives this handler. Once we return, the ResponseWriter is
+		// spent: writing to it is undefined and flushing it dereferences a nil
+		// buffer — in a detached goroutine that panic takes the whole server down.
+		defer writer.close()
+
 		engine, err := chat.NewChatEngine(a, id, writer, llmClient, chat.NewGraphPermissionChecker(a))
 		if err != nil {
 			slog.Error("create chat engine", "error", err)
@@ -365,13 +372,45 @@ func listNodesHandler(a *app.App) http.HandlerFunc {
 }
 
 // sseEventWriter adapts http.ResponseWriter to chat.ChatEventWriter.
+//
+// It goes inert when the handler that owns the ResponseWriter returns. The
+// engine spawns a background goroutine that emits a state event when it is done
+// extracting a memory, and that goroutine regularly outlives the stream — the
+// code even said so, and assumed a late write was harmless. It is not: flushing
+// a finished response panics on a nil buffer, and a panic in a goroutine nobody
+// recovers kills the process. The event is not lost: the next stream reads the
+// session from the graph.
 type sseEventWriter struct {
+	mu      sync.Mutex
+	closed  bool
 	w       http.ResponseWriter
 	flusher http.Flusher
 }
 
-func (s *sseEventWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
-func (s *sseEventWriter) Flush()                      { s.flusher.Flush() }
+func (s *sseEventWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return len(p), nil
+	}
+	return s.w.Write(p)
+}
+
+func (s *sseEventWriter) Flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.flusher.Flush()
+}
+
+// close is called when the handler returns; every later write is dropped.
+func (s *sseEventWriter) close() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+}
 
 // configToLLMProviderConfig converts config.LLMConfig to chat.LLMProviderConfig.
 func configToLLMProviderConfig(cfg config.LLMConfig) chat.LLMProviderConfig {
