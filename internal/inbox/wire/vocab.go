@@ -1,5 +1,7 @@
 package wire
 
+import "strings"
+
 // The vocabulary that defines what a capture action MEANS — the prose half of
 // the contract whose shape lives in action.go.
 //
@@ -63,11 +65,15 @@ var KnownTags = []string{
 	"bug", "research", "purchase", "health", "admin",
 }
 
-// FilterTags keeps only tags on the closed list. It is the backstop for the
-// prompt: an LLM told "never coin a tag" still occasionally does.
+// FilterTags normalises tags and keeps only those on the closed list. It is the
+// backstop for the prompt: an LLM told "never coin a tag" still occasionally
+// does. It normalises first because a model that returns "To-Read" means the
+// tag on the list, and dropping it as unknown loses real information silently —
+// the filter exists to reject invention, not spelling.
 func FilterTags(tags []string) []string {
 	var out []string
 	for _, t := range tags {
+		t = strings.ToLower(strings.TrimSpace(t))
 		for _, known := range KnownTags {
 			if t == known {
 				out = append(out, t)

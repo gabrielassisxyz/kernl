@@ -109,18 +109,56 @@ func suggestRoutingTool() Tool {
 // what the browser reads. The two are bridged in presentRouting, deliberately in
 // one place.
 type routingArgs struct {
-	Actions []struct {
-		Target             string   `json:"target"`
-		Title              string   `json:"title"`
-		Body               string   `json:"body"`
-		ProjectID          string   `json:"project_id"`
-		ProjectTitle       string   `json:"project_title"`
-		ProjectDescription string   `json:"project_description"`
-		InitialTasks       []string `json:"initial_tasks"`
-		Tags               []string `json:"tags"`
-		DueDate            string   `json:"due_date"`
-	} `json:"actions"`
-	Rationale string `json:"rationale"`
+	Actions   []routingAction `json:"actions"`
+	Rationale string          `json:"rationale"`
+}
+
+// routingAction accepts the names models actually reach for, not only the ones
+// the schema asks for. Models routinely answered with "type" instead of
+// "target", and with a bare "tag": "to-read" instead of "tags": ["to-read"].
+// encoding/json drops an unknown key without a word, so the action arrived with
+// no target, the tool rejected it, and the model retried — and its correction
+// supplied the target while quietly dropping the tag. The user saw a routing
+// with no tags and a reply that talked about one, and every rejected call cost a
+// turn. Be liberal in what you accept from a model: a synonym is not an error
+// worth a round trip.
+type routingAction struct {
+	Target             string          `json:"target"`
+	Type               string          `json:"type"`
+	Title              string          `json:"title"`
+	Body               string          `json:"body"`
+	ProjectID          string          `json:"project_id"`
+	ProjectTitle       string          `json:"project_title"`
+	ProjectDescription string          `json:"project_description"`
+	InitialTasks       []string        `json:"initial_tasks"`
+	Tags               []string        `json:"tags"`
+	Tag                json.RawMessage `json:"tag"`
+	DueDate            string          `json:"due_date"`
+}
+
+// target is the action's target under either name.
+func (a routingAction) target() string {
+	if a.Target != "" {
+		return a.Target
+	}
+	return a.Type
+}
+
+// tags gathers the tags under either name. "tag" arrives as a string or, less
+// often, as an array; both are read, and wire.FilterTags has the last word on
+// what survives.
+func (a routingAction) tags() []string {
+	out := append([]string(nil), a.Tags...)
+	if len(a.Tag) > 0 {
+		var one string
+		var many []string
+		if err := json.Unmarshal(a.Tag, &one); err == nil {
+			out = append(out, one)
+		} else if err := json.Unmarshal(a.Tag, &many); err == nil {
+			out = append(out, many...)
+		}
+	}
+	return wire.FilterTags(out)
 }
 
 // presentRouting validates the proposed routing and emits it as an accept/reject
@@ -134,11 +172,11 @@ func (e *ChatEngine) presentRouting(ctx context.Context, captureID string, args 
 
 	actions := make([]wire.CaptureAction, 0, len(args.Actions))
 	for _, a := range args.Actions {
-		if !wire.ValidTarget(a.Target) {
-			return fmt.Sprintf("%q is not a target; use one of: %s", a.Target, strings.Join(wire.Targets, ", "))
+		if !wire.ValidTarget(a.target()) {
+			return fmt.Sprintf("%q is not a target; use one of: %s", a.target(), strings.Join(wire.Targets, ", "))
 		}
 		actions = append(actions, wire.CaptureAction{
-			Target:             a.Target,
+			Target:             a.target(),
 			Title:              a.Title,
 			Body:               a.Body,
 			ProjectID:          a.ProjectID,
@@ -147,7 +185,7 @@ func (e *ChatEngine) presentRouting(ctx context.Context, captureID string, args 
 			InitialTasks:       a.InitialTasks,
 			// The vocabulary is closed. A tag the model coined anyway is dropped
 			// rather than proposed — the same backstop the classifier applies.
-			Tags:    wire.FilterTags(a.Tags),
+			Tags:    a.tags(),
 			DueDate: a.DueDate,
 		})
 	}

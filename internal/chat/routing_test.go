@@ -427,6 +427,43 @@ func TestEveryToolCallInATurnRuns(t *testing.T) {
 	}
 }
 
+// The model does not always answer with the keys the schema asked for: it
+// reaches for "type" instead of "target", and for a bare "tag": "to-read"
+// instead of "tags": ["to-read"]. encoding/json drops an unknown key without a
+// word, so the action arrived with no target at all, the tool rejected it, and
+// the model retried — supplying the target and quietly losing the tag. What the
+// user saw was a routing with no tags and a DA that talked about one, and every
+// rejected call cost a turn. A synonym is not worth a round trip.
+func TestSuggestRoutingAcceptsTheKeysModelsActuallySend(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	captureID := seedCapture(t, a, "the selfish gene")
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "make a note for the book", captureID)
+
+	// Exactly what kimi-k2.7 emitted: "type" for the target, singular "tag" as a
+	// string, and the tag itself miscased.
+	args := `{"actions":[{"type":"note","title":"The Selfish Gene","tag":"To-Read "}]}`
+	_, rec := runRouting(t, a, sessionID,
+		ChatResponse{ToolCalls: []ToolCall{{
+			ID:       "c1",
+			Function: ToolFunction{Name: "suggest_routing", Arguments: args},
+		}}},
+		ChatResponse{Content: "Proposed."},
+	)
+
+	evt := routingEvent(t, rec)
+	actions, _ := evt["actions"].([]any)
+	first, _ := actions[0].(map[string]any)
+	if first["target"] != "note" {
+		t.Errorf(`"type" was not read as the target: %v`, first)
+	}
+	tags, _ := first["tags"].([]any)
+	if len(tags) != 1 || tags[0] != "to-read" {
+		t.Errorf(`the tag was lost between "tag" and "tags": %v`, tags)
+	}
+}
+
 func contains(haystack []string, needle string) bool {
 	for _, s := range haystack {
 		if s == needle {
