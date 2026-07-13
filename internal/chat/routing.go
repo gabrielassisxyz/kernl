@@ -167,7 +167,7 @@ func (e *ChatEngine) presentRouting(ctx context.Context, captureID string, args 
 		slog.Warn("emit routing event", "error", err)
 		return "failed to present the routing"
 	}
-	return fmt.Sprintf("routing presented to the user for accept/reject (%d node(s)); it is NOT applied — they still process the capture themselves. This tool is DONE — never call it again in this turn. If the request ALSO asked you to change a note that already exists, call suggest_note_edit now. Otherwise reply to the user.", len(actions))
+	return fmt.Sprintf("routing presented to the user for accept/reject (%d node(s)); it is NOT applied — they still process the capture themselves. This routing is done — do not propose it again.", len(actions))
 }
 
 func (e *ChatEngine) emitRoutingEvent(captureID, rationale string, actions []wire.CaptureAction) error {

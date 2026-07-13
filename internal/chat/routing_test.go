@@ -5,6 +5,9 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -351,6 +354,76 @@ func TestTheOnScreenDraftReachesTheModel(t *testing.T) {
 	system := systemBlob(mock)
 	if !strings.Contains(system, "user retyped this from task") {
 		t.Errorf("the on-screen draft never reached the model:\n%s", system)
+	}
+}
+
+// One request, two tools. "Add this book to my Anti-library note and make a
+// note for the book itself" is one thought, and a model answers it with two
+// tool calls in a single assistant turn. The engine used to return inside the
+// dispatch loop, so it ran the first call and dropped the second on the floor —
+// and since the assistant turn it fed back still ADVERTISED both calls, the
+// model read its own transcript, saw the routing it had asked for, and told the
+// user it had proposed one. The user got a diff, no routing card, and a claim
+// that both were done.
+func TestEveryToolCallInATurnRuns(t *testing.T) {
+	a := newTestApp(t)
+	seedDAIdentity(t, a)
+	ctx := context.Background()
+
+	noteID := seedNote(t, a, "Anti-library", "old body\n", nil)
+	rel := "anti-library.md"
+	file := "---\nid: " + noteID + "\ntitle: Anti-library\n---\n\nold body\n"
+	if err := os.WriteFile(filepath.Join(a.Config.Vault.Root, rel), []byte(file), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := tx.Exec(`INSERT INTO note_paths (uuid, path, content_hash, updated_at)
+			VALUES (?, ?, '', strftime('%Y-%m-%dT%H:%M:%SZ','now'))`, noteID, rel)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	captureID := seedCapture(t, a, "the selfish gene")
+	sessionID := createSession(t, a)
+	appendUserMessage(t, a, sessionID, "add it to Anti-library and make a note for the book", captureID)
+
+	routingArgs, _ := json.Marshal(map[string]any{
+		"actions": []map[string]any{{"target": "note", "title": "The Selfish Gene"}},
+	})
+	mock, rec := runRouting(t, a, sessionID,
+		ChatResponse{ToolCalls: []ToolCall{
+			{ID: "c1", Type: "function", Function: ToolFunction{
+				Name:      "suggest_note_edit",
+				Arguments: fmt.Sprintf(`{"node_id":%q,"new_body":"old body\n\n- The Selfish Gene — Richard Dawkins\n"}`, noteID),
+			}},
+			{ID: "c2", Type: "function", Function: ToolFunction{
+				Name:      "suggest_routing",
+				Arguments: string(routingArgs),
+			}},
+		}},
+		ChatResponse{Content: "Proposed the bullet and the note."},
+	)
+
+	if !rec.hasEventType("diff") {
+		t.Error("the note edit was never presented")
+	}
+	if !rec.hasEventType("routing") {
+		t.Error("the second tool call was dropped: no routing was presented")
+	}
+
+	// Every call must be answered by id. A tool_call left without its result is a
+	// malformed transcript, and it is what let the model believe it had routed.
+	answered := map[string]bool{}
+	for _, m := range mock.GetMessages() {
+		if m.Role == "tool" {
+			answered[m.ToolCallID] = true
+		}
+	}
+	for _, id := range []string{"c1", "c2"} {
+		if !answered[id] {
+			t.Errorf("tool call %s got no result back", id)
+		}
 	}
 }
 
