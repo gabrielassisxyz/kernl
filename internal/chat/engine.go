@@ -42,6 +42,16 @@ type ChatEngine struct {
 	llmClient         LLMClient
 	permissionChecker PermissionChecker
 	app               *app.App
+
+	// capture is set when the session is scoped to one — the engine is then in
+	// routing mode: it gains the suggest_routing tool and the triage prompt. An
+	// engine is per-request, so this and the project list it needs are resolved
+	// once per run rather than threaded through the recursive tool loop.
+	capture  *nodes.Capture
+	projects string
+
+	// toolTurns counts completions in this run, bounding the tool loop.
+	toolTurns int
 }
 
 // NewChatEngine creates a new chat engine for a session.
@@ -94,6 +104,13 @@ func (e *ChatEngine) RunSession(ctx context.Context) error {
 		telos = ""
 	}
 
+	// A session scoped to a capture is a triage conversation: the engine picks up
+	// the routing tool and the vocabulary that defines the targets.
+	if e.capture = e.capturedScope(ctx, cs); e.capture != nil {
+		e.projects = e.projectList(ctx)
+		slog.Info("routing mode armed", "capture", e.capture.ID, "body_len", len(e.capture.Body))
+	}
+
 	// Build messages.
 	messages := e.buildMessages(cs, di, telos)
 
@@ -105,10 +122,22 @@ func (e *ChatEngine) RunSession(ctx context.Context) error {
 	return e.runAgentLoop(ctx, cs, messages)
 }
 
-func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, messages []Message) error {
-	tools := []Tool{readNodeTool(), searchNotesTool(), suggestNoteEditTool()}
+// maxToolTurns bounds the agent loop. Every tool result feeds back into the next
+// completion, so a model that keeps calling the same tool recurses forever: asked
+// to edit a note, one proposed the same edit five times and never answered, with
+// no text ever reaching the user. A tool loop needs a floor under it, and eight
+// turns is far more than any real answer here takes.
+const maxToolTurns = 8
 
-	resp, err := e.llmClient.Chat(ctx, messages, tools)
+func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, messages []Message) error {
+	e.toolTurns++
+	if e.toolTurns > maxToolTurns {
+		slog.Warn("agent loop hit the turn limit", "session", e.sessionID, "turns", e.toolTurns)
+		_ = e.emitErrorEvent("The DA kept working without reaching an answer, so it was stopped. Try asking for one thing at a time.")
+		return e.emitDoneEvent()
+	}
+
+	resp, err := e.llmClient.Chat(ctx, messages, e.tools())
 	if err != nil {
 		_ = e.emitErrorEvent(fmt.Sprintf("LLM error: %v", err))
 		return nil
@@ -140,6 +169,15 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 		go e.proposeLearnedCandidate(ctx, e.sessionID, resp.Content)
 		return e.emitDoneEvent()
 	}
+
+	// The assistant's own tool-call turn goes into the transcript BEFORE its
+	// results. Skipping it left the model looking at a tool result with nothing
+	// claiming the call — so it re-issued the same call, forever.
+	messages = append(messages, Message{
+		Role:      "assistant",
+		Content:   resp.Content,
+		ToolCalls: resp.ToolCalls,
+	})
 
 	// Handle tool calls: check permission, fetch node, recurse.
 	for _, tc := range resp.ToolCalls {
@@ -192,8 +230,9 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 
 			// Append tool result to messages and recurse.
 			messages = append(messages, Message{
-				Role:    "tool",
-				Content: fmt.Sprintf("read_node(%s) = %s", args.NodeID, content),
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("read_node(%s) = %s", args.NodeID, content),
 			})
 			return e.runAgentLoop(ctx, cs, messages)
 		}
@@ -222,8 +261,9 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 			}
 
 			messages = append(messages, Message{
-				Role:    "tool",
-				Content: fmt.Sprintf("search_notes(%q) =\n%s", args.Query, b.String()),
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("search_notes(%q) =\n%s", args.Query, b.String()),
 			})
 			return e.runAgentLoop(ctx, cs, messages)
 		}
@@ -242,8 +282,28 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 			// Feed the outcome back so the LLM can close with a short confirmation
 			// (e.g. "I've proposed the edit for your review").
 			messages = append(messages, Message{
-				Role:    "tool",
-				Content: fmt.Sprintf("suggest_note_edit(%s) = %s", args.NodeID, result),
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("suggest_note_edit(%s) = %s", args.NodeID, result),
+			})
+			return e.runAgentLoop(ctx, cs, messages)
+		}
+
+		if tc.Function.Name == "suggest_routing" && e.capture != nil {
+			args := routingArgs{}
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+				_ = e.emitErrorEvent(fmt.Sprintf("invalid tool arguments: %v", err))
+				return nil
+			}
+
+			// A rejected routing (an unknown target, an update in a fan-out) comes
+			// back as the tool result rather than an error, so the model can fix it
+			// and try again instead of the turn dying on the user.
+			result := e.presentRouting(ctx, e.capture.ID, args)
+			messages = append(messages, Message{
+				Role:       "tool",
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("suggest_routing = %s", result),
 			})
 			return e.runAgentLoop(ctx, cs, messages)
 		}
@@ -285,7 +345,11 @@ func (e *ChatEngine) presentNoteEdit(ctx context.Context, nodeID, newBody string
 		slog.Warn("emit diff event", "error", err)
 		return "failed to present the edit"
 	}
-	return "edit presented to the user as a diff for accept/reject"
+	// Terminal for THIS tool, not for the turn. Told only that the edit "was
+	// presented", a model re-proposed the same edit on every pass; told to reply
+	// immediately, it skipped the second half of a two-part request and then
+	// claimed to have done it. So: this tool is finished, the turn may not be.
+	return "edit presented to the user for accept/reject. This tool is DONE — never call it again in this turn. If the request ALSO needs a routing for the capture, call suggest_routing now. Otherwise reply to the user."
 }
 
 func (e *ChatEngine) emitDiffEvent(nodeID, notePath string, hunks []notes.SuggestHunk) error {
@@ -297,13 +361,32 @@ func (e *ChatEngine) emitDiffEvent(nodeID, notePath string, hunks []notes.Sugges
 	})
 }
 
+// buildMessages assembles the prompt as ONE system message followed by the
+// conversation.
+//
+// The system content is stacked, not replaced: the DA's identity, then the
+// user's standing telos, then — when a capture is in scope — the triage
+// vocabulary. But it is stacked into a SINGLE message on purpose. Sending three
+// separate system turns is legal OpenAI, and every provider behind an
+// openai-compatible proxy treats it differently: several honour only the first
+// and silently drop the rest. That failed as a routing chat where the DA had its
+// identity but had never seen the capture, and answered "which capture do you
+// mean?" — with nothing in the logs, because the prompt WAS built and sent.
 func (e *ChatEngine) buildMessages(cs *nodes.ChatSession, di *nodes.DAIdentity, telos string) []Message {
-	var msgs []Message
+	var system []string
 	if di != nil && di.SystemPrompt != "" {
-		msgs = append(msgs, Message{Role: "system", Content: di.SystemPrompt})
+		system = append(system, di.SystemPrompt)
 	}
 	if telos != "" {
-		msgs = append(msgs, Message{Role: "system", Content: telos})
+		system = append(system, telos)
+	}
+	if e.capture != nil {
+		system = append(system, routingSystemPrompt(e.capture.Body, cs.DraftRouting, e.projects))
+	}
+
+	var msgs []Message
+	if len(system) > 0 {
+		msgs = append(msgs, Message{Role: "system", Content: strings.Join(system, "\n\n---\n\n")})
 	}
 	for _, m := range cs.Messages {
 		msgs = append(msgs, Message{Role: m.Role, Content: m.Content})
@@ -509,6 +592,17 @@ func (e *ChatEngine) writeEvent(v map[string]any) error {
 	}
 	e.eventWriter.Flush()
 	return nil
+}
+
+// tools is what the DA may call this turn. suggest_routing is offered only in
+// routing mode: with no capture in scope there is nothing for a proposed routing
+// to be about, and the tool would only invite the model to hallucinate one.
+func (e *ChatEngine) tools() []Tool {
+	tools := []Tool{readNodeTool(), searchNotesTool(), suggestNoteEditTool()}
+	if e.capture != nil {
+		tools = append(tools, suggestRoutingTool())
+	}
+	return tools
 }
 
 func readNodeTool() Tool {

@@ -11,9 +11,19 @@ type LLMClient interface {
 }
 
 // Message represents a single message in a chat conversation.
+//
+// ToolCalls and ToolCallID carry the tool-use half of the protocol. Without them
+// a tool result was appended as a bare `role: "tool"` message with no assistant
+// turn in front of it claiming the call — so the model never saw that IT had
+// already run the tool, and called it again on the next pass. That is what a
+// "the DA thinks, finishes, and says nothing" loop is made of.
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+	// ToolCalls is set on an assistant turn that invoked tools.
+	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	// ToolCallID is set on a tool turn, naming the call it answers.
+	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
 // ChatResponse is the LLM response — either content text or tool calls.
