@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 // somewhere in the app; grep the codebase before removing one.
 const ICONS = [
   'account_circle', 'account_tree', 'add', 'analytics', 'arrow_forward',
-  'arrow_upward', 'auto_awesome', 'bookmark', 'check', 'check_circle',
+  'arrow_upward', 'auto_awesome', 'bookmark', 'center_focus_strong', 'check', 'check_circle',
   'checklist', 'chrome_reader_mode', 'close', 'cloud_off', 'code', 'dashboard',
   'delete', 'description', 'edit', 'edit_note', 'event', 'expand_more', 'explore', 'filter_list',
   'fit_screen', 'folder_open', 'format_list_numbered', 'help', 'history',
