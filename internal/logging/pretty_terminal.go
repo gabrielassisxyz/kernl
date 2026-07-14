@@ -56,9 +56,32 @@ func (h *prettyTerminalHandler) Handle(_ context.Context, r slog.Record) error {
 		return nil
 	}
 
-	// Everything else stays JSON (or could be filtered further)
-	// For now, silent for non-DRIVE_TRACE to keep terminal clean
+	// A warning or an error ALWAYS reaches the terminal. This handler used to drop
+	// everything that was not a DRIVE_TRACE line "to keep the terminal clean",
+	// which meant a fatal `slog.Error` went to the JSON file and nowhere a human
+	// would look: the process died with no visible reason. Quiet is for noise, not
+	// for failure.
+	if r.Level >= slog.LevelWarn {
+		_, _ = fmt.Fprint(h.w, h.formatDiagnostic(r))
+		return nil
+	}
+
+	// Info and below stay in the JSON log: that is the noise the terminal is being
+	// kept clean of.
 	return nil
+}
+
+// formatDiagnostic renders a warning or an error as one readable line, with its
+// attributes trailing — "ERROR server error: listen tcp :8080: address already in use".
+func (h *prettyTerminalHandler) formatDiagnostic(r slog.Record) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s", r.Level, r.Message)
+	r.Attrs(func(a slog.Attr) bool {
+		fmt.Fprintf(&b, " %s=%v", a.Key, a.Value)
+		return true
+	})
+	b.WriteByte('\n')
+	return b.String()
 }
 
 func (h *prettyTerminalHandler) WithAttrs(attrs []slog.Attr) slog.Handler {

@@ -25,6 +25,12 @@ type ChatSession struct {
 	// rejected, so the same candidate is not re-proposed later in the session
 	// (the discard "negative signal" in the DA-learned Keep/Edit/Discard flow).
 	DiscardedCandidates []string
+	// DraftRouting is the routing the user currently has on screen while triaging
+	// a capture, rendered for the prompt. The chat is write-then-stream — the LLM
+	// runs from the persisted session, not from the request — so a draft that
+	// lives only in the browser never reaches the DA, and it would argue about a
+	// routing the user has already changed.
+	DraftRouting string
 }
 
 // LearnedCandidateState represents a durable memory extracted from the chat.
@@ -69,6 +75,9 @@ func (cs ChatSession) NodeAttrs() []byte {
 	if len(cs.DiscardedCandidates) > 0 {
 		attrs["discarded_candidates"] = cs.DiscardedCandidates
 	}
+	if cs.DraftRouting != "" {
+		attrs["draft_routing"] = cs.DraftRouting
+	}
 	if cs.PendingPermission != nil {
 		attrs["pending_permission"] = cs.PendingPermission
 	}
@@ -93,6 +102,7 @@ type chatSessionAttrs struct {
 	PendingPermission   *PendingPermissionState `json:"pending_permission,omitempty"`
 	DerivedScopeNodeID  string                  `json:"derived_scope_node_id"`
 	DiscardedCandidates []string                `json:"discarded_candidates,omitempty"`
+	DraftRouting        string                  `json:"draft_routing,omitempty"`
 }
 
 // GetChatSession fetches a single chat session by ID.
@@ -131,6 +141,7 @@ func GetChatSession(ctx context.Context, tx *graph.ReadTx, nodeID string) (*Chat
 		PendingPermission:   attrs.PendingPermission,
 		DerivedScopeNodeID:  attrs.DerivedScopeNodeID,
 		DiscardedCandidates: attrs.DiscardedCandidates,
+		DraftRouting:        attrs.DraftRouting,
 	}, nil
 }
 

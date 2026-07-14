@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/inbox/wire"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
@@ -203,7 +204,7 @@ Related notes already in the knowledge base (match the capture against these —
 %s
 %s
 Respond with ONLY a JSON object, no prose:
-{"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[],"due_date":null}]}
+{"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[],"tags":[],"due_date":null}]}
 
 %s
 
@@ -292,36 +293,17 @@ func dateAnchorLine(ref time.Time) string {
 	return b.String()
 }
 
-// targetVocabulary is the shared definition of what each node kind means and
-// when a capture must be split into several. Both prompts embed it verbatim so
-// the single-capture and batch paths cannot drift apart.
-const targetVocabulary = `A capture is often MORE THAN ONE THING. Work in two steps: FIRST split the capture into distinct items, THEN pick a target for each one. Never fold two items into one action.
-
-Targets:
-- "project": TWO tests, both required. (1) ONE outcome: you can name the state of the world when it is done. (2) MORE THAN ONE STEP to get there. A COLLECTION — a list, a backlog, a dump of items — is NOT a project, however long it is: it has no single outcome, so it is N items, each classified on its own.
-- "task": one concrete action, done in one sitting, indivisible. A question is a task (answering it is the action; the note is what gets written once it is answered).
-- "update": the capture extends or revises a topic that almost certainly already has its own note. Use it alone, never combined with other actions.
-- "note": durable knowledge, a reflection, or an insight worth preserving.
-- "bookmark": a URL or external reference to save.
-- "discard": this fragment is noise. Discarding one action does not discard the capture.
-
-Splitting rules:
-- A message holding several items (two unrelated ideas typed in one go) yields ONE ACTION PER ITEM.
-- An agenda list ("tomorrow:", "today:", "plan:", a list of errands) is a LIST OF SEPARATE ITEMS: one action per line. It is NOT a project — a list is not an outcome. Only group the lines into a project when EVERY line serves one shared outcome; if even one line belongs elsewhere, they are separate actions.
-- Judge by the items, not by how the capture labels itself. A capture calling itself a "plan" or a "project" is still a list of separate items when its lines do not share one outcome.
-- A reflection that also implies an action is a "note" AND a "task". A sentence about how you think, feel, or work — an insight, a realization, a self-observation — is a note, even when it sits in the same message as an action.
-- A verb-initial bookmark ("Reread: <url>", "Watch: <url>") is a "bookmark" AND a "task".
-- Do not shrink a project into a task because it sounds small: "more than one step" is the floor, not "sounds ambitious". Do not classify an actionable idea as a note because it is phrased informally.
-- Never invent a project whose initial_tasks only restate the capture ("define X", "do X", "adjust X"). One action, split into synonyms of itself, is still ONE TASK.`
-
-// actionFieldRules describes the per-action fields. The title rule is the one
-// that makes a long paste reviewable: the user reads titles, not bodies.
-const actionFieldRules = `Field rules:
-- title: ALWAYS write one. Short, imperative, human. Never the truncated body.
-- body: the fragment of the capture this action owns. Omit when the action owns the whole capture.
-- project_id: an existing project id from the list above, for a task that belongs to it.
-- project_title/project_description/initial_tasks: only for "project"; 3-6 short initial_tasks.
-- due_date: "YYYY-MM-DD", on a "task" only. Set it ONLY when the capture itself states a deadline ("amanhã", "tomorrow", "até sexta", "by friday", "this weekend", an explicit date). Take the value from the date anchors above — do not compute it, and do not use the real current date. No deadline stated → null. NEVER invent one: a task with no due date is normal.`
+// The shared definition of what each node kind means and when a capture must be
+// split into several. Both prompts here embed it verbatim, so the single-capture
+// and batch paths cannot drift apart.
+//
+// It lives in inbox/wire because the chat engine's routing mode embeds the same
+// text and cannot import this package without a cycle. Aliased here so the
+// prompt sites below read as they always did.
+const (
+	targetVocabulary = wire.TargetVocabulary
+	actionFieldRules = wire.ActionFieldRules
+)
 
 func (c *Classifier) classifyBatch(ctx context.Context, group []*nodes.Capture, projects []*nodes.Project) (map[string][]nodes.CaptureAction, error) {
 	var projectList strings.Builder
@@ -368,7 +350,7 @@ Related notes:
 %s
 %s
 Respond with ONLY a JSON object. Each sequence gets its OWN LIST of actions:
-{"items":[{"sequence":0,"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[],"due_date":null}]}]}
+{"items":[{"sequence":0,"actions":[{"target":"project|task|update|note|bookmark|discard","title":"","body":"","project_id":"","project_title":"","project_description":"","initial_tasks":[],"tags":[],"due_date":null}]}]}
 
 %s
 
@@ -574,6 +556,10 @@ func cleanInitialTasks(tasks []string, max int) []string {
 	return out
 }
 
+// cleanTags normalizes the model's tags and drops anything off the closed
+// vocabulary. The prompt says "never coin a tag"; an LLM still occasionally does,
+// and a coined tag is worse than no tag — it fragments the vocabulary silently
+// and filters nothing ("capture" on a capture-derived note).
 func cleanTags(tags []string) []string {
 	out := make([]string, 0, len(tags))
 	for _, tag := range tags {
@@ -582,6 +568,7 @@ func cleanTags(tags []string) []string {
 			out = append(out, tag)
 		}
 	}
+	out = wire.FilterTags(out)
 	if len(out) == 0 {
 		return nil
 	}

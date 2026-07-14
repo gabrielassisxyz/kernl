@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -105,6 +106,12 @@ func postChatMessageHandler(a *app.App) http.HandlerFunc {
 		var body struct {
 			Content     string `json:"content"`
 			ScopeNodeID string `json:"scope_node_id"`
+			// DraftActions is the routing the user has on screen while triaging a
+			// capture. It rides along with the message because the LLM runs from
+			// the persisted session (the SSE stream), not from this request: a
+			// draft that stays in the browser never reaches the DA, which would
+			// then discuss a routing the user has already edited away.
+			DraftActions []captureActionDTO `json:"draftActions"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -133,6 +140,7 @@ func postChatMessageHandler(a *app.App) http.HandlerFunc {
 			Timestamp: time.Now().UTC(),
 		})
 		cs.DerivedScopeNodeID = body.ScopeNodeID
+		cs.DraftRouting = renderDraftRouting(body.DraftActions)
 
 		err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 			return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
@@ -144,6 +152,27 @@ func postChatMessageHandler(a *app.App) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusAccepted)
 	}
+}
+
+// renderDraftRouting flattens the on-screen routing into the lines the prompt
+// shows the DA. It is prose, not JSON: the DA reads this to know what the user
+// changed, and only ever writes a routing back through the suggest_routing tool.
+func renderDraftRouting(actions []captureActionDTO) string {
+	var b strings.Builder
+	for _, a := range actions {
+		fmt.Fprintf(&b, "- %s: %s", a.Target, a.Title)
+		if a.ProjectID != "" {
+			fmt.Fprintf(&b, " (project %s)", a.ProjectID)
+		}
+		if a.DueDate != "" {
+			fmt.Fprintf(&b, " (due %s)", a.DueDate)
+		}
+		if len(a.Tags) > 0 {
+			fmt.Fprintf(&b, " [%s]", strings.Join(a.Tags, ", "))
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // postLearnedCandidateHandler persists the user's decision on a DA-learned
@@ -292,6 +321,12 @@ func chatEventsHandler(a *app.App) http.HandlerFunc {
 		}
 
 		writer := &sseEventWriter{w: w, flusher: flusher}
+		// The engine leaves a goroutine behind (the learned-candidate proposal),
+		// and it outlives this handler. Once we return, the ResponseWriter is
+		// spent: writing to it is undefined and flushing it dereferences a nil
+		// buffer — in a detached goroutine that panic takes the whole server down.
+		defer writer.close()
+
 		engine, err := chat.NewChatEngine(a, id, writer, llmClient, chat.NewGraphPermissionChecker(a))
 		if err != nil {
 			slog.Error("create chat engine", "error", err)
@@ -337,13 +372,45 @@ func listNodesHandler(a *app.App) http.HandlerFunc {
 }
 
 // sseEventWriter adapts http.ResponseWriter to chat.ChatEventWriter.
+//
+// It goes inert when the handler that owns the ResponseWriter returns. The
+// engine spawns a background goroutine that emits a state event when it is done
+// extracting a memory, and that goroutine regularly outlives the stream — the
+// code even said so, and assumed a late write was harmless. It is not: flushing
+// a finished response panics on a nil buffer, and a panic in a goroutine nobody
+// recovers kills the process. The event is not lost: the next stream reads the
+// session from the graph.
 type sseEventWriter struct {
+	mu      sync.Mutex
+	closed  bool
 	w       http.ResponseWriter
 	flusher http.Flusher
 }
 
-func (s *sseEventWriter) Write(p []byte) (int, error) { return s.w.Write(p) }
-func (s *sseEventWriter) Flush()                      { s.flusher.Flush() }
+func (s *sseEventWriter) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return len(p), nil
+	}
+	return s.w.Write(p)
+}
+
+func (s *sseEventWriter) Flush() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.flusher.Flush()
+}
+
+// close is called when the handler returns; every later write is dropped.
+func (s *sseEventWriter) close() {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
+}
 
 // configToLLMProviderConfig converts config.LLMConfig to chat.LLMProviderConfig.
 func configToLLMProviderConfig(cfg config.LLMConfig) chat.LLMProviderConfig {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -94,9 +95,25 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Bind BEFORE announcing. ListenAndServe binds and serves in one call, so
+	// printing "serving" ahead of it announced a success that had not happened
+	// yet: a port already in use printed the banner and then died. Take the
+	// listener first, and the banner can only be true.
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		// The hint goes to stderr rather than into the error value: an error
+		// string is one line, but a human staring at a dead process needs the
+		// next command to type.
+		fmt.Fprintf(os.Stderr,
+			"\nAnother kernl is probably already listening on %s. Find it with:\n"+
+				"    ss -ltnp 'sport = :%s'\n"+
+				"then stop it, or serve on another port with --port.\n\n", portStr, portStr)
+		return fmt.Errorf("cannot listen on port %s: %w", portStr, err)
+	}
+
 	go func() {
 		fmt.Printf("kernl serving — API http://localhost:%s\n", portStr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)
 		}

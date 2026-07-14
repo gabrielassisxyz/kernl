@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import type { RawCaptureAction } from '~/utils/inboxTargets';
 
 export interface SSEMessage {
   content: string;
@@ -37,10 +38,20 @@ export interface DiffSuggestion {
   hunks: SuggestHunk[];
 }
 
+// A routing the DA proposed via the suggest_routing tool: what the capture
+// should become. Like a diff, it is a PROPOSAL — accepting it only replaces the
+// draft in the editor, and the user still processes the capture themselves.
+export interface RoutingSuggestion {
+  captureId: string;
+  rationale: string;
+  actions: RawCaptureAction[];
+}
+
 export function useChatSession() {
   const messages = ref<{ role: string; content: string; learned_candidate?: LearnedCandidate }[]>([]);
   const pendingPermission = ref<PermissionEvent | null>(null);
   const diffSuggestion = ref<DiffSuggestion | null>(null);
+  const routingSuggestion = ref<RoutingSuggestion | null>(null);
   const error = ref<string | null>(null);
   const isStreaming = ref(false);
 
@@ -101,6 +112,11 @@ export function useChatSession() {
           diffSuggestion.value = { noteId: d.noteId, notePath: d.notePath, hunks: d.hunks || [] };
           break;
         }
+        case 'routing': {
+          const r = data as unknown as RoutingSuggestion;
+          routingSuggestion.value = { captureId: r.captureId, rationale: r.rationale || '', actions: r.actions || [] };
+          break;
+        }
         case 'done':
           eventSource?.close();
           eventSource = null;
@@ -121,13 +137,25 @@ export function useChatSession() {
     };
   }
 
-  async function sendMessage(content: string, scopeNodeId?: string): Promise<void> {
+  // draftActions is the routing the user currently has on screen. It rides along
+  // with the message because the LLM runs from the persisted session, not from
+  // this request: a draft left in the browser never reaches the DA, which would
+  // then discuss a routing the user has already edited away.
+  async function sendMessage(
+    content: string,
+    scopeNodeId?: string,
+    draftActions?: RawCaptureAction[],
+  ): Promise<void> {
     await ensureSession();
     messages.value.push({ role: 'user', content });
     await fetch(`/api/chat/sessions/${sessionId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, scope_node_id: scopeNodeId || '' }),
+      body: JSON.stringify({
+        content,
+        scope_node_id: scopeNodeId || '',
+        draftActions: draftActions || [],
+      }),
     });
     isStreaming.value = true;
     connectSSE();
@@ -205,6 +233,10 @@ export function useChatSession() {
     diffSuggestion.value = null;
   }
 
+  function dismissRouting(): void {
+    routingSuggestion.value = null;
+  }
+
   // Drop the current session client-side; the next send creates a fresh one.
   // The old session node stays in the graph (no delete endpoint yet).
   function newConversation(): void {
@@ -215,6 +247,7 @@ export function useChatSession() {
     messages.value = [];
     pendingPermission.value = null;
     diffSuggestion.value = null;
+    routingSuggestion.value = null;
     error.value = null;
     isStreaming.value = false;
   }
@@ -223,6 +256,7 @@ export function useChatSession() {
     messages,
     pendingPermission,
     diffSuggestion,
+    routingSuggestion,
     error,
     isStreaming,
     sendMessage,
@@ -231,6 +265,7 @@ export function useChatSession() {
     discardCandidate,
     applyDiff,
     dismissDiff,
+    dismissRouting,
     loadSession,
     newConversation,
   };

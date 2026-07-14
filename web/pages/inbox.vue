@@ -5,14 +5,30 @@
     <div class="flex items-center gap-tight font-mono-data text-mono-data border border-border-hairline rounded overflow-hidden">
       <button
         v-for="t in tabs" :key="t.key"
-        class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
+        class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30 cursor-pointer"
         :class="tab === t.key ? 'bg-surface-hover text-text-primary' : 'text-text-muted hover:text-text-primary'"
         @click="tab = t.key"
       >{{ t.label }} <span class="text-text-faint">{{ t.count }}</span></button>
     </div>
+    <div class="flex items-center gap-component">
+      <!-- Focus is a mode, not the front door: the list stays the way in. -->
+      <button
+        v-if="tab === 'unprocessed' && (items.length > 0 || focus)"
+        class="flex items-center gap-tight px-base py-1 rounded border font-mono-data text-mono-data transition-colors outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer"
+        :class="focus ? 'border-primary/40 text-primary bg-primary/10' : 'border-border-hairline text-text-muted hover:text-text-primary hover:border-border-default'"
+        :aria-pressed="focus"
+        @click="focus = !focus"
+      >
+        <span class="material-symbols-outlined !text-body leading-none" aria-hidden="true">center_focus_strong</span>
+        Focus
+        <!-- The key rides the button's own colour at lower emphasis: a fixed grey
+             would sink into the active state, which is the one you look at. -->
+        <span class="opacity-60">F</span>
+      </button>
+    </div>
   </div>
 
-  <div v-if="tab === 'unprocessed'" class="px-section pt-base">
+  <div v-if="tab === 'unprocessed' && !focus" class="px-section pt-base">
     <section class="bg-surface-overlay border border-border-default rounded overflow-hidden">
       <div class="flex items-center justify-between gap-component px-component py-base border-b border-border-hairline">
         <div class="flex items-center gap-base min-w-0">
@@ -22,7 +38,7 @@
         <div class="flex items-center gap-tight font-mono-data text-mono-data border border-border-hairline rounded overflow-hidden">
           <button
             v-for="m in entryModes" :key="m.key"
-            class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
+            class="px-component py-1 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30 cursor-pointer"
             :class="entryMode === m.key ? 'bg-surface-hover text-text-primary' : 'text-text-muted hover:text-text-primary'"
             @click="entryMode = m.key"
           >{{ m.label }}</button>
@@ -36,79 +52,102 @@
   </div>
 
   <section v-if="tab === 'unprocessed'" class="flex-1 overflow-y-auto relative">
-    <div class="flex flex-col gap-base px-section py-base pb-[120px]">
+    <!-- One capture at a time, hands on the keyboard. Same pile, same order, same
+         write path — only the unit of attention changes. -->
+    <InboxFocusCard
+      v-if="focus"
+      :items="orderedItems"
+      :projects="projects"
+      :busy="busy"
+      @process="processCapture($event.item, $event.actions)"
+      @discard="discard($event)"
+      @undo="undo"
+      @close="focus = false"
+    />
+
+    <template v-else>
+    <div class="flex flex-col gap-base px-section py-base">
       <template v-for="group in inboxGroups" :key="group.id">
-        <div v-if="group.kind === 'batch'" class="border border-border-hairline bg-surface rounded-lg overflow-hidden">
+        <!-- Not clipped: a row's type dropdown opens past the card's edge. -->
+        <div v-if="group.kind === 'batch'" class="border border-border-hairline bg-surface-container-lowest rounded-lg">
           <div class="flex items-center gap-base px-component py-base border-b border-border-hairline">
             <span class="font-mono-data text-mono-data px-tight border border-border-hairline text-text-faint bg-surface-container-low">BATCH</span>
             <div class="flex flex-col flex-1 min-w-0">
               <h3 class="font-headline text-text-primary truncate">{{ group.title }}</h3>
               <p class="font-mono-data text-mono-data text-text-muted truncate">{{ group.source }} · {{ group.items.length }} captures</p>
             </div>
-            <button class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="toggleBatchLog(group.id)">
-              {{ openBatchLogs.has(group.id) ? 'Hide compact log' : 'Compact log' }}
-            </button>
-          </div>
-          <div v-if="openBatchLogs.has(group.id)" class="px-component py-base border-b border-border-hairline bg-bg-base">
-            <div
-              v-for="item in group.items"
-              :key="`log-${item.id}`"
-              class="grid grid-cols-[44px_minmax(0,1fr)] gap-base py-tight font-body text-body"
-            >
-              <span class="font-mono-data text-mono-data text-text-faint">{{ itemBatchTime(item) || `#${(item.batchSequence ?? 0) + 1}` }}</span>
-              <span class="text-text-muted truncate">{{ item.subtitle || item.title }}</span>
-            </div>
           </div>
           <div class="flex flex-col gap-base p-base">
             <template v-for="item in group.items" :key="item.id">
-              <InboxItem
+              <InboxRow
                 :item="item"
-                :chips="chipsFor(item)"
+                :proposals="proposalsFor(item)"
                 :selected="selected.has(item.id)"
                 :isCursor="cursor === itemIndex(item.id)"
+                :expanded="openId === item.id"
                 :prepping="preppingId === item.id"
-                @select="cursor = itemIndex(item.id)"
+                @toggle="toggleDrawer(item)"
                 @toggleSelect="toggleSelect(item.id)"
                 @accept="accept(item)"
                 @edit="openModal(item)"
                 @discard="discard(item)"
                 @prep="triggerPrep(item)"
                 @peek="togglePeek(item)"
-              />
-              <div v-if="peekId === item.id" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
-                <div class="flex items-center gap-tight mb-tight">
-                  <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
-                  <button class="ml-auto font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
-                </div>
-                <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
-              </div>
+              >
+                <template #drawer>
+                  <InboxPeek v-if="peekId === item.id" :body="peekBody" @close="peekId = null" />
+                  <Transition name="drawer">
+                    <InboxDrawer
+                      v-if="openId === item.id"
+                      :item="item"
+                      :projects="projects"
+                      :busy="busy"
+                      @process="confirmDrawer(item, $event)"
+                      @edit="openModal(item)"
+                      @discard="discard(item)"
+                      @close="openId = null"
+                    />
+                  </Transition>
+                </template>
+              </InboxRow>
             </template>
           </div>
         </div>
+
         <template v-else>
-          <InboxItem
+          <InboxRow
             v-for="item in group.items"
             :key="item.id"
             :item="item"
-            :chips="chipsFor(item)"
+            :proposals="proposalsFor(item)"
             :selected="selected.has(item.id)"
             :isCursor="cursor === itemIndex(item.id)"
+            :expanded="openId === item.id"
             :prepping="preppingId === item.id"
-            @select="cursor = itemIndex(item.id)"
+            @toggle="toggleDrawer(item)"
             @toggleSelect="toggleSelect(item.id)"
             @accept="accept(item)"
             @edit="openModal(item)"
             @discard="discard(item)"
             @prep="triggerPrep(item)"
             @peek="togglePeek(item)"
-          />
-          <div v-for="item in group.items" v-show="peekId === item.id" :key="`peek-${item.id}`" class="mx-component -mt-tight mb-tight px-component py-base border border-t-0 border-da-accent/30 bg-da-accent/[0.04]">
-            <div class="flex items-center gap-tight mb-tight">
-              <span class="font-mono-data text-mono-data text-da-accent-text">DA briefing</span>
-              <button class="ml-auto font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="peekId = null">close</button>
-            </div>
-            <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ peekBody || '…' }}</p>
-          </div>
+          >
+            <template #drawer>
+              <InboxPeek v-if="peekId === item.id" :body="peekBody" @close="peekId = null" />
+              <Transition name="drawer">
+                <InboxDrawer
+                  v-if="openId === item.id"
+                  :item="item"
+                  :projects="projects"
+                  :busy="busy"
+                  @process="confirmDrawer(item, $event)"
+                  @edit="openModal(item)"
+                  @discard="discard(item)"
+                  @close="openId = null"
+                />
+              </Transition>
+            </template>
+          </InboxRow>
         </template>
       </template>
 
@@ -127,19 +166,26 @@
       />
     </div>
 
-    <!-- batch bar -->
+    <!-- The bar rides the scroll. Absolute inside the scroller pinned it to the
+         list's box, not to what you are looking at, so it drifted mid-screen. -->
     <div
-      v-if="selected.size > 0"
-      class="absolute bottom-section left-1/2 -translate-x-1/2 flex items-center gap-component bg-surface-container-high border border-primary/40 px-section py-base rounded"
+      v-if="items.length > 0"
+      class="sticky bottom-0 z-dropdown flex justify-center px-section pt-component pb-section pointer-events-none"
     >
-      <span class="font-mono-data text-mono-data text-text-primary">{{ selected.size }} selected</span>
-      <div class="w-[1px] h-4 bg-border-hairline"></div>
-      <button class="font-mono-data text-mono-data text-status-passed hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="acceptSelected">Process all (accept DA)</button>
-      <button class="font-mono-data text-mono-data text-status-failed-text hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="discardSelected">Discard all</button>
-      <button class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="selected.clear()">Clear</button>
-    </div>
+      <div
+        v-if="selected.size > 0"
+        class="pointer-events-auto flex items-center gap-component bg-surface-container-high border border-primary/40 px-section py-base rounded shadow-lg"
+      >
+        <span class="font-mono-data text-mono-data text-text-primary">{{ selected.size }} selected</span>
+        <div class="w-[1px] h-4 bg-border-hairline"></div>
+        <button class="font-mono-data text-mono-data text-status-passed hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer" @click="acceptSelected">Process all (accept DA)</button>
+        <button class="font-mono-data text-mono-data text-status-failed-text hover:underline rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer" @click="discardSelected">Discard all</button>
+        <button class="font-mono-data text-mono-data text-text-muted hover:text-text-primary rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer" @click="selected.clear()">Clear</button>
+      </div>
 
-    <InboxHint v-else-if="items.length > 0" />
+      <InboxHint v-else class="pointer-events-auto" />
+    </div>
+    </template>
 
     <!-- Update merge review: accept/reject the changes Kernl proposes folding
          into the matched note. Deciding the last hunk applies the accepted set
@@ -174,7 +220,7 @@
           </div>
           <h3 class="font-headline text-text-primary truncate" :class="p.discarded ? 'line-through text-text-muted' : ''">{{ p.title }}</h3>
         </div>
-        <button class="shrink-0 font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30" @click="reopenCapture(p.captureId)">↩ Undo</button>
+        <button class="shrink-0 font-mono-data text-mono-data text-text-muted hover:text-primary transition-colors rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer" @click="reopenCapture(p.captureId)">↩ Undo</button>
       </div>
 
       <UiErrorState
@@ -193,7 +239,8 @@
     </div>
   </section>
 
-  <!-- override modal -->
+  <!-- The deep editor: retitle, refile, rewrite a description, add or drop a
+       node. The drawer is for reading and retyping; this is for rework. -->
   <ProcessModal :item="modalItem" :projects="projects" :busy="busy" @close="modalItem = null" @confirm="confirmModal" />
 
   <UiToast
@@ -207,23 +254,27 @@
 <script setup lang="ts">
 import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue'
 import InboxHeader from '~/components/inbox/InboxHeader.vue'
-import InboxItem from '~/components/inbox/InboxItem.vue'
+import InboxRow from '~/components/inbox/InboxRow.vue'
+import InboxDrawer from '~/components/inbox/InboxDrawer.vue'
+import InboxFocusCard from '~/components/inbox/InboxFocusCard.vue'
+import InboxPeek from '~/components/inbox/InboxPeek.vue'
 import InboxHint from '~/components/inbox/InboxHint.vue'
+import ProcessModal from '~/components/inbox/ProcessModal.vue'
 import CaptureThought from '~/components/CaptureThought.vue'
 import InboxBatchDump from '~/components/inbox/InboxBatchDump.vue'
-import ProcessModal from '~/components/inbox/ProcessModal.vue'
 import DiffSuggest from '~/components/notes/DiffSuggest.vue'
-import type { InboxItemData } from '~/components/inbox/InboxItem.vue'
+import type { InboxItemData, Proposal } from '~/components/inbox/InboxRow.vue'
 import { useProjects } from '~/composables/useProjects'
 import {
   TARGET_META,
+  applySourceContext,
+  captureProvenance,
   hasConflictingUpdate,
   isUpdateOnly,
   normalizeActions,
   type CaptureAction,
   type Target,
 } from '~/utils/inboxTargets'
-import type { SuggestionChip } from '~/components/inbox/InboxItem.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiToast from '~/components/ui/UiToast.vue'
@@ -283,6 +334,10 @@ const entryModes = [
 const cursor = ref(0)
 const selected = reactive(new Set<string>())
 const busy = ref(false)
+/** the one capture whose drawer is open: reading a capture is a focused act */
+const openId = ref<string | null>(null)
+/** triage one capture at a time, keyboard only — a mode, never the default */
+const focus = ref(false)
 const modalItem = ref<InboxItemData | null>(null)
 
 // Undo stack of processed capture ids (most recent last); backs U / the toast.
@@ -302,28 +357,49 @@ function actionsFor(item: InboxItemData): CaptureAction[] {
   return normalizeActions(item.suggestedActions)
 }
 
-// chipsFor renders the proposal for the row: null while the DA is still
-// classifying, otherwise one chip per node the capture will become.
-function chipsFor(item: InboxItemData): SuggestionChip[] | null {
+// proposalsFor renders the DA's proposal as the row's headline: null while it is
+// still classifying, otherwise one line per node the capture becomes.
+function proposalsFor(item: InboxItemData): Proposal[] | null {
   const actions = actionsFor(item)
   if (actions.length === 0) return null
-  return actions.map(action => ({ target: action.target, label: chipLabel(action) }))
+  return actions.map(action => ({
+    target: action.target,
+    title: proposalTitle(action, item),
+    projectLabel: proposalProject(action),
+    dueLabel: formatDueDate(action.dueDate),
+    tags: action.tags || [],
+  }))
 }
 
-function chipLabel(action: CaptureAction): string {
-  const base = TARGET_META[action.target].label
+function proposalTitle(action: CaptureAction, item: InboxItemData): string {
+  const title = (action.title || '').trim()
+  if (title) return title
+  if (action.target === 'update') return 'Merge into the matching note'
+  if (action.target === 'discard') return 'Drop this fragment'
+  return item.title
+}
+
+// A task with no project is just a task — "Unprocessed" is the bucket it lands
+// in, not a fact worth spending a line on.
+function proposalProject(action: CaptureAction): string {
   if (action.target === 'task') {
     const parent = projectTitle(action.projectId)
-    return parent ? `Task · ${parent}` : 'Task · Unprocessed'
+    return parent ? `· ${parent}` : ''
   }
   if (action.target === 'project') {
     const count = action.initialTasks?.length || 0
-    return count ? `Project · ${count} tasks` : 'Project'
+    return count ? `· ${count} tasks` : ''
   }
-  return base
+  return ''
 }
 
-const openBatchLogs = reactive(new Set<string>())
+// "2026-04-02" → "Apr 2". The year is noise for a deadline you are triaging now.
+function formatDueDate(due?: string): string {
+  if (!due) return ''
+  const [y, m, d] = due.split('-').map(Number)
+  if (!y || !m || !d) return due
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 const inboxGroups = computed<InboxGroup[]>(() => {
   const out: InboxGroup[] = []
@@ -361,20 +437,15 @@ function itemIndex(id: string): number {
   return idx >= 0 ? idx : 0
 }
 
-function itemBatchTime(item: InboxItemData): string {
-  const match = (item.batchTimestamp || '').match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/)
-  return match ? match[0].slice(0, 5) : ''
-}
-
-function toggleBatchLog(id: string) {
-  if (openBatchLogs.has(id)) openBatchLogs.delete(id)
-  else openBatchLogs.add(id)
-}
-
-async function onBatchCreated(batchId: string) {
-  if (batchId) openBatchLogs.add(batchId)
+async function onBatchCreated() {
   await refresh()
   showToast('Batch captures created')
+}
+
+// ---- the drawer ----
+function toggleDrawer(item: InboxItemData) {
+  cursor.value = itemIndex(item.id)
+  openId.value = openId.value === item.id ? null : item.id
 }
 
 // ---- processing ----
@@ -382,25 +453,24 @@ async function postProcess(id: string, payload: ProcessPayload) {
   await $fetch(`/api/inbox/${id}/process`, { method: 'POST', body: payload })
   if (data.value) data.value = data.value.filter(i => i.id !== id)
   selected.delete(id)
+  if (openId.value === id) openId.value = null
   if (cursor.value >= orderedItems.value.length) cursor.value = Math.max(0, orderedItems.value.length - 1)
+}
+
+// A fanned-out task owns only its fragment of the capture; carry the capture in
+// as its source context, exactly as the drawer shows it, so one-click Accept and
+// an edited Process write the same task.
+function withContext(actions: CaptureAction[], item: InboxItemData): CaptureAction[] {
+  return applySourceContext(
+    actions,
+    item.subtitle || item.title || '',
+    captureProvenance(item.batchSource || item.type, item.batchTimestamp),
+  )
 }
 
 // accept takes the DA's whole proposal as-is: every node it suggested, in one
 // post. Nothing is dropped just because the capture turned out to be two things.
-async function accept(item: InboxItemData, quiet = false) {
-  const actions = actionsFor(item)
-  if (actions.length === 0) return
-  // Update is never one-click: it opens the merge review so the user vets every
-  // change before it touches a note.
-  if (isUpdateOnly(actions)) { await startCaptureMerge(item); return }
-  busy.value = true
-  try {
-    await postProcess(item.id, { actions, suggestedActions: actions })
-    undoStack.value.push(item.id)
-    await refreshProcessed()
-    if (!quiet) showToast(processedToast(item, actions))
-  } catch (e) { console.error('accept failed', e) } finally { busy.value = false }
-}
+const accept = (item: InboxItemData, quiet = false) => processCapture(item, actionsFor(item), quiet)
 
 function processedToast(item: InboxItemData, actions: CaptureAction[]): string {
   if (actions.length > 1) return `Processed into ${actions.length} nodes: ${item.title}`
@@ -433,15 +503,19 @@ async function discardSelected() {
   showToast(`Discarded ${targets.length} — U to undo last`)
 }
 
-function openModal(item: InboxItemData) { modalItem.value = item }
+function openModal(item: InboxItemData) {
+  modalItem.value = item
+}
 
-async function confirmModal(payload: { actions: CaptureAction[] }) {
-  const item = modalItem.value
-  if (!item || payload.actions.length === 0) return
+// The drawer, the modal and one-click Accept all land here, so a capture writes
+// the same nodes whichever surface triaged it.
+async function processCapture(item: InboxItemData, actions: CaptureAction[], quiet = false) {
+  if (actions.length === 0) return
   // An update is reviewed hunk by hunk against one note, so it cannot be one leg
-  // of a fan-out (the modal blocks that) and it hands off to the merge review.
-  if (hasConflictingUpdate(payload.actions)) return
-  if (isUpdateOnly(payload.actions)) {
+  // of a fan-out (both surfaces block that) and it hands off to the merge review.
+  if (hasConflictingUpdate(actions)) return
+  if (isUpdateOnly(actions)) {
+    openId.value = null
     modalItem.value = null
     await startCaptureMerge(item)
     return
@@ -449,12 +523,20 @@ async function confirmModal(payload: { actions: CaptureAction[] }) {
   busy.value = true
   try {
     // Echo the DA's original proposal so the backend can learn from the edits.
-    await postProcess(item.id, { actions: payload.actions, suggestedActions: actionsFor(item) })
+    await postProcess(item.id, { actions: withContext(actions, item), suggestedActions: actionsFor(item) })
     undoStack.value.push(item.id)
     await refreshProcessed()
     modalItem.value = null
-    showToast(processedToast(item, payload.actions))
+    if (!quiet) showToast(processedToast(item, actions))
   } catch (e) { console.error('process failed', e) } finally { busy.value = false }
+}
+
+const confirmDrawer = (item: InboxItemData, payload: { actions: CaptureAction[] }) =>
+  processCapture(item, payload.actions)
+
+function confirmModal(payload: { actions: CaptureAction[] }) {
+  const item = modalItem.value
+  if (item) processCapture(item, payload.actions)
 }
 
 // ---- update merge review ----
@@ -586,12 +668,17 @@ function onKey(e: KeyboardEvent) {
   const tg = e.target as HTMLElement | null
   if (tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT')) return
   if (modalItem.value) return
+  // Focus mode owns every key while it is up, including Escape and U.
+  if (focus.value) return
   if (e.key === 'u' || e.key === 'U') { undo(); return }
   if (tab.value !== 'unprocessed' || orderedItems.value.length === 0) return
+  if (e.key === 'f' || e.key === 'F') { e.preventDefault(); focus.value = true; return }
   const item = orderedItems.value[cursor.value]
-  if (e.key === 'ArrowDown') { e.preventDefault(); cursor.value = (cursor.value + 1) % orderedItems.value.length }
+  if (e.key === 'Escape' && openId.value) { e.preventDefault(); openId.value = null }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); cursor.value = (cursor.value + 1) % orderedItems.value.length }
   else if (e.key === 'ArrowUp') { e.preventDefault(); cursor.value = (cursor.value - 1 + orderedItems.value.length) % orderedItems.value.length }
-  else if (e.key === 'Enter') { if (item) actionsFor(item).length > 0 ? accept(item) : openModal(item) }
+  else if (e.key === 'Enter') { if (item) actionsFor(item).length > 0 ? accept(item) : toggleDrawer(item) }
+  else if (e.key === 'o' || e.key === 'O') { if (item) toggleDrawer(item) }
   else if (e.key === 'e' || e.key === 'E') { if (item) openModal(item) }
   else if (e.key === 'd' || e.key === 'D') { if (item) discard(item) }
   else if (e.key === 'x' || e.key === 'X') { if (item) toggleSelect(item.id) }
@@ -616,8 +703,8 @@ function startPolling() {
   }, 3000)
 }
 
-watch(hasPendingClassification, (pending) => {
-  if (pending) startPolling()
+watch(hasPendingClassification, (isPending) => {
+  if (isPending) startPolling()
   else stopPolling()
 })
 
@@ -638,3 +725,29 @@ onUnmounted(() => {
   stopPolling()
 })
 </script>
+
+<style scoped>
+/* The drawer belongs to the row it opens from: it slides out of the head rather
+   than appearing beside it. Transform + opacity only — the height change is the
+   layout doing its job, not an animation. */
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: opacity 150ms ease-out, transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.drawer-enter-from,
+.drawer-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-enter-active,
+  .drawer-leave-active {
+    transition: opacity 100ms linear;
+  }
+  .drawer-enter-from,
+  .drawer-leave-to {
+    transform: none;
+  }
+}
+</style>

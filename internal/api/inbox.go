@@ -16,6 +16,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/inbox"
+	"github.com/gabrielassisxyz/kernl/internal/inbox/wire"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
 	"github.com/gabrielassisxyz/kernl/internal/suggestlog"
 )
@@ -125,68 +126,16 @@ type inboxItemDTO struct {
 	Flagged           bool               `json:"flagged"`
 }
 
-// captureActionDTO is the camelCase wire view of a nodes.CaptureAction (whose
-// json tags are the snake_case attrs shape). It is both what the DA suggests and
-// what the inbox modal posts back.
-type captureActionDTO struct {
-	Target             string   `json:"target"`
-	Title              string   `json:"title"`
-	Body               string   `json:"body"`
-	ProjectID          string   `json:"projectId"`
-	ProjectTitle       string   `json:"projectTitle"`
-	ProjectDescription string   `json:"projectDescription"`
-	InitialTasks       []string `json:"initialTasks"`
-	Tags               []string `json:"tags"`
-	// DueDate is a calendar day (YYYY-MM-DD), like taskDTO's — empty when the
-	// action has none. On a task action only.
-	DueDate string `json:"dueDate"`
-	LinkTo  string `json:"linkTo"`
-}
+// captureActionDTO is the camelCase wire view of a capture action. It lives in
+// inbox/wire because the chat engine streams the same shape over SSE, and an
+// event emitted from internal/chat never passes through this package — see that
+// package's doc comment.
+type captureActionDTO = wire.CaptureAction
 
-func toCaptureActionDTOs(actions []nodes.CaptureAction) []captureActionDTO {
-	out := make([]captureActionDTO, 0, len(actions))
-	for _, a := range actions {
-		out = append(out, captureActionDTO{
-			Target:             a.Target,
-			Title:              a.Title,
-			Body:               a.Body,
-			ProjectID:          a.ProjectID,
-			ProjectTitle:       a.ProjectTitle,
-			ProjectDescription: a.ProjectDescription,
-			InitialTasks:       a.InitialTasks,
-			Tags:               a.Tags,
-			DueDate:            nodes.FormatDueDate(a.DueDate),
-			LinkTo:             a.LinkTo,
-		})
-	}
-	return out
-}
-
-// fromCaptureActionDTOs maps the posted actions back. A due date the client sends
-// malformed is reported rather than silently dropped: the capture is being
-// triaged once, and a deadline that vanishes here vanishes for good.
-func fromCaptureActionDTOs(actions []captureActionDTO) ([]inbox.Action, error) {
-	out := make([]inbox.Action, 0, len(actions))
-	for _, a := range actions {
-		dueDate, err := nodes.ParseDueDate(a.DueDate)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, inbox.Action{
-			Target:             a.Target,
-			Title:              a.Title,
-			Body:               a.Body,
-			ProjectID:          a.ProjectID,
-			ProjectTitle:       a.ProjectTitle,
-			ProjectDescription: a.ProjectDescription,
-			InitialTasks:       a.InitialTasks,
-			Tags:               a.Tags,
-			DueDate:            dueDate,
-			LinkTo:             a.LinkTo,
-		})
-	}
-	return out, nil
-}
+var (
+	toCaptureActionDTOs   = wire.FromNodes
+	fromCaptureActionDTOs = wire.ToNodes
+)
 
 // captureTitle derives a display title for a capture: its explicit Title when
 // set, otherwise the first line of the body, truncated for the row.

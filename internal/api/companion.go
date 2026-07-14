@@ -3,10 +3,13 @@ package api
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -113,19 +116,33 @@ type CompanionFile struct {
 
 // renderCompanionMarkdown builds the markdown file content with a frontmatter
 // id equal to the note node id, so reconcile.OnCreate/ColdStart match the
-// existing node by id rather than creating a duplicate. Tags render as a YAML
-// list so the reconciler and tag navigation pick them up.
+// existing node by id rather than creating a duplicate.
+//
+// The block is MARSHALLED, not concatenated. Pasting a title in raw wrote
+// `title: AI-SEO: llms.txt` — a second colon YAML reads as a nested mapping —
+// and the file became unparseable the moment a title contained ":", "#" or a
+// leading "-". The marshaller quotes what needs quoting; a string builder cannot
+// know what that is.
 func renderCompanionMarkdown(id, title, body string, tags []string) []byte {
+	// A local shape rather than frontmatter.Frontmatter: that struct is the READ
+	// contract and has no omitempty, so marshalling it would stamp empty author
+	// and origin lines onto every file.
+	fm, err := yaml.Marshal(struct {
+		ID    string   `yaml:"id"`
+		Title string   `yaml:"title"`
+		Tags  []string `yaml:"tags,omitempty"`
+	}{ID: id, Title: title, Tags: tags})
+	if err != nil {
+		// Marshalling plain strings cannot fail; if it somehow does, a file with
+		// no frontmatter is still better than a corrupt one (the reconciler
+		// injects an id on cold start).
+		slog.Error("render companion frontmatter", "id", id, "error", err)
+		return []byte(body)
+	}
+
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.WriteString("id: " + id + "\n")
-	b.WriteString("title: " + title + "\n")
-	if len(tags) > 0 {
-		b.WriteString("tags:\n")
-		for _, t := range tags {
-			b.WriteString("  - " + t + "\n")
-		}
-	}
+	b.Write(fm)
 	b.WriteString("---\n")
 	b.WriteString(body)
 	return []byte(b.String())

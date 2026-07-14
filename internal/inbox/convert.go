@@ -316,11 +316,14 @@ func resolveMergeTarget(ctx context.Context, g *graph.Graph, capture *nodes.Capt
 }
 
 func createNoteFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot string, action Action, author nodes.Author) (string, error) {
+	// Only the tags the note is ABOUT. "capture"/"converted" used to be stamped
+	// here and said nothing a filter could use: every note born this way carried
+	// them, and Origin already records where it came from.
 	n := nodes.Note{
 		Title:  action.Title,
 		Body:   action.Body,
 		Origin: "capture",
-		Tags:   append([]string{"capture", "converted"}, action.Tags...),
+		Tags:   action.Tags,
 	}
 	if n.Title == "" {
 		n.Title = "Capture Note"
