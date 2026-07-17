@@ -25,6 +25,54 @@ orchestrator inbox; this file is the markdown source of truth during the test.)
 at all — so a task can be neither deleted nor retitled, by API or UI. For a task
 manager this is a bug, not backlog. (Moved from `llm-workflow/BACKLOG.md` P1.)
 
+**Planned 2026-07-17 (Gabriel: include both delete AND retitle, mirror how `project`
+does it).** Most plumbing already exists — `nodes.DeleteTask` is written and `project`
+is a near-identical sibling that already ships full delete + retitle. This is wiring,
+not new infrastructure. **Parallel-safe** with the inbox auto-classify task below
+(disjoint file sets).
+
+- **Goal:** a task can be deleted and retitled via API + UI, mirroring `project`.
+- **Anti-goal:** no cascade-delete of what a task points to; no generic node-edit
+  framework; no undo/soft-delete UI — the store already writes a tombstone revision on
+  delete, so history is preserved and that is enough.
+
+**Backend**
+- `internal/graph/nodes/task.go`: add `SetTaskTitle` mirroring `UpdateProjectMeta`
+  (`internal/graph/nodes/project.go:140`), scoped to `type = 'task'`.
+- `internal/api/tasks.go` `patchTaskHandler` (`:146`): add `Title *string` to the body
+  struct (`:155`); **include `Title` in the all-nil guard** (`:164`) or a title-only
+  patch is wrongly rejected — mirror `patchProjectHandler` (`internal/api/projects.go:174`);
+  apply via `SetTaskTitle` inside the existing `DoWrite` tx.
+- `internal/api/tasks.go`: add `deleteTaskHandler` mirroring `deleteProjectHandler`
+  (`internal/api/projects.go:242`): in one `DoWrite` tx, find the companion note via the
+  companion edge, capture its path from `note_paths`, `nodes.DeleteNote`, delete the
+  `note_paths` row, then `nodes.DeleteTask` (a task has no children to cascade); map
+  `graph.ErrNotFound`→404; after commit, best-effort `os.Remove` the companion file;
+  respond **204**.
+- Register `DELETE /api/tasks/{id}` in `RegisterTaskRoutes` (`internal/api/tasks.go:38`).
+
+**Frontend**
+- `web/composables/useTasks.ts`: add `update(id, { title })` (PATCH) and `remove(id)`
+  (DELETE), mirroring `web/composables/useProjects.ts:75` / `:88`.
+- `web/components/tasks/TaskDetail.vue`: make the header `<h2>{{ task.title }}</h2>`
+  (`:27`) inline-editable, emitting a new `set-title`; add a delete button (header next to
+  close `:40`, or footer `:92`) emitting `delete`.
+- `web/pages/tasks.vue`: add `changeTitle` + `removeTask` handlers next to `changeStatus`
+  (`:197`) / `changeDueDate` (`:204`); wire `@set-title` / `@delete` on `<TaskDetail>`
+  (`:96`). `removeTask` clears `selected.value` and calls `reload()`.
+
+**Tests** (`internal/api/tasks_crud_test.go`)
+- Add a `deleteTaskViaAPI` helper mirroring `patchTaskViaAPI` (`:27`).
+- `TestDeleteTaskRemovesCompanion` mirroring `TestDeleteProjectRemovesCompanion`
+  (`internal/api/projects_crud_test.go:183`): create via API, assert the companion file
+  exists, `DELETE`, assert 204 + empty list + companion file gone + zero live note nodes,
+  then a second `DELETE` → 404.
+- A retitle round-trip test, and an assertion that a title-only `PATCH` is **not** rejected.
+
+**Verify:** `go test ./internal/api/... ./internal/graph/nodes/...` green with the new
+tests; then `run.sh` and drive the UI — create a task, rename it, delete it; confirm it
+leaves the board **and** the companion note file is gone from the vault.
+
 ### Add a field that lets a task be automatically developed by the orchestrator
 A per-task flag marking it as auto-developable, so the orchestrator can pick it up
 and drive it — the first concrete step toward developing kernl inside kernl.
@@ -35,6 +83,60 @@ The sidebar (icons + logo) and the color palette.
 ### Batch override of auto-classify in the inbox
 A checkbox to toggle whether auto-classify runs, plus a button to trigger the
 classifier on the currently-unclassified inbox items.
+
+**Planned 2026-07-17 (Gabriel: runtime flag, default ON, no persistence across restart;
+the checkbox lives in the batch "Review batch" modal).** Auto-classify is a server-side
+background loop (started once at boot in `cmd/kernl/serve.go:150`, gated only on
+`cfg.LLM.IsSet()`), so a UI checkbox needs a live server-side switch the loop reads each
+tick — a client-only toggle cannot stop it. **Parallel-safe** with the delete-task task
+above (disjoint file sets).
+
+- **Goal:** stop the background auto-classify loop from running, and trigger a one-shot
+  classify pass over the unclassified `pending` captures on demand.
+- **Anti-goal:** not a boot-only config that needs a restart; no settings-persistence
+  system — the toggle is session-live and resets to the config default on restart; no
+  per-item classify controls.
+- **"Unclassified" is:** a `pending`-tagged capture with empty `SuggestedActions` —
+  already how `classifier.processPending` selects the set (`internal/inbox/classifier.go:74`).
+
+**Backend**
+- `internal/inbox/classifier.go`: export an on-demand pass — `ClassifyPending` wrapping
+  today's unexported `processPending` (`:62`) — so a handler can run exactly one pass;
+  the `Run` loop (`:45`) gates each tick on a live "enabled" flag instead of running
+  unconditionally.
+- `internal/app/app.go` (`type App`, `:22`): add a runtime `autoClassify bool` guarded by
+  an `RWMutex` (No Shared Mutable State) with getter/setter; also hold what the on-demand
+  handler needs to run a pass (the LLM, or the `Classifier` itself — today it lives only
+  inside the `serve.go` goroutine and is **not** on `App`, so this wiring is required).
+- `internal/config/config.go` `InboxConfig` (`:111`): add `AutoClassify bool`
+  (`auto_classify` yaml, **default true**); read it at the `cmd/kernl/serve.go:150` gate to
+  seed the runtime flag. The loop still starts; it just gates each tick on the flag.
+- `internal/api/inbox.go`: add `GET` + `PUT /api/inbox/auto-classify` (read / set the
+  runtime flag) and `POST /api/inbox/classify` (run one `ClassifyPending` pass over the
+  unclassified set); register in `RegisterInboxRoutes` (`:24`). **Fail loud** if the LLM is
+  unset — a `KERNL DISPATCH FAILURE`-style error naming the missing config, never a silent
+  no-op.
+
+**Frontend**
+- `web/components/inbox/InboxBatchDump.vue`: add an **"Auto-classify" checkbox** inside the
+  "Review batch" `UiModal` (`:19`) — `GET /api/inbox/auto-classify` on open to reflect the
+  current state, `PUT` on change. Default renders ON.
+- `web/pages/inbox.vue`: add a **"Classify unclassified now"** button in the
+  unprocessed-tab toolbar (the right-side action cluster next to Focus, `:13`), shown when
+  unclassified `pending` items exist; on click `POST /api/inbox/classify` then `refresh()`.
+  Disable + explain when there are no unclassified items or no LLM configured.
+
+**Tests**
+- `internal/inbox/classifier_test.go`: a test for the on-demand `ClassifyPending` pass
+  (reuse the `mockLLM` + temp-graph harness of `TestClassifier`, `:23`), and a test that
+  the `Run` loop does nothing while the flag is disabled.
+- `internal/api/inbox_test.go`: cover `GET` / `PUT /api/inbox/auto-classify` and
+  `POST /api/inbox/classify`.
+
+**Verify:** `go test ./internal/inbox/... ./internal/api/...` green; then `run.sh` and
+drive the UI — paste a batch with auto-classify **OFF**, confirm the created captures stay
+unclassified (no background suggestions appear); click "Classify now", confirm the
+suggestions appear; toggle back ON.
 
 ### Add a way to organize and categorize projects
 Some structure for grouping/categorizing projects.
