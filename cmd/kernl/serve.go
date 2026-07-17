@@ -157,12 +157,14 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		if lerr != nil {
 			slog.Warn("inbox classifier disabled", "error", lerr)
 		} else {
+			// The loop always starts (given an LLM); it gates each tick on the
+			// live switch App exposes, so the toggle can pause it at runtime.
 			go inbox.NewClassifier(a.Graph, llm, inbox.ClassifierOptions{
 				AutoPrep:  cfg.Inbox.AutoPrep,
 				VaultRoot: cfg.Vault.Root,
 				DASubdir:  cfg.Inbox.DASubdir,
-			}).Run(ctx)
-			slog.Info("inbox classifier started", "autoPrep", cfg.Inbox.AutoPrep)
+			}).Run(ctx, a.AutoClassifyEnabled)
+			slog.Info("inbox classifier started", "autoPrep", cfg.Inbox.AutoPrep, "autoClassify", a.AutoClassifyEnabled())
 		}
 	} else {
 		slog.Warn("inbox classifier disabled: no llm provider configured (set llm.provider in kernl.yaml); DA chat, ingest, and note AI are also unavailable")

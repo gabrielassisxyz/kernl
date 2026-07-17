@@ -64,9 +64,70 @@ func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/inbox/batch-log", func(w http.ResponseWriter, r *http.Request) {
 		getInboxBatchHandler(w, r, a)
 	})
+	mux.HandleFunc("GET /api/inbox/auto-classify", func(w http.ResponseWriter, r *http.Request) {
+		getAutoClassifyHandler(w, r, a)
+	})
+	mux.HandleFunc("PUT /api/inbox/auto-classify", func(w http.ResponseWriter, r *http.Request) {
+		setAutoClassifyHandler(w, r, a)
+	})
+	mux.HandleFunc("POST /api/inbox/classify", func(w http.ResponseWriter, r *http.Request) {
+		classifyPendingHandler(w, r, a)
+	})
 	mux.HandleFunc("POST /api/inbox", func(w http.ResponseWriter, r *http.Request) {
 		createCaptureHandler(w, r, a)
 	})
+}
+
+// getAutoClassifyHandler reports the live auto-classify switch (for the batch
+// modal's checkbox) alongside whether an LLM is configured at all — the inbox's
+// "Classify now" button disables itself when classification is impossible.
+func getAutoClassifyHandler(w http.ResponseWriter, _ *http.Request, a *app.App) {
+	writeJSON(w, map[string]bool{
+		"enabled":       a.AutoClassifyEnabled(),
+		"llmConfigured": a.Config != nil && a.Config.LLM.IsSet(),
+	})
+}
+
+// setAutoClassifyHandler flips the live auto-classify switch. The change is
+// session-only (not persisted): it pauses/resumes the background loop for this
+// running process and resets to the config default on restart.
+func setAutoClassifyHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	a.SetAutoClassify(req.Enabled)
+	writeJSON(w, map[string]bool{"enabled": a.AutoClassifyEnabled()})
+}
+
+// classifyPendingHandler runs one on-demand classification pass over the
+// unclassified pending captures — the button next to the inbox list. It fails
+// loud when no LLM is configured rather than silently doing nothing, since the
+// user explicitly asked for a classify run.
+func classifyPendingHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	if a.Config == nil || !a.Config.LLM.IsSet() {
+		writeError(w, http.StatusServiceUnavailable,
+			"KERNL DISPATCH FAILURE: cannot classify — no LLM provider configured — Fix: set llm.provider in kernl.yaml")
+		return
+	}
+	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "llm: "+err.Error())
+		return
+	}
+	classifier := inbox.NewClassifier(a.Graph, llm, inbox.ClassifierOptions{
+		AutoPrep:  a.Config.Inbox.AutoPrep,
+		VaultRoot: a.Config.Vault.Root,
+		DASubdir:  a.Config.Inbox.DASubdir,
+	})
+	if err := classifier.ClassifyPending(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "classify: "+err.Error())
+		return
+	}
+	writeJSON(w, map[string]string{"status": "ok"})
 }
 
 // createCaptureHandler creates a Capture from the web Quick Capture box,

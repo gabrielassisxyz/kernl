@@ -116,6 +116,17 @@ type InboxConfig struct {
 	// DASubdir is the folder under the vault root where DA-authored notes (preps)
 	// are materialized as markdown. Default: "DA".
 	DASubdir string `yaml:"da_subdir,omitempty"`
+	// AutoClassify seeds the runtime auto-classify switch the background
+	// classifier reads each tick. A pointer, not a plain bool, because the
+	// default is ON: a plain bool cannot tell "user set false" from "absent",
+	// so `auto_classify: false` could never be persisted. nil ⇒ default true.
+	AutoClassify *bool `yaml:"auto_classify,omitempty"`
+}
+
+// AutoClassifyEnabled resolves the tri-state AutoClassify to its effective
+// boolean: unset means the default-ON.
+func (c InboxConfig) AutoClassifyEnabled() bool {
+	return c.AutoClassify == nil || *c.AutoClassify
 }
 
 type Config struct {

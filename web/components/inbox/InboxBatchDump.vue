@@ -55,6 +55,22 @@
             </p>
           </div>
 
+          <!-- Auto-classify runs in the background after captures land. Turn it
+               off here to review a batch untouched, then classify on demand from
+               the inbox. Session-only: it resets to the config default on restart. -->
+          <label class="flex items-center gap-base border border-border-hairline bg-bg-base rounded px-base py-base cursor-pointer">
+            <input
+              type="checkbox"
+              class="accent-primary"
+              :checked="autoClassify"
+              @change="setAutoClassify(($event.target as HTMLInputElement).checked)"
+            />
+            <span class="flex flex-col">
+              <span class="font-body text-body text-text-primary">Auto-classify new captures</span>
+              <span class="font-mono-data text-mono-data text-text-muted">The DA suggests an action for each capture in the background.</span>
+            </span>
+          </label>
+
           <!-- A merge deletes a message from the record. The model may suggest one;
                only the human applies it. -->
           <div v-if="enriching || enriched" class="border border-border-hairline bg-bg-base rounded px-base py-base">
@@ -163,6 +179,9 @@ interface BatchAnalysis extends BatchPreview {
 
 const emit = defineEmits<{
   (e: 'created', batchId: string): void
+  // Surfaced so the inbox page's row rendering (spinner vs. resting state) and
+  // polling track the switch the moment it changes here.
+  (e: 'autoClassifyChanged', enabled: boolean): void
 }>()
 
 const text = ref('')
@@ -178,6 +197,9 @@ const creating = ref(false)
 const reviewOpen = ref(false)
 const error = ref('')
 const reviewError = ref('')
+// Reflects the server-side auto-classify switch. Defaults ON to match the config
+// default; the GET on modal-open corrects it to the live value.
+const autoClassify = ref(true)
 
 const canSubmit = computed(() => text.value.trim().length > 0)
 
@@ -274,7 +296,32 @@ async function openReview() {
   } finally {
     splitting.value = false
   }
+  loadAutoClassify()
   enrich(true)
+}
+
+// The switch is server-side (it drives a background loop), so the checkbox reads
+// the live state on open and writes it back on change.
+async function loadAutoClassify() {
+  try {
+    const res = await $fetch<{ enabled: boolean }>('/api/inbox/auto-classify')
+    autoClassify.value = res.enabled
+    emit('autoClassifyChanged', res.enabled)
+  } catch {
+    // A read failure leaves the optimistic default; the toggle still works.
+  }
+}
+
+async function setAutoClassify(enabled: boolean) {
+  const previous = autoClassify.value
+  autoClassify.value = enabled
+  try {
+    const res = await $fetch<{ enabled: boolean }>('/api/inbox/auto-classify', { method: 'PUT', body: { enabled } })
+    autoClassify.value = res.enabled
+    emit('autoClassifyChanged', res.enabled)
+  } catch {
+    autoClassify.value = previous
+  }
 }
 
 async function enrich(updateTitle: boolean) {

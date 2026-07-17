@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
@@ -34,6 +35,29 @@ type App struct {
 	// Empty when the app was built from an in-memory config (tests, harnesses),
 	// which makes config writes unavailable rather than silently misdirected.
 	ConfigPath string
+
+	// autoClassify is the live switch the background inbox classifier reads each
+	// tick. It is session-only (a UI toggle, not persisted) and resets to the
+	// config default on restart, so it needs its own guarded state rather than
+	// riding on Config — the loop and the HTTP handlers race on it otherwise.
+	autoClassifyMu sync.RWMutex
+	autoClassify   bool
+}
+
+// AutoClassifyEnabled reports whether the background inbox classifier should run
+// this tick. The classifier loop calls it every tick; the toggle API flips it.
+func (a *App) AutoClassifyEnabled() bool {
+	a.autoClassifyMu.RLock()
+	defer a.autoClassifyMu.RUnlock()
+	return a.autoClassify
+}
+
+// SetAutoClassify flips the live auto-classify switch. Seeded from config at boot
+// and driven by PUT /api/inbox/auto-classify thereafter.
+func (a *App) SetAutoClassify(enabled bool) {
+	a.autoClassifyMu.Lock()
+	defer a.autoClassifyMu.Unlock()
+	a.autoClassify = enabled
 }
 
 func NewApp(cfg *config.Config) (*App, error) {
@@ -92,6 +116,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 		EpicEvents:    epic.NewEpicEventHub(),
 		NudgeRegistry: nudges,
 		Graph:         g,
+		autoClassify:  cfg.Inbox.AutoClassifyEnabled(),
 	}, nil
 }
 
