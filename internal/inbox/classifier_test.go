@@ -4,7 +4,9 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -291,6 +293,101 @@ func TestClassifyBatchKeepsRelatedMessagesTogether(t *testing.T) {
 	if len(action.InitialTasks) != 2 {
 		t.Fatalf("InitialTasks = %#v, want 2 tasks", action.InitialTasks)
 	}
+}
+
+// TestClassifyPending covers the exported on-demand pass (POST /api/inbox/classify)
+// classifies an unclassified capture exactly like the background loop would.
+func TestClassifyPending(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	capID := seedPendingCapture(ctx, t, g, "https://example.com")
+
+	c := NewClassifier(g, &mockLLM{content: "bookmark"}, ClassifierOptions{})
+	if err := c.ClassifyPending(ctx); err != nil {
+		t.Fatalf("ClassifyPending: %v", err)
+	}
+
+	if got := captureActions(ctx, t, g, capID); len(got) != 1 || got[0].Target != "bookmark" {
+		t.Errorf("expected one bookmark action, got %#v", got)
+	}
+}
+
+// TestRunLoopGatedByEnabled proves the loop honors the live switch both ways:
+// nothing is classified while enabled() is false, and classification resumes
+// once it flips true.
+func TestRunLoopGatedByEnabled(t *testing.T) {
+	old := classifierInterval
+	classifierInterval = 5 * time.Millisecond
+	defer func() { classifierInterval = old }()
+
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	capID := seedPendingCapture(ctx, t, g, "https://example.com")
+
+	var enabled atomic.Bool // starts false: the loop must stay idle
+	c := NewClassifier(g, &mockLLM{content: "bookmark"}, ClassifierOptions{})
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go c.Run(runCtx, enabled.Load)
+
+	// Many ticks pass with the switch off; the capture stays unclassified.
+	time.Sleep(50 * time.Millisecond)
+	if got := captureActions(ctx, t, g, capID); len(got) != 0 {
+		t.Fatalf("disabled loop classified the capture: %#v", got)
+	}
+
+	// Flip the switch on; classification should follow within a few ticks.
+	enabled.Store(true)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if got := captureActions(ctx, t, g, capID); len(got) == 1 && got[0].Target == "bookmark" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("enabled loop did not classify the capture within the deadline")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func seedPendingCapture(ctx context.Context, t *testing.T, g *graph.Graph, body string) string {
+	t.Helper()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateCapture(ctx, tx, nodes.Capture{
+			Body:         body,
+			CapturedFrom: "cli",
+			Tags:         []string{"pending"},
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func captureActions(ctx context.Context, t *testing.T, g *graph.Graph, id string) []nodes.CaptureAction {
+	t.Helper()
+	var cap *nodes.Capture
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		cap, err = nodes.GetCapture(ctx, tx, id)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return cap.SuggestedActions
 }
 
 type promptCapturingLLM struct {

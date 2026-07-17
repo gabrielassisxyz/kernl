@@ -41,9 +41,16 @@ func NewClassifier(g *graph.Graph, llm chat.LLMClient, opts ClassifierOptions) *
 	}
 }
 
+// classifierInterval is the poll cadence of the Run loop. A package var so tests
+// can drive many ticks in a short window instead of waiting on the real cadence.
+var classifierInterval = 2 * time.Second
+
 // Run listens for pending captures and classifies them in a background loop.
-func (c *Classifier) Run(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+// enabled is consulted every tick so the live auto-classify switch can pause the
+// loop without tearing it down — a client-only toggle cannot stop a server-side
+// goroutine, so the gate has to be read here.
+func (c *Classifier) Run(ctx context.Context, enabled func() bool) {
+	ticker := time.NewTicker(classifierInterval)
 	defer ticker.Stop()
 
 	for {
@@ -51,11 +58,22 @@ func (c *Classifier) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !enabled() {
+				continue
+			}
 			if err := c.processPending(ctx); err != nil {
 				slog.Error("classifier process error", "err", err)
 			}
 		}
 	}
+}
+
+// ClassifyPending runs exactly one classification pass over the unclassified
+// pending captures. It is the on-demand counterpart to the Run loop, invoked by
+// POST /api/inbox/classify so the user can classify now even with the background
+// loop switched off.
+func (c *Classifier) ClassifyPending(ctx context.Context) error {
+	return c.processPending(ctx)
 }
 
 // processPending finds unclassified pending captures and assigns a suggestion.

@@ -3,9 +3,24 @@ import { mount, flushPromises } from '@vue/test-utils'
 import InboxBatchDump from '../components/inbox/InboxBatchDump.vue'
 
 let fetchMock: ReturnType<typeof vi.fn>
+// Routed by URL rather than call order: the component now hits several endpoints
+// (preview, auto-classify, analyze, create), so positional mocks would couple
+// every test to the exact call sequence. Tests override a handler to change one
+// endpoint's behavior.
+let handlers: Record<string, (opts?: { method?: string; body?: unknown }) => unknown>
 
 beforeEach(() => {
-  fetchMock = vi.fn()
+  handlers = {
+    '/api/inbox/batch/preview': () => twoMessagePreview,
+    '/api/inbox/auto-classify': () => ({ enabled: true, llmConfigured: true }),
+    '/api/inbox/batch/analyze': () => ({ ...twoMessagePreview, mergeProposals: [] }),
+    '/api/inbox/batch': () => ({ batchId: 'batch-1', segments: [] }),
+  }
+  fetchMock = vi.fn((url: string, opts?: { method?: string; body?: unknown }) => {
+    const handler = handlers[url]
+    if (!handler) return Promise.reject(new Error(`unexpected fetch: ${url}`))
+    return Promise.resolve(handler(opts))
+  })
   vi.stubGlobal('$fetch', fetchMock)
 })
 
@@ -31,6 +46,10 @@ function clickButton(w: ReturnType<typeof mount>, label: string) {
   return w.findAll('button').find(button => button.text().includes(label))!.trigger('click')
 }
 
+function callTo(url: string) {
+  return fetchMock.mock.calls.find(call => call[0] === url)
+}
+
 describe('InboxBatchDump', () => {
   it('uses the shared capture input affordances', () => {
     const w = mount(InboxBatchDump)
@@ -46,24 +65,25 @@ describe('InboxBatchDump', () => {
   // mechanical split, and enrichment lands on top of it afterwards.
   it('opens the review modal on the mechanical split, before the LLM answers', async () => {
     let releaseAnalyze: (value: unknown) => void = () => {}
-    fetchMock
-      .mockResolvedValueOnce(twoMessagePreview)
-      .mockImplementationOnce(() => new Promise(resolve => { releaseAnalyze = resolve }))
+    handlers['/api/inbox/batch/analyze'] = () => new Promise(resolve => { releaseAnalyze = resolve })
 
     const w = mount(InboxBatchDump)
     await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')
     await clickButton(w, 'Create captures')
     await flushPromises()
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/inbox/batch/preview', {
-      method: 'POST',
-      body: {
-        text: '[7/4/2026, 14:12] Gabriel: Project idea',
-        source: '',
-        separator: 'auto',
-        contextTitle: '',
+    expect(callTo('/api/inbox/batch/preview')).toEqual([
+      '/api/inbox/batch/preview',
+      {
+        method: 'POST',
+        body: {
+          text: '[7/4/2026, 14:12] Gabriel: Project idea',
+          source: '',
+          separator: 'auto',
+          contextTitle: '',
+        },
       },
-    })
+    ])
     // Modal is up with the real messages while /analyze is still in flight.
     expect(w.text()).toContain('2 captures will be created')
     expect(w.text()).toContain('14:12')
@@ -75,9 +95,33 @@ describe('InboxBatchDump', () => {
     expect(w.text()).toContain('every message stays its own capture')
   })
 
+  // The batch modal reflects the live auto-classify switch and writes it back.
+  it('reads the auto-classify switch on open and toggles it', async () => {
+    handlers['/api/inbox/auto-classify'] = (opts) => ({
+      enabled: opts?.method === 'PUT' ? (opts.body as { enabled: boolean }).enabled : false,
+      llmConfigured: true,
+    })
+
+    const w = mount(InboxBatchDump)
+    await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')
+    await clickButton(w, 'Create captures')
+    await flushPromises()
+
+    const checkbox = w.find('input[type="checkbox"]')
+    expect((checkbox.element as HTMLInputElement).checked).toBe(false)
+
+    await checkbox.setValue(true)
+    await flushPromises()
+    const putCall = fetchMock.mock.calls.find(
+      call => call[0] === '/api/inbox/auto-classify' && call[1]?.method === 'PUT',
+    )
+    expect(putCall?.[1]).toEqual({ method: 'PUT', body: { enabled: true } })
+    expect((checkbox.element as HTMLInputElement).checked).toBe(true)
+  })
+
   // A merge deletes a message from the record. It is offered, never applied.
   it('offers a suggested merge without applying it', async () => {
-    fetchMock.mockResolvedValueOnce(twoMessagePreview).mockResolvedValueOnce({
+    handlers['/api/inbox/batch/analyze'] = () => ({
       ...twoMessagePreview,
       mergeProposals: [{ sourceSequences: [0, 1], reason: 'same request, restated' }],
     })
@@ -100,13 +144,10 @@ describe('InboxBatchDump', () => {
   })
 
   it('posts the reviewed split and the accepted merges on create', async () => {
-    fetchMock
-      .mockResolvedValueOnce(twoMessagePreview)
-      .mockResolvedValueOnce({
-        ...twoMessagePreview,
-        mergeProposals: [{ sourceSequences: [0, 1], reason: 'same request, restated' }],
-      })
-      .mockResolvedValueOnce({ batchId: 'batch-1', segments: [] })
+    handlers['/api/inbox/batch/analyze'] = () => ({
+      ...twoMessagePreview,
+      mergeProposals: [{ sourceSequences: [0, 1], reason: 'same request, restated' }],
+    })
 
     const w = mount(InboxBatchDump)
     const textarea = w.find('textarea')
@@ -118,7 +159,7 @@ describe('InboxBatchDump', () => {
     await clickButton(w, 'Create 1 captures')
     await flushPromises()
 
-    const [url, options] = fetchMock.mock.calls[2]
+    const [url, options] = callTo('/api/inbox/batch')!
     expect(url).toBe('/api/inbox/batch')
     expect(options.body.rawSegments).toEqual(twoMessagePreview.segments)
     // One candidate, carrying the merge the user accepted. The body is a preview:
@@ -134,10 +175,7 @@ describe('InboxBatchDump', () => {
   // Enrichment is a bonus, not a dependency: if it fails, the messages as pasted
   // are still exactly what gets created.
   it('still creates the captures when enrichment fails', async () => {
-    fetchMock
-      .mockResolvedValueOnce(twoMessagePreview)
-      .mockRejectedValueOnce(new Error('llm down'))
-      .mockResolvedValueOnce({ batchId: 'batch-1', segments: [] })
+    handlers['/api/inbox/batch/analyze'] = () => Promise.reject(new Error('llm down'))
 
     const w = mount(InboxBatchDump)
     await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')

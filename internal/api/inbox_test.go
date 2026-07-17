@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/api"
@@ -341,6 +342,138 @@ func TestInboxBatchCreateWithLLMGrouping(t *testing.T) {
 	}
 	if created["enrichmentStatus"] != "unavailable" && created["enrichmentStatus"] != "failed" {
 		t.Fatalf("expected unavailable or failed enrichment, got %v", created["enrichmentStatus"])
+	}
+}
+
+// TestInboxAutoClassifyGetPut covers the live switch round-trip: GET reflects the
+// current state (plus whether an LLM is configured), PUT flips it, and a
+// subsequent GET sees the new value.
+func TestInboxAutoClassifyGetPut(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	a := &app.App{Graph: g, Config: &config.Config{
+		Vault: config.VaultConfig{Root: t.TempDir()},
+		LLM:   config.LLMConfig{Provider: "noop"},
+	}}
+	a.SetAutoClassify(true)
+
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	// GET reflects the seeded ON state and reports the LLM as configured.
+	get := func() map[string]bool {
+		req := httptest.NewRequest(http.MethodGet, "/api/inbox/auto-classify", nil)
+		rr := httptest.NewRecorder()
+		mux.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("GET auto-classify returned %d: %s", rr.Code, rr.Body.String())
+		}
+		var out map[string]bool
+		if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return out
+	}
+	if state := get(); !state["enabled"] || !state["llmConfigured"] {
+		t.Fatalf("expected enabled=true llmConfigured=true, got %#v", state)
+	}
+
+	// PUT flips it off and echoes the new state.
+	req := httptest.NewRequest(http.MethodPut, "/api/inbox/auto-classify", bytes.NewBufferString(`{"enabled":false}`))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("PUT auto-classify returned %d: %s", rr.Code, rr.Body.String())
+	}
+	var put map[string]bool
+	if err := json.Unmarshal(rr.Body.Bytes(), &put); err != nil {
+		t.Fatalf("unmarshal put: %v", err)
+	}
+	if put["enabled"] {
+		t.Fatalf("PUT did not disable the switch: %#v", put)
+	}
+	if a.AutoClassifyEnabled() {
+		t.Fatalf("app flag still enabled after PUT")
+	}
+	if state := get(); state["enabled"] {
+		t.Fatalf("GET after PUT still reports enabled: %#v", state)
+	}
+}
+
+// TestInboxClassifyNoLLM asserts the on-demand pass fails loud (not a silent
+// no-op) when no LLM is configured.
+func TestInboxClassifyNoLLM(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	a := &app.App{Graph: g, Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}}}
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/inbox/classify", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("classify without LLM returned %d, want 503: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "KERNL DISPATCH FAILURE") {
+		t.Fatalf("expected fail-loud marker, got %s", rr.Body.String())
+	}
+}
+
+// TestInboxClassifyRunsPass drives one on-demand pass with the noop provider and
+// asserts the previously-unclassified capture comes back with a suggestion.
+func TestInboxClassifyRunsPass(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	var capID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "buy milk", Tags: []string{"pending"}}, nodes.Author{Name: "tester"})
+		capID = id
+		return err
+	}); err != nil {
+		t.Fatalf("CreateCapture: %v", err)
+	}
+
+	a := &app.App{Graph: g, Config: &config.Config{
+		Vault: config.VaultConfig{Root: t.TempDir()},
+		LLM:   config.LLMConfig{Provider: "noop"},
+	}}
+	mux := http.NewServeMux()
+	api.RegisterInboxRoutes(mux, a)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/inbox/classify", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("classify returned %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		cap, err := nodes.GetCapture(ctx, tx, capID)
+		if err != nil {
+			return err
+		}
+		if len(cap.SuggestedActions) == 0 {
+			t.Fatalf("capture still unclassified after classify pass")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("DoRead: %v", err)
 	}
 }
 

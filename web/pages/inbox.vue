@@ -11,6 +11,21 @@
       >{{ t.label }} <span class="text-text-faint">{{ t.count }}</span></button>
     </div>
     <div class="flex items-center gap-component">
+      <!-- Classify the pile on demand: the way to catch up after pasting a batch
+           with auto-classify off. Only offered when something is unclassified. -->
+      <button
+        v-if="tab === 'unprocessed' && hasPendingClassification"
+        class="flex items-center gap-tight px-base py-1 rounded border font-mono-data text-mono-data transition-colors outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
+        :class="!llmConfigured || classifying
+          ? 'border-border-hairline text-text-faint cursor-not-allowed'
+          : 'border-border-hairline text-text-muted hover:text-text-primary hover:border-border-default cursor-pointer'"
+        :disabled="!llmConfigured || classifying"
+        :title="llmConfigured ? 'Classify the unprocessed captures now' : 'No LLM is configured — set llm.provider in kernl.yaml'"
+        @click="classifyNow"
+      >
+        <span class="material-symbols-outlined !text-body leading-none" aria-hidden="true">auto_awesome</span>
+        {{ classifying ? 'Classifying…' : 'Classify now' }}
+      </button>
       <!-- Focus is a mode, not the front door: the list stays the way in. -->
       <button
         v-if="tab === 'unprocessed' && (items.length > 0 || focus)"
@@ -692,6 +707,33 @@ const AWAITING = (i: InboxItemData) => actionsFor(i).length === 0
 const hasPendingClassification = computed(() => items.value.some(AWAITING))
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+// ---- on-demand classify ----
+// Whether the server has an LLM at all; the "Classify now" button is inert
+// without one, so it disables itself and explains rather than failing on click.
+const llmConfigured = ref(true)
+const classifying = ref(false)
+
+async function loadClassifyCapability() {
+  try {
+    const res = await $fetch<{ enabled: boolean; llmConfigured: boolean }>('/api/inbox/auto-classify')
+    llmConfigured.value = res.llmConfigured
+  } catch { /* leave the optimistic default; the click still fails loud */ }
+}
+
+async function classifyNow() {
+  if (classifying.value || !llmConfigured.value) return
+  classifying.value = true
+  try {
+    await $fetch('/api/inbox/classify', { method: 'POST' })
+    await refresh()
+    showToast('Classified the unprocessed captures')
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : 'Could not classify.')
+  } finally {
+    classifying.value = false
+  }
+}
+
 function stopPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
 }
@@ -715,6 +757,7 @@ function onVisibility() {
 
 onMounted(() => {
   loadProjects()
+  loadClassifyCapability()
   window.addEventListener('keydown', onKey)
   document.addEventListener('visibilitychange', onVisibility)
   if (hasPendingClassification.value) startPolling()
