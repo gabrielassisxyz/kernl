@@ -171,6 +171,79 @@ the 4 KB cap — same shape as `sync-machine-rule.sh`. Do not let it grow into a
 "sync everything" script. Code refs: `internal/chat/engine.go`,
 `internal/planning/telos.go`. (Moved from `llm-workflow/BACKLOG.md` S10.)
 
+### Switch the model / harness from inside the DA chat
+
+**Captured 2026-07-17 (Gabriel).** Add a model/harness picker to the DA chat — the
+same affordance the web UIs of ChatGPT, Claude, and Gemini have: a control in the
+chat that swaps which model (and, more broadly, which **harness**) answers, without
+leaving the conversation.
+
+- **Goal:** pick the backing model/harness per DA conversation from the chat surface.
+- **Two axes, don't conflate them:** *model* (e.g. which LLM behind the same in-app DA
+  engine) vs *harness* (the DA answered by the in-app engine vs. by an external agent
+  harness like Claude Code — see the linking task below). Decide whether v1 does just
+  model-swap or the full harness-swap; the harness axis is what unlocks the next task.
+- **Groundwork already present:** the DA panel has a static `v2.4-stable` version badge
+  and a `scope · global` chip today (mocked — see "DA panel — version badge, scope, and
+  context chips" under *UI chrome currently mocked*). The model/harness picker is the
+  real control those chips were gesturing at; wire them together rather than adding a
+  parallel widget.
+
+### A dedicated, full-screen page for the DA
+
+**Captured 2026-07-17 (Gabriel).** Today the DA lives in a side panel
+(`web/components/DaChatSurface.vue`). Add a **dedicated full-screen DA page** — a route
+where the DA is the whole surface, not a docked panel — for longer, focused sessions.
+
+- **Goal:** a full-screen DA route (its own page), reusing the existing chat surface
+  component so panel and page stay in sync.
+- **Open:** whether the panel becomes an entry point that "expands" into the page, or the
+  page is a peer route; and how the model/harness picker and context chips render with the
+  extra room. Not designed yet — capture only.
+
+### When the DA's harness is Claude, link the session to llm-workflow's context
+
+**Captured 2026-07-17 (Gabriel). Depends on the model/harness switcher above.** When the
+harness picked for the DA is **Claude** (i.e. an actual Claude Code / agent session, not
+the in-app LLM engine), that session should run **as if launched from inside the
+`llm-workflow` repo** — carrying all the context that repo's harness already injects
+(`AGENTS.md`, `about-me/`, ops logs, lessons, backlog) — **but** also told the things that
+make the DA the DA: that it is running **inside kernl**, and **which kernl tools/APIs are
+available to it**.
+
+- **The intent:** stop the two worlds being separate. The rich agent context Gabriel gets
+  from a terminal session in `llm-workflow` and the DA's situational awareness of kernl
+  should be the *same* session when he drives the DA with the Claude harness.
+- **Relation to the existing syncer task ("Give the DA the context this repo's agents
+  already have"):** that task is about the **in-app DA engine** — curating `about-me/` →
+  a `telos`-tagged vault note (constitutional) plus a retrieval tool (situational). *This*
+  task is about the **external Claude harness** being pointed at llm-workflow's context
+  directly. Related, not the same — do not collapse them; one feeds the built-in DA, the
+  other bridges to a real agent CLI session.
+- **Open (capture only):** the mechanism — does kernl spawn the Claude session with
+  `cwd`/context set to llm-workflow and inject a kernl "you are the DA, here are your
+  tools" preamble + a tool manifest? How do kernl's APIs get exposed to that session (MCP
+  server over kernl's endpoints, a skill, a generated tool list)? Not designed yet.
+
+### A complete, agent-oriented CLI for kernl
+
+**Captured 2026-07-17 (Gabriel).** Grow kernl's CLI (`cmd/kernl/` today has `serve`,
+`bookmark`, `task`, …) into a **complete CLI aimed at agent use** — the surface an agent
+(or Gabriel from a terminal) drives kernl through, covering the graph: captures/inbox,
+notes, tasks, projects, bookmarks, memory, and the DA.
+
+- **The reference points he named:** **`gt`** (Graphite / Gastown), the **Obsidian CLI**,
+  and Notion's newer CLI — agent-ergonomic CLIs with robot/JSON output, scriptable
+  subcommands, and clean help/errors. The `llm-workflow` skill
+  **`agent-ergonomics-and-intuitiveness-maximization-for-cli-tools`** is the rubric to
+  build against.
+- **Why it matters:** an agent-first CLI is how the orchestrator and external agents
+  operate kernl headlessly; it also underpins the Claude-harness linking task above (that
+  session needs kernl tools, and a good CLI is the cheapest way to expose them).
+- **Open (capture only):** scope of v1 (which subcommands first — inbox/capture and tasks
+  are the daily surface), and the JSON/robot-mode contract. Greenfield-ish and large — this
+  is a committed direction, not a scoped plan yet; it wants a planning round before draining.
+
 ## Deferred — from v0.1.0 (decided 2026-06-26)
 
 > Source of the v0.1.0 scope decisions these defer from: the v0.1.0 roadmap
