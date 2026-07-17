@@ -2,12 +2,27 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/gabrielassisxyz/kernl/internal/graph"
 )
+
+func deleteTaskViaAPI(t *testing.T, r http.Handler, id string, wantCode int) {
+	t.Helper()
+	req := httptest.NewRequest("DELETE", "/api/tasks/"+id, nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != wantCode {
+		t.Fatalf("delete task %s: expected %d, got %d: %s", id, wantCode, w.Code, w.Body.String())
+	}
+}
 
 func listTasksViaAPI(t *testing.T, r http.Handler) []taskDTO {
 	t.Helper()
@@ -94,6 +109,56 @@ func TestTaskTagsRoundTrip(t *testing.T) {
 	// An empty patch has nothing to do; a missing task is a 404.
 	patchTaskViaAPI(t, r, created.ID, `{}`, http.StatusBadRequest)
 	patchTaskViaAPI(t, r, "nope", `{"tags":["x"]}`, http.StatusNotFound)
+}
+
+func TestTaskTitleRoundTrip(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+	id := createTaskViaAPI(t, r, `{"title":"Old title"}`, http.StatusCreated)
+
+	// A title-only patch must be accepted — it must NOT hit the all-nil guard.
+	patchTaskViaAPI(t, r, id, `{"title":"New title"}`, http.StatusNoContent)
+	tasks := listTasksViaAPI(t, r)
+	if len(tasks) != 1 || tasks[0].Title != "New title" {
+		t.Fatalf("title = %q, want \"New title\"", tasks[0].Title)
+	}
+
+	// A blank title is rejected — dropping the title is not a legitimate edit.
+	patchTaskViaAPI(t, r, id, `{"title":"   "}`, http.StatusBadRequest)
+
+	// A retitle of a missing task is a 404.
+	patchTaskViaAPI(t, r, "nope", `{"title":"x"}`, http.StatusNotFound)
+}
+
+func TestDeleteTaskRemovesCompanion(t *testing.T) {
+	a, vault := newCompanionTestApp(t)
+	r := NewRouter(a)
+	ctx := context.Background()
+	id := createTaskViaAPI(t, r, `{"title":"Doomed Task"}`, http.StatusCreated)
+
+	companionFile := filepath.Join(vault, "tasks", "doomed-task.md")
+	if _, err := os.Stat(companionFile); err != nil {
+		t.Fatalf("companion file should exist before delete: %v", err)
+	}
+
+	deleteTaskViaAPI(t, r, id, http.StatusNoContent)
+
+	if got := listTasksViaAPI(t, r); len(got) != 0 {
+		t.Errorf("expected 0 tasks after delete, got %d", len(got))
+	}
+	if _, err := os.Stat(companionFile); !os.IsNotExist(err) {
+		t.Error("companion file should be removed with the task")
+	}
+	var liveNotes int
+	_ = a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'note' AND deleted_at IS NULL`).Scan(&liveNotes)
+	})
+	if liveNotes != 0 {
+		t.Errorf("companion note node should be deleted, %d live notes remain", liveNotes)
+	}
+
+	// Deleting again → 404.
+	deleteTaskViaAPI(t, r, id, http.StatusNotFound)
 }
 
 func sortedTags(in []string) []string {

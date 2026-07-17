@@ -86,5 +86,20 @@ export function useTasks() {
     if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
   }
 
-  return { tasks, loading, error, load, create, setStatus, setDueDate }
+  async function update(id: string, patch: { title?: string }): Promise<void> {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
+  }
+
+  // Removes the task and its companion note.
+  async function remove(id: string): Promise<void> {
+    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(`DELETE /api/tasks/${id} → ${res.status}`)
+  }
+
+  return { tasks, loading, error, load, create, setStatus, setDueDate, update, remove }
 }

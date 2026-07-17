@@ -1,8 +1,11 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -37,6 +40,9 @@ func RegisterTaskRoutes(mux *http.ServeMux, a *app.App) {
 	})
 	mux.HandleFunc("PATCH /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		patchTaskHandler(w, r, a)
+	})
+	mux.HandleFunc("DELETE /api/tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		deleteTaskHandler(w, r, a)
 	})
 }
 
@@ -153,6 +159,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	// key leaves the task's tags alone, while `"tags": []` clears them. Same for
 	// dueDate — `"dueDate": ""` is how a due date is removed.
 	var req struct {
+		Title   *string   `json:"title"`
 		Status  *string   `json:"status"`
 		Tags    *[]string `json:"tags"`
 		DueDate *string   `json:"dueDate"`
@@ -161,8 +168,12 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Status == nil && req.Tags == nil && req.DueDate == nil {
-		writeError(w, http.StatusBadRequest, "nothing to update: provide status, tags or dueDate")
+	if req.Title == nil && req.Status == nil && req.Tags == nil && req.DueDate == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide title, status, tags or dueDate")
+		return
+	}
+	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
+		writeError(w, http.StatusBadRequest, "title cannot be empty")
 		return
 	}
 	if req.Status != nil && *req.Status == "" {
@@ -181,6 +192,11 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		if req.Title != nil {
+			if err := nodes.SetTaskTitle(ctx, tx, id, strings.TrimSpace(*req.Title), author); err != nil {
+				return err
+			}
+		}
 		if req.Status != nil {
 			if err := nodes.SetTaskStatus(ctx, tx, id, *req.Status, author); err != nil {
 				return err
@@ -203,6 +219,57 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update task: "+err.Error())
 		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "missing task id")
+		return
+	}
+
+	ctx := r.Context()
+	// The companion note goes with the task (node + note_paths row in the same
+	// tx; the file afterwards). A task has no children to cascade — unlike a
+	// project, nothing points at it that we own.
+	var companionPath string
+	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var noteID string
+		err := tx.QueryRow(
+			`SELECT e.src FROM edges e
+			 JOIN nodes n ON n.id = e.src AND n.type = 'note' AND n.deleted_at IS NULL
+			 WHERE e.dst = ? AND e.label = ?`,
+			id, companionEdgeLabel,
+		).Scan(&noteID)
+		if err != nil && err != sql.ErrNoRows {
+			return err
+		}
+		if noteID != "" {
+			_ = tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, noteID).Scan(&companionPath)
+			if err := nodes.DeleteNote(ctx, tx, noteID, nodes.Author{Name: "api"}); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`DELETE FROM note_paths WHERE uuid = ?`, noteID); err != nil {
+				return err
+			}
+		}
+		return nodes.DeleteTask(ctx, tx, id, nodes.Author{Name: "api"})
+	})
+	if err == graph.ErrNotFound {
+		writeError(w, http.StatusNotFound, "task not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to delete task: "+err.Error())
+		return
+	}
+
+	// Best-effort file removal after the transaction committed; the watcher
+	// treats a delete event for an already-gone node as a no-op.
+	if companionPath != "" && a.Config.Vault.Root != "" {
+		_ = os.Remove(filepath.Join(a.Config.Vault.Root, filepath.FromSlash(companionPath)))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
