@@ -179,6 +179,9 @@ interface BatchAnalysis extends BatchPreview {
 
 const emit = defineEmits<{
   (e: 'created', batchId: string): void
+  // Surfaced so the inbox page's row rendering (spinner vs. resting state) and
+  // polling track the switch the moment it changes here.
+  (e: 'autoClassifyChanged', enabled: boolean): void
 }>()
 
 const text = ref('')
@@ -303,6 +306,7 @@ async function loadAutoClassify() {
   try {
     const res = await $fetch<{ enabled: boolean }>('/api/inbox/auto-classify')
     autoClassify.value = res.enabled
+    emit('autoClassifyChanged', res.enabled)
   } catch {
     // A read failure leaves the optimistic default; the toggle still works.
   }
@@ -314,6 +318,7 @@ async function setAutoClassify(enabled: boolean) {
   try {
     const res = await $fetch<{ enabled: boolean }>('/api/inbox/auto-classify', { method: 'PUT', body: { enabled } })
     autoClassify.value = res.enabled
+    emit('autoClassifyChanged', res.enabled)
   } catch {
     autoClassify.value = previous
   }

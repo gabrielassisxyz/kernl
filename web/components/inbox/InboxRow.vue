@@ -60,8 +60,15 @@
       <!-- What the capture becomes: the headline of the row. A capture is
            routinely several nodes, so each one gets its own legible line. -->
       <div v-if="!proposals" class="flex items-center gap-base py-tight">
-        <span class="material-symbols-outlined !text-body text-text-faint animate-spin motion-reduce:animate-none">progress_activity</span>
-        <span class="font-body text-body text-text-muted">Reading the capture — the DA's proposal will appear here.</span>
+        <!-- The spinner is a promise that a proposal is coming. Only show it when
+             one actually is — background classification runs only with the switch
+             on and an LLM configured. Otherwise the capture just rests unclassified,
+             and a forever-spinner would be a lie. -->
+        <template v-if="classifying">
+          <span class="material-symbols-outlined !text-body text-text-faint animate-spin motion-reduce:animate-none">progress_activity</span>
+          <span class="font-body text-body text-text-muted">Reading the capture — the DA's proposal will appear here.</span>
+        </template>
+        <span v-else class="font-body text-body text-text-faint">Not classified — edit it, or use “Classify now”.</span>
       </div>
 
       <ul v-else class="flex flex-col">
@@ -131,15 +138,21 @@ export interface Proposal {
   tags: string[]
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   item: InboxItemData
   /** the DA's proposal, one line per node — null while still classifying */
   proposals: Proposal[] | null
+  /** whether background classification is actually going to run: gates the
+   *  "reading the capture" spinner so it never spins on captures nothing will
+   *  touch (switch off or no LLM). */
+  classifying?: boolean
   selected?: boolean
   isCursor?: boolean
   expanded?: boolean
   prepping?: boolean
-}>()
+}>(), {
+  classifying: true,
+})
 
 defineEmits<{
   (e: 'toggle'): void

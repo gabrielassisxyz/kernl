@@ -14,7 +14,7 @@
       <!-- Classify the pile on demand: the way to catch up after pasting a batch
            with auto-classify off. Only offered when something is unclassified. -->
       <button
-        v-if="tab === 'unprocessed' && hasPendingClassification"
+        v-if="tab === 'unprocessed' && hasUnclassified"
         class="flex items-center gap-tight px-base py-1 rounded border font-mono-data text-mono-data transition-colors outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
         :class="!llmConfigured || classifying
           ? 'border-border-hairline text-text-faint cursor-not-allowed'
@@ -61,7 +61,7 @@
       </div>
       <div class="p-component">
         <CaptureThought v-if="entryMode === 'quick'" embedded @submit="() => refresh()" />
-        <InboxBatchDump v-else @created="onBatchCreated" />
+        <InboxBatchDump v-else @created="onBatchCreated" @auto-classify-changed="autoClassifyEnabled = $event" />
       </div>
     </section>
   </div>
@@ -97,6 +97,7 @@
               <InboxRow
                 :item="item"
                 :proposals="proposalsFor(item)"
+                :classifying="classifyActive"
                 :selected="selected.has(item.id)"
                 :isCursor="cursor === itemIndex(item.id)"
                 :expanded="openId === item.id"
@@ -135,6 +136,7 @@
             :key="item.id"
             :item="item"
             :proposals="proposalsFor(item)"
+            :classifying="classifyActive"
             :selected="selected.has(item.id)"
             :isCursor="cursor === itemIndex(item.id)"
             :expanded="openId === item.id"
@@ -699,25 +701,32 @@ function onKey(e: KeyboardEvent) {
   else if (e.key === 'x' || e.key === 'X') { if (item) toggleSelect(item.id) }
 }
 
-// ---- classification polling ----
-// The DA classifies captures in a background loop with no push channel, so poll
-// while any item is still awaiting a suggestion; stop once all are classified
-// or the tab is hidden, and resume on focus.
+// ---- classification state ----
+// A capture with no proposal is "unclassified" — but that is NOT the same as
+// "being classified right now". Background classification only happens when the
+// switch is on AND an LLM is configured; otherwise an unclassified capture just
+// rests. Conflating the two showed a forever-spinner (and polled forever) on
+// captures nothing was ever going to touch.
 const AWAITING = (i: InboxItemData) => actionsFor(i).length === 0
-const hasPendingClassification = computed(() => items.value.some(AWAITING))
-let pollTimer: ReturnType<typeof setInterval> | null = null
-
-// ---- on-demand classify ----
+const hasUnclassified = computed(() => items.value.some(AWAITING))
 // Whether the server has an LLM at all; the "Classify now" button is inert
 // without one, so it disables itself and explains rather than failing on click.
 const llmConfigured = ref(true)
+// Mirror of the server-side auto-classify switch, kept live by the batch modal.
+const autoClassifyEnabled = ref(true)
+// Is the background loop actually going to produce proposals? Drives the row
+// spinner and whether it is worth polling for results.
+const classifyActive = computed(() => autoClassifyEnabled.value && llmConfigured.value)
+const shouldPoll = computed(() => classifyActive.value && hasUnclassified.value)
 const classifying = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 async function loadClassifyCapability() {
   try {
     const res = await $fetch<{ enabled: boolean; llmConfigured: boolean }>('/api/inbox/auto-classify')
     llmConfigured.value = res.llmConfigured
-  } catch { /* leave the optimistic default; the click still fails loud */ }
+    autoClassifyEnabled.value = res.enabled
+  } catch { /* leave the optimistic defaults; the click still fails loud */ }
 }
 
 async function classifyNow() {
@@ -740,19 +749,19 @@ function stopPolling() {
 function startPolling() {
   if (pollTimer || typeof document === 'undefined' || document.hidden) return
   pollTimer = setInterval(async () => {
-    if (document.hidden || !hasPendingClassification.value) { stopPolling(); return }
+    if (document.hidden || !shouldPoll.value) { stopPolling(); return }
     await refresh()
   }, 3000)
 }
 
-watch(hasPendingClassification, (isPending) => {
-  if (isPending) startPolling()
+watch(shouldPoll, (poll) => {
+  if (poll) startPolling()
   else stopPolling()
 })
 
 function onVisibility() {
   if (document.hidden) stopPolling()
-  else if (hasPendingClassification.value) { refresh(); startPolling() }
+  else if (shouldPoll.value) { refresh(); startPolling() }
 }
 
 onMounted(() => {
@@ -760,7 +769,7 @@ onMounted(() => {
   loadClassifyCapability()
   window.addEventListener('keydown', onKey)
   document.addEventListener('visibilitychange', onVisibility)
-  if (hasPendingClassification.value) startPolling()
+  if (shouldPoll.value) startPolling()
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKey)
