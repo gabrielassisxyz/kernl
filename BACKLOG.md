@@ -1,13 +1,78 @@
 # Backlog
 
-Deferred work — things we consciously decided NOT to do now, kept here so they
-are not forgotten. Each entry records what it is, why it was deferred, and any
-dependency that must land first.
+Two sections, deliberately separate:
+
+- **`## Tasks`** — planned, drainable dev work: things decided and ready to pull
+  and implement. This is the ready-queue.
+- **`## Deferred`** — work we consciously decided NOT to do now, kept so it is not
+  forgotten. Each entry records what it is, why it was deferred, and any dependency
+  that must land first.
+
+Parked *ideas* (maybe-someday, not committed) live in [`IDEAS.md`](IDEAS.md), not
+here. The full capture → classify → plan → drain flow is documented in
+`llm-workflow/planning-pipeline.md`. **Backend for this project: markdown** (this
+file + `IDEAS.md`) — a test round of the pipeline; may switch to `br` beads later
+via a mechanical `beads-workflow` conversion. (The product's `bd`/orchestrator
+store is a separate, untouched concern.)
+
+## Tasks
+
+Planned dev work, ready to pull. (Mirrors the kernl-tagged items in the
+orchestrator inbox; this file is the markdown source of truth during the test.)
+
+### Add a delete-task button + API
+`PATCH /api/tasks` accepts only `status`/`tags`/`dueDate` and there is no `DELETE`
+at all — so a task can be neither deleted nor retitled, by API or UI. For a task
+manager this is a bug, not backlog. (Moved from `llm-workflow/BACKLOG.md` P1.)
+
+### Add a field that lets a task be automatically developed by the orchestrator
+A per-task flag marking it as auto-developable, so the orchestrator can pick it up
+and drive it — the first concrete step toward developing kernl inside kernl.
+
+### Review/redo kernl's UI — sidebar and palette
+The sidebar (icons + logo) and the color palette.
+
+### Batch override of auto-classify in the inbox
+A checkbox to toggle whether auto-classify runs, plus a button to trigger the
+classifier on the currently-unclassified inbox items.
+
+### Add a way to organize and categorize projects
+Some structure for grouping/categorizing projects.
+
+### Add an inbox filter by classification
+Filter the inbox by classification.
+
+### A backlog/deferred section in the UI, separate from tasks
+Surface a backlog/deferred area distinct from active tasks (the product-side mirror
+of this file's Tasks-vs-Deferred split).
+
+### Populate kernl's Memory with the telos
+There is no `telos`-tagged note in `~/vault`, so the DA knows *what* exists and
+stays blind to *why* (U7 of the v0.1.0 plan was never populated). (Moved from
+`llm-workflow/BACKLOG.md`.)
+
+### Give the DA the context this repo's agents already have
+Carry over context *for the DA inside kernl* — logs, lessons, backlog, about-me —
+as two problems that must NOT share one solution:
+- **Constitutional (always-on):** who Gabriel is and what he aims at. This is what
+  the `telos` tag + `MaxTelosBytes = 4000` cap was built for. The work is
+  **curation** (distil `about-me/` to earn its 4 KB), not raising the cap.
+- **Situational (on demand):** lessons, backlog, ops logs, session history —
+  **retrieval, not injection**. Kernl already has `Classifier.relatedContext`
+  (`internal/inbox/classifier.go`); the DA needs the equivalent tool.
+
+Decided (2026-07-14): **llm-workflow stays the source of truth**. A symlink into
+the vault is dead (`WalkDir`/`fsnotify` don't follow links; `LoadTelos` filters on
+a `tags: [telos]` frontmatter that `about-me/*.md` lack). So build a **one-way
+syncer (llm-workflow → kernl vault)** that stamps the frontmatter and curates to
+the 4 KB cap — same shape as `sync-machine-rule.sh`. Do not let it grow into a
+"sync everything" script. Code refs: `internal/chat/engine.go`,
+`internal/planning/telos.go`. (Moved from `llm-workflow/BACKLOG.md` S10.)
+
+## Deferred — from v0.1.0 (decided 2026-06-26)
 
 > Source of the v0.1.0 scope decisions these defer from: the v0.1.0 roadmap
 > brainstorm (2026-06-26). In-scope work is tracked separately as the v0.1.0 plan.
-
-## Deferred from v0.1.0 (decided 2026-06-26)
 
 ### Ingest — "Deep Research" action
 When ingested content makes a claim needing verification, this action would
