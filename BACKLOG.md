@@ -317,3 +317,79 @@ are static.
   nonexistent source would be a "live lie".
 - **Done already (not mocked):** the `~/vault` path now comes from real config via
   `/api/health` → `vaultLabel`; the `UTF-8` and `system_ready` chips were removed.
+
+## Captured from inbox triage — 2026-07-15
+
+Feature ideas routed here from Gabriel's WhatsApp capture inbox during a manual triage (in
+`llm-workflow`). Kept in one section on purpose — **distribute each into the thematic sections
+above when it is picked up**, don't let this become a parallel backlog. Every entry carries its
+capture provenance (WhatsApp, 2026-07-14) and Gabriel's triage note; none is scoped or committed
+to yet.
+
+### DA / intelligence
+
+- **Upload PDFs of favourite books so the DA knows they exist** — as *references*, not absolute
+  truth. The intent: give the DA the philosophy of the books most important to Gabriel, the ones
+  he wants to internalize.
+- **A recurring-items note/tag.** When he writes something down, loses it, and writes it *again*,
+  that re-noting is the **strongest signal the thing matters to him**. Could be a dedicated note,
+  a tag, or any way to surface the recurrence.
+- **A new capture type: `spontaneous`** — distinct from idea / spark / backlog / thought. The
+  insight was the *naming*: these are the ideas that arrive while walking, showering, lying idle.
+  One can become a task, a self-insight, or a reflection.
+- **DA should hold back new connections** — not surface a new connection it found; only *hint* at
+  it, until Gabriel notices it himself.
+- **Sycophancy + critical thinking** (Maggie Appleton) — fold into the DA's customizable prompt,
+  and it is worth a **benchmark** of its own.
+- **Compound-engineering-style learning** — learn patterns over time, iterate, learn from
+  mistakes. Connects to `llm-workflow` `PLAN.md`'s CE stance (adopt selectively, *not* wholesale).
+- **Scan notes → extract actionables** — the ideas he wrote and lost in his notes. This is the
+  feature that would automate the very triage that produced this section.
+- **A `graph-lint` / `graph-cleanup` pass** to tidy the graph periodically — possibly an internal
+  feature wrapped by a UI, not necessarily a skill.
+
+### Orchestrator / agents
+
+- **A "mayor"-style orchestrator tab**, more intuitive: ask for one or more things and it suggests
+  the depth/rigor the task needs. (The depth mechanism came from an old skill-flows repo and would
+  look different today; the *tab itself* he still wants.)
+- **Revisit the fungible-vs-role-based agents discussion** *(task: understand/recall)*. Raw
+  capture: his argument that in kernl it is all scalable *workers*, workflow-based rather than
+  role-based ("quem implementa o código não tem role específica"; questions the merge-agent
+  bottleneck, premature role taxonomy, and the context-window limit of one agent "following the
+  whole thread"). **Re-read it and decide what still makes sense to keep/apply.**
+
+### UI
+
+- **Mini-browser tab UI** — tabs per chat/session (like tmux session tabs) + a notification dot
+  (waiting on you / finished / failed-or-interrupted).
+- **Accent-colour customization (light/dark)** — nice-to-have, *not* priority. DA *personality* is
+  already done (the customizable prompt); the DA **name is hardcoded** across kernl and needs an
+  edit field. **Reference: Amazing Marvin** — infinitely customizable but takes 1+ weeks to learn;
+  the anti-example that justifies kernl's "works out of the box".
+- **Two designs:** an "enterprise/normie" one (to start visualizing how to sell to mid-size
+  companies) + the OSS build lets the user pick.
+- **A real fullscreen "setup"-style onboarding** — like the config you do at signup, teaching the
+  basic features. Not the usual guided tour.
+- **Token-consumption dashboard.**
+- **Automatic filters + lists** — filters for bookmarks / tasks / projects / tags (a tag groups
+  all node types carrying it); auto-lists (optionally driven by a prompt specifying what may be
+  created) for bookmarks.
+
+### Mobile
+
+- **A kernl mobile app (Android/iOS)** — start with only the phone-useful features (capture/inbox,
+  bookmark, notes) + DA integration from the phone. Ship a **`/app` path first** = an app-like
+  (PWA) view to use before the native app exists (especially for iOS, to avoid the store fee).
+  *(The Telegram-integration idea from the same capture is personal use, not kernl.)*
+
+### Build / dev
+
+- **`Vite+` (voidzero-dev/vite-plus) — a spike/recon task.** First understand what it actually is,
+  then assess whether it makes sense for kernl. Not adopted, just investigated.
+
+### Product philosophy — reinforce in `PRODUCT.md` / `VISION.md`
+
+- **"Works perfectly out of the box; endlessly customizable for the technical folks without
+  overwhelming the out-of-the-box user."** Already stated in `README.md` — reinforce it in
+  `PRODUCT.md`/`VISION.md`. Amazing Marvin (above) is the concrete anti-example it exists to avoid.
