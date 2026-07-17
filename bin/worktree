@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# Manage isolated git worktrees — the mandatory way to do any work in this repo.
+#
+# WHY: this repo is worked on by many parallel agent sessions, and nothing tells one
+# session that another exists. Sharing the main tree means they clobber each other's
+# branches and lose each other's uncommitted files. The rule is structural: the main
+# tree stays on the default branch as a clean reference, and EVERY session works in
+# its own worktree. This wraps the git plumbing so that is one
+# command, always branched off a FRESH origin/<default> — so nobody has to remember a
+# `git pull`, and a stale local default can never leak into new work.
+#
+#   worktree new <type>/<desc>   fetch origin, create a worktree + branch off origin/<default>
+#   worktree list                list worktrees (alias: ls)
+#   worktree status              per-worktree hygiene facts: dirty / unpushed / merged (alias: st)
+#   worktree rm <branch|task>    remove a worktree (git refuses if it has unsaved work; -f to force)
+#
+# Worktrees live OUTSIDE the repo, in ~/repositories/.worktrees/<repo>/<task>, so they
+# never pollute ~/repositories. Override the base dir with $WORKTREE_BASE.
+set -euo pipefail
+
+WORKTREE_BASE="${WORKTREE_BASE:-$HOME/repositories/.worktrees}"
+
+# Repo identity — works whether called from the main tree or from inside a worktree.
+# --git-common-dir points at the shared .../<repo>/.git even from a linked worktree.
+common="$(realpath "$(git rev-parse --git-common-dir)")"
+main_root="$(dirname "$common")"
+repo="$(basename "$main_root")"
+def="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+def="${def:-master}"
+
+slug() { printf '%s' "$1" | tr '/' '-'; }
+
+usage() {
+    cat >&2 <<EOF
+worktree — isolated worktrees for $repo (default branch: $def)
+
+  worktree new <type>/<desc>   fetch origin, create a worktree + branch off origin/$def
+  worktree list                list worktrees (alias: ls)
+  worktree status              per-worktree hygiene: dirty / unpushed / merged (alias: st)
+  worktree rm <branch|task>    remove a worktree (-f to force past unsaved work)
+
+Worktrees live in $WORKTREE_BASE/$repo/<task>.
+EOF
+}
+
+cmd_new() {
+    local branch="${1:-}"
+    [ -n "$branch" ] || { echo "usage: worktree new <type>/<desc>" >&2; exit 2; }
+    local task dir
+    task="$(slug "$branch")"
+    dir="$WORKTREE_BASE/$repo/$task"
+    [ -e "$dir" ] && { echo "worktree already exists: $dir" >&2; exit 1; }
+    echo "==> fetching origin/$def (so the branch starts fresh) ..."
+    git fetch --quiet origin "$def"
+    mkdir -p "$WORKTREE_BASE/$repo"
+    # --no-track: branch off a fresh origin/<default> WITHOUT adopting it as upstream. A new
+    # feature branch has no remote of its own until `git push -u`; leaving upstream unset is
+    # what lets `status` flag it "no-remote" (unbacked work) instead of comparing to master.
+    git worktree add --no-track -b "$branch" "$dir" "origin/$def"
+    echo
+    echo "worktree ready — enter it with:"
+    echo "  cd $dir"
+}
+
+cmd_list() { git worktree list; }
+
+cmd_status() {
+    echo "==> refreshing origin/$def ..." >&2
+    git fetch --quiet origin "$def" 2>/dev/null || true
+    printf '%-34s %-26s %s\n' "BRANCH" "WORKTREE" "STATE"
+    local wt ref br state ahead
+    while IFS=$'\t' read -r wt ref; do
+        br="${ref#refs/heads/}"
+        state=""
+        [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ] && state="$state dirty"
+        if git -C "$wt" rev-parse --abbrev-ref --symbolic-full-name '@{u}' >/dev/null 2>&1; then
+            ahead="$(git -C "$wt" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+            [ "$ahead" -gt 0 ] && state="$state unpushed"
+        else
+            ahead="$(git -C "$wt" rev-list --count "origin/$def..HEAD" 2>/dev/null || echo 0)"
+            [ "$ahead" -gt 0 ] && state="$state no-remote"
+        fi
+        git merge-base --is-ancestor "$br" "origin/$def" 2>/dev/null && state="$state merged"
+        [ "$br" = "$def" ] && state="$state [main-ref]"
+        [ -z "$state" ] && state=" clean"
+        printf '%-34s %-26s %s\n' "$br" "$(basename "$wt")" "${state# }"
+    done < <(git worktree list --porcelain | awk '/^worktree /{wt=$2} /^branch /{print wt"\t"$2}')
+}
+
+cmd_rm() {
+    local key="" force=""
+    local a
+    for a in "$@"; do
+        case "$a" in
+            -f|--force) force=1 ;;
+            *) key="$a" ;;
+        esac
+    done
+    [ -n "$key" ] || { echo "usage: worktree rm <branch|task> [-f]" >&2; exit 2; }
+    local dir
+    dir="$WORKTREE_BASE/$repo/$(slug "$key")"
+    [ -d "$dir" ] || { echo "no worktree at $dir" >&2; exit 1; }
+    if [ -n "$force" ]; then
+        git worktree remove --force "$dir"
+    else
+        git worktree remove "$dir"
+    fi
+    echo "removed $dir"
+}
+
+case "${1:-}" in
+    new)          shift; cmd_new "$@" ;;
+    list|ls)      cmd_list ;;
+    status|st)    cmd_status ;;
+    rm|remove)    shift; cmd_rm "$@" ;;
+    ""|-h|--help) usage ;;
+    *)            echo "unknown subcommand: $1" >&2; usage; exit 2 ;;
+esac
