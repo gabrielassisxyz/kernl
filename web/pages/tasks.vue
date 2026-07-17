@@ -99,6 +99,8 @@
       @close="selected = null"
       @set-status="changeStatus"
       @set-due-date="changeDueDate"
+      @set-title="changeTitle"
+      @delete="askDelete"
     />
 
     <TaskCreateModal
@@ -107,6 +109,20 @@
       @close="showCreate = false"
       @created="reload"
     />
+
+    <UiModal :open="!!deleting" title="Delete task" size="sm" @close="deleting = null">
+      <p class="font-body text-body text-text-muted">
+        Delete <span class="text-text-primary">{{ deleting?.title }}</span>? Its companion note is
+        removed too. This cannot be undone.
+      </p>
+      <p v-if="deleteError" class="mt-base font-mono-data text-mono-data text-status-failed-text">{{ deleteError }}</p>
+      <template #footer>
+        <div class="flex justify-end gap-base">
+          <UiButton variant="ghost" @click="deleting = null">Cancel</UiButton>
+          <UiButton variant="primary" :loading="removing" @click="confirmDelete">Delete task</UiButton>
+        </div>
+      </template>
+    </UiModal>
   </div>
 </template>
 
@@ -118,11 +134,13 @@ import TaskBoard from '~/components/tasks/TaskBoard.vue'
 import TaskList from '~/components/tasks/TaskList.vue'
 import TaskDetail from '~/components/tasks/TaskDetail.vue'
 import TaskCreateModal from '~/components/tasks/TaskCreateModal.vue'
+import UiButton from '~/components/ui/UiButton.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
+import UiModal from '~/components/ui/UiModal.vue'
 import UiSkeleton from '~/components/ui/UiSkeleton.vue'
 
-const { tasks, loading, error, load, setStatus, setDueDate } = useTasks()
+const { tasks, loading, error, load, setStatus, setDueDate, update, remove } = useTasks()
 const { projects, load: loadProjects } = useProjects()
 
 const route = useRoute()
@@ -138,6 +156,9 @@ const views: { id: View; label: string; icon: string }[] = [
 const showCreate = ref(false)
 const filterOpen = ref(false)
 const selected = ref<Task | null>(null)
+const deleting = ref<Task | null>(null)
+const removing = ref(false)
+const deleteError = ref<string | null>(null)
 
 // --- Filter dropdown: refs for outside-click + focus restore ---
 const filterTriggerRef = ref<HTMLButtonElement | null>(null)
@@ -183,11 +204,24 @@ function reload() {
   load(projectFilter.value || undefined)
 }
 
+// The URL's ?project= is the single source of truth for the filter. On a
+// statically-generated page the router hydrates with the server route (empty
+// query) and only resolves the real location a tick after onMounted, so the
+// setup-time init above misses the filter on a hard reload of /tasks/?project=X.
+// Watching the query catches that late resolution (and any in-app change), so
+// setProjectFilter only has to navigate — this watch does the reload.
+watch(
+  () => route.query.project,
+  (id) => {
+    projectFilter.value = typeof id === 'string' ? id : ''
+    reload()
+  },
+)
+
 function setProjectFilter(id: string) {
-  projectFilter.value = id
-  // Keep the URL shareable / consistent with the Projects → Tasks drill-in.
+  // Shareable URL + consistent with the Projects → Tasks drill-in; the watch
+  // above reacts to the query change and reloads.
   navigateTo({ path: '/tasks', query: id ? { project: id } : {} })
-  reload()
 }
 
 function openDetail(task: Task) {
@@ -205,6 +239,32 @@ async function changeDueDate(id: string, dueDate: string) {
   await setDueDate(id, dueDate)
   if (selected.value?.id === id) selected.value = { ...selected.value, dueDate }
   reload()
+}
+
+async function changeTitle(id: string, title: string) {
+  await update(id, { title })
+  if (selected.value?.id === id) selected.value = { ...selected.value, title }
+  reload()
+}
+
+function askDelete(id: string) {
+  deleting.value = tasks.value.find((t) => t.id === id) ?? null
+}
+
+async function confirmDelete() {
+  if (!deleting.value || removing.value) return
+  removing.value = true
+  deleteError.value = null
+  try {
+    await remove(deleting.value.id)
+    if (selected.value?.id === deleting.value.id) selected.value = null
+    deleting.value = null
+    reload()
+  } catch (e) {
+    deleteError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    removing.value = false
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {

@@ -19,10 +19,24 @@
         <header class="px-section py-component border-b border-border-hairline flex items-start gap-component">
           <span class="mt-[7px] w-1.5 h-1.5 rounded-full shrink-0" :class="dotClass"></span>
           <div class="flex-1 min-w-0">
+            <textarea
+              v-if="editingTitle"
+              ref="titleInputRef"
+              v-model="titleDraft"
+              rows="1"
+              class="w-full resize-none overflow-hidden font-headline text-text-primary leading-snug bg-bg-base rounded border border-primary/70 px-base py-tight outline-none"
+              @input="autoResizeTitle"
+              @keydown.enter.prevent="commitTitle"
+              @keydown.esc.stop="cancelTitle"
+              @blur="commitTitle"
+            ></textarea>
             <h2
+              v-else
               :id="titleId"
-              class="font-headline text-text-primary leading-snug"
+              class="font-headline text-text-primary leading-snug rounded cursor-text hover:bg-white/5 -mx-tight px-tight"
               :class="{ 'line-through text-text-muted': task.status === 'done' }"
+              title="Click to rename"
+              @click="beginTitle"
             >
               {{ task.title }}
             </h2>
@@ -90,7 +104,16 @@
         </div>
 
         <!-- Footer meta -->
-        <footer class="px-section py-base border-t border-border-hairline flex items-center justify-end">
+        <footer class="px-section py-base border-t border-border-hairline flex items-center justify-between">
+          <button
+            class="flex items-center gap-tight font-mono-data text-mono-data text-text-muted hover:text-status-failed-text rounded outline-none focus-visible:ring-1 focus-visible:ring-status-failed-text/40 cursor-pointer"
+            :aria-label="`Delete task ${task.title}`"
+            title="Delete task"
+            @click="$emit('delete', task!.id)"
+          >
+            <span class="material-symbols-outlined !text-mono-data" aria-hidden="true">delete</span>
+            Delete
+          </button>
           <span class="font-mono-data text-mono-data text-text-faint">updated {{ formatTimestamp(task.updatedAt) }}</span>
         </footer>
       </aside>
@@ -111,7 +134,51 @@ const emit = defineEmits<{
   (e: 'close'): void
   (e: 'set-status', id: string, status: string): void
   (e: 'set-due-date', id: string, dueDate: string): void
+  (e: 'set-title', id: string, title: string): void
+  (e: 'delete', id: string): void
 }>()
+
+// --- Title rename ---
+// A textarea, not an <input>: a long title has to wrap and show in full while
+// editing, exactly as the rendered <h2> does — a single-line input would hide
+// the tail behind a horizontal scroll. Enter still commits (titles are one
+// line semantically); the textarea only buys the wrapping.
+const editingTitle = ref(false)
+const titleDraft = ref('')
+const titleInputRef = ref<HTMLTextAreaElement | null>(null)
+
+// Grow the textarea to fit its content so the whole title is visible, no scroll.
+function autoResizeTitle() {
+  const el = titleInputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
+async function beginTitle() {
+  if (!props.task) return
+  titleDraft.value = props.task.title
+  editingTitle.value = true
+  await nextTick()
+  titleInputRef.value?.focus()
+  titleInputRef.value?.select()
+  autoResizeTitle()
+}
+
+// Enter and blur both land here; the guard makes the second one a no-op so a
+// commit-via-Enter isn't re-fired by the blur it triggers.
+function commitTitle() {
+  if (!editingTitle.value || !props.task) return
+  editingTitle.value = false
+  const next = titleDraft.value.trim()
+  // A blank title is not a legitimate edit (mirrors the API guard); an unchanged
+  // one is a no-op — either way, don't fire a pointless PATCH.
+  if (next && next !== props.task.title) emit('set-title', props.task.id, next)
+}
+
+function cancelTitle() {
+  editingTitle.value = false
+}
 
 // A finished task is never late, however old its deadline.
 const late = computed(() => !!props.task && props.task.status !== 'done' && isOverdue(props.task.dueDate))
@@ -165,6 +232,7 @@ watch(() => props.task, async (newTask, oldTask) => {
 const briefing = ref<{ id: string; title: string; body: string } | null>(null)
 watch(() => props.task?.id, async (id) => {
   briefing.value = null
+  editingTitle.value = false // never carry a half-finished rename across tasks
   if (!id) return
   try {
     briefing.value = await $fetch<{ id: string; title: string; body: string }>(`/api/nodes/${id}/briefing`)

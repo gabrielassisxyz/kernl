@@ -190,6 +190,32 @@ func SetTaskStatus(ctx context.Context, tx *graph.WriteTx, id, status string, au
 	return nil
 }
 
+// SetTaskTitle updates a task's title in place, leaving its other fields alone.
+// Mirrors UpdateProjectMeta but scoped to a task and to the title only — a task
+// has no separately-editable description surface today. Returns ErrNotFound when
+// the task does not exist.
+func SetTaskTitle(ctx context.Context, tx *graph.WriteTx, id, title string, author Author) error {
+	if !author.Valid() {
+		return graph.ErrAuthorRequired
+	}
+	res, err := tx.Exec(
+		`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		 WHERE id = ? AND type = 'task' AND deleted_at IS NULL`,
+		title, id,
+	)
+	if err != nil {
+		return fmt.Errorf("SetTaskTitle: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("SetTaskTitle: rows affected: %w", err)
+	}
+	if n == 0 {
+		return graph.ErrNotFound
+	}
+	return nil
+}
+
 // SetTaskTags replaces the tag set on a task, leaving its other fields alone.
 // The task is read back and re-written through the shared chokepoint so tag
 // reconciliation, the FTS index and the revision history all stay consistent.
