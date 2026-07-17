@@ -69,6 +69,78 @@ func TestBuildContext_TopicalRetrieval(t *testing.T) {
 	}
 }
 
+func seedDANote(t *testing.T, g *graph.Graph, title, body string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateNote(ctx, tx, nodes.Note{
+			Title: title, Body: body,
+			Origin: nodes.OriginDA,
+			Tags:   []string{"da", "prep"},
+		}, nodes.Author{Name: "da"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed DA note %q: %v", title, err)
+	}
+	return id
+}
+
+// TestBuildContext_ExcludesDAAuthoredNotes is the guard against the DA reading
+// its own output back as the user's knowledge. A briefing is written FROM a
+// capture; retrieving it as context for that same capture is how the classifier
+// came to propose merging the user's words into a machine-written note.
+func TestBuildContext_ExcludesDAAuthoredNotes(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedDANote(t, g, "Briefing: Improve HTML to PDF conversion", "HTML to PDF conversion pipelines usually rely on a headless browser.")
+	seedNote(t, g, "PDF toolchain", "My HTML to PDF conversion notes: weasyprint beats wkhtmltopdf for print CSS.")
+
+	notes, err := planning.BuildContext(ctx, g, "improve html to pdf conversion", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if len(notes) == 0 {
+		t.Fatal("expected the user's own note to still be retrieved")
+	}
+	for _, n := range notes {
+		if strings.HasPrefix(n.Title, "Briefing:") {
+			t.Errorf("DA briefing surfaced as planning context: %q (all: %+v)", n.Title, notes)
+		}
+	}
+}
+
+// TestBuildContext_ExcludesDANotesFromLinkedSignal covers the structural half of
+// the retrieval: a briefing is edge-linked to the nodes it was prepared for, so
+// excluding it from content search alone would let it back in through the links.
+func TestBuildContext_ExcludesDANotesFromLinkedSignal(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	noteID := seedNote(t, g, "PDF toolchain", "weasyprint beats wkhtmltopdf for print CSS.")
+	briefingID := seedDANote(t, g, "Briefing: Improve HTML to PDF conversion", "A primer on HTML to PDF pipelines.")
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := edges.Create(ctx, tx, edges.Edge{
+			Src: briefingID, Dst: noteID, Label: "related", Type: edges.EdgeTypeRelated,
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("link briefing: %v", err)
+	}
+
+	notes, err := planning.BuildContext(ctx, g, noteID, 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	for _, n := range notes {
+		if n.ID == briefingID {
+			t.Errorf("DA briefing surfaced through the structural signal: %+v", notes)
+		}
+	}
+}
+
 // TestLoadTelos_InjectsTaggedNotes verifies telos-tagged note content is folded
 // into a single always-on context block, while untagged notes are left out.
 func TestLoadTelos_InjectsTaggedNotes(t *testing.T) {

@@ -7,6 +7,7 @@ package planning
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -65,6 +66,14 @@ const snippetLen = 240
 // when seed is itself a node id, structural relatedness (links/tags/sources).
 // Content match is what makes a fresh topic surface the right notes — structural
 // relevance alone cannot, since a new topic shares no edges yet.
+//
+// Notes the DA authored (origin "da" — its own briefings) are never returned.
+// They are derivatives of the user's captures, and feeding them back as "what
+// the user knows" closes a loop the knowledge base does not survive: the inbox
+// classifier began proposing that captures be merged into "Briefing:" notes the
+// DA had generated from those very captures. The exclusion lives here, at the
+// one seam where a note is retrieved as knowledge, rather than at each caller —
+// the rule is a property of the note, not of who is asking.
 func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
 	if limit <= 0 {
 		limit = 8
@@ -108,6 +117,9 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 
 		ranked := make([]ContextNote, 0, len(scored))
 		for id, a := range scored {
+			if daAuthored(tx, id) {
+				continue
+			}
 			ranked = append(ranked, ContextNote{
 				ID: id, Title: a.title, Snippet: snippet(tx, id),
 				Score: float64(a.matches) - a.bestRank/1000, Via: "content",
@@ -134,9 +146,13 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 					continue
 				}
 				var title, typ string
+				var origin sql.NullString
 				if err := tx.QueryRow(
-					`SELECT title, type FROM nodes WHERE id = ? AND deleted_at IS NULL`, id,
-				).Scan(&title, &typ); err != nil || typ != "note" {
+					`SELECT title, type, json_extract(attrs, '$.origin') FROM nodes WHERE id = ? AND deleted_at IS NULL`, id,
+				).Scan(&title, &typ, &origin); err != nil || typ != "note" {
+					continue
+				}
+				if origin.String == nodes.OriginDA {
 					continue
 				}
 				seen[id] = true
@@ -225,6 +241,18 @@ func matchClaims(ctx context.Context, tx *graph.ReadTx, seed string) ([]*nodes.M
 		active = active[:maxContextClaims]
 	}
 	return active, nil
+}
+
+// daAuthored reports whether a node is a note the DA wrote itself. Its output is
+// not the user's knowledge: see BuildContext.
+func daAuthored(tx *graph.ReadTx, nodeID string) bool {
+	var origin sql.NullString
+	if err := tx.QueryRow(
+		`SELECT json_extract(attrs, '$.origin') FROM nodes WHERE id = ?`, nodeID,
+	).Scan(&origin); err != nil {
+		return false
+	}
+	return origin.String == nodes.OriginDA
 }
 
 func isNodeID(tx *graph.ReadTx, s string) bool {

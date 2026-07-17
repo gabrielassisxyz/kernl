@@ -20,6 +20,12 @@ const (
 	MaxChangeRatio = 0.5        // 50% of the larger body
 )
 
+// OriginDA marks a note the DA wrote itself — today, the prep briefings it
+// files under the vault's DA subfolder. It is the flag that keeps the DA's own
+// output out of the knowledge it retrieves: a briefing is a derivative of the
+// user's captures, never a source of truth about what the user knows.
+const OriginDA = "da"
+
 // Note represents a vault note node — all notes share type "note".
 // The user-vs-generated distinction is read from frontmatter author/origin,
 // not folders (KTD-1, R20).
