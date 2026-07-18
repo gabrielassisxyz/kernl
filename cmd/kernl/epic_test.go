@@ -420,3 +420,26 @@ func TestAutonomousLookupHonorsConfigPath(t *testing.T) {
 		t.Fatal("epic.go must not hardcode kernl.yaml in the autonomous lookup; thread configPath instead")
 	}
 }
+
+func TestConfirmShapeNeverAutoConfirmsOnEOF(t *testing.T) {
+	err := confirmShape(strings.NewReader(""), func(string) {}, "shape-x")
+	if err == nil || !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Fatalf("EOF must abort, not auto-confirm, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--autonomous") {
+		t.Errorf("EOF abort must name the non-interactive recovery, got: %v", err)
+	}
+}
+
+func TestConfirmShapeAnswers(t *testing.T) {
+	if err := confirmShape(strings.NewReader("y\n"), func(string) {}, "s"); err != nil {
+		t.Errorf("y must confirm, got: %v", err)
+	}
+	if err := confirmShape(strings.NewReader("\n"), func(string) {}, "s"); err != nil {
+		t.Errorf("Enter must confirm ([Y/n] convention), got: %v", err)
+	}
+	err := confirmShape(strings.NewReader("n\n"), func(string) {}, "s")
+	if err == nil || !strings.Contains(err.Error(), "aborted at shape confirmation") {
+		t.Errorf("n must abort with a marked error, got: %v", err)
+	}
+}

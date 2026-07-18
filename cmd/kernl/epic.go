@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -221,11 +222,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 
 			// U3: CLI confirmation prompting
 			if interactive {
-				out(fmt.Sprintf("Proceed with shape '%s'? [Y/n] ", res.ShapeID))
-				var confirm string
-				_, _ = fmt.Scanln(&confirm)
-				if confirm != "" && strings.ToLower(confirm) != "y" {
-					return fmt.Errorf("aborted by user")
+				if err := confirmShape(os.Stdin, out, res.ShapeID); err != nil {
+					return err
 				}
 			}
 		}
@@ -393,6 +391,23 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	}
 
 	return nil
+}
+
+// confirmShape asks for an explicit go-ahead on the inferred workflow shape.
+// Enter or y confirms; anything else aborts. Crucially, EOF (no TTY, closed
+// stdin) ABORTS instead of auto-confirming — a prompt that cannot be answered
+// must never default to yes.
+func confirmShape(in io.Reader, out func(string), shapeID string) error {
+	out(fmt.Sprintf("Proceed with shape '%s'? [Y/n] ", shapeID))
+	line, err := bufio.NewReader(in).ReadString('\n')
+	answer := strings.ToLower(strings.TrimSpace(line))
+	if err != nil && answer == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: --interactive needs an answer but stdin closed before one arrived — run without --interactive (or with --autonomous) in non-TTY contexts")
+	}
+	if answer == "" || answer == "y" {
+		return nil
+	}
+	return fmt.Errorf("KERNL DISPATCH FAILURE: aborted at shape confirmation (answered %q) — re-run kernl epic run and answer y, or use --autonomous", answer)
 }
 
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto
