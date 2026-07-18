@@ -64,7 +64,9 @@ Use it to recover a blocked epic; it does not run the children.`,
 			{
 				Name:    "abort",
 				Summary: "Close an epic and its children; clean worktrees and agent state",
-				Usage:   "kernl epic abort <epic-id>",
+				Usage:   "kernl epic abort [--dry-run] <epic-id> --yes",
+				Details: `Destructive: closes the epic and every child bead, removes their worktrees
+and purges agent state. Requires --yes; use --dry-run to preview.`,
 			},
 		},
 	},
@@ -83,12 +85,15 @@ Use it to recover a blocked epic; it does not run the children.`,
 	{
 		Name:    "sweep",
 		Summary: "Close epics whose PRs are merged in master",
-		Usage:   "kernl sweep [--dry-run] [--repo <path>] [--failure-threshold <n>] [--backoff-minutes <a,b,...>] [--stale-warn-days <n>]",
+		Usage:   "kernl sweep [--yes | --dry-run] [--repo <path>] [--failure-threshold <n>] [--backoff-minutes <a,b,...>] [--stale-warn-days <n>]",
 		Details: `Lists epics awaiting PR review, asks gh whether each PR merged, and closes
 the merged ones (epic + children) in the tracker.
 
+Without --yes this is a dry-run preview: nothing is closed.
+
 Flags:
-  --dry-run                 Print what would be closed without closing
+  --yes                     Actually close the merged epics
+  --dry-run                 Preview without closing (default behavior)
   --repo <path>             Repo to sweep (default: current directory)
   --failure-threshold <n>   Consecutive failures before backing off
   --backoff-minutes <list>  Comma-separated backoff schedule, e.g. 5,15,60

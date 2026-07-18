@@ -129,7 +129,7 @@ func TestEpicAbortClosesChildrenThenEpic(t *testing.T) {
 	}
 
 	var outLines []string
-	err := runEpicAbort(a, []string{"e1"}, func(s string) { outLines = append(outLines, s) })
+	err := runEpicAbort(a, []string{"e1", "--yes"}, func(s string) { outLines = append(outLines, s) })
 	if err != nil {
 		t.Fatalf("runEpicAbort: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestEpicAbort_CleansWorktreesAndAgentState(t *testing.T) {
 			Orchestrator: config.OrchestratorConfig{WorktreeRoot: wtRoot}},
 	}
 
-	err = runEpicAbort(a, []string{"e1"}, func(string) {})
+	err = runEpicAbort(a, []string{"e1", "--yes"}, func(string) {})
 	if err != nil {
 		t.Fatalf("runEpicAbort: %v", err)
 	}
@@ -198,5 +198,55 @@ func TestEpicAbort_CleansWorktreesAndAgentState(t *testing.T) {
 		if _, serr := os.Stat(filepath.Join(agentDir, id+".json")); !os.IsNotExist(serr) {
 			t.Fatalf("expected agent state for %s to be purged", id)
 		}
+	}
+}
+
+func TestEpicAbortWithoutYesRefusesAndTeaches(t *testing.T) {
+	be := &epicAbortTestBackend{
+		beads: []backend.Bead{
+			{ID: "e1", Type: "epic", Title: "demo epic"},
+			{ID: "c1", Type: "task", ParentID: "e1"},
+		},
+	}
+	a := &app.App{
+		Backend: be,
+		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}}},
+	}
+	err := runEpicAbort(a, []string{"e1"}, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("abort without --yes must refuse and name --yes, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "--dry-run") {
+		t.Errorf("refusal must offer the safe alternative --dry-run, got: %v", err)
+	}
+	if len(be.closeCalls) != 0 {
+		t.Fatalf("nothing may be closed without --yes, got %+v", be.closeCalls)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("missing --yes is a usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestEpicAbortDryRunPreviewsWithoutClosing(t *testing.T) {
+	be := &epicAbortTestBackend{
+		beads: []backend.Bead{
+			{ID: "e1", Type: "epic", Title: "demo epic"},
+			{ID: "c1", Type: "task", ParentID: "e1"},
+			{ID: "c2", Type: "task", ParentID: "e1"},
+		},
+	}
+	a := &app.App{
+		Backend: be,
+		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}}},
+	}
+	var lines []string
+	if err := runEpicAbort(a, []string{"--dry-run", "e1"}, func(s string) { lines = append(lines, s) }); err != nil {
+		t.Fatalf("dry-run must succeed, got: %v", err)
+	}
+	if len(be.closeCalls) != 0 {
+		t.Fatalf("dry-run must not close anything, got %+v", be.closeCalls)
+	}
+	if len(lines) == 0 || !strings.Contains(lines[0], "dry-run") {
+		t.Fatalf("dry-run must print a preview, got %v", lines)
 	}
 }
