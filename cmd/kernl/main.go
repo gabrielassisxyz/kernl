@@ -37,35 +37,46 @@ func main() {
 	}
 }
 
-func parseConfigPath(args []string) (configPath string, rest []string) {
+// parseStringFlag strips every occurrence of a global value flag, accepting
+// both '--flag value' and '--flag=value'. When the flag repeats, the last
+// value wins (the same semantics as epic run's --workflow, which used to
+// disagree with --config's first-wins). A flag with no value fails loud.
+func parseStringFlag(args []string, long, short string) (value string, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--config" || args[i] == "-c" {
-			if i+1 < len(args) {
-				configPath = args[i+1]
-				rest = append(rest, args[:i]...)
-				rest = append(rest, args[i+2:]...)
-				return
+		a := args[i]
+		switch {
+		case a == long || a == short:
+			if i+1 >= len(args) {
+				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl --help", a)
 			}
+			value = args[i+1]
+			i++
+		case strings.HasPrefix(a, long+"="):
+			value = strings.TrimPrefix(a, long+"=")
+			if value == "" {
+				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl --help", long)
+			}
+		default:
+			rest = append(rest, a)
 		}
 	}
-	return "", args
+	return value, rest, nil
 }
 
-func parsePort(args []string) (port int, rest []string) {
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--port" || args[i] == "-p" {
-			if i+1 < len(args) {
-				p, err := strconv.Atoi(args[i+1])
-				if err == nil {
-					port = p
-				}
-				rest = append(rest, args[:i]...)
-				rest = append(rest, args[i+2:]...)
-				return
-			}
-		}
+func parseConfigPath(args []string) (string, []string, error) {
+	return parseStringFlag(args, "--config", "-c")
+}
+
+func parsePort(args []string) (int, []string, error) {
+	raw, rest, err := parseStringFlag(args, "--port", "-p")
+	if err != nil || raw == "" {
+		return 0, rest, err
 	}
-	return 0, args
+	port, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, nil, usagef("KERNL DISPATCH FAILURE: --port needs an integer, got %q — example: kernl --port 8080 serve", raw)
+	}
+	return port, rest, nil
 }
 
 // parseBoolFlag strips a valueless flag (e.g. --no-orchestrator) from args and
@@ -94,13 +105,23 @@ func Dispatch(args []string) error {
 		return helpFn()
 	}
 
-	configPath, args := parseConfigPath(args)
+	configPath, args, err := parseConfigPath(args)
+	if err != nil {
+		return err
+	}
 	if configPath == "" {
 		configPath = "kernl.yaml"
 	}
 
-	port, args := parsePort(args)
+	port, args, err := parsePort(args)
+	if err != nil {
+		return err
+	}
 	noOrch, args := parseBoolFlag(args, "--no-orchestrator")
+
+	if len(args) == 0 {
+		return helpFn()
+	}
 
 	// Help always wins: intercept --help/-h/help for any verb or sub-verb
 	// BEFORE loading config or doing any work, so a help request can never
