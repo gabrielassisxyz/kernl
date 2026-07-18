@@ -57,7 +57,7 @@ Flags:
 				Details: `Flags:
   --workflow <path>  Use a custom workflow YAML instead of the default profile
   --autonomous       Let the DA infer the workflow shape without prompting
-  --interactive      Confirm the inferred workflow shape before running`,
+  --interactive      With --autonomous: confirm the inferred shape first`,
 			},
 			{
 				Name:    "merge",
@@ -282,6 +282,11 @@ var subcommandFlagOwners = map[string]string{
 // first a did-you-mean over global flags, then over sub-verb flags (naming
 // the owning invocation), so a typo'd subcommand flag is never a dead end.
 func rootFlagHint(flag string) string {
+	// Exact sub-verb flag at the wrong scope is the most common case and
+	// must hit before any fuzzy matching (suggest() only returns dist>=1).
+	if owner, ok := subcommandFlagOwners[flag]; ok {
+		return fmt.Sprintf(" — %s belongs to a subcommand: %s", flag, owner)
+	}
 	if hint := didYouMean(flag, globalFlagNames); hint != "" {
 		return hint
 	}

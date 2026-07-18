@@ -426,7 +426,7 @@ func TestConfirmShapeNeverAutoConfirmsOnEOF(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Fatalf("EOF must abort, not auto-confirm, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "--autonomous") {
+	if !strings.Contains(err.Error(), "drop --interactive") {
 		t.Errorf("EOF abort must name the non-interactive recovery, got: %v", err)
 	}
 }

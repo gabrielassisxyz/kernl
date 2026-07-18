@@ -77,14 +77,22 @@ func TestEpicSubcommandSuggests(t *testing.T) {
 }
 
 func TestRootFlagHintRedirectsSubcommandFlags(t *testing.T) {
-	// A sub-verb flag typed at the root must not be a dead end.
-	err := Dispatch([]string{"--dryrun"})
-	if err == nil || !strings.Contains(err.Error(), "kernl sweep --dry-run") {
-		t.Fatalf("root --dryrun must redirect to sweep, got: %v", err)
-	}
-	err = Dispatch([]string{"--autonomos"})
-	if err == nil || !strings.Contains(err.Error(), "kernl epic run --autonomous") {
-		t.Fatalf("root --autonomos must redirect to epic run, got: %v", err)
+	// A sub-verb flag typed at the root must not be a dead end — for the
+	// EXACT spelling above all (the common case; a prior test only covered
+	// typos and masked a dead exact-match path).
+	for flag, wantOwner := range map[string]string{
+		"--dry-run":    "kernl sweep --dry-run",
+		"--yes":        "kernl sweep --yes",
+		"--autonomous": "kernl epic run --autonomous",
+		"--workflow":   "kernl epic run --workflow",
+		"--json":       "kernl <epic list|plan|doctor|version> --json",
+		"--dryrun":     "kernl sweep --dry-run",
+		"--autonomos":  "kernl epic run --autonomous",
+	} {
+		err := Dispatch([]string{flag})
+		if err == nil || !strings.Contains(err.Error(), wantOwner) {
+			t.Errorf("root %s must redirect to %q, got: %v", flag, wantOwner, err)
+		}
 	}
 }
 

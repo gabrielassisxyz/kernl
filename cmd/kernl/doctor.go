@@ -76,11 +76,10 @@ func newDoctorReport(r *preflight.Report) doctorReport {
 }
 
 func printReport(r *preflight.Report) {
-	for _, check := range []string{"bd", "opencode", "go", "config"} {
-		c := r.Check(check)
-		if c == nil {
-			continue
-		}
+	// Iterate the report itself (like the --json path) so a future check can
+	// never appear in JSON while silently vanishing from the human output.
+	for i := range r.Checks() {
+		c := &r.Checks()[i]
 		switch {
 		case c.OK:
 			fmt.Printf("✓ %s\n", c.Name)

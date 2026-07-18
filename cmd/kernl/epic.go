@@ -421,7 +421,7 @@ func confirmShape(in io.Reader, out func(string), shapeID string) error {
 	line, err := bufio.NewReader(in).ReadString('\n')
 	answer := strings.ToLower(strings.TrimSpace(line))
 	if err != nil && answer == "" {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: --interactive needs an answer but stdin closed before one arrived — run without --interactive (or with --autonomous) in non-TTY contexts")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: --interactive needs an answer but stdin closed before one arrived — drop --interactive to accept the inferred shape without a prompt in non-TTY contexts")
 	}
 	if answer == "" || answer == "y" {
 		return nil
