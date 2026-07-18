@@ -43,7 +43,13 @@ func runSweep(configPath string, args []string) error {
 	}
 
 	s := sweep.New(adapter, ghAdapter, cfg)
-	return s.Tick()
+	if err := s.Tick(); err != nil {
+		if strings.Contains(err.Error(), "no beads project") {
+			return wrapLoud("sweep", fmt.Errorf("%w — Fix: run from a repo with a .beads project, or pass --repo <path>", err))
+		}
+		return wrapLoud("sweep", err)
+	}
+	return nil
 }
 
 type sweepFlags struct {

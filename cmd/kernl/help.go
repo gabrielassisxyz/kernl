@@ -124,8 +124,11 @@ Flags:
 	{
 		Name:    "capture",
 		Summary: "Capture a quick note/idea into the inbox (text arg or stdin)",
-		Usage:   "kernl capture [--] <text> | echo <text> | kernl capture",
-		Details: `Examples:
+		Usage:   "kernl capture [--json] [--] <text> | echo <text> | kernl capture",
+		Details: `Prints the created capture's ID; --json (first arg only) emits
+{"id","status"} instead.
+
+Examples:
   kernl capture "call the accountant tomorrow"
   echo "idea: robot mode for the CLI" | kernl capture
   kernl capture -- --help   (captures the literal text "--help")`,

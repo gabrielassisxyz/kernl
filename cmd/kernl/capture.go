@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,8 +15,15 @@ import (
 )
 
 func runCapture(configPath string, args []string) error {
-	// A leading "--" is the end-of-flags sentinel: it lets flag-looking text
-	// (e.g. the literal string "--help") be captured on purpose.
+	// --json is only recognized as the FIRST argument — anything after that
+	// is capture text. A leading "--" is the end-of-flags sentinel: it lets
+	// flag-looking text (e.g. the literal strings "--help" or "--json") be
+	// captured on purpose.
+	var asJSON bool
+	if len(args) > 0 && args[0] == "--json" {
+		asJSON = true
+		args = args[1:]
+	}
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
@@ -49,19 +57,24 @@ func runCapture(configPath string, args []string) error {
 	}
 	defer g.Close()
 
+	var captureID string
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		c := nodes.Capture{
 			Body:         text,
 			CapturedFrom: "cli",
 			Tags:         []string{"pending"},
 		}
-		_, err := nodes.CreateCapture(ctx, tx, c, nodes.Author{Name: "cli"})
+		id, err := nodes.CreateCapture(ctx, tx, c, nodes.Author{Name: "cli"})
+		captureID = id
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("create capture: %w", err)
+		return wrapLoud("create capture", err)
 	}
 
-	fmt.Println("Captured successfully.")
+	if asJSON {
+		return json.NewEncoder(os.Stdout).Encode(map[string]string{"id": captureID, "status": "captured"})
+	}
+	fmt.Printf("Captured %s.\n", captureID)
 	return nil
 }
