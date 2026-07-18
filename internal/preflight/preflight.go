@@ -22,6 +22,12 @@ type Report struct {
 	checks []Check
 }
 
+// Checks returns every check in run order, for structured renderers
+// (e.g. `kernl doctor --json`).
+func (r *Report) Checks() []Check {
+	return r.checks
+}
+
 func (r *Report) Check(name string) *Check {
 	for i := range r.checks {
 		if r.checks[i].Name == name {

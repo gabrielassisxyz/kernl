@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -13,11 +14,21 @@ import (
 )
 
 func runSweep(configPath string, args []string) error {
-	flags := parseSweepFlags(args)
+	flags, err := parseSweepFlags(args)
+	if err != nil {
+		return err
+	}
 
 	repoPath := flags.repo
 	if repoPath == "" {
 		repoPath = "."
+	}
+
+	// Closing epics is a tracker mutation: it only happens with an explicit
+	// --yes. A bare `kernl sweep` previews as dry-run and says how to apply.
+	dryRun := flags.dryRun || !flags.yes
+	if !flags.dryRun && !flags.yes {
+		fmt.Fprintln(os.Stderr, "sweep: dry-run (no epics will be closed) — add --yes to close merged epics, or --dry-run to silence this notice")
 	}
 
 	b := backend.NewBdCliBackend(repoPath)
@@ -25,61 +36,102 @@ func runSweep(configPath string, args []string) error {
 	ghAdapter := &ghCliAdapter{}
 
 	cfg := sweep.Config{
-		DryRun:           flags.dryRun,
+		DryRun:           dryRun,
 		FailureThreshold: flags.failureThreshold,
 		BackoffMinutes:   flags.backoffMinutes,
 		PRStaleWarnDays:  flags.staleWarnDays,
 	}
 
 	s := sweep.New(adapter, ghAdapter, cfg)
-	return s.Tick()
+	if err := s.Tick(); err != nil {
+		if strings.Contains(err.Error(), "no beads project") {
+			return wrapLoud("sweep", fmt.Errorf("%w — Fix: run from a repo with a .beads project, or pass --repo <path>", err))
+		}
+		return wrapLoud("sweep", err)
+	}
+	return nil
 }
 
 type sweepFlags struct {
 	dryRun           bool
+	yes              bool
 	repo             string
 	failureThreshold int
 	backoffMinutes   []int
 	staleWarnDays    int
 }
 
-func parseSweepFlags(args []string) sweepFlags {
+var sweepFlagNames = []string{
+	"--dry-run", "--yes", "--repo", "--failure-threshold",
+	"--backoff-minutes", "--stale-warn-days",
+}
+
+// parseSweepFlags fails loud on anything it does not understand: a swallowed
+// typo used to silently run a LIVE sweep with default settings.
+func parseSweepFlags(args []string) (sweepFlags, error) {
 	f := sweepFlags{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry-run":
 			f.dryRun = true
+		case "--yes":
+			f.yes = true
 		case "--repo":
-			if i+1 < len(args) {
-				f.repo = args[i+1]
-				i++
+			v, next, err := sweepFlagValue(args, i)
+			if err != nil {
+				return f, err
 			}
+			f.repo, i = v, next
 		case "--failure-threshold":
-			if i+1 < len(args) {
-				if v, err := strconv.Atoi(args[i+1]); err == nil {
-					f.failureThreshold = v
-				}
-				i++
+			v, next, err := sweepIntValue(args, i)
+			if err != nil {
+				return f, err
 			}
+			f.failureThreshold, i = v, next
 		case "--backoff-minutes":
-			if i+1 < len(args) {
-				for _, s := range strings.Split(args[i+1], ",") {
-					if v, err := strconv.Atoi(strings.TrimSpace(s)); err == nil {
-						f.backoffMinutes = append(f.backoffMinutes, v)
-					}
+			v, next, err := sweepFlagValue(args, i)
+			if err != nil {
+				return f, err
+			}
+			i = next
+			for _, s := range strings.Split(v, ",") {
+				n, err := strconv.Atoi(strings.TrimSpace(s))
+				if err != nil {
+					return f, usagef("KERNL DISPATCH FAILURE: --backoff-minutes needs comma-separated integers, got %q — example: --backoff-minutes 5,15,60", v)
 				}
-				i++
+				f.backoffMinutes = append(f.backoffMinutes, n)
 			}
 		case "--stale-warn-days":
-			if i+1 < len(args) {
-				if v, err := strconv.Atoi(args[i+1]); err == nil {
-					f.staleWarnDays = v
-				}
-				i++
+			v, next, err := sweepIntValue(args, i)
+			if err != nil {
+				return f, err
 			}
+			f.staleWarnDays, i = v, next
+		default:
+			return f, usagef("KERNL DISPATCH FAILURE: unknown sweep flag %q%s — valid: %s",
+				args[i], didYouMean(args[i], sweepFlagNames), strings.Join(sweepFlagNames, ", "))
 		}
 	}
-	return f
+	return f, nil
+}
+
+func sweepFlagValue(args []string, i int) (string, int, error) {
+	if i+1 >= len(args) {
+		return "", i, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl sweep --help", args[i])
+	}
+	return args[i+1], i + 1, nil
+}
+
+func sweepIntValue(args []string, i int) (int, int, error) {
+	v, next, err := sweepFlagValue(args, i)
+	if err != nil {
+		return 0, i, err
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, i, usagef("KERNL DISPATCH FAILURE: %s needs an integer, got %q", args[i], v)
+	}
+	return n, next, nil
 }
 
 type sweepBackendAdapter struct {

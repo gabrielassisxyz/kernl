@@ -14,7 +14,7 @@ func TestDispatchUnknownSubcommandFailsLoud(t *testing.T) {
 
 func TestDispatchDoctorRunsPreflight(t *testing.T) {
 	var ran bool
-	doctorFn = func(configPath string) error { ran = true; return nil }
+	doctorFn = func(configPath string, args []string) error { ran = true; return nil }
 	t.Cleanup(func() { doctorFn = runDoctor })
 	if err := Dispatch([]string{"doctor"}); err != nil || !ran {
 		t.Fatalf("doctor not dispatched: ran=%v err=%v", ran, err)

@@ -31,7 +31,10 @@ func TestDispatchSweepPassesArgs(t *testing.T) {
 }
 
 func TestSweepFlagsDefault(t *testing.T) {
-	f := parseSweepFlags(nil)
+	f, err := parseSweepFlags(nil)
+	if err != nil {
+		t.Fatalf("parseSweepFlags(nil): %v", err)
+	}
 	if f.dryRun {
 		t.Fatal("expected dryRun=false by default")
 	}
@@ -41,27 +44,36 @@ func TestSweepFlagsDefault(t *testing.T) {
 }
 
 func TestSweepFlagsDryRunParsed(t *testing.T) {
-	f := parseSweepFlags([]string{"--dry-run"})
+	f, err := parseSweepFlags([]string{"--dry-run"})
+	if err != nil {
+		t.Fatalf("parseSweepFlags: %v", err)
+	}
 	if !f.dryRun {
 		t.Fatal("expected dryRun=true")
 	}
 }
 
 func TestSweepFlagsRepoParsed(t *testing.T) {
-	f := parseSweepFlags([]string{"--repo", "/tmp/x"})
+	f, err := parseSweepFlags([]string{"--repo", "/tmp/x"})
+	if err != nil {
+		t.Fatalf("parseSweepFlags: %v", err)
+	}
 	if f.repo != "/tmp/x" {
 		t.Fatalf("expected repo=/tmp/x, got %q", f.repo)
 	}
 }
 
 func TestSweepFlagsAllParsed(t *testing.T) {
-	f := parseSweepFlags([]string{
+	f, err := parseSweepFlags([]string{
 		"--dry-run",
 		"--repo", "/tmp/x",
 		"--failure-threshold", "5",
 		"--backoff-minutes", "1,2,3",
 		"--stale-warn-days", "14",
 	})
+	if err != nil {
+		t.Fatalf("parseSweepFlags: %v", err)
+	}
 	if !f.dryRun {
 		t.Fatal("expected dryRun=true")
 	}
@@ -116,4 +128,35 @@ func stringsContain(args []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func TestSweepFlagsUnknownFlagFailsLoud(t *testing.T) {
+	_, err := parseSweepFlags([]string{"--dryrun"})
+	if err == nil || !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Fatalf("unknown sweep flag must fail loud, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), `did you mean "--dry-run"?`) {
+		t.Errorf("expected did-you-mean hint, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("unknown flag should be usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestSweepFlagsInvalidIntFailsLoud(t *testing.T) {
+	_, err := parseSweepFlags([]string{"--failure-threshold", "abc"})
+	if err == nil || !strings.Contains(err.Error(), `got "abc"`) {
+		t.Fatalf("invalid int must fail loud naming the value, got: %v", err)
+	}
+	_, err = parseSweepFlags([]string{"--backoff-minutes", "5,x,60"})
+	if err == nil || !strings.Contains(err.Error(), "comma-separated integers") {
+		t.Fatalf("invalid backoff list must fail loud, got: %v", err)
+	}
+}
+
+func TestSweepFlagsYesParsed(t *testing.T) {
+	f, err := parseSweepFlags([]string{"--yes"})
+	if err != nil || !f.yes {
+		t.Fatalf("expected yes=true, got %+v err=%v", f, err)
+	}
 }

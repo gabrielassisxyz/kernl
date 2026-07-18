@@ -180,11 +180,24 @@ func firstNonEmpty(vals ...string) string {
 	return "?"
 }
 
-// ANSI color helpers — no-op if stdout is not a tty
-var colorEnabled = os.Getenv("FORCE_COLOR") != "" || func() bool {
+// ANSI color helpers — no-op if stdout is not a tty.
+// Precedence: NO_COLOR / TERM=dumb / CI always win (agents and CI logs must
+// never receive ANSI codes — https://no-color.org), then FORCE_COLOR forces
+// color on, then TTY detection decides.
+var colorEnabled = detectColorEnabled(os.Getenv, func() bool {
 	stat, _ := os.Stdout.Stat()
 	return stat.Mode()&os.ModeCharDevice != 0
-}()
+})
+
+func detectColorEnabled(getenv func(string) string, stdoutIsTTY func() bool) bool {
+	if getenv("NO_COLOR") != "" || getenv("TERM") == "dumb" || getenv("CI") != "" {
+		return false
+	}
+	if getenv("FORCE_COLOR") != "" {
+		return true
+	}
+	return stdoutIsTTY()
+}
 
 func color(name string, format string, args ...any) string {
 	if !colorEnabled {

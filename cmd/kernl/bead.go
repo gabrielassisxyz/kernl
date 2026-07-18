@@ -5,18 +5,25 @@ import (
 	"fmt"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
-	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 func runBead(configPath string, args []string) error {
-	cfg, err := config.Load(configPath)
+	if len(args) == 0 {
+		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
+	}
+	if args[0] != "run" {
+		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s — valid: run. Run: kernl bead run <bead-id>",
+			args[0], didYouMean(args[0], []string{"run"}))
+	}
+
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: loading config %s: %w", configPath, err)
+		return err
 	}
 
 	a, err := app.NewApp(cfg)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
+		return wrapLoud("creating app", err)
 	}
 
 	return runBeadWithApp(a, args)
@@ -24,20 +31,21 @@ func runBead(configPath string, args []string) error {
 
 func runBeadWithApp(a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
+		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
 	}
 
 	switch args[0] {
 	case "run":
 		return runBeadCmd(a, args[1:])
 	default:
-		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown bead subcommand %q — run: kernl bead run <bead-id>", args[0])
+		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s — valid: run. Run: kernl bead run <bead-id>",
+			args[0], didYouMean(args[0], []string{"run"}))
 	}
 }
 
 func runBeadCmd(a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: bead run requires a bead ID — run: kernl bead run <bead-id>")
+		return usagef("KERNL DISPATCH FAILURE: bead run requires a bead ID — run: kernl bead run <bead-id>")
 	}
 
 	beadID := args[0]

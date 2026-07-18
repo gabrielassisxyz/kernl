@@ -346,6 +346,46 @@ bridge included).
 needs no `args`. `kernl doctor` green; the server was not running, so nothing
 needed a restart.
 
+## Deferred — CLI ⇄ GUI parity track (decided 2026-07-18)
+
+### `kernl` CLI parity with the web GUI
+Every GUI capability should eventually be reachable from the `kernl` CLI —
+full CRUD for every tab/feature. Today the CLI covers roughly 10% of the
+GUI surface: `capture`, `plan`, `bookmark add/import`, `epic list/run/merge/abort`,
+`bead run`, `sweep`, `doctor`, `serve`, `version`. The web GUI is backed by
+~88 REST routes; the gap by area:
+
+- **Home / dashboard:** health, approvals (list + act), app-update check.
+- **Inbox:** list pending/processed, process (keep/convert/discard), reopen,
+  batch analyze/apply, batch-log, auto-classify get/set, prep briefings, rollups.
+- **Notes / vault:** list notes, read/save/delete a vault file, suggest,
+  apply-hunks, tags.
+- **Bookmarks:** list (only add/import exist), highlights.
+- **Memory:** claims list/add/refute, topics, telos.
+- **Projects:** full CRUD (list/create/patch/delete).
+- **Tasks:** full CRUD (plus the delete/retitle fix tracked in `## Tasks`).
+- **Orchestrator:** beads list/get/create/patch/close/rollback/refine-scope/
+  mark-terminal, epic events/sessions, session nudge, approvals resolve.
+- **DA chat:** session create/list, send message, read events (CLI shape TBD —
+  possibly out of scope for a non-interactive CLI).
+- **Ingest:** paste, upload, source, trigger, queue list/resolve/merge-plan.
+- **Settings:** get; set inbox/llm/runtime/vault.
+- **Graph:** nodes list/search/related/briefing, edges.
+
+**Why deferred:** it is feature work (~30–50 new verbs), deliberately kept out
+of the agent-ergonomics pass, which measures and fixes only existing surfaces.
+- **Depends on:** the ergonomics-pass foundation — command metadata table,
+  exit-code dictionary, camelCase `--json` conventions, `capabilities --json` —
+  so new verbs are born onto those rails instead of repeating the audited flaws.
+- **Design decision to settle first:** new verbs as thin clients of the running
+  `kernl serve` REST API (no second SQLite writer, but requires the server up)
+  vs. direct use of internal services (works offline, duplicates wiring, and
+  contends for the graph-DB lock with a running server). Decide once, apply to
+  the whole track.
+- **Execution:** run as its own feature track (kernl-dev pipeline); after it
+  ships, re-run the agent-ergonomics audit as pass 2 to score the new surfaces
+  against the pass-1 baseline and catch drift.
+
 ## Deferred — from v0.1.0 (decided 2026-06-26)
 
 > Source of the v0.1.0 scope decisions these defer from: the v0.1.0 roadmap

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
@@ -11,18 +12,47 @@ import (
 )
 
 func runEpicAbort(a *app.App, args []string, out func(string)) error {
-	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: epic abort requires an epic ID — run: kernl epic abort <epic-id>")
+	var epicID string
+	var yes, dryRun bool
+	for _, arg := range args {
+		switch arg {
+		case "--yes":
+			yes = true
+		case "--dry-run":
+			dryRun = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return usagef("KERNL DISPATCH FAILURE: unknown epic abort flag %q%s — valid: --yes, --dry-run",
+					arg, didYouMean(arg, []string{"--yes", "--dry-run"}))
+			}
+			if epicID != "" {
+				return usagef("KERNL DISPATCH FAILURE: epic abort takes exactly one epic ID, got %q and %q — abort one epic at a time", epicID, arg)
+			}
+			epicID = arg
+		}
+	}
+	if epicID == "" {
+		return usagef("KERNL DISPATCH FAILURE: epic abort requires an epic ID — run: kernl epic abort <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
 	}
-	epicID := args[0]
 	repoPath := a.Config.Registry.Repos[0].Path
 
 	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
 	if err != nil {
 		return err
+	}
+
+	if dryRun {
+		out(fmt.Sprintf("dry-run: abort would close epic %s and %d child bead(s), remove their worktrees and purge agent state\n", epicID, len(ep.Children)))
+		for _, child := range ep.Children {
+			out(fmt.Sprintf("dry-run: bead %s would be closed (aborted)\n", child.ID))
+		}
+		return nil
+	}
+	if !yes {
+		return usagef("KERNL DISPATCH FAILURE: epic abort is destructive — it closes epic %s and %d child bead(s), removes worktrees and purges agent state. Re-run with --yes to proceed, or --dry-run to preview", epicID, len(ep.Children))
 	}
 
 	for _, child := range ep.Children {

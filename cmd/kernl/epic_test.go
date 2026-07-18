@@ -3,13 +3,17 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
@@ -88,7 +92,7 @@ func captureEpicList(t *testing.T, be backend.BackendPort) string {
 		Backend: be,
 		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: "/test"}}}},
 	}
-	if err := runEpicList(a, &buf); err != nil {
+	if err := runEpicList(a, &buf, nil); err != nil {
 		t.Fatalf("runEpicList: %v", err)
 	}
 	return buf.String()
@@ -257,7 +261,7 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
 	var guiURLPrinted bool
-	err := runEpicWithApp(fakeApp, []string{"run", "e"}, func(line string) {
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e"}, func(line string) {
 		if strings.Contains(line, "GUI ") && strings.Contains(line, "http://") {
 			guiURLPrinted = true
 		}
@@ -273,7 +277,7 @@ func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 func TestEpicRunBlockedPrintsNextStep(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunFailSpawn)
 	var out strings.Builder
-	err := runEpicWithApp(fakeApp, []string{"run", "e"}, func(l string) { out.WriteString(l + "\n") })
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e"}, func(l string) { out.WriteString(l + "\n") })
 	if err == nil {
 		t.Fatal("expected error when bead fails")
 	}
@@ -318,7 +322,7 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := runEpicWithApp(fakeApp, tc.args, func(string) {})
+			err := runEpicWithApp(fakeApp, "kernl.yaml", tc.args, func(string) {})
 			if err == nil {
 				t.Fatalf("expected error due to nonexistent workflow file, got nil")
 			}
@@ -330,7 +334,7 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 
 	// Test missing path error cases
 	t.Run("missing path equals", func(t *testing.T) {
-		err := runEpicWithApp(fakeApp, []string{"run", "--workflow=", "e"}, func(string) {})
+		err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--workflow=", "e"}, func(string) {})
 		if err == nil {
 			t.Fatalf("expected error due to missing workflow path, got nil")
 		}
@@ -340,7 +344,7 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 	})
 
 	t.Run("missing path space", func(t *testing.T) {
-		err := runEpicWithApp(fakeApp, []string{"run", "e", "--workflow"}, func(string) {})
+		err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e", "--workflow"}, func(string) {})
 		if err == nil {
 			t.Fatalf("expected error due to missing workflow path, got nil")
 		}
@@ -348,4 +352,94 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 			t.Errorf("expected error to complain about missing path, got: %v", err)
 		}
 	})
+}
+
+func TestEpicListJSONEmitsCamelCaseObject(t *testing.T) {
+	be := &epicTestBackend{beads: []backend.Bead{
+		{ID: "kb-2", Type: "epic", Title: "second epic", State: "open"},
+		{ID: "kb-0", Type: "epic", Title: "demo epic", State: "in_progress"},
+		{ID: "kb-1", Type: "task", ParentID: "kb-0"},
+	}}
+	var buf bytes.Buffer
+	a := &app.App{
+		Backend: be,
+		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: "/test"}}}},
+	}
+	if err := runEpicList(a, &buf, []string{"--json"}); err != nil {
+		t.Fatalf("runEpicList --json: %v", err)
+	}
+	var out struct {
+		Epics []struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Children int    `json:"children"`
+			State    string `json:"state"`
+		} `json:"epics"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+	if len(out.Epics) != 2 {
+		t.Fatalf("want 2 epics, got %d", len(out.Epics))
+	}
+	if out.Epics[0].ID != "kb-0" || out.Epics[1].ID != "kb-2" {
+		t.Errorf("epics must be sorted by id for determinism, got %+v", out.Epics)
+	}
+	if out.Epics[0].Children != 1 {
+		t.Errorf("child count lost in JSON: %+v", out.Epics[0])
+	}
+}
+
+func TestEpicListRejectsUnknownFlag(t *testing.T) {
+	err := runEpicList(nil, &bytes.Buffer{}, []string{"--jsno"})
+	if err == nil || !strings.Contains(err.Error(), `did you mean "--json"?`) {
+		t.Fatalf("expected did-you-mean for --jsno, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("unknown list flag is a usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestAutonomousLookupHonorsConfigPath(t *testing.T) {
+	// The autonomous-mode lookup must read the SAME config the rest of the
+	// invocation uses, not a hardcoded kernl.yaml in the cwd.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.yaml")
+	if err := os.WriteFile(path, []byte("autonomous: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	on, err := dispatch.LoadAutonomousConfig(path)
+	if err != nil || !on {
+		t.Fatalf("LoadAutonomousConfig(%s) = %v, %v; want true, nil", path, on, err)
+	}
+	src, err := os.ReadFile("epic.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), `LoadAutonomousConfig("kernl.yaml")`) {
+		t.Fatal("epic.go must not hardcode kernl.yaml in the autonomous lookup; thread configPath instead")
+	}
+}
+
+func TestConfirmShapeNeverAutoConfirmsOnEOF(t *testing.T) {
+	err := confirmShape(strings.NewReader(""), func(string) {}, "shape-x")
+	if err == nil || !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Fatalf("EOF must abort, not auto-confirm, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "drop --interactive") {
+		t.Errorf("EOF abort must name the non-interactive recovery, got: %v", err)
+	}
+}
+
+func TestConfirmShapeAnswers(t *testing.T) {
+	if err := confirmShape(strings.NewReader("y\n"), func(string) {}, "s"); err != nil {
+		t.Errorf("y must confirm, got: %v", err)
+	}
+	if err := confirmShape(strings.NewReader("\n"), func(string) {}, "s"); err != nil {
+		t.Errorf("Enter must confirm ([Y/n] convention), got: %v", err)
+	}
+	err := confirmShape(strings.NewReader("n\n"), func(string) {}, "s")
+	if err == nil || !strings.Contains(err.Error(), "aborted at shape confirmation") {
+		t.Errorf("n must abort with a marked error, got: %v", err)
+	}
 }
