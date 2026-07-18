@@ -17,7 +17,7 @@ func stubAllVerbs(t *testing.T) {
 			return nil
 		}
 	}
-	doctorFn = func(string) error { t.Fatal("doctor dispatched on a help request"); return nil }
+	doctorFn = func(string, []string) error { t.Fatal("doctor dispatched on a help request"); return nil }
 	serveFn = func(string, int, bool) error { t.Fatal("serve dispatched on a help request"); return nil }
 	epicFn = fail("epic")
 	beadFn = fail("bead")

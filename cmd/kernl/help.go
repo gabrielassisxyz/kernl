@@ -30,9 +30,12 @@ The server hosts the web GUI, the REST API and the SSE event streams.`,
 	{
 		Name:    "doctor",
 		Summary: "Run system checks (env, binaries, config)",
-		Usage:   "kernl [--config <path>] doctor",
+		Usage:   "kernl [--config <path>] doctor [--json]",
 		Details: `Checks that bd, the agent CLI, Go and the config file are usable.
-Exit code is non-zero when a required check fails.`,
+Exit code is non-zero when a required check fails.
+
+Flags:
+  --json  Emit {"ok","checks":[...],"recommendedAction"} on stdout`,
 	},
 	{
 		Name:    "epic",

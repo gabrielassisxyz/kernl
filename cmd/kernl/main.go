@@ -21,7 +21,7 @@ var (
 )
 
 var (
-	doctorFn   func(configPath string) error                        = runDoctor
+	doctorFn   func(configPath string, args []string) error         = runDoctor
 	serveFn    func(configPath string, port int, noOrch bool) error = runServe
 	epicFn     func(configPath string, args []string) error         = runEpic
 	beadFn     func(configPath string, args []string) error         = runBead
@@ -137,7 +137,7 @@ func Dispatch(args []string) error {
 	case "serve":
 		return serveFn(configPath, port, noOrch)
 	case "doctor":
-		return doctorFn(configPath)
+		return doctorFn(configPath, args[1:])
 	case "epic":
 		return epicFn(configPath, args[1:])
 	case "bead":
