@@ -48,3 +48,38 @@ func TestParsePortInvalidValueFailsLoud(t *testing.T) {
 		t.Fatalf("--port=9090: p=%d rest=%v err=%v", p, rest, err)
 	}
 }
+
+func TestSentinelProtectsPayloadFromGlobalParsing(t *testing.T) {
+	// Text after "--" must never be stolen by global flag stripping.
+	captured := []string(nil)
+	captureFn = func(configPath string, args []string) error { captured = args; return nil }
+	t.Cleanup(func() { captureFn = runCapture })
+	if err := Dispatch([]string{"capture", "--", "--config", "x.yaml"}); err != nil {
+		t.Fatalf("capture with sentinel payload failed: %v", err)
+	}
+	want := []string{"--", "--config", "x.yaml"}
+	if strings.Join(captured, " ") != strings.Join(want, " ") {
+		t.Fatalf("payload was altered: got %v, want %v", captured, want)
+	}
+}
+
+func TestEpicAbortRejectsMultipleIDs(t *testing.T) {
+	err := runEpicAbort(nil, []string{"epic-a", "epic-b", "--yes"}, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "exactly one epic ID") {
+		t.Fatalf("two IDs must be rejected, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("want usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestWorkflowUsageErrorsExitTwo(t *testing.T) {
+	for _, args := range [][]string{
+		{"--workflow"}, {"--workflow="}, {"--workflow", ""},
+	} {
+		err := runEpicRun(nil, "kernl.yaml", args, func(string) {})
+		if err == nil || exitCode(err) != 2 {
+			t.Errorf("epic run %v: want usage error (exit 2), got %d: %v", args, exitCode(err), err)
+		}
+	}
+}

@@ -55,7 +55,7 @@ func runBookmarkAdd(a *app.App, args []string) error {
 		var err error
 		id, err = nodes.CreateBookmark(ctx, tx, b, author)
 		if err != nil {
-			return fmt.Errorf("create bookmark: %w", err)
+			return wrapLoud("create bookmark", err)
 		}
 
 		b.ID = id
@@ -69,7 +69,7 @@ func runBookmarkAdd(a *app.App, args []string) error {
 		}
 
 		if err := nodes.UpdateBookmark(ctx, tx, b, author); err != nil {
-			return fmt.Errorf("update bookmark: %w", err)
+			return wrapLoud("update bookmark", err)
 		}
 
 		return nil
@@ -116,7 +116,7 @@ func runBookmarkImport(a *app.App, args []string) error {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: unknown format %q", format)
 		}
 		if innerErr != nil {
-			return fmt.Errorf("import failed: %w", innerErr)
+			return wrapLoud("import failed", innerErr)
 		}
 		return nil
 	})

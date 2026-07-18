@@ -166,18 +166,18 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			workflowFlagSeen = true
 			workflowPath = strings.TrimPrefix(arg, "--workflow=")
 			if workflowPath == "" {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+				return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
 			}
 		} else if arg == "--workflow" {
 			workflowFlagSeen = true
 			if i+1 < len(args) {
 				workflowPath = args[i+1]
 				if workflowPath == "" {
-					return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+					return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
 				}
 				i++
 			} else {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+				return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
 			}
 		} else if arg == "--autonomous" {
 			autonomous = true
@@ -194,7 +194,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	}
 
 	if workflowFlagSeen && workflowPath == "" {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: --workflow flag requires a path")
+		return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
 	}
 
 	if len(remainingArgs) == 0 {

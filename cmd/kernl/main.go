@@ -81,6 +81,18 @@ func parsePort(args []string) (int, []string, error) {
 	return port, rest, nil
 }
 
+// splitAtSentinel splits args at the first literal "--": global parsing only
+// sees the head; the tail (including the "--" itself, which leaf verbs strip)
+// passes through verbatim.
+func splitAtSentinel(args []string) (head, tail []string) {
+	for i, a := range args {
+		if a == "--" {
+			return args[:i], args[i:]
+		}
+	}
+	return args, nil
+}
+
 // parseBoolFlag strips a valueless flag (e.g. --no-orchestrator) from args and
 // reports whether it was present.
 func parseBoolFlag(args []string, name string) (present bool, rest []string) {
@@ -107,7 +119,12 @@ func Dispatch(args []string) error {
 		return helpFn()
 	}
 
-	configPath, args, err := parseConfigPath(args)
+	// Everything after a literal "--" is untouchable payload (e.g. capture
+	// text that happens to look like flags); global flags are only parsed
+	// from the head.
+	head, tail := splitAtSentinel(args)
+
+	configPath, head, err := parseConfigPath(head)
 	if err != nil {
 		return err
 	}
@@ -115,11 +132,12 @@ func Dispatch(args []string) error {
 		configPath = "kernl.yaml"
 	}
 
-	port, args, err := parsePort(args)
+	port, head, err := parsePort(head)
 	if err != nil {
 		return err
 	}
-	noOrch, args := parseBoolFlag(args, "--no-orchestrator")
+	noOrch, head := parseBoolFlag(head, "--no-orchestrator")
+	args = append(head, tail...)
 
 	if len(args) == 0 {
 		return helpFn()

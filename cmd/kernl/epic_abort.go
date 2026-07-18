@@ -25,6 +25,9 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 				return usagef("KERNL DISPATCH FAILURE: unknown epic abort flag %q%s — valid: --yes, --dry-run",
 					arg, didYouMean(arg, []string{"--yes", "--dry-run"}))
 			}
+			if epicID != "" {
+				return usagef("KERNL DISPATCH FAILURE: epic abort takes exactly one epic ID, got %q and %q — abort one epic at a time", epicID, arg)
+			}
 			epicID = arg
 		}
 	}
