@@ -57,7 +57,7 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 		out = func(s string) { fmt.Print(s) }
 	}
 	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
+		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
 	}
 
 	switch args[0] {
@@ -70,7 +70,7 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 	case "abort":
 		return runEpicAbort(a, args[1:], out)
 	default:
-		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown epic subcommand %q — try: kernl epic list", args[0])
+		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q — try: kernl epic list", args[0])
 	}
 }
 
@@ -139,7 +139,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	}
 
 	if len(remainingArgs) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: epic run requires an epic ID — run: kernl epic run <epic-id>")
+		return usagef("KERNL DISPATCH FAILURE: epic run requires an epic ID — run: kernl epic run <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")

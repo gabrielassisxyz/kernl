@@ -33,7 +33,7 @@ var (
 func main() {
 	if err := Dispatch(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		os.Exit(exitCode(err))
 	}
 }
 
@@ -130,7 +130,7 @@ func Dispatch(args []string) error {
 	case "version", "--version", "-v":
 		return printVersion()
 	default:
-		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown subcommand %q. Run: kernl --help", args[0])
+		return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q. Run: kernl --help", args[0])
 	}
 }
 
@@ -153,6 +153,11 @@ Flags:
   --no-orchestrator  serve only the GUI/graph/notes; do not require bd
   --version, -v      Print version and build information
   --help,  -h        Show this help
+
+Exit codes:
+  0  success
+  1  runtime/internal error (backend, config, network, agent run)
+  2  usage error (unknown verb/flag, missing argument, bad value)
 
 Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.`)
 	fmt.Println(b.String())

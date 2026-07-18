@@ -173,14 +173,14 @@ func printHelpFor(topic []string) error {
 	}
 	cmd := findCommand(commandTable, topic[0])
 	if cmd == nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no help topic %q — valid topics: %s. Run: kernl --help",
+		return usagef("KERNL DISPATCH FAILURE: no help topic %q — valid topics: %s. Run: kernl --help",
 			topic[0], strings.Join(commandNames(), ", "))
 	}
 	qualified := "kernl " + cmd.Name
 	if len(topic) > 1 {
 		sub := findCommand(cmd.Subs, topic[1])
 		if sub == nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: no help topic %q under %q — valid: %s. Run: kernl %s --help",
+			return usagef("KERNL DISPATCH FAILURE: no help topic %q under %q — valid: %s. Run: kernl %s --help",
 				topic[1], cmd.Name, strings.Join(subNames(cmd), ", "), cmd.Name)
 		}
 		qualified = qualified + " " + sub.Name

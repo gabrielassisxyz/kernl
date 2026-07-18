@@ -12,7 +12,7 @@ import (
 
 func runEpicAbort(a *app.App, args []string, out func(string)) error {
 	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: epic abort requires an epic ID — run: kernl epic abort <epic-id>")
+		return usagef("KERNL DISPATCH FAILURE: epic abort requires an epic ID — run: kernl epic abort <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")

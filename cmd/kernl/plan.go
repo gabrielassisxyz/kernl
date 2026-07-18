@@ -16,7 +16,7 @@ import (
 // on it" — no hunting, no manual paste.
 func runPlan(configPath string, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("plan requires a topic, e.g. kernl plan \"caching strategy\"")
+		return usagef("KERNL DISPATCH FAILURE: plan requires a topic — run: kernl plan \"caching strategy\"")
 	}
 	seed := strings.Join(args, " ")
 

@@ -32,7 +32,7 @@ func runCapture(configPath string, args []string) error {
 	}
 
 	if text == "" {
-		return fmt.Errorf("capture text cannot be empty")
+		return usagef("KERNL DISPATCH FAILURE: capture text cannot be empty — pass text as an argument or via stdin. Run: kernl capture --help")
 	}
 
 	cfg, err := config.Load(configPath)

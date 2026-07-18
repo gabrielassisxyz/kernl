@@ -24,20 +24,20 @@ func runBead(configPath string, args []string) error {
 
 func runBeadWithApp(a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
+		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
 	}
 
 	switch args[0] {
 	case "run":
 		return runBeadCmd(a, args[1:])
 	default:
-		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown bead subcommand %q — run: kernl bead run <bead-id>", args[0])
+		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q — run: kernl bead run <bead-id>", args[0])
 	}
 }
 
 func runBeadCmd(a *app.App, args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: bead run requires a bead ID — run: kernl bead run <bead-id>")
+		return usagef("KERNL DISPATCH FAILURE: bead run requires a bead ID — run: kernl bead run <bead-id>")
 	}
 
 	beadID := args[0]
