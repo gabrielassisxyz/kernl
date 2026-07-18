@@ -96,7 +96,7 @@ func TestHelpTopicDetection(t *testing.T) {
 func TestCommandTableCoversDispatch(t *testing.T) {
 	// Every dispatchable verb must have a help entry; the table is the single
 	// source of truth and this pins them together.
-	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "version"} {
+	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "capabilities", "version"} {
 		if findCommand(commandTable, verb) == nil {
 			t.Errorf("verb %q missing from commandTable", verb)
 		}

@@ -152,6 +152,8 @@ func Dispatch(args []string) error {
 		return planFn(configPath, args[1:])
 	case "version", "--version", "-v":
 		return printVersion(os.Stdout, args[1:])
+	case "capabilities":
+		return runCapabilities(os.Stdout, args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			return usagef("KERNL DISPATCH FAILURE: unknown flag %q%s. Run: kernl --help",

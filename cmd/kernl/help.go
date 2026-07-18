@@ -141,6 +141,14 @@ Example:
   kernl plan "caching strategy"`,
 	},
 	{
+		Name:    "capabilities",
+		Summary: "Print the machine-readable CLI contract (JSON)",
+		Usage:   "kernl capabilities [--json]",
+		Details: `Emits every verb, flag, env var and exit code as JSON, plus a
+contractVersion agents can pin against. Output is JSON with or without
+the flag.`,
+	},
+	{
 		Name:    "version",
 		Summary: "Print version and build information",
 		Usage:   "kernl version [--json]",
