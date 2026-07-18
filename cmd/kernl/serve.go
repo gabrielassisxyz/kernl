@@ -63,9 +63,9 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: preflight checks failed — fix the issues above and retry")
 	}
 
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: loading config %s: %w", configPath, err)
+		return err
 	}
 
 	srvPort := cfg.Server.Port

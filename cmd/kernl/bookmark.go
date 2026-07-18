@@ -8,15 +8,14 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
-	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
 func runBookmark(configPath string, args []string) error {
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return err
 	}
 
 	a, err := app.NewApp(cfg)

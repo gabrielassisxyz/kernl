@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
-	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
@@ -20,9 +19,9 @@ func runPlan(configPath string, args []string) error {
 	}
 	seed := strings.Join(args, " ")
 
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return err
 	}
 	a, err := app.NewApp(cfg)
 	if err != nil {

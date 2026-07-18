@@ -5,13 +5,12 @@ import (
 	"fmt"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
-	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 func runBead(configPath string, args []string) error {
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: loading config %s: %w", configPath, err)
+		return err
 	}
 
 	a, err := app.NewApp(cfg)

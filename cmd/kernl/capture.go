@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/vault"
@@ -35,9 +34,9 @@ func runCapture(configPath string, args []string) error {
 		return usagef("KERNL DISPATCH FAILURE: capture text cannot be empty — pass text as an argument or via stdin. Run: kernl capture --help")
 	}
 
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("load config: %w", err)
+		return err
 	}
 	vault.ApplyDefaults(&cfg.Vault)
 

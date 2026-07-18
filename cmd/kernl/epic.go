@@ -16,7 +16,6 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
-	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/prompt"
@@ -39,9 +38,9 @@ func execGitRun(dir string, args ...string) (string, error) {
 }
 
 func runEpic(configPath string, args []string) error {
-	cfg, err := config.Load(configPath)
+	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: loading config %s: %w", configPath, err)
+		return err
 	}
 
 	a, err := app.NewApp(cfg)
