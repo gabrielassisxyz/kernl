@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -44,5 +45,35 @@ func TestRunBookmarkAdd(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBookmarkUsageErrorsTeachAndExitTwo(t *testing.T) {
+	// Usage validation must not require a loadable config.
+	err := runBookmark("definitely-missing.yaml", nil)
+	if err == nil || !strings.Contains(err.Error(), "valid: add, import") {
+		t.Fatalf("missing subcommand must list valid ones, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("want usage error, got exit %d", exitCode(err))
+	}
+
+	err = runBookmark("definitely-missing.yaml", []string{"ad"})
+	if err == nil || !strings.Contains(err.Error(), `did you mean "add"?`) {
+		t.Fatalf("typo'd subcommand must hint, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("bookmark errors must carry the marker, got: %v", err)
+	}
+}
+
+func TestBookmarkImportUnknownFormatHints(t *testing.T) {
+	a := &app.App{Config: &config.Config{}}
+	err := runBookmarkImport(a, []string{"pockt", "/tmp/x"})
+	if err == nil || !strings.Contains(err.Error(), `did you mean "pocket"?`) {
+		t.Fatalf("unknown format must hint, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("unknown format is usage error, got exit %d", exitCode(err))
 	}
 }
