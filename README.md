@@ -182,11 +182,12 @@ Create or import bookmarks.
 
 ```bash
 kernl epic list
+kernl epic list --json
 kernl epic run <epic-id>
 kernl epic run --workflow ./workflow.yaml <epic-id>
 kernl epic run --autonomous <epic-id>
 kernl epic merge <epic-id>
-kernl epic abort <epic-id>
+kernl epic abort <epic-id> --yes      # destructive; --dry-run previews
 ```
 
 Manage and execute epic bead graphs.
@@ -198,17 +199,29 @@ kernl bead run <bead-id>
 Run one bead through the configured agent dispatch path.
 
 ```bash
-kernl sweep
+kernl sweep            # dry-run preview: shows what would close
+kernl sweep --yes      # actually close merged epics
 ```
 
-Close epics whose PRs have already merged.
+Close epics whose PRs have already merged. Without `--yes` this is a
+dry-run preview.
 
 ```bash
 kernl version
-kernl --version
+kernl version --json
 ```
 
 Print build metadata.
+
+```bash
+kernl capabilities       # machine-readable CLI contract (JSON)
+kernl robot-docs guide   # agent handbook, generated from the same metadata
+kernl doctor --json      # env checks with a recommendedAction
+kernl plan --json "topic"
+```
+
+Agent/automation surface. Every verb answers `--help`; exit codes are
+`0` success, `1` runtime error, `2` usage error.
 
 ## Configuration
 
