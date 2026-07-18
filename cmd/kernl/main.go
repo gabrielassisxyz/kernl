@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strconv"
@@ -149,7 +151,7 @@ func Dispatch(args []string) error {
 	case "plan":
 		return planFn(configPath, args[1:])
 	case "version", "--version", "-v":
-		return printVersion()
+		return printVersion(os.Stdout, args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			return usagef("KERNL DISPATCH FAILURE: unknown flag %q%s. Run: kernl --help",
@@ -197,8 +199,26 @@ Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.`)
 	return nil
 }
 
-func printVersion() error {
-	fmt.Printf("kernl %s\ncommit: %s\nbuilt:  %s\ngo:     %s\n",
+func printVersion(w io.Writer, args []string) error {
+	var asJSON bool
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			asJSON = true
+		default:
+			return usagef("KERNL DISPATCH FAILURE: unknown version flag %q%s — valid: --json",
+				arg, didYouMean(arg, []string{"--json"}))
+		}
+	}
+	if asJSON {
+		return json.NewEncoder(w).Encode(map[string]string{
+			"version": Version,
+			"commit":  Commit,
+			"built":   Date,
+			"go":      runtime.Version(),
+		})
+	}
+	fmt.Fprintf(w, "kernl %s\ncommit: %s\nbuilt:  %s\ngo:     %s\n",
 		Version, Commit, Date, runtime.Version())
 	return nil
 }

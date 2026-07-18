@@ -130,14 +130,19 @@ Flags:
 	{
 		Name:    "plan",
 		Summary: "Show the vault notes relevant to a topic (substrate-aware planning)",
-		Usage:   "kernl plan <topic>",
-		Details: `Example:
+		Usage:   "kernl plan [--json] <topic>",
+		Details: `Flags:
+  --json  Emit {"topic","notes":[{"title","via","snippet"}]} on stdout
+
+Example:
   kernl plan "caching strategy"`,
 	},
 	{
 		Name:    "version",
 		Summary: "Print version and build information",
-		Usage:   "kernl version",
+		Usage:   "kernl version [--json]",
+		Details: `Flags:
+  --json  Emit {"version","commit","built","go"} on stdout`,
 	},
 }
 
