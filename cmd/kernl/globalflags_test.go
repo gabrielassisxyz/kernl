@@ -83,3 +83,22 @@ func TestWorkflowUsageErrorsExitTwo(t *testing.T) {
 		}
 	}
 }
+
+func TestSentinelBeforeVerbDispatchesNormally(t *testing.T) {
+	captured := []string(nil)
+	captureFn = func(configPath string, args []string) error { captured = args; return nil }
+	t.Cleanup(func() { captureFn = runCapture })
+	if err := Dispatch([]string{"--", "capture", "note"}); err != nil {
+		t.Fatalf("kernl -- capture note must dispatch capture, got: %v", err)
+	}
+	if strings.Join(captured, " ") != "note" {
+		t.Fatalf("capture args wrong: %v", captured)
+	}
+	// Double sentinel: the first ends global parsing, the second protects text.
+	if err := Dispatch([]string{"--", "capture", "--", "--help"}); err != nil {
+		t.Fatalf("double sentinel must reach capture, got: %v", err)
+	}
+	if strings.Join(captured, " ") != "-- --help" {
+		t.Fatalf("payload sentinel not preserved for capture: %v", captured)
+	}
+}

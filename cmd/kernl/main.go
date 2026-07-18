@@ -82,8 +82,9 @@ func parsePort(args []string) (int, []string, error) {
 }
 
 // splitAtSentinel splits args at the first literal "--": global parsing only
-// sees the head; the tail (including the "--" itself, which leaf verbs strip)
-// passes through verbatim.
+// sees the head; the tail passes through verbatim (the "--" is kept — capture
+// strips it to allow flag-looking literal text; other verbs treat their args
+// normally).
 func splitAtSentinel(args []string) (head, tail []string) {
 	for i, a := range args {
 		if a == "--" {
@@ -138,6 +139,12 @@ func Dispatch(args []string) error {
 	}
 	noOrch, head := parseBoolFlag(head, "--no-orchestrator")
 	args = append(head, tail...)
+
+	// A sentinel BEFORE the verb (`kernl -- capture x`, POSIX habit) means
+	// "no more global flags": consume it and dispatch what follows.
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
 
 	if len(args) == 0 {
 		return helpFn()
