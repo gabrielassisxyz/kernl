@@ -149,6 +149,11 @@ contractVersion agents can pin against. Output is JSON with or without
 the flag.`,
 	},
 	{
+		Name:    "robot-docs",
+		Summary: "Print the agent handbook (paste-ready, generated from metadata)",
+		Usage:   "kernl robot-docs guide",
+	},
+	{
 		Name:    "version",
 		Summary: "Print version and build information",
 		Usage:   "kernl version [--json]",

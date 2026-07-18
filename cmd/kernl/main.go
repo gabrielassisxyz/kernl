@@ -154,6 +154,8 @@ func Dispatch(args []string) error {
 		return printVersion(os.Stdout, args[1:])
 	case "capabilities":
 		return runCapabilities(os.Stdout, args[1:])
+	case "robot-docs":
+		return runRobotDocs(os.Stdout, args[1:])
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			return usagef("KERNL DISPATCH FAILURE: unknown flag %q%s. Run: kernl --help",
@@ -195,6 +197,11 @@ Exit codes:
   0  success
   1  runtime/internal error (backend, config, network, agent run)
   2  usage error (unknown verb/flag, missing argument, bad value)
+
+Automation:
+  kernl capabilities       machine-readable contract (JSON)
+  kernl robot-docs guide   agent handbook
+  --json                   on epic list, plan, doctor, version
 
 Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.`)
 	fmt.Println(b.String())
