@@ -70,7 +70,8 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 	case "abort":
 		return runEpicAbort(a, args[1:], out)
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q — try: kernl epic list", args[0])
+		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s — valid: list, run, merge, abort. Run: kernl epic --help",
+			args[0], didYouMean(args[0], []string{"list", "run", "merge", "abort"}))
 	}
 }
 
@@ -129,6 +130,11 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 			autonomous = true
 		} else if arg == "--interactive" {
 			interactive = true
+		} else if strings.HasPrefix(arg, "-") {
+			// A mistyped flag must not silently become the epic ID (it used
+			// to swallow --autonomous typos and run non-autonomous).
+			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s — valid: --workflow, --autonomous, --interactive",
+				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive"}))
 		} else {
 			remainingArgs = append(remainingArgs, arg)
 		}

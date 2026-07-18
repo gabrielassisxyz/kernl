@@ -31,7 +31,8 @@ func runBeadWithApp(a *app.App, args []string) error {
 	case "run":
 		return runBeadCmd(a, args[1:])
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q — run: kernl bead run <bead-id>", args[0])
+		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s — valid: run. Run: kernl bead run <bead-id>",
+			args[0], didYouMean(args[0], []string{"run"}))
 	}
 }
 

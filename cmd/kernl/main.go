@@ -130,8 +130,20 @@ func Dispatch(args []string) error {
 	case "version", "--version", "-v":
 		return printVersion()
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q. Run: kernl --help", args[0])
+		if strings.HasPrefix(args[0], "-") {
+			return usagef("KERNL DISPATCH FAILURE: unknown flag %q%s. Run: kernl --help",
+				args[0], didYouMean(args[0], globalFlagNames))
+		}
+		return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q%s. Run: kernl --help",
+			args[0], didYouMean(args[0], append(commandNames(), "help")))
 	}
+}
+
+// globalFlagNames are the flags the root parser understands, used for
+// did-you-mean hints on unknown-flag errors.
+var globalFlagNames = []string{
+	"--config", "-c", "--port", "-p", "--no-orchestrator",
+	"--version", "-v", "--help", "-h",
 }
 
 func printHelp() error {
