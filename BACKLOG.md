@@ -20,6 +20,39 @@ store is a separate, untouched concern.)
 Planned dev work, ready to pull. (Mirrors the kernl-tagged items in the
 orchestrator inbox; this file is the markdown source of truth during the test.)
 
+### Public-readiness pass: bootstrap top-up, file tree, and what the repo exposes
+
+The repo is public but was never prepared for someone who is not the author. This is one
+unit of work covering four things that are all the same defect — the repo assumes the
+machine and the person that built it.
+
+- **The spec is not in the clone.** `AGENTS.md` and `CLAUDE.md` are git-ignored
+  (`.gitignore:58,60`). A contributor gets a repo with no conventions and no "Common
+  hurdles" — and so does *any* agent working in a worktree, since `git worktree add`
+  materializes only tracked files. Verified on 2026-07-18: a freshly created worktree has
+  no `AGENTS.md`, and two other worktrees open at the time had none either. Every trap
+  documented in those 260 lines is invisible to the agent standing in the worktree, which
+  makes a documented hurdle behave exactly like an undocumented one.
+- **Committing it requires depersonalising it first.** The current file is written in the
+  first person to a specific person: *"a solo-dev tool — one user, me, now"*, *"call me
+  out"*, *"I want to be contested, not obeyed"*, *"if I forget to commit closed work,
+  remind me"*, plus `~/.claude/projects/-home-gabriel-repositories-kernl/memory/` as an
+  absolute path. Two different fixes: identity and absolute paths get removed; the
+  maintainer-workflow parts move to a git-ignored `local/` rather than being reworded.
+- **Gates that are advertised but absent or silent.** `bin/install-hooks` exists while the
+  repo has no `.githooks/` — verify what that script installs, or it is a hook nobody has.
+  `bin/ci` skips `golangci-lint` silently when the binary is missing, so a run can be green
+  with the linter never having executed.
+- **File-tree and exposure review.** What sits at the root, what is generated, what should
+  never have been tracked. The `public-repo` skill covers this; it has not been run here.
+
+**Why now:** a 2026-07-18 audit across 15 repos found this repo has the heaviest personal
+content and one of only two untracked specs. Full findings and the proposed fix per repo:
+`llm-workflow/improve/reports/2026-07-18-hurdles-audit.md`.
+
+**Not in scope:** promoting the repo's `Common hurdles` bullets into `bin/ci` gates or
+tripwire hooks. That work is driven centrally from the audit above.
+
 ### Add a delete-task button + API
 `PATCH /api/tasks` accepts only `status`/`tags`/`dueDate` and there is no `DELETE`
 at all — so a task can be neither deleted nor retitled, by API or UI. For a task
