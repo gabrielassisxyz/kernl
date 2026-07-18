@@ -15,6 +15,11 @@ import (
 )
 
 func runCapture(configPath string, args []string) error {
+	// A leading "--" is the end-of-flags sentinel: it lets flag-looking text
+	// (e.g. the literal string "--help") be captured on purpose.
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
 	var text string
 	if len(args) > 0 {
 		text = strings.Join(args, " ")

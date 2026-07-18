@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/logging"
 )
@@ -101,6 +102,14 @@ func Dispatch(args []string) error {
 	port, args := parsePort(args)
 	noOrch, args := parseBoolFlag(args, "--no-orchestrator")
 
+	// Help always wins: intercept --help/-h/help for any verb or sub-verb
+	// BEFORE loading config or doing any work, so a help request can never
+	// mutate state (capture used to store "--help" as a note, and sweep ran
+	// a live tick).
+	if topic, ok := helpTopic(args); ok {
+		return printHelpFor(topic)
+	}
+
 	switch args[0] {
 	case "serve":
 		return serveFn(configPath, port, noOrch)
@@ -120,38 +129,33 @@ func Dispatch(args []string) error {
 		return planFn(configPath, args[1:])
 	case "version", "--version", "-v":
 		return printVersion()
-	case "--help", "-h", "help":
-		return helpFn()
 	default:
 		return fmt.Errorf("KERNL DISPATCH FAILURE: unknown subcommand %q. Run: kernl --help", args[0])
 	}
 }
 
 func printHelp() error {
-	fmt.Println(`kernl — multi-agent orchestration runner
+	var b strings.Builder
+	b.WriteString(`kernl — multi-agent orchestration runner
 
 Usage:
   kernl [--config <path>] [--port <port>] <subcommand> [args...]
 
 Subcommands:
-  serve        Start the HTTP API server (add --no-orchestrator for GUI-only)
-  doctor       Run system checks (env, binaries, config)
-  epic         Manage epics (bead graphs)
-  bead         Manage individual beads
-  sweep        Close epics whose PRs are merged in master
-  bookmark     Manage bookmarks
-  capture      Capture a quick note/idea into the inbox (text arg or stdin)
-  plan         Show the vault notes relevant to a topic (substrate-aware planning)
-  version      Print version and build information
-
+`)
+	for _, c := range commandTable {
+		fmt.Fprintf(&b, "  %-12s %s\n", c.Name, c.Summary)
+	}
+	b.WriteString(`
 Flags:
   --config, -c       Path to kernl.yaml (default: kernl.yaml)
   --port,  -p        Server port (default: from kernl.yaml, or 8080)
   --no-orchestrator  serve only the GUI/graph/notes; do not require bd
-  --version,-v Print version and build information
-  --help,  -h  Show this help
+  --version, -v      Print version and build information
+  --help,  -h        Show this help
 
-Run 'kernl <subcommand> --help' for subcommand-specific help.`)
+Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.`)
+	fmt.Println(b.String())
 	return nil
 }
 
