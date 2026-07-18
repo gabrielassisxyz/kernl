@@ -153,6 +153,10 @@ There is no `telos`-tagged note in `~/vault`, so the DA knows *what* exists and
 stays blind to *why* (U7 of the v0.1.0 plan was never populated). (Moved from
 `llm-workflow/BACKLOG.md`.)
 
+**Update 2026-07-18:** superseded by step 5 of the DA absorption track (below) —
+about-me lands in the vault as tagged notes (`telos` among them), so populating
+the tag becomes part of that migration rather than a standalone chore.
+
 ### Give the DA the context this repo's agents already have
 Carry over context *for the DA inside kernl* — logs, lessons, backlog, about-me —
 as two problems that must NOT share one solution:
@@ -170,6 +174,22 @@ syncer (llm-workflow → kernl vault)** that stamps the frontmatter and curates 
 the 4 KB cap — same shape as `sync-machine-rule.sh`. Do not let it grow into a
 "sync everything" script. Code refs: `internal/chat/engine.go`,
 `internal/planning/telos.go`. (Moved from `llm-workflow/BACKLOG.md` S10.)
+
+**Revised 2026-07-18 (supersedes the 2026-07-14 decision):** the one-way syncer is
+dead; **about-me moves into the vault** as tagged notes — `telos`, `identity`,
+`working-style`, `environment`, one tag per constitutional file — because the
+consumers differ by nature: `kernl plan` wants the why-chain (telos proper), a DA
+conversation wants identity + working-style, machine work wants environment.
+Injection becomes per-tag, per-consumer, and **distillation becomes a tuning knob,
+not a rule**: the 4 KB `MaxTelosBytes` cap was a fence for the current raw
+chat-completions engine (system prompt re-sent every turn, small proxy models),
+not a property of the problem — a surface backed by an agent harness takes the
+full notes. The two premises that forced the 2026-07-14 decision are being removed
+on purpose: (a) a **first-class injectable field** replaces the symlink/frontmatter
+hack, and (b) a **versioned vault** (track step 3) preserves the git history that
+made llm-workflow the safer home. Prerequisite: track step 3; executed as track
+step 5. When executed, llm-workflow's `AGENTS.md` settled decision #1 (about-me
+storage) must be updated in the same session.
 
 ### Switch the model / harness from inside the DA chat
 
@@ -189,6 +209,11 @@ leaving the conversation.
   real control those chips were gesturing at; wire them together rather than adding a
   parallel widget.
 
+**Update 2026-07-18:** the harness axis is decided — it lands as wiring the chat
+surface to the existing `internal/adapter` (which already builds non-interactive
+`claude -p` stream-json invocations, permission bridge included); see step 6 of
+the DA absorption track. The `kernl da` CLI path does **not** depend on this item.
+
 ### A dedicated, full-screen page for the DA
 
 **Captured 2026-07-17 (Gabriel).** Today the DA lives in a side panel
@@ -203,7 +228,8 @@ where the DA is the whole surface, not a docked panel — for longer, focused se
 
 ### When the DA's harness is Claude, link the session to llm-workflow's context
 
-**Captured 2026-07-17 (Gabriel). Depends on the model/harness switcher above.** When the
+**Captured 2026-07-17 (Gabriel). Decided 2026-07-18: lands as the `kernl da` CLI
+subcommand — no longer depends on the model/harness switcher.** When the
 harness picked for the DA is **Claude** (i.e. an actual Claude Code / agent session, not
 the in-app LLM engine), that session should run **as if launched from inside the
 `llm-workflow` repo** — carrying all the context that repo's harness already injects
@@ -220,10 +246,21 @@ available to it**.
   task is about the **external Claude harness** being pointed at llm-workflow's context
   directly. Related, not the same — do not collapse them; one feeds the built-in DA, the
   other bridges to a real agent CLI session.
-- **Open (capture only):** the mechanism — does kernl spawn the Claude session with
-  `cwd`/context set to llm-workflow and inject a kernl "you are the DA, here are your
-  tools" preamble + a tool manifest? How do kernl's APIs get exposed to that session (MCP
-  server over kernl's endpoints, a skill, a generated tool list)? Not designed yet.
+- **Decided mechanism (2026-07-18) — `kernl da` v1:** an interactive wrapper around
+  `claude`, launchable from **any directory**, that reproduces the llm-workflow session
+  experience **exactly** — that is the requirement, not an approximation of it. It
+  anchors `cwd` at `~/repositories/llm-workflow` regardless of the launch dir (cwd
+  drives hooks, CLAUDE.md, skills, and ai-memory scoping, so anchoring guarantees
+  byte-identical behavior where injected settings would only approximate it), passes
+  the launch dir via `--add-dir`, and appends a kernl preamble: "you are the DA; you
+  run inside kernl; drive it through the kernl CLI". The preamble **never
+  hand-describes the CLI surface** (hand-written copies drift) — it defers to
+  `kernl --help` and per-subcommand help, which is why the agent-ergonomics pass on
+  the CLI (track step 1) comes first. Reminders keep working unchanged: llm-workflow's
+  SessionStart hook fires because cwd is anchored there — they stay a hook until a
+  kernl-native mechanism reproduces "arrive in the environment where the action
+  happens". Kernl's APIs reach the session through the CLI (direct DB writes, shared
+  `internal/*` packages); `kernl da` must **not** require `kernl serve` to be up.
 
 ### A complete, agent-oriented CLI for kernl
 
@@ -243,6 +280,71 @@ notes, tasks, projects, bookmarks, memory, and the DA.
 - **Open (capture only):** scope of v1 (which subcommands first — inbox/capture and tasks
   are the daily surface), and the JSON/robot-mode contract. Greenfield-ish and large — this
   is a committed direction, not a scoped plan yet; it wants a planning round before draining.
+
+**Update 2026-07-18:** sequenced as **step 1 of the DA absorption track** (below) —
+the ergonomics pass happens *before* `kernl da` is built, so the DA's preamble
+points at a stable, agent-grade surface from day one instead of chasing CLI
+changes. Method: run the `agent-ergonomics-and-intuitiveness-maximization-for-
+cli-tools` skill against the CLI. Scope additions: keep the CLI **direct-to-DB**
+(no `serve` dependency — logic is already shared with the server via `internal/*`
+packages, so there is no duplicated-logic risk), and verify how a running server
+notices direct-DB writes from the CLI (staleness) — fix with notification/poll if
+it doesn't.
+
+### The DA absorption track — `kernl da` + migrating llm-workflow into kernl (decided 2026-07-18)
+
+**The frame:** llm-workflow's role as "the mayor" — a context-rich general
+assistant session (constitutional about-me + state + memory) — is validated by
+daily use: it is the most-used repo since it exists, and a session there already
+does the job the DA is meant to do. The decided end state: **kernl absorbs
+llm-workflow piece by piece** — knowledge first, harness machinery later, each
+piece moving when the kernl organ for it exists. llm-workflow dissolves into
+kernl over time, which was always its charter ("internalize into kernl what
+proves its value" — it proved it).
+
+**What migrates vs what stays (by category, not by proof):** knowledge and state
+(backlog, lessons, about-me, eventually ops logs) belong in the graph. Harness
+machinery (hooks, skills, injection scripts) migrates only by **reimplementation
+as kernl features**, never by copying scripts — and Claude-specific glue stays
+with the harness until kernl wraps the harness entirely (closer than it sounds:
+`internal/adapter` already drives five agent CLIs non-interactively, permission
+bridge included).
+
+**The decided sequence** (details live in the items referenced):
+
+1. **Agent-ergonomics pass on the CLI** — see *A complete, agent-oriented CLI*.
+2. **`kernl da` v1** — see the decided mechanism under *When the DA's harness is
+   Claude…*: exact-same-experience wrapper, cwd anchored at llm-workflow,
+   launchable anywhere, preamble deferring to `kernl --help`.
+3. **Version the vault** — private git repo for `~/vault`, `.gitignore` for
+   `.kernl-graph.db`. Cheap, and the unblock for steps 4–5: history/blame is
+   what makes moving about-me and ops logs acceptable (see the 2026-07-11
+   incident that founded the machine-log rule).
+4. **Knowledge absorption** — llm-workflow `BACKLOG.md` → kernl tasks/projects;
+   `lessons.md` → kernl memory claims. This **flips the source of truth**: "keep
+   BACKLOG.md true" becomes "keep kernl true" for every session. Scope:
+   llm-workflow's backlog only, not the per-project planning pipelines.
+   Reminders explicitly stay behind as an llm-workflow hook (their value is
+   arriving in the environment where the action happens; `kernl da`'s anchored
+   cwd keeps delivering exactly that).
+5. **about-me → vault as tagged notes**, ops logs → vault notes afterwards —
+   see the 2026-07-18 revision under *Give the DA the context…*.
+6. **In-app DA chat over the Claude harness** — wire `DaChatSurface` →
+   `internal/adapter`; absorbs the harness axis of *Switch the model /
+   harness…* and dissolves the 4 KB cap as a necessity.
+7. **Phase 2 — the DA session joins the graph:** a `kernl da` terminal session
+   becomes a `chat-session` node. Registered as a goal, not designed.
+8. **Horizon (registered, not designed):** remaining harness machinery organ by
+   organ — context injection → injectables, session capture → chat-session
+   nodes, lessons/improve-system → memory consolidation.
+
+**Already done (2026-07-18):** the orchestrator harness in `kernl.local.yaml`
+(gitignored — recorded here because git can't) switched from `opencode run
+--format json` + claude-sonnet-4-6 to the `claude` CLI with model
+`claude-opus-4-8`. The adapter builds the non-interactive invocation itself
+(`-p`, stream-json, permission bridge, `--model` from config), so the entry
+needs no `args`. `kernl doctor` green; the server was not running, so nothing
+needed a restart.
 
 ## Deferred — from v0.1.0 (decided 2026-06-26)
 
