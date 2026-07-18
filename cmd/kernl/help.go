@@ -215,7 +215,10 @@ func printHelpFor(topic []string) error {
 			topic[0], strings.Join(commandNames(), ", "))
 	}
 	qualified := "kernl " + cmd.Name
-	if len(topic) > 1 {
+	// Extra tokens under a verb WITHOUT sub-verbs are the user's own args
+	// (e.g. `kernl capture quick note --help`), not a topic path — show the
+	// verb's help rather than erroring on the user's text.
+	if len(topic) > 1 && len(cmd.Subs) > 0 {
 		sub := findCommand(cmd.Subs, topic[1])
 		if sub == nil {
 			return usagef("KERNL DISPATCH FAILURE: no help topic %q under %q — valid: %s. Run: kernl %s --help",

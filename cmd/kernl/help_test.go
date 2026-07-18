@@ -102,3 +102,17 @@ func TestCommandTableCoversDispatch(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpAfterFreeTextShowsVerbHelp(t *testing.T) {
+	stubAllVerbs(t)
+	// --help after free-text args on a leaf verb must show that verb's help,
+	// never an error built from the user's own words.
+	for _, argv := range [][]string{
+		{"capture", "quick", "note", "--help"},
+		{"plan", "caching", "strategy", "-h"},
+	} {
+		if err := Dispatch(argv); err != nil {
+			t.Errorf("Dispatch(%v) must show verb help, got: %v", argv, err)
+		}
+	}
+}
