@@ -60,7 +60,7 @@ func TestDispatchUnknownFlagSuggests(t *testing.T) {
 
 func TestEpicRunRejectsStrayFlags(t *testing.T) {
 	// A typo'd flag must error, not silently become the epic ID.
-	err := runEpicRun(nil, []string{"--autonomos", "epic-42"}, func(string) {})
+	err := runEpicRun(nil, "kernl.yaml", []string{"--autonomos", "epic-42"}, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), `did you mean "--autonomous"?`) {
 		t.Fatalf("expected stray-flag rejection with hint, got: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestEpicRunRejectsStrayFlags(t *testing.T) {
 }
 
 func TestEpicSubcommandSuggests(t *testing.T) {
-	err := runEpicWithApp(nil, []string{"lsit"}, func(string) {})
+	err := runEpicWithApp(nil, "kernl.yaml", []string{"lsit"}, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), `did you mean "list"?`) {
 		t.Fatalf("expected epic sub-verb hint, got: %v", err)
 	}

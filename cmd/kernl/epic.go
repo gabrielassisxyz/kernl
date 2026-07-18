@@ -50,10 +50,10 @@ func runEpic(configPath string, args []string) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
 	}
 
-	return runEpicWithApp(a, args, nil)
+	return runEpicWithApp(a, configPath, args, nil)
 }
 
-func runEpicWithApp(a *app.App, args []string, out func(string)) error {
+func runEpicWithApp(a *app.App, configPath string, args []string, out func(string)) error {
 	if out == nil {
 		out = func(s string) { fmt.Print(s) }
 	}
@@ -65,7 +65,7 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 	case "list":
 		return runEpicList(a, os.Stdout, args[1:])
 	case "run":
-		return runEpicRun(a, args[1:], out)
+		return runEpicRun(a, configPath, args[1:], out)
 	case "merge":
 		return runEpicMerge(a, args[1:], out)
 	case "abort":
@@ -133,7 +133,7 @@ type epicListRow struct {
 	State    string `json:"state"`
 }
 
-func runEpicRun(a *app.App, args []string, out func(string)) error {
+func runEpicRun(a *app.App, configPath string, args []string, out func(string)) error {
 	var workflowPath string
 	var workflowFlagSeen bool
 	var autonomous bool
@@ -186,9 +186,15 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	epicID := remainingArgs[0]
 	repoPath := a.Config.Registry.Repos[0].Path
 
-	// U1: Config and CLI flags for autonomous mode
+	// U1: Config and CLI flags for autonomous mode. The lookup honors the
+	// global --config flag (it used to hardcode "kernl.yaml", silently
+	// ignoring non-default configs) and surfaces parse failures instead of
+	// discarding them.
 	if !autonomous && !interactive {
-		autoCfg, _ := dispatch.LoadAutonomousConfig("kernl.yaml")
+		autoCfg, err := dispatch.LoadAutonomousConfig(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: cannot read orchestrator.autonomous from %s: %v\n", configPath, err)
+		}
 		if autoCfg {
 			autonomous = true
 		}

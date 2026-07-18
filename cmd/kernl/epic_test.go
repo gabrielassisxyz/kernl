@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
@@ -258,7 +261,7 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
 	var guiURLPrinted bool
-	err := runEpicWithApp(fakeApp, []string{"run", "e"}, func(line string) {
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e"}, func(line string) {
 		if strings.Contains(line, "GUI ") && strings.Contains(line, "http://") {
 			guiURLPrinted = true
 		}
@@ -274,7 +277,7 @@ func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 func TestEpicRunBlockedPrintsNextStep(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunFailSpawn)
 	var out strings.Builder
-	err := runEpicWithApp(fakeApp, []string{"run", "e"}, func(l string) { out.WriteString(l + "\n") })
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e"}, func(l string) { out.WriteString(l + "\n") })
 	if err == nil {
 		t.Fatal("expected error when bead fails")
 	}
@@ -319,7 +322,7 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := runEpicWithApp(fakeApp, tc.args, func(string) {})
+			err := runEpicWithApp(fakeApp, "kernl.yaml", tc.args, func(string) {})
 			if err == nil {
 				t.Fatalf("expected error due to nonexistent workflow file, got nil")
 			}
@@ -331,7 +334,7 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 
 	// Test missing path error cases
 	t.Run("missing path equals", func(t *testing.T) {
-		err := runEpicWithApp(fakeApp, []string{"run", "--workflow=", "e"}, func(string) {})
+		err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--workflow=", "e"}, func(string) {})
 		if err == nil {
 			t.Fatalf("expected error due to missing workflow path, got nil")
 		}
@@ -341,7 +344,7 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 	})
 
 	t.Run("missing path space", func(t *testing.T) {
-		err := runEpicWithApp(fakeApp, []string{"run", "e", "--workflow"}, func(string) {})
+		err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e", "--workflow"}, func(string) {})
 		if err == nil {
 			t.Fatalf("expected error due to missing workflow path, got nil")
 		}
@@ -394,5 +397,26 @@ func TestEpicListRejectsUnknownFlag(t *testing.T) {
 	}
 	if exitCode(err) != 2 {
 		t.Errorf("unknown list flag is a usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestAutonomousLookupHonorsConfigPath(t *testing.T) {
+	// The autonomous-mode lookup must read the SAME config the rest of the
+	// invocation uses, not a hardcoded kernl.yaml in the cwd.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "custom.yaml")
+	if err := os.WriteFile(path, []byte("autonomous: true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	on, err := dispatch.LoadAutonomousConfig(path)
+	if err != nil || !on {
+		t.Fatalf("LoadAutonomousConfig(%s) = %v, %v; want true, nil", path, on, err)
+	}
+	src, err := os.ReadFile("epic.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(src), `LoadAutonomousConfig("kernl.yaml")`) {
+		t.Fatal("epic.go must not hardcode kernl.yaml in the autonomous lookup; thread configPath instead")
 	}
 }

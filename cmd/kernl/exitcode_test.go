@@ -37,8 +37,8 @@ func TestUsageErrorsClassifiedAcrossVerbs(t *testing.T) {
 		}
 	}
 	assertUsage("unknown verb", Dispatch([]string{"frobnicate"}))
-	assertUsage("epic no sub", runEpicWithApp(nil, nil, func(string) {}))
-	assertUsage("epic unknown sub", runEpicWithApp(nil, []string{"frobnicate"}, func(string) {}))
+	assertUsage("epic no sub", runEpicWithApp(nil, "kernl.yaml", nil, func(string) {}))
+	assertUsage("epic unknown sub", runEpicWithApp(nil, "kernl.yaml", []string{"frobnicate"}, func(string) {}))
 	assertUsage("bead no sub", runBeadWithApp(nil, nil))
 	assertUsage("bead unknown sub", runBeadWithApp(nil, []string{"frobnicate"}))
 	assertUsage("help unknown topic", printHelpFor([]string{"frobnicate"}))
