@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
@@ -88,7 +89,7 @@ func captureEpicList(t *testing.T, be backend.BackendPort) string {
 		Backend: be,
 		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: "/test"}}}},
 	}
-	if err := runEpicList(a, &buf); err != nil {
+	if err := runEpicList(a, &buf, nil); err != nil {
 		t.Fatalf("runEpicList: %v", err)
 	}
 	return buf.String()
@@ -348,4 +349,50 @@ func TestEpicRun_FlagParsingOrder(t *testing.T) {
 			t.Errorf("expected error to complain about missing path, got: %v", err)
 		}
 	})
+}
+
+func TestEpicListJSONEmitsCamelCaseObject(t *testing.T) {
+	be := &epicTestBackend{beads: []backend.Bead{
+		{ID: "kb-2", Type: "epic", Title: "second epic", State: "open"},
+		{ID: "kb-0", Type: "epic", Title: "demo epic", State: "in_progress"},
+		{ID: "kb-1", Type: "task", ParentID: "kb-0"},
+	}}
+	var buf bytes.Buffer
+	a := &app.App{
+		Backend: be,
+		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: "/test"}}}},
+	}
+	if err := runEpicList(a, &buf, []string{"--json"}); err != nil {
+		t.Fatalf("runEpicList --json: %v", err)
+	}
+	var out struct {
+		Epics []struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			Children int    `json:"children"`
+			State    string `json:"state"`
+		} `json:"epics"`
+	}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v\n%s", err, buf.String())
+	}
+	if len(out.Epics) != 2 {
+		t.Fatalf("want 2 epics, got %d", len(out.Epics))
+	}
+	if out.Epics[0].ID != "kb-0" || out.Epics[1].ID != "kb-2" {
+		t.Errorf("epics must be sorted by id for determinism, got %+v", out.Epics)
+	}
+	if out.Epics[0].Children != 1 {
+		t.Errorf("child count lost in JSON: %+v", out.Epics[0])
+	}
+}
+
+func TestEpicListRejectsUnknownFlag(t *testing.T) {
+	err := runEpicList(nil, &bytes.Buffer{}, []string{"--jsno"})
+	if err == nil || !strings.Contains(err.Error(), `did you mean "--json"?`) {
+		t.Fatalf("expected did-you-mean for --jsno, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("unknown list flag is a usage error, got exit %d", exitCode(err))
+	}
 }

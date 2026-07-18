@@ -43,7 +43,9 @@ Exit code is non-zero when a required check fails.`,
 			{
 				Name:    "list",
 				Summary: "List epics with child counts and state",
-				Usage:   "kernl epic list",
+				Usage:   "kernl epic list [--json]",
+				Details: `Flags:
+  --json  Emit {"epics":[{"id","title","children","state"}]} on stdout`,
 			},
 			{
 				Name:    "run",

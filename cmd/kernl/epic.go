@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -61,7 +63,7 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 
 	switch args[0] {
 	case "list":
-		return runEpicList(a, os.Stdout)
+		return runEpicList(a, os.Stdout, args[1:])
 	case "run":
 		return runEpicRun(a, args[1:], out)
 	case "merge":
@@ -74,7 +76,17 @@ func runEpicWithApp(a *app.App, args []string, out func(string)) error {
 	}
 }
 
-func runEpicList(a *app.App, w io.Writer) error {
+func runEpicList(a *app.App, w io.Writer, args []string) error {
+	var asJSON bool
+	for _, arg := range args {
+		switch arg {
+		case "--json":
+			asJSON = true
+		default:
+			return usagef("KERNL DISPATCH FAILURE: unknown epic list flag %q%s — valid: --json",
+				arg, didYouMean(arg, []string{"--json"}))
+		}
+	}
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
 	}
@@ -85,18 +97,40 @@ func runEpicList(a *app.App, w io.Writer) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: listing epics: %w", err)
 	}
 
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tTITLE\tCHILDREN\tSTATE")
-
-	for _, epic := range epics {
-		children, err := a.Backend.List(&backend.BeadListFilters{Parent: epic.ID}, repoPath)
+	rows := make([]epicListRow, 0, len(epics))
+	for _, e := range epics {
+		children, err := a.Backend.List(&backend.BeadListFilters{Parent: e.ID}, repoPath)
 		if err != nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: listing children for epic %s: %w", epic.ID, err)
+			return fmt.Errorf("KERNL DISPATCH FAILURE: listing children for epic %s: %w", e.ID, err)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", epic.ID, epic.Title, len(children), epic.State)
+		rows = append(rows, epicListRow{ID: e.ID, Title: e.Title, Children: len(children), State: e.State})
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
+
+	if asJSON {
+		enc := json.NewEncoder(w)
+		return enc.Encode(epicListOutput{Epics: rows})
 	}
 
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tTITLE\tCHILDREN\tSTATE")
+	for _, r := range rows {
+		fmt.Fprintf(tw, "%s\t%s\t%d\t%s\n", r.ID, r.Title, r.Children, r.State)
+	}
 	return tw.Flush()
+}
+
+// epicListOutput is the machine contract for `kernl epic list --json`.
+// Keys are camelCase, matching the REST API convention.
+type epicListOutput struct {
+	Epics []epicListRow `json:"epics"`
+}
+
+type epicListRow struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Children int    `json:"children"`
+	State    string `json:"state"`
 }
 
 func runEpicRun(a *app.App, args []string, out func(string)) error {
@@ -252,7 +286,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 		}
 	}
 
-	out(fmt.Sprintf("GUI em http://localhost:%d/?epic=%s\n", actualPort, epicID))
+	out(fmt.Sprintf("GUI at http://localhost:%d/?epic=%s\n", actualPort, epicID))
 
 	// Only wire real git execution when the repo path is actually a git
 	// repo -- hermetic tests use t.TempDir() which is not a git repo, and
@@ -333,12 +367,12 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	}, doneSet)
 
 	if err := ex.Run(context.Background()); err != nil {
-		out(fmt.Sprintf("epic %s bloqueado — corrija e rode kernl epic run %s de novo para retomar\n", epicID, epicID))
+		out(fmt.Sprintf("epic %s blocked — fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
 
 	metric := ex.Parallelism()
-	out(fmt.Sprintf("epic %s concluído — paralelismo realizado: %.1fx (pico %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
+	out(fmt.Sprintf("epic %s complete — realized parallelism: %.1fx (peak %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
 
 	// All children reached awaiting_integration. Drive the epic bead itself
 	// through integration -> integration_review -> shipment -> awaiting_pr_review.
@@ -348,7 +382,7 @@ func runEpicRun(a *app.App, args []string, out func(string)) error {
 	}
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
 	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, out); err != nil {
-		out(fmt.Sprintf("epic %s bloqueado na integração — corrija e rode kernl epic run %s de novo para retomar\n", epicID, epicID))
+		out(fmt.Sprintf("epic %s blocked at integration — fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
 
