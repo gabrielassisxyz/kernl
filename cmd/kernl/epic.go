@@ -41,6 +41,12 @@ func execGitRun(dir string, args ...string) (string, error) {
 }
 
 func runEpic(configPath string, args []string) error {
+	// Usage validation precedes config/app setup: `kernl epic staus` must be
+	// diagnosed as a typo, not fail on whatever config problem comes first.
+	if err := validateEpicSubcommand(args); err != nil {
+		return err
+	}
+
 	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
 		return err
@@ -48,10 +54,23 @@ func runEpic(configPath string, args []string) error {
 
 	a, err := app.NewApp(cfg)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
+		return wrapLoud("creating app", err)
 	}
 
 	return runEpicWithApp(a, configPath, args, nil)
+}
+
+func validateEpicSubcommand(args []string) error {
+	if len(args) == 0 {
+		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
+	}
+	switch args[0] {
+	case "list", "run", "merge", "abort":
+		return nil
+	default:
+		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s — valid: list, run, merge, abort. Run: kernl epic --help",
+			args[0], didYouMean(args[0], []string{"list", "run", "merge", "abort"}))
+	}
 }
 
 func runEpicWithApp(a *app.App, configPath string, args []string, out func(string)) error {

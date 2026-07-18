@@ -8,6 +8,14 @@ import (
 )
 
 func runBead(configPath string, args []string) error {
+	if len(args) == 0 {
+		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
+	}
+	if args[0] != "run" {
+		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s — valid: run. Run: kernl bead run <bead-id>",
+			args[0], didYouMean(args[0], []string{"run"}))
+	}
+
 	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
 		return err
@@ -15,7 +23,7 @@ func runBead(configPath string, args []string) error {
 
 	a, err := app.NewApp(cfg)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
+		return wrapLoud("creating app", err)
 	}
 
 	return runBeadWithApp(a, args)

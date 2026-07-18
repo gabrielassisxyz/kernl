@@ -75,3 +75,60 @@ func TestEpicSubcommandSuggests(t *testing.T) {
 		t.Fatalf("expected epic sub-verb hint, got: %v", err)
 	}
 }
+
+func TestRootFlagHintRedirectsSubcommandFlags(t *testing.T) {
+	// A sub-verb flag typed at the root must not be a dead end.
+	err := Dispatch([]string{"--dryrun"})
+	if err == nil || !strings.Contains(err.Error(), "kernl sweep --dry-run") {
+		t.Fatalf("root --dryrun must redirect to sweep, got: %v", err)
+	}
+	err = Dispatch([]string{"--autonomos"})
+	if err == nil || !strings.Contains(err.Error(), "kernl epic run --autonomous") {
+		t.Fatalf("root --autonomos must redirect to epic run, got: %v", err)
+	}
+}
+
+func TestVerbAliasHints(t *testing.T) {
+	for verb, want := range map[string]string{"list": "kernl epic list", "ls": "kernl epic list"} {
+		err := Dispatch([]string{verb})
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("alias %q must hint %q, got: %v", verb, want, err)
+		}
+	}
+}
+
+func TestEpicSubcommandValidatedBeforeConfig(t *testing.T) {
+	// Typo diagnosis must not depend on a loadable config.
+	err := runEpic("definitely-missing.yaml", []string{"staus"})
+	if err == nil || !strings.Contains(err.Error(), "unknown epic subcommand") {
+		t.Fatalf("epic sub-verb typo must be diagnosed before config, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("want usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestEpicHelpSecondTokenIntercepted(t *testing.T) {
+	topic, ok := helpTopic([]string{"epic", "help"})
+	if !ok || len(topic) != 1 || topic[0] != "epic" {
+		t.Fatalf("epic help must resolve to epic help topic, got (%v, %v)", topic, ok)
+	}
+	topic, ok = helpTopic([]string{"epic", "help", "run"})
+	if !ok || strings.Join(topic, " ") != "epic run" {
+		t.Fatalf("epic help run must resolve to epic run, got (%v, %v)", topic, ok)
+	}
+	if _, ok := helpTopic([]string{"capture", "help"}); ok {
+		t.Fatal("capture help must NOT be intercepted (capture takes free text)")
+	}
+}
+
+func TestWrapLoudSingleMarker(t *testing.T) {
+	inner := usagef("KERNL DISPATCH FAILURE: inner")
+	if got := wrapLoud("ctx", inner).Error(); strings.Count(got, "KERNL DISPATCH FAILURE") != 1 {
+		t.Errorf("marker must appear once, got: %s", got)
+	}
+	plain := wrapLoud("ctx", errNotFound)
+	if !strings.Contains(plain.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("plain error must gain the marker, got: %s", plain)
+	}
+}

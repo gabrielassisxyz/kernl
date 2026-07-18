@@ -172,11 +172,21 @@ func findCommand(table []commandMeta, name string) *commandMeta {
 }
 
 // helpTopic reports whether args request help, and for which topic path.
-// It fires on a leading "help" verb or on a --help/-h token anywhere before
-// a literal "--" (end-of-flags sentinel).
+// It fires on a leading "help" verb, on "<verb> help [sub]" for verbs that
+// have sub-verbs, or on a --help/-h token anywhere before a literal "--"
+// (end-of-flags sentinel).
 func helpTopic(args []string) ([]string, bool) {
 	if len(args) > 0 && args[0] == "help" {
 		return args[1:], true
+	}
+	if len(args) >= 2 && args[1] == "help" {
+		if cmd := findCommand(commandTable, args[0]); cmd != nil && len(cmd.Subs) > 0 {
+			topic := []string{args[0]}
+			if len(args) >= 3 && !strings.HasPrefix(args[2], "-") {
+				topic = append(topic, args[2])
+			}
+			return topic, true
+		}
 	}
 	var topic []string
 	for _, a := range args {
@@ -247,4 +257,49 @@ func subNames(cmd *commandMeta) []string {
 		names = append(names, s.Name)
 	}
 	return names
+}
+
+// subcommandFlagOwners maps every sub-verb flag to the invocation that owns
+// it, so a flag typed at the root (e.g. `kernl --dry-run`) can be redirected
+// to where it actually works.
+var subcommandFlagOwners = map[string]string{
+	"--dry-run":           "kernl sweep --dry-run",
+	"--yes":               "kernl sweep --yes",
+	"--repo":              "kernl sweep --repo <path>",
+	"--failure-threshold": "kernl sweep --failure-threshold <n>",
+	"--backoff-minutes":   "kernl sweep --backoff-minutes <a,b,...>",
+	"--stale-warn-days":   "kernl sweep --stale-warn-days <n>",
+	"--workflow":          "kernl epic run --workflow <path> <epic-id>",
+	"--autonomous":        "kernl epic run --autonomous <epic-id>",
+	"--interactive":       "kernl epic run --interactive <epic-id>",
+	"--json":              "kernl <epic list|plan|doctor|version> --json",
+}
+
+// rootFlagHint builds the recovery hint for an unknown flag at the root:
+// first a did-you-mean over global flags, then over sub-verb flags (naming
+// the owning invocation), so a typo'd subcommand flag is never a dead end.
+func rootFlagHint(flag string) string {
+	if hint := didYouMean(flag, globalFlagNames); hint != "" {
+		return hint
+	}
+	owners := make([]string, 0, len(subcommandFlagOwners))
+	for f := range subcommandFlagOwners {
+		owners = append(owners, f)
+	}
+	if match := suggest(flag, owners); match != "" {
+		return fmt.Sprintf(" — did you mean %q? It belongs to: %s", match, subcommandFlagOwners[match])
+	}
+	return ""
+}
+
+// verbAliasHints maps verbs agents reach for out of habit (bd/git idioms) to
+// the kernl invocation they almost certainly meant.
+var verbAliasHints = map[string]string{
+	"list":   "kernl epic list",
+	"ls":     "kernl epic list",
+	"status": "kernl epic list",
+	"ready":  "kernl epic list",
+	"run":    "kernl epic run <epic-id>",
+	"check":  "kernl doctor",
+	"init":   "kernl doctor",
 }

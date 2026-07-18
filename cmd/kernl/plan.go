@@ -40,7 +40,7 @@ func runPlan(configPath string, args []string) error {
 	}
 	a, err := app.NewApp(cfg)
 	if err != nil {
-		return fmt.Errorf("creating app: %w", err)
+		return wrapLoud("creating app", err)
 	}
 	defer a.Close()
 

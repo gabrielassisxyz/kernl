@@ -159,7 +159,10 @@ func Dispatch(args []string) error {
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			return usagef("KERNL DISPATCH FAILURE: unknown flag %q%s. Run: kernl --help",
-				args[0], didYouMean(args[0], globalFlagNames))
+				args[0], rootFlagHint(args[0]))
+		}
+		if target, aliased := verbAliasHints[args[0]]; aliased {
+			return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q — try: %s", args[0], target)
 		}
 		return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q%s. Run: kernl --help",
 			args[0], didYouMean(args[0], append(commandNames(), "help")))

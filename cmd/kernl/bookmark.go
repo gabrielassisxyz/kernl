@@ -30,7 +30,7 @@ func runBookmark(configPath string, args []string) error {
 
 	a, err := app.NewApp(cfg)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: creating app: %w", err)
+		return wrapLoud("creating app", err)
 	}
 	defer a.Close()
 
