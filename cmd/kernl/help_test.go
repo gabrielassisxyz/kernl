@@ -19,8 +19,6 @@ func stubAllVerbs(t *testing.T) {
 	}
 	doctorFn = func(string, []string) error { t.Fatal("doctor dispatched on a help request"); return nil }
 	serveFn = func(string, int, bool) error { t.Fatal("serve dispatched on a help request"); return nil }
-	epicFn = fail("epic")
-	beadFn = fail("bead")
 	sweepFn = fail("sweep")
 	bookmarkFn = fail("bookmark")
 	captureFn = fail("capture")
@@ -33,16 +31,28 @@ func stubAllVerbs(t *testing.T) {
 			return nil
 		}
 	}
+	epicFn = failVerb("epic")
+	beadFn = failVerb("bead")
 	taskFn = failVerb("task")
 	projectFn = failVerb("project")
 	noteFn = failVerb("note")
 	inboxFn = failVerb("inbox")
+	memoryFn = failVerb("memory")
+	graphFn = failVerb("graph")
+	settingsFn = failVerb("settings")
+	healthFn = failVerb("health")
+	approvalFn = failVerb("approval")
+	sessionFn = failVerb("session")
+	ingestFn = failVerb("ingest")
 	t.Cleanup(func() {
 		doctorFn, serveFn = runDoctor, runServe
 		epicFn, beadFn, sweepFn = runEpic, runBead, runSweep
 		bookmarkFn, captureFn, planFn = runBookmark, runCapture, runPlan
 		taskFn, projectFn = runTask, runProject
 		noteFn, inboxFn = runNote, runInbox
+		memoryFn, graphFn = runMemory, runGraph
+		settingsFn, healthFn = runSettings, runHealth
+		approvalFn, sessionFn, ingestFn = runApproval, runSession, runIngest
 	})
 }
 
@@ -111,7 +121,9 @@ func TestCommandTableCoversDispatch(t *testing.T) {
 	// Every dispatchable verb must have a help entry; the table is the single
 	// source of truth and this pins them together.
 	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "capabilities", "robot-docs", "version",
-		"task", "project", "note", "inbox"} {
+		"task", "project", "note", "inbox",
+		"memory", "graph", "settings", "health",
+		"approval", "session", "ingest"} {
 		if findCommand(commandTable, verb) == nil {
 			t.Errorf("verb %q missing from commandTable", verb)
 		}

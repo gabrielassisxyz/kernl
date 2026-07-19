@@ -23,8 +23,8 @@ var (
 var (
 	doctorFn   func(configPath string, args []string) error         = runDoctor
 	serveFn    func(configPath string, port int, noOrch bool) error = runServe
-	epicFn     func(configPath string, args []string) error         = runEpic
-	beadFn     func(configPath string, args []string) error         = runBead
+	epicFn     func(v verbContext, args []string) error             = runEpic
+	beadFn     func(v verbContext, args []string) error             = runBead
 	sweepFn    func(configPath string, args []string) error         = runSweep
 	bookmarkFn func(configPath string, args []string) error         = runBookmark
 	captureFn  func(configPath string, args []string) error         = runCapture
@@ -32,10 +32,17 @@ var (
 	helpFn     func() error                                         = printHelp
 
 	// GUI-parity verbs: thin clients of the running server's REST API.
-	taskFn    func(v verbContext, args []string) error = runTask
-	projectFn func(v verbContext, args []string) error = runProject
-	noteFn    func(v verbContext, args []string) error = runNote
-	inboxFn   func(v verbContext, args []string) error = runInbox
+	taskFn     func(v verbContext, args []string) error = runTask
+	projectFn  func(v verbContext, args []string) error = runProject
+	noteFn     func(v verbContext, args []string) error = runNote
+	inboxFn    func(v verbContext, args []string) error = runInbox
+	memoryFn   func(v verbContext, args []string) error = runMemory
+	graphFn    func(v verbContext, args []string) error = runGraph
+	settingsFn func(v verbContext, args []string) error = runSettings
+	healthFn   func(v verbContext, args []string) error = runHealth
+	approvalFn func(v verbContext, args []string) error = runApproval
+	sessionFn  func(v verbContext, args []string) error = runSession
+	ingestFn   func(v verbContext, args []string) error = runIngest
 )
 
 func main() {
@@ -175,9 +182,9 @@ func Dispatch(args []string) error {
 	case "doctor":
 		return doctorFn(configPath, args[1:])
 	case "epic":
-		return epicFn(configPath, args[1:])
+		return epicFn(vctx, args[1:])
 	case "bead":
-		return beadFn(configPath, args[1:])
+		return beadFn(vctx, args[1:])
 	case "sweep":
 		return sweepFn(configPath, args[1:])
 	case "bookmark":
@@ -194,6 +201,20 @@ func Dispatch(args []string) error {
 		return noteFn(vctx, args[1:])
 	case "inbox":
 		return inboxFn(vctx, args[1:])
+	case "memory":
+		return memoryFn(vctx, args[1:])
+	case "graph":
+		return graphFn(vctx, args[1:])
+	case "settings":
+		return settingsFn(vctx, args[1:])
+	case "health":
+		return healthFn(vctx, args[1:])
+	case "approval":
+		return approvalFn(vctx, args[1:])
+	case "session":
+		return sessionFn(vctx, args[1:])
+	case "ingest":
+		return ingestFn(vctx, args[1:])
 	case "version", "--version", "-v":
 		return printVersion(os.Stdout, args[1:])
 	case "capabilities":

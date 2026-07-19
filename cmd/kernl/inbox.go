@@ -13,7 +13,7 @@ import (
 var inboxCommand = commandMeta{
 	Name:    "inbox",
 	Summary: "Triage the capture inbox (list, add, process, classify)",
-	Usage:   "kernl inbox <list|add|process|convert|reopen|classify|auto-classify|prep|rollups|batch-log> [args...]",
+	Usage:   "kernl inbox <list|add|process|convert|reopen|classify|auto-classify|prep|rollups|batch-log|batch> [args...]",
 	Details: `Every inbox verb talks to a running 'kernl serve' over the same REST API the
 web inbox uses. 'kernl capture' is the offline path: it writes the graph
 directly and needs no server.
@@ -105,12 +105,13 @@ Generating needs an LLM provider; --show does not.`,
 			Summary: "Show the raw and final segments of an imported batch",
 			Usage:   "kernl inbox batch-log <batch-id> [--json]",
 		},
+		inboxBatchCommand,
 	},
 }
 
 var inboxSubcommands = []string{
 	"list", "add", "process", "convert", "reopen",
-	"classify", "auto-classify", "prep", "rollups", "batch-log",
+	"classify", "auto-classify", "prep", "rollups", "batch-log", "batch",
 }
 
 func runInbox(v verbContext, args []string) error {
@@ -148,6 +149,8 @@ func runInbox(v verbContext, args []string) error {
 		return inboxPrep(ctx, v, client, asJSON, rest)
 	case "rollups":
 		return inboxRollups(ctx, v, client, asJSON, rest)
+	case "batch":
+		return inboxBatch(ctx, v, client, asJSON, rest)
 	}
 	return inboxBatchLog(ctx, v, client, asJSON, rest)
 }
