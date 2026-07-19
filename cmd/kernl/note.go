@@ -251,7 +251,7 @@ func runNoteRead(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, 
 }
 
 func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, args []string) error {
-	source, hasSource, args, err := takeFlag(args, "--file")
+	source, hasSource, args, err := takeFlag("note write", args, "--file")
 	if err != nil {
 		return err
 	}
@@ -354,7 +354,7 @@ func runNoteTags(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, 
 }
 
 func runNoteSuggest(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, args []string) error {
-	instruction, hasInstruction, args, err := takeFlag(args, "--instruction")
+	instruction, hasInstruction, args, err := takeFlag("note suggest", args, "--instruction")
 	if err != nil {
 		return err
 	}
@@ -396,7 +396,7 @@ func runNoteSuggest(ctx context.Context, c *apiClient, out io.Writer, asJSON boo
 }
 
 func runNoteApplyHunks(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, args []string) error {
-	source, hasSource, args, err := takeFlag(args, "--hunks")
+	source, hasSource, args, err := takeFlag("note apply-hunks", args, "--hunks")
 	if err != nil {
 		return err
 	}

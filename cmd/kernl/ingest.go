@@ -16,15 +16,21 @@ import (
 
 var ingestSubcommands = []string{"paste", "upload", "source", "trigger", "queue"}
 
-var ingestQueueSubcommands = []string{"list", "resolve", "merge-plan"}
+// Derived from the queue command's Subs so dispatch, help and capabilities
+// cannot disagree about which subcommands exist.
+var ingestQueueSubcommands = subNames(findCommand(ingestCommand.Subs, "queue"))
 
 // ingestResolveActions maps a shell-friendly token onto the action string the
 // API expects. The wire values contain a space ("Create Page"), which no one
-// should have to quote correctly to skip a review.
+// should have to quote correctly to discard a review.
+//
+// The token for the wire's "Skip" is "discard" because that is what it does: the
+// review is deleted, permanently and with no undo. "skip" reads as "leave it for
+// later", which is the opposite of the outcome.
 var ingestResolveActions = map[string]string{
 	"create-page": "Create Page",
 	"update":      "Update",
-	"skip":        "Skip",
+	"discard":     "Skip",
 }
 
 var ingestCommand = commandMeta{
@@ -86,18 +92,40 @@ Flags:
 			Name:    "queue",
 			Summary: "Read and resolve the ingest review queue",
 			Usage:   "kernl ingest queue <list|resolve|merge-plan> [args...]",
-			Details: `list                  Pending reviews: id, proposed action, title
-resolve <id>          Apply a review (--action create-page|update|skip)
-merge-plan <id>       Ask the LLM which hunks an Update would add
+			Details: `Hunk-by-hunk merge review is a GUI flow. 'resolve --action update' from the
+CLI links the source to the target note and clears the review without
+rewriting the note's body.
 
-Flags on resolve:
-  --action <a>       create-page, update or skip (default: skip)
+Run 'kernl ingest queue <subcommand> --help' for details on each.`,
+			Subs: []commandMeta{
+				{
+					Name:    "list",
+					Summary: "List the pending reviews: id, proposed action, title",
+					Usage:   "kernl ingest queue list [--json]",
+					Details: `Flags:
+  --json  Emit the API's review array verbatim (camelCase)`,
+				},
+				{
+					Name:    "resolve",
+					Summary: "Apply a review: create a page, merge into one, or discard it",
+					Usage:   "kernl ingest queue resolve <id> --action <create-page|update|discard> [--target-note <id>] [--json]",
+					Details: `Flags:
+  --action <a>       create-page, update or discard — REQUIRED, no default.
+                     'discard' deletes the review permanently; there is no undo.
   --target-note <id> With --action update: the note to merge into
   --json             Emit the API response verbatim
 
-Hunk-by-hunk merge review is a GUI flow. 'resolve --action update' from the
-CLI links the source to the target note and clears the review without
-rewriting the note's body.`,
+There is no default action: an omitted --action used to mean "discard", so a
+forgotten flag destroyed the review it was resolving.`,
+				},
+				{
+					Name:    "merge-plan",
+					Summary: "Ask the LLM which hunks an Update would add",
+					Usage:   "kernl ingest queue merge-plan <id> [--json]",
+					Details: `Reads only — it plans the merge without applying it. An empty target means
+there is no confident note to merge into; resolve with --action create-page.`,
+				},
+			},
 		},
 	},
 }
@@ -134,7 +162,7 @@ func runIngest(v verbContext, args []string) error {
 func ingestPaste(v verbContext, args []string) error {
 	head, tail := splitAtSentinel(args)
 	asJSON, head := parseBoolFlag(head, "--json")
-	title, _, head, err := takeFlag(head, "--title")
+	title, _, head, err := takeFlag("ingest paste", head, "--title")
 	if err != nil {
 		return err
 	}
@@ -223,7 +251,7 @@ func ingestUploadForm(filename string, content []byte) ([]byte, string, error) {
 }
 
 func ingestSource(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	flags, rest, err := takeFlags(args, "--kind", "--title")
+	flags, rest, err := takeFlags("ingest source", args, "--kind", "--title")
 	if err != nil {
 		return err
 	}
@@ -258,7 +286,7 @@ func ingestSource(ctx context.Context, v verbContext, c *apiClient, asJSON bool,
 }
 
 func ingestTrigger(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	node, _, rest, err := takeFlag(args, "--node")
+	node, _, rest, err := takeFlag("ingest trigger", args, "--node")
 	if err != nil {
 		return err
 	}
@@ -310,14 +338,17 @@ func ingestQueueList(ctx context.Context, v verbContext, c *apiClient, asJSON bo
 	return printIngestQueue(v, raw)
 }
 
-// printIngestQueue reads the review DTO in Go field-name case on purpose: this
-// route serializes nodes.IngestReview directly, which carries no json tags, so
-// it is the one ingest response that is not camelCase.
+// printIngestQueue decodes the subset of the review DTO the listing prints.
+// The route used to serialize nodes.IngestReview with no json tags, which put
+// Go field names on the wire; the struct carries camelCase tags now, and
+// TestIngestQueueJSONContract pins that. encoding/json matches case-insensitively,
+// so the old spelling kept working here and hid the drift — these tags name the
+// contract that is actually in force.
 func printIngestQueue(v verbContext, raw json.RawMessage) error {
 	var reviews []struct {
-		ID     string `json:"ID"`
-		Title  string `json:"Title"`
-		Action string `json:"Action"`
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Action string `json:"action"`
 	}
 	if err := decodeInto(raw, "GET /api/ingest/queue", &reviews); err != nil {
 		return err
@@ -336,7 +367,7 @@ func printIngestQueue(v verbContext, raw json.RawMessage) error {
 }
 
 func ingestQueueResolve(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	flags, rest, err := takeFlags(args, "--action", "--target-note")
+	flags, rest, err := takeFlags("ingest queue resolve", args, "--action", "--target-note")
 	if err != nil {
 		return err
 	}
@@ -363,18 +394,20 @@ func ingestQueueResolve(ctx context.Context, v verbContext, c *apiClient, asJSON
 	return err
 }
 
-// ingestResolveAction defaults to Skip because that is what the handler does
-// with an absent action, and a CLI that invented a different default would
-// resolve reviews differently from the API it is a client of.
+// ingestResolveAction requires --action. It used to default to Skip, mirroring
+// the handler, which meant a forgotten flag silently deleted the review. The API
+// now rejects an absent action too, so both ends agree that resolving is always
+// an explicit choice.
 func ingestResolveAction(raw string) (string, error) {
+	valid := []string{"create-page", "update", "discard"}
 	token := strings.TrimSpace(raw)
 	if token == "" {
-		return "Skip", nil
+		return "", usagef("KERNL DISPATCH FAILURE: ingest queue resolve requires --action — valid: %s (discard deletes the review permanently). Run: kernl ingest queue --help",
+			strings.Join(valid, ", "))
 	}
 	if action, ok := ingestResolveActions[token]; ok {
 		return action, nil
 	}
-	valid := []string{"create-page", "update", "skip"}
 	return "", usagef("KERNL DISPATCH FAILURE: unknown --action %q%s — valid: %s. Run: kernl ingest queue --help",
 		token, didYouMean(token, valid), strings.Join(valid, ", "))
 }

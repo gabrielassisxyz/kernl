@@ -206,6 +206,8 @@ func readSettings(c *apiClient) (settingsSnapshot, error) {
 	return snap, err
 }
 
+const settingsSetVerb = "settings set" // every merge path below is reached only through this verb
+
 func mergeSettingsSection(section string, snap settingsSnapshot, args []string) (any, error) {
 	switch section {
 	case "llm":
@@ -228,7 +230,7 @@ func mergeLLMSection(current settingsLLMView, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	key, hasKey, args, err := takeFlag(args, "--api-key")
+	key, hasKey, args, err := takeFlag(settingsSetVerb, args, "--api-key")
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +269,7 @@ func mergeInboxSection(current settingsInboxSection, args []string) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	raw, hasAutoPrep, args, err := takeFlag(args, "--auto-prep")
+	raw, hasAutoPrep, args, err := takeFlag(settingsSetVerb, args, "--auto-prep")
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +306,7 @@ func mergeRuntimeSection(current settingsRuntimeSection, args []string) (any, er
 	if err != nil {
 		return nil, err
 	}
-	backoff, hasBackoff, args, err := takeFlag(args, "--sweep-backoff-minutes")
+	backoff, hasBackoff, args, err := takeFlag(settingsSetVerb, args, "--sweep-backoff-minutes")
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +336,7 @@ type intFlagTarget struct {
 func applyStringFlags(args *[]string, targets []stringFlagTarget) (bool, error) {
 	changed := false
 	for _, t := range targets {
-		value, present, rest, err := takeFlag(*args, t.flag)
+		value, present, rest, err := takeFlag(settingsSetVerb, *args, t.flag)
 		if err != nil {
 			return false, err
 		}
@@ -349,7 +351,7 @@ func applyStringFlags(args *[]string, targets []stringFlagTarget) (bool, error) 
 func applyIntFlags(args *[]string, targets []intFlagTarget) (bool, error) {
 	changed := false
 	for _, t := range targets {
-		raw, present, rest, err := takeFlag(*args, t.flag)
+		raw, present, rest, err := takeFlag(settingsSetVerb, *args, t.flag)
 		if err != nil {
 			return false, err
 		}

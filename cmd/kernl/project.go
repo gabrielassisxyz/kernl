@@ -146,7 +146,7 @@ func projectList(v verbContext, c *apiClient, asJSON bool, args []string) error 
 }
 
 func projectCreate(v verbContext, c *apiClient, asJSON bool, args []string) error {
-	fields, rest, err := takeProjectFields(args)
+	fields, rest, err := takeProjectFields("project create", args)
 	if err != nil {
 		return err
 	}
@@ -174,7 +174,7 @@ func projectCreate(v verbContext, c *apiClient, asJSON bool, args []string) erro
 	if err := decodeInto(raw, "POST /api/projects", &created); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.stdout(), "Created project %s — %s\n", created.ID, title)
+	fmt.Fprintln(v.stdout(), createdLine("Created project", title, "", created.ID))
 	return nil
 }
 
@@ -197,7 +197,7 @@ func projectCreateTitle(fields projectFields, rest []string) (string, error) {
 }
 
 func projectSet(v verbContext, c *apiClient, asJSON bool, args []string) error {
-	fields, rest, err := takeProjectFields(args)
+	fields, rest, err := takeProjectFields("project set", args)
 	if err != nil {
 		return err
 	}
@@ -273,20 +273,20 @@ type projectFields struct {
 	hasTitle, hasDescription, hasStatus, hasTags bool
 }
 
-func takeProjectFields(args []string) (projectFields, []string, error) {
+func takeProjectFields(verb string, args []string) (projectFields, []string, error) {
 	var f projectFields
 	var err error
-	if f.title, f.hasTitle, args, err = takeFlag(args, "--title"); err != nil {
+	if f.title, f.hasTitle, args, err = takeFlag(verb, args, "--title"); err != nil {
 		return f, nil, err
 	}
-	if f.description, f.hasDescription, args, err = takeFlag(args, "--description"); err != nil {
+	if f.description, f.hasDescription, args, err = takeFlag(verb, args, "--description"); err != nil {
 		return f, nil, err
 	}
-	if f.status, f.hasStatus, args, err = takeFlag(args, "--status"); err != nil {
+	if f.status, f.hasStatus, args, err = takeFlag(verb, args, "--status"); err != nil {
 		return f, nil, err
 	}
 	var rawTags string
-	if rawTags, f.hasTags, args, err = takeFlag(args, "--tags"); err != nil {
+	if rawTags, f.hasTags, args, err = takeFlag(verb, args, "--tags"); err != nil {
 		return f, nil, err
 	}
 	if f.hasTags {

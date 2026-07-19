@@ -88,3 +88,40 @@ func TestIngestAPI(t *testing.T) {
 		return nil
 	})
 }
+
+// An empty body used to resolve as Skip, which deletes the review: the request
+// that said nothing destroyed the most. It is a 400 now, and the review stays.
+func TestIngestResolveEmptyActionIsBadRequest(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	a := &app.App{
+		Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}},
+		Graph:  g,
+	}
+
+	ctx := t.Context()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateIngestReview(ctx, tx, nodes.IngestReview{Title: "Test"}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed review: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/ingest/queue/{id}/resolve", ingestQueueResolveHandler(a, true))
+
+	req := httptest.NewRequest("POST", "/api/ingest/queue/"+id+"/resolve", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("empty action expected 400, got %d", w.Code)
+	}
+	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		if _, err := nodes.GetIngestReview(ctx, tx, id); err != nil {
+			t.Error("a refused resolution must leave the review in the queue")
+		}
+		return nil
+	})
+}

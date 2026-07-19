@@ -97,6 +97,44 @@ func TestTaskListScopesToProjectAndPassesJSONThrough(t *testing.T) {
 	}
 }
 
+// The join that builds a title from unquoted words is defensible only if the
+// caller can see what it produced. Quoting is what makes a swallowed or stray
+// word visible; unquoted, the two are indistinguishable.
+func TestTaskCreateEchoesTheJoinedTitleQuoted(t *testing.T) {
+	api := &fakeTaskAPI{t: t, status: http.StatusCreated, body: `{"id":"tsk-9"}`}
+	out, err := runTaskVerb(t, api, "create", "renew", "the", "domain")
+	if err != nil {
+		t.Fatalf("task create failed: %v", err)
+	}
+	if !strings.Contains(out, `"renew the domain"`) {
+		t.Errorf("the joined title must be echoed in quotes, got: %s", out)
+	}
+	if strings.HasPrefix(strings.TrimSpace(out), "Created task tsk-9") {
+		t.Errorf("the id must not lead the line, got: %s", out)
+	}
+}
+
+func TestTaskCreateAcceptsTitleFlag(t *testing.T) {
+	api := &fakeTaskAPI{t: t, status: http.StatusCreated, body: `{"id":"tsk-9"}`}
+	out, err := runTaskVerb(t, api, "create", "--title", "renew the domain")
+	if err != nil {
+		t.Fatalf("task create --title failed: %v", err)
+	}
+	if !strings.Contains(out, `Created task "renew the domain" (tsk-9)`) {
+		t.Errorf("unexpected confirmation: %s", out)
+	}
+}
+
+// Silently preferring one over the other would hide a typo'd flag — the same
+// reason project create refuses the pair.
+func TestTaskCreateRejectsTitleFlagAndPositionalTogether(t *testing.T) {
+	api := &fakeTaskAPI{t: t, status: http.StatusCreated, body: `{"id":"tsk-9"}`}
+	_, err := runTaskVerb(t, api, "create", "positional", "--title", "flagged")
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "only one") {
+		t.Fatalf("expected exit 2 refusing both title forms, got %d: %v", exitCode(err), err)
+	}
+}
+
 func TestTaskCreateSendsCamelCaseBody(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusCreated, body: `{"id":"tsk-9"}`}
 	out, err := runTaskVerb(t, api, "create", "renew the domain",
@@ -104,8 +142,8 @@ func TestTaskCreateSendsCamelCaseBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("task create failed: %v", err)
 	}
-	if !strings.Contains(out, "Created task tsk-9") {
-		t.Errorf("create should confirm the new id, got: %s", out)
+	if !strings.Contains(out, `Created task "renew the domain" (tsk-9)`) {
+		t.Errorf("create should confirm the title it stored and the new id, got: %s", out)
 	}
 	want := map[string]any{
 		"title":     "renew the domain",

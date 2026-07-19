@@ -22,6 +22,12 @@ import (
 // queue may still hold one, so the resolver fails loudly rather than silently.
 var ErrActionNotImplemented = errors.New("ingest action not implemented")
 
+// ErrActionRequired is returned when a resolution arrives with no action. It used
+// to be treated as "Skip", which deletes the review — so a request that simply
+// forgot the field destroyed the thing it was resolving. Destroying data is never
+// what an omitted field should mean.
+var ErrActionRequired = errors.New("ingest resolution requires an action: Create Page, Update or Skip")
+
 const resolveAuthor = "ingest-resolve"
 
 // relatedFanout caps how many topically-related notes a resolved item is linked
@@ -50,7 +56,8 @@ type UpdateInput struct {
 //     into the graph, then remove the review.
 //   - "Update": merge the accepted hunks into a resolved target note, connect it,
 //     then remove the review. With no confident target it falls back to Create Page.
-//   - "Skip" (or empty): remove the review with no other effect.
+//   - "Skip": remove the review with no other effect.
+//   - empty: ErrActionRequired (the review stays in the queue).
 //   - anything else: ErrActionNotImplemented (the review stays in the queue).
 //
 // Every resolution that lands a note (Create Page and Update) connects it to its
@@ -71,10 +78,13 @@ func ResolveReview(ctx context.Context, g *graph.Graph, vaultRoot, reviewID, act
 		}
 		return updatePage(ctx, g, vaultRoot, review, update)
 
-	case "Skip", "":
+	case "Skip":
 		return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 			return nodes.DeleteIngestReview(ctx, tx, reviewID, nodes.Author{Name: "api"})
 		})
+
+	case "":
+		return ErrActionRequired
 
 	default:
 		return ErrActionNotImplemented

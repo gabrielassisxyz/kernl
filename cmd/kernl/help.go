@@ -193,6 +193,12 @@ func findCommand(table []commandMeta, name string) *commandMeta {
 	return nil
 }
 
+// maxTopicDepth is how deep the command tree goes: `ingest queue resolve` and
+// `inbox batch apply` are three tokens. Collecting fewer would silently answer a
+// question about a leaf with its parent's page; collecting extra is harmless,
+// since printHelpFor stops descending once a command has no sub-verbs.
+const maxTopicDepth = 3
+
 // helpTopic reports whether args request help, and for which topic path.
 // It fires on a leading "help" verb, on "<verb> help [sub]" for verbs that
 // have sub-verbs, or on a --help/-h token anywhere before a literal "--"
@@ -204,8 +210,11 @@ func helpTopic(args []string) ([]string, bool) {
 	if len(args) >= 2 && args[1] == "help" {
 		if cmd := findCommand(commandTable, args[0]); cmd != nil && len(cmd.Subs) > 0 {
 			topic := []string{args[0]}
-			if len(args) >= 3 && !strings.HasPrefix(args[2], "-") {
-				topic = append(topic, args[2])
+			for _, a := range args[2:] {
+				if strings.HasPrefix(a, "-") || len(topic) >= maxTopicDepth {
+					break
+				}
+				topic = append(topic, a)
 			}
 			return topic, true
 		}
@@ -218,7 +227,7 @@ func helpTopic(args []string) ([]string, bool) {
 		if a == "--help" || a == "-h" {
 			return topic, true
 		}
-		if !strings.HasPrefix(a, "-") && len(topic) < 2 {
+		if !strings.HasPrefix(a, "-") && len(topic) < maxTopicDepth {
 			topic = append(topic, a)
 		}
 	}
@@ -237,14 +246,21 @@ func printHelpFor(topic []string) error {
 			topic[0], strings.Join(commandNames(), ", "))
 	}
 	qualified := "kernl " + cmd.Name
-	// Extra tokens under a verb WITHOUT sub-verbs are the user's own args
+	// Descend as far as the tree goes, not one level: `ingest queue resolve`
+	// and `inbox batch apply` are real commands, and stopping at the parent
+	// would answer a question about the child with the parent's page.
+	//
+	// Extra tokens under a command WITHOUT sub-verbs are the user's own args
 	// (e.g. `kernl capture quick note --help`), not a topic path — show the
-	// verb's help rather than erroring on the user's text.
-	if len(topic) > 1 && len(cmd.Subs) > 0 {
-		sub := findCommand(cmd.Subs, topic[1])
+	// command's help rather than erroring on the user's text.
+	for _, name := range topic[1:] {
+		if len(cmd.Subs) == 0 {
+			break
+		}
+		sub := findCommand(cmd.Subs, name)
 		if sub == nil {
 			return usagef("KERNL DISPATCH FAILURE: no help topic %q under %q — valid: %s. Run: kernl %s --help",
-				topic[1], cmd.Name, strings.Join(subNames(cmd), ", "), cmd.Name)
+				name, cmd.Name, strings.Join(subNames(cmd), ", "), qualified[len("kernl "):])
 		}
 		qualified = qualified + " " + sub.Name
 		cmd = sub

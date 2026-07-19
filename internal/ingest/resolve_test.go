@@ -85,6 +85,21 @@ func TestResolveReviewSkip(t *testing.T) {
 	}
 }
 
+// An empty action used to fall through to Skip and delete the review — so a
+// resolution that forgot the field destroyed what it was resolving.
+func TestResolveReviewEmptyActionRefusesAndKeepsReview(t *testing.T) {
+	ctx := context.Background()
+	g := openGraph(t)
+	id := seedReview(t, g)
+	err := ResolveReview(ctx, g, "", id, "", nil)
+	if !errors.Is(err, ErrActionRequired) {
+		t.Fatalf("expected ErrActionRequired, got %v", err)
+	}
+	if reviewCount(t, g) != 1 {
+		t.Errorf("an empty action must leave the review in the queue")
+	}
+}
+
 func TestResolveReviewUnimplemented(t *testing.T) {
 	ctx := context.Background()
 	g := openGraph(t)

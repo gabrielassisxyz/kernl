@@ -201,12 +201,69 @@ func TestIngestQueueResolveMapsActionAndEscapesID(t *testing.T) {
 	}
 }
 
+// The listing decodes the server's camelCase keys. The failure mode this pins
+// is silent: a decoder reading the wrong spelling yields zero-valued fields and
+// prints a row of blanks, not an error.
+func TestIngestQueueListReadsCamelCaseKeys(t *testing.T) {
+	ts, _ := fakeIngestAPI(t, http.StatusOK,
+		`[{"id":"rv-1","title":"Meeting notes","action":"Create Page"}]`)
+
+	out, err := driveIngest(t, ts, "queue", "list")
+	if err != nil {
+		t.Fatalf("ingest queue list: %v", err)
+	}
+	for _, want := range []string{"rv-1", "Meeting notes", "Create Page"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("camelCase field lost in the listing (want %q): %s", want, out)
+		}
+	}
+}
+
 func TestIngestQueueResolveRejectsUnknownAction(t *testing.T) {
 	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
 
 	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "creat-page")
 	if exitCode(err) != 2 || !strings.Contains(err.Error(), "create-page") {
 		t.Fatalf("expected a did-you-mean toward create-page, got %v", err)
+	}
+	if len(*seen) != 0 {
+		t.Fatal("a rejected action must not reach the server")
+	}
+}
+
+// A forgotten --action used to mean "Skip", which deletes the review. The verb
+// must refuse rather than pick the destructive branch for the caller.
+func TestIngestQueueResolveRequiresAction(t *testing.T) {
+	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
+
+	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1")
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "requires --action") {
+		t.Fatalf("expected exit 2 demanding --action, got %d: %v", exitCode(err), err)
+	}
+	if len(*seen) != 0 {
+		t.Fatal("a missing action must not reach the server")
+	}
+}
+
+// The shell token is 'discard' — the wire value stays "Skip", which the GUI sends.
+func TestIngestQueueResolveDiscardSendsSkip(t *testing.T) {
+	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
+
+	if _, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "discard"); err != nil {
+		t.Fatalf("ingest queue resolve --action discard: %v", err)
+	}
+	if len(*seen) != 1 || (*seen)[0].body["action"] != "Skip" {
+		t.Fatalf("expected the wire value Skip, got %#v", *seen)
+	}
+}
+
+// 'skip' is gone with no alias — it read as "leave it for later" while deleting.
+func TestIngestQueueResolveRejectsRetiredSkipToken(t *testing.T) {
+	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
+
+	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "skip")
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "discard") {
+		t.Fatalf("expected exit 2 pointing at discard, got %d: %v", exitCode(err), err)
 	}
 	if len(*seen) != 0 {
 		t.Fatal("a rejected action must not reach the server")
@@ -235,7 +292,7 @@ func TestIngestSurfacesUnconfiguredLLM(t *testing.T) {
 	ts, _ := fakeIngestAPI(t, http.StatusServiceUnavailable,
 		"ingest requires an LLM provider; set llm.provider in kernl.yaml")
 
-	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1")
+	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "create-page")
 	if err == nil || !strings.Contains(err.Error(), "set llm.provider in kernl.yaml") {
 		t.Fatalf("expected the server's own message to surface, got %v", err)
 	}

@@ -127,11 +127,11 @@ func runApprovalList(v verbContext, asJSON bool, args []string) error {
 }
 
 func runApprovalResolve(v verbContext, asJSON bool, args []string) error {
-	action, _, rest, err := takeFlag(args, "--action")
+	action, _, rest, err := takeFlag("approval resolve", args, "--action")
 	if err != nil {
 		return err
 	}
-	session, _, rest, err := takeFlag(rest, "--session")
+	session, _, rest, err := takeFlag("approval resolve", rest, "--session")
 	if err != nil {
 		return err
 	}

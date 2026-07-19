@@ -97,7 +97,15 @@ default when the server restarts.`,
 			Name:    "prep",
 			Summary: "Generate (or show) the DA briefing note for a capture",
 			Usage:   "kernl inbox prep <capture-id> [--show] [--json]",
-			Details: `Flags:
+			Details: `Bare 'prep' is get-or-create: it returns the capture's existing prep note,
+and only generates one when there is none. Generation costs one LLM call, so
+the first prep of a given capture is the only invocation that spends anything
+— every later one is a read, and re-running is free and idempotent.
+
+'--show' is get-if-exists: it never generates. On an already-prepped capture
+the two forms are identical.
+
+Flags:
   --show  Read the existing prep note instead of generating one. When none
           exists this prints "no prep yet" and exits 0 — absence is an
           answer, not a bad invocation
@@ -166,11 +174,11 @@ func runInbox(v verbContext, args []string) error {
 
 // takeFlags pulls several value flags in one pass so a verb's own body stays
 // about the request it builds rather than about argument plumbing.
-func takeFlags(args []string, names ...string) (map[string]string, []string, error) {
+func takeFlags(verb string, args []string, names ...string) (map[string]string, []string, error) {
 	values := make(map[string]string, len(names))
 	rest := args
 	for _, name := range names {
-		value, present, remaining, err := takeFlag(rest, name)
+		value, present, remaining, err := takeFlag(verb, rest, name)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -269,7 +277,7 @@ func inboxAddText(v verbContext, text string, asJSON bool) error {
 }
 
 func inboxProcess(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	flags, args, err := takeFlags(args,
+	flags, args, err := takeFlags("inbox process", args,
 		"--target", "--title", "--project-id", "--tags", "--due", "--link-to", "--target-note")
 	if err != nil {
 		return err

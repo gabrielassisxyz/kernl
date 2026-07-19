@@ -83,9 +83,10 @@ Flags:
 }
 
 // memoryClaimView is the subset of the claim DTO the readable listing prints.
-// The route serializes Go field names (Statement, Subject, …) rather than the
-// camelCase the rest of the API emits; encoding/json matches case-insensitively,
-// so these tags read both spellings and survive the contract being fixed.
+// The route once serialized Go field names (Statement, Subject, …) instead of
+// the camelCase the rest of the API emits. nodes.MemoryClaim carries json tags
+// now and TestMemoryClaimsJSONContract pins them, so these tags name the live
+// contract rather than tolerating two.
 type memoryClaimView struct {
 	ID         string  `json:"id"`
 	Statement  string  `json:"statement"`
@@ -150,7 +151,7 @@ func runMemoryTopics(v verbContext, asJSON bool, args []string) error {
 }
 
 func runMemoryClaims(v verbContext, asJSON bool, args []string) error {
-	topic, present, rest, err := takeFlag(args, "--topic")
+	topic, present, rest, err := takeFlag("memory claims", args, "--topic")
 	if err != nil {
 		return err
 	}
@@ -190,7 +191,7 @@ func runMemoryTelos(v verbContext, asJSON bool, args []string) error {
 }
 
 func runMemoryAddClaim(v verbContext, asJSON bool, args []string) error {
-	subject, _, rest, err := takeFlag(args, "--subject")
+	subject, _, rest, err := takeFlag("memory add-claim", args, "--subject")
 	if err != nil {
 		return err
 	}
@@ -222,12 +223,13 @@ func runMemoryAddClaim(v verbContext, asJSON bool, args []string) error {
 	if err := decodeInto(raw, "POST /api/memory/claims", &created); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.stdout(), "Added claim %s under %s\n", created.ID, subject)
+	statement, _ := body["statement"].(string)
+	fmt.Fprintln(v.stdout(), createdLine("Added claim", statement, fmt.Sprintf("under %q", subject), created.ID))
 	return nil
 }
 
 func runMemoryRefute(v verbContext, asJSON bool, args []string) error {
-	reason, _, rest, err := takeFlag(args, "--reason")
+	reason, _, rest, err := takeFlag("memory refute", args, "--reason")
 	if err != nil {
 		return err
 	}

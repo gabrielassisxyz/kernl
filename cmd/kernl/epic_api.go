@@ -97,7 +97,7 @@ func runEpicSessions(v verbContext, asJSON bool, args []string) error {
 }
 
 func runEpicEvents(v verbContext, asJSON bool, args []string) error {
-	opts, rest, err := parseEpicEventsOptions(args)
+	opts, rest, err := parseEpicEventsOptions("epic events", args)
 	if err != nil {
 		return err
 	}
@@ -122,12 +122,12 @@ type epicEventsOptions struct {
 	timeout time.Duration
 }
 
-func parseEpicEventsOptions(args []string) (epicEventsOptions, []string, error) {
+func parseEpicEventsOptions(verb string, args []string) (epicEventsOptions, []string, error) {
 	opts := epicEventsOptions{}
 	follow, rest := parseBoolFlag(args, "--follow")
 	opts.follow = follow
 
-	limit, present, rest, err := takeFlag(rest, "--limit")
+	limit, present, rest, err := takeFlag(verb, rest, "--limit")
 	if err != nil {
 		return opts, nil, err
 	}
@@ -139,7 +139,7 @@ func parseEpicEventsOptions(args []string) (epicEventsOptions, []string, error) 
 		opts.limit = n
 	}
 
-	timeout, present, rest, err := takeFlag(rest, "--timeout")
+	timeout, present, rest, err := takeFlag(verb, rest, "--timeout")
 	if err != nil {
 		return opts, nil, err
 	}

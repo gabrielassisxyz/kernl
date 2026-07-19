@@ -184,7 +184,7 @@ func runBeadGet(v verbContext, asJSON bool, args []string) error {
 }
 
 func runBeadCreate(v verbContext, asJSON bool, args []string) error {
-	body, rest, err := beadFieldBody(args, beadCreateFields)
+	body, rest, err := beadFieldBody("bead create", args, beadCreateFields)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func runBeadCreate(v verbContext, asJSON bool, args []string) error {
 }
 
 func runBeadSet(v verbContext, asJSON bool, args []string) error {
-	body, rest, err := beadFieldBody(args, beadUpdateFields)
+	body, rest, err := beadFieldBody("bead set", args, beadUpdateFields)
 	if err != nil {
 		return err
 	}
@@ -245,7 +245,7 @@ func runBeadSet(v verbContext, asJSON bool, args []string) error {
 
 func runBeadClose(v verbContext, asJSON bool, args []string) error {
 	confirmed, rest := parseBoolFlag(args, "--yes")
-	reason, _, rest, err := takeFlag(rest, "--reason")
+	reason, _, rest, err := takeFlag("bead close", rest, "--reason")
 	if err != nil {
 		return err
 	}
@@ -285,11 +285,11 @@ func runBeadClose(v verbContext, asJSON bool, args []string) error {
 // different route and different blast radius in the preview text.
 func runBeadTerminal(v verbContext, asJSON bool, args []string, sub string) error {
 	confirmed, rest := parseBoolFlag(args, "--yes")
-	state, _, rest, err := takeFlag(rest, "--state")
+	state, _, rest, err := takeFlag("bead "+sub, rest, "--state")
 	if err != nil {
 		return err
 	}
-	reason, _, rest, err := takeFlag(rest, "--reason")
+	reason, _, rest, err := takeFlag("bead "+sub, rest, "--reason")
 	if err != nil {
 		return err
 	}
@@ -323,7 +323,7 @@ func runBeadTerminal(v verbContext, asJSON bool, args []string, sub string) erro
 }
 
 func runBeadRefineScope(v verbContext, asJSON bool, args []string) error {
-	body, rest, err := beadFieldBody(args, []beadFlagField{
+	body, rest, err := beadFieldBody("bead refine-scope", args, []beadFlagField{
 		{"--description", "description", beadFieldText},
 		{"--notes", "notes", beadFieldText},
 		{"--acceptance", "acceptance", beadFieldText},
@@ -405,11 +405,11 @@ var beadUpdateFields = []beadFlagField{
 // beadFieldBody strips every known field flag off args and returns the payload
 // plus the leftover positional arguments. Presence, not emptiness, decides
 // inclusion, so an omitted flag leaves the field alone.
-func beadFieldBody(args []string, fields []beadFlagField) (map[string]any, []string, error) {
+func beadFieldBody(verb string, args []string, fields []beadFlagField) (map[string]any, []string, error) {
 	body := map[string]any{}
 	rest := args
 	for _, f := range fields {
-		value, present, remaining, err := takeFlag(rest, f.flag)
+		value, present, remaining, err := takeFlag(verb, rest, f.flag)
 		if err != nil {
 			return nil, nil, err
 		}
