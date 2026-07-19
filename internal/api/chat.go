@@ -67,9 +67,9 @@ func createChatSessionHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"id":         id,
-			"created_at": time.Now().UTC().Format(time.RFC3339),
+		json.NewEncoder(w).Encode(chatSessionCreatedDTO{
+			ID:        id,
+			CreatedAt: time.Now().UTC().Format(time.RFC3339),
 		})
 	}
 }
@@ -94,7 +94,7 @@ func getChatSessionHandler(a *app.App) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(cs)
+		json.NewEncoder(w).Encode(newChatSessionDTO(cs))
 	}
 }
 

@@ -29,7 +29,7 @@
 export interface BookmarkHighlight {
   text: string
   note?: string
-  created_at: string
+  createdAt: string
 }
 
 export interface BookmarkItemData {

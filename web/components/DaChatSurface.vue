@@ -34,11 +34,11 @@
               <div class="da-prose font-body text-body text-text-primary" v-html="renderMarkdown(msg.content)"></div>
 
               <DaLearnedCard
-                v-if="msg.learned_candidate"
-                :subject="msg.learned_candidate.subject"
-                :statement="msg.learned_candidate.statement"
-                @keep="(statement, subject) => keepCandidate(subject, statement, msg.learned_candidate.statement)"
-                @discard="discardCandidate(msg.learned_candidate.statement)"
+                v-if="msg.learnedCandidate"
+                :subject="msg.learnedCandidate.subject"
+                :statement="msg.learnedCandidate.statement"
+                @keep="(statement, subject) => keepCandidate(subject, statement, msg.learnedCandidate.statement)"
+                @discard="discardCandidate(msg.learnedCandidate.statement)"
               />
             </div>
           </template>
