@@ -106,6 +106,37 @@ not new infrastructure. **Parallel-safe** with the inbox auto-classify task belo
 tests; then `run.sh` and drive the UI — create a task, rename it, delete it; confirm it
 leaves the board **and** the companion note file is gone from the vault.
 
+### Build the approval gate the orchestrator is described around
+
+`internal/api/approvals.go` is 27 lines that ignore every request and return
+`[]` / `{}`. All three routes are stubs: `GET /api/approvals`,
+`POST /api/approvals/{id}/actions`, and the terminal-scoped
+`POST /api/terminal/{sessionId}/approvals/{approvalId}`. So the gate the
+project is described around — the human touches only judgment gates, the rest
+runs unattended — has a UI and a CLI in front of nothing.
+
+`kernl approval list` and `approval resolve` exist, are tested, and will keep
+returning empty until this is built.
+
+**Decisions to settle before implementing, not during:**
+- **The action vocabulary is currently two vocabularies.** The web UI posts
+  `{"action":"approve"|"reject"}`; `internal/terminal` defines `accept`,
+  `always_approve` and `decline`. One of them has to win, or the split has to
+  become deliberate and documented.
+- **Where approval state lives.** `ApprovalRegistry` holds it in the process
+  today, which loses every pending gate on restart — acceptable or not is a
+  product call.
+- **What a gate carries.** No comment/reason field exists anywhere in the
+  contract, so a rejection cannot currently say why.
+
+**Also wrong, and cheap to fix alongside:** `ApprovalRegistry.ApplyAction`
+returns nil for an unknown id — a silent no-op, against the Fail Loud rule.
+
+**Verify:** a pending gate raised by a real bead run appears in
+`GET /api/approvals`, in the UI, and in `kernl approval list`; resolving it from
+any of the three unblocks the run; the decision survives a server restart if
+persistence is chosen.
+
 ### Add a field that lets a task be automatically developed by the orchestrator
 A per-task flag marking it as auto-developable, so the orchestrator can pick it up
 and drive it — the first concrete step toward developing kernl inside kernl.
@@ -379,9 +410,69 @@ bridge included).
 needs no `args`. `kernl doctor` green; the server was not running, so nothing
 needed a restart.
 
-## Deferred — CLI ⇄ GUI parity track (decided 2026-07-18)
+## Deferred — findings from the API contract audit (decided 2026-07-19)
 
-### `kernl` CLI parity with the web GUI
+Building a CLI client against all ~88 REST routes exercised surfaces nothing
+else had. What follows was found, judged, and consciously not acted on. The
+defects that were real — path traversal, the CORS wildcard, Go field names on
+the wire, settings replacing whole sections, an update check asserting an answer
+nobody computed — are fixed; these are the remainder.
+
+### API authentication
+The API has none. A caller that reaches the port can read and write the vault,
+the graph and the orchestrator. Two mitigations landed — the server binds
+loopback by default, and CORS is restricted to local development origins — so
+the reachable surface is now local processes and pages rather than the network.
+Adding real authentication is a design decision that has not been made: what
+kind (token, local socket, OS user), how a CLI on the same machine presents it,
+and what a container deployment does about it.
+
+### `bead rollback` on the bd backend — not a defect
+`BdCliBackend.Rewind` fails with `bd backend does not support rewind; use knots
+backend for workflow corrections`, so `kernl bead rollback` can never succeed
+against bd. This is correct behaviour, recorded here so it is not "fixed" by a
+later pass: the bd CLI has no rewind (only `reopen`, also refused), and rewind
+plausibly means discarding recorded progress rather than setting a status. A
+half-rewound bead is worse than a loud refusal. Implementing it as a
+`bd update --status <target>` would look like a fix and be a trap.
+
+### Remaining snake_case on kernl's own wire
+The wire/storage split fixed the shapes that had to move. Three smaller
+surfaces still speak snake_case and were left alone to keep that change
+reviewable: `scope_node_id` in the `POST /api/chat/sessions/{id}/messages`
+request body, and `file_path` / `node_id` in `web/pages/ingest.vue`.
+
+### Zero is indistinguishable from unset for runtime integers
+`config.Load` backfills a default for every zero-valued runtime integer
+(`maxConcurrentBeads`, `stageRetryAttempts`, the sweep counters), so an explicit
+zero is written to `kernl.yaml` and read back as the default. No change in the
+API layer can fix this; the field has to become a pointer in `config.Config`,
+the way `InboxConfig.AutoClassify` already is. A test pins the current
+behaviour so the surprise is documented rather than rediscovered.
+
+### `ChatSession` wire types and the empty-list response
+`newBookmarkResponses` returns `nil` for an empty list, so `GET /api/bookmarks`
+answers `null` rather than `[]`. Changing it is an improvement and a wire
+change, so it belongs with whatever pass revisits list responses generally.
+
+### A dead permission surface in the web client
+`useChatSession` exports `pendingPermission` and `resolvePermission`, and no
+component renders either. Either the UI for resolving a tool-call permission was
+never built or it was removed; the composable and its backing route are live
+regardless.
+
+## Deferred — CLI ⇄ GUI parity track (decided 2026-07-18, implemented 2026-07-19)
+
+### `kernl` CLI parity with the web GUI — IMPLEMENTED, in review
+
+Shipped as 22 verbs / 65 subcommands. New verbs are thin clients of the running
+`kernl serve` REST API; `capture`, `bookmark add|import`, `plan`, `bead run` and
+`epic run|merge|abort` stay direct, because they execute locally and have no
+thin-client form. Still out of scope by decision: the DA chat and the SSE event
+streams, whose non-interactive CLI shape is an open design question.
+
+The original inventory that scoped the work is kept below for reference.
+
 Every GUI capability should eventually be reachable from the `kernl` CLI —
 full CRUD for every tab/feature. Today the CLI covers roughly 10% of the
 GUI surface: `capture`, `plan`, `bookmark add/import`, `epic list/run/merge/abort`,
