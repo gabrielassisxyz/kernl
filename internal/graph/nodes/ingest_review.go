@@ -12,16 +12,20 @@ import (
 )
 
 // IngestReview represents an item in the async review queue.
+//
+// The json tags are load-bearing: this struct is serialized directly by
+// GET /api/ingest/queue, and REST is camelCase. Without them encoding/json
+// falls back to Go field names and bakes them into the wire format.
 type IngestReview struct {
-	ID           string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Title        string
-	SourceNodeID string
-	Action       string
-	Payload      string
-	ContentHash  string
-	Tags         []string
+	ID           string    `json:"id"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
+	Title        string    `json:"title"`
+	SourceNodeID string    `json:"sourceNodeId"`
+	Action       string    `json:"action"`
+	Payload      string    `json:"payload"`
+	ContentHash  string    `json:"contentHash"`
+	Tags         []string  `json:"tags"`
 }
 
 // Meta returns the common metadata for this node.

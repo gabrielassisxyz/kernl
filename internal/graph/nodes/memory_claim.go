@@ -12,16 +12,20 @@ import (
 )
 
 // MemoryClaim represents a factual assertion in the knowledge graph.
+//
+// The json tags are load-bearing: this struct is serialized directly by
+// GET /api/memory/claims, and REST is camelCase. Without them encoding/json
+// falls back to Go field names and bakes them into the wire format.
 type MemoryClaim struct {
-	ID         string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	Title      string
-	Statement  string
-	Confidence float64
-	Subject    string
-	Source     string
-	Tags       []string
+	ID         string    `json:"id"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+	Title      string    `json:"title"`
+	Statement  string    `json:"statement"`
+	Confidence float64   `json:"confidence"`
+	Subject    string    `json:"subject"`
+	Source     string    `json:"source"`
+	Tags       []string  `json:"tags"`
 }
 
 // Meta returns the common metadata for this node.

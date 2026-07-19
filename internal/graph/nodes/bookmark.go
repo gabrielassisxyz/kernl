@@ -19,17 +19,21 @@ type Highlight struct {
 }
 
 // Bookmark represents a saved URL in the knowledge graph.
+//
+// The json tags are load-bearing: this struct is serialized directly by
+// GET /api/bookmarks, and REST is camelCase. Without them encoding/json
+// falls back to Go field names and bakes them into the wire format.
 type Bookmark struct {
-	ID          string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	Title       string
-	URL         string
-	Description string
-	ArchivedAt  *time.Time
-	Excerpt     string
-	Tags        []string
-	Highlights  []Highlight
+	ID          string      `json:"id"`
+	CreatedAt   time.Time   `json:"createdAt"`
+	UpdatedAt   time.Time   `json:"updatedAt"`
+	Title       string      `json:"title"`
+	URL         string      `json:"url"`
+	Description string      `json:"description"`
+	ArchivedAt  *time.Time  `json:"archivedAt"`
+	Excerpt     string      `json:"excerpt"`
+	Tags        []string    `json:"tags"`
+	Highlights  []Highlight `json:"highlights"`
 }
 
 // Meta returns the common metadata for this node.
