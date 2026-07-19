@@ -105,6 +105,35 @@ link_path() {
     return 0
 }
 
+# A link the repo's .gitignore does not cover is UNTRACKED in the worktree, so a `git add -A`
+# there stages it — committing a symlink whose target is an absolute path on one machine,
+# useless to anyone else and near-invisible in review until it lands. That already happened
+# twice (`journal` here, five paths in kernl), and both times the cause was identical: the
+# ignore pattern was written `path/`, and a trailing slash matches a real directory and NEVER
+# a symlink. So the pattern keeps working in the main tree and silently fails in every
+# worktree — which is exactly why nobody notices. The check costs one `check-ignore` per link,
+# and it is the only thing that makes the invariant hold in a repo nobody has audited yet.
+verify_links_ignored() {
+    local dir="$1"; shift
+    local rel
+    local -a leaked=()
+    for rel in "$@"; do
+        git -C "$dir" check-ignore -q "$rel" || leaked+=("$rel")
+    done
+    [ ${#leaked[@]} -gt 0 ] || return 0
+
+    echo >&2
+    echo "ERROR: these links are NOT git-ignored here — a \`git add -A\` would commit them:" >&2
+    printf '  %s\n' "${leaked[@]}" >&2
+    echo >&2
+    echo "Fix $main_root/.gitignore: the pattern covering each path above must have NO" >&2
+    echo "trailing slash (\`foo\`, not \`foo/\`). A trailing slash matches a real directory" >&2
+    echo "only, so it silently stops matching once the path becomes a symlink." >&2
+    echo >&2
+    echo "The worktree exists and is usable at $dir — only the ignore rules need fixing." >&2
+    return 1
+}
+
 link_ignored() {
     local dir="$1" rel
     local -a linked=()
@@ -112,8 +141,9 @@ link_ignored() {
         [ -e "$main_root/$rel" ] || continue
         link_path "$main_root/$rel" "$dir/$rel" "$rel"
     done < <(read_worktree_links)
-    [ ${#linked[@]} -gt 0 ] && echo "==> linked from the main tree: ${linked[*]}"
-    return 0
+    [ ${#linked[@]} -gt 0 ] || return 0
+    echo "==> linked from the main tree: ${linked[*]}"
+    verify_links_ignored "$dir" "${linked[@]}"
 }
 
 cmd_new() {
