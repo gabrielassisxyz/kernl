@@ -25,10 +25,24 @@ func stubAllVerbs(t *testing.T) {
 	bookmarkFn = fail("bookmark")
 	captureFn = fail("capture")
 	planFn = fail("plan")
+	// The parity verbs matter most here: a help request that reached them
+	// would try to open a socket to the server.
+	failVerb := func(name string) func(verbContext, []string) error {
+		return func(verbContext, []string) error {
+			t.Fatalf("verb %s was dispatched on a help request", name)
+			return nil
+		}
+	}
+	taskFn = failVerb("task")
+	projectFn = failVerb("project")
+	noteFn = failVerb("note")
+	inboxFn = failVerb("inbox")
 	t.Cleanup(func() {
 		doctorFn, serveFn = runDoctor, runServe
 		epicFn, beadFn, sweepFn = runEpic, runBead, runSweep
 		bookmarkFn, captureFn, planFn = runBookmark, runCapture, runPlan
+		taskFn, projectFn = runTask, runProject
+		noteFn, inboxFn = runNote, runInbox
 	})
 }
 
@@ -96,7 +110,8 @@ func TestHelpTopicDetection(t *testing.T) {
 func TestCommandTableCoversDispatch(t *testing.T) {
 	// Every dispatchable verb must have a help entry; the table is the single
 	// source of truth and this pins them together.
-	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "capabilities", "robot-docs", "version"} {
+	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "capabilities", "robot-docs", "version",
+		"task", "project", "note", "inbox"} {
 		if findCommand(commandTable, verb) == nil {
 			t.Errorf("verb %q missing from commandTable", verb)
 		}

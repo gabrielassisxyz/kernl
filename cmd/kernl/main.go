@@ -30,6 +30,12 @@ var (
 	captureFn  func(configPath string, args []string) error         = runCapture
 	planFn     func(configPath string, args []string) error         = runPlan
 	helpFn     func() error                                         = printHelp
+
+	// GUI-parity verbs: thin clients of the running server's REST API.
+	taskFn    func(v verbContext, args []string) error = runTask
+	projectFn func(v verbContext, args []string) error = runProject
+	noteFn    func(v verbContext, args []string) error = runNote
+	inboxFn   func(v verbContext, args []string) error = runInbox
 )
 
 func main() {
@@ -47,7 +53,7 @@ func parseStringFlag(args []string, long, short string) (value string, rest []st
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
-		case a == long || a == short:
+		case a == long || (short != "" && a == short):
 			if i+1 >= len(args) {
 				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl --help", a)
 			}
@@ -137,8 +143,13 @@ func Dispatch(args []string) error {
 	if err != nil {
 		return err
 	}
+	server, head, err := parseStringFlag(head, "--server", "")
+	if err != nil {
+		return err
+	}
 	noOrch, head := parseBoolFlag(head, "--no-orchestrator")
 	args = append(head, tail...)
+	vctx := verbContext{configPath: configPath, server: server, port: port, out: os.Stdout}
 
 	// A sentinel BEFORE the verb (`kernl -- capture x`, POSIX habit) means
 	// "no more global flags": consume it and dispatch what follows.
@@ -175,6 +186,14 @@ func Dispatch(args []string) error {
 		return captureFn(configPath, args[1:])
 	case "plan":
 		return planFn(configPath, args[1:])
+	case "task":
+		return taskFn(vctx, args[1:])
+	case "project":
+		return projectFn(vctx, args[1:])
+	case "note":
+		return noteFn(vctx, args[1:])
+	case "inbox":
+		return inboxFn(vctx, args[1:])
 	case "version", "--version", "-v":
 		return printVersion(os.Stdout, args[1:])
 	case "capabilities":
@@ -197,7 +216,7 @@ func Dispatch(args []string) error {
 // globalFlagNames are the flags the root parser understands, used for
 // did-you-mean hints on unknown-flag errors.
 var globalFlagNames = []string{
-	"--config", "-c", "--port", "-p", "--no-orchestrator",
+	"--config", "-c", "--port", "-p", "--server", "--no-orchestrator",
 	"--version", "-v", "--help", "-h",
 }
 
@@ -217,6 +236,8 @@ Subcommands:
 Flags:
   --config, -c       Path to kernl.yaml (default: kernl.yaml)
   --port,  -p        Server port (default: from kernl.yaml, or 8080)
+  --server <url>     Address of the running server the GUI-parity verbs call
+                     (default: http://127.0.0.1:<port>; env: KERNL_SERVER)
   --no-orchestrator  serve only the GUI/graph/notes; do not require bd
   --version, -v      Print version and build information
   --help,  -h        Show this help
@@ -229,7 +250,8 @@ Exit codes:
 Automation:
   kernl capabilities       machine-readable contract (JSON)
   kernl robot-docs guide   agent handbook
-  --json                   on epic list, plan, doctor, version
+  --json                   on epic list, plan, doctor, version, and every
+                           task/project/note/inbox subcommand
 
 Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.`)
 	fmt.Println(b.String())

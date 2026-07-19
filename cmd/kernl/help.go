@@ -163,6 +163,12 @@ the flag.`,
 		Details: `Flags:
   --json  Emit {"version","commit","built","go"} on stdout`,
 	},
+	// GUI-parity verbs declare their own metadata next to their
+	// implementation, so one file owns a verb's dispatch, help and tests.
+	taskCommand,
+	projectCommand,
+	noteCommand,
+	inboxCommand,
 }
 
 func findCommand(table []commandMeta, name string) *commandMeta {
@@ -240,7 +246,7 @@ func renderCommandHelp(qualified string, cmd *commandMeta) string {
 	if len(cmd.Subs) > 0 {
 		b.WriteString("\nSubcommands:\n")
 		for _, s := range cmd.Subs {
-			fmt.Fprintf(&b, "  %-10s %s\n", s.Name, s.Summary)
+			fmt.Fprintf(&b, "  %-14s %s\n", s.Name, s.Summary)
 		}
 	}
 	if cmd.Details != "" {
