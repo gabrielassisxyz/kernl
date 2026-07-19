@@ -59,3 +59,21 @@ func TestErrorEnvelopeIsParseableAndCarriesExitCode(t *testing.T) {
 		t.Errorf("a plain runtime error must carry exitCode 1, got %d", p.ExitCode)
 	}
 }
+
+// An alreadyReported error (doctor --json wrote its own output) must be
+// detectable by main so it skips the envelope, and must still expose the
+// wrapped error's exit code.
+func TestAlreadyReportedIsDetectableAndKeepsExitCode(t *testing.T) {
+	err := reportedElsewhere(errors.New("checks failed"))
+	var reported alreadyReported
+	if !errors.As(err, &reported) {
+		t.Fatal("main must be able to detect an alreadyReported error")
+	}
+	if exitCode(err) != 1 {
+		t.Errorf("a reported runtime error still exits 1, got %d", exitCode(err))
+	}
+	// A wrapped usage error keeps exit 2.
+	if exitCode(reportedElsewhere(usagef("bad"))) != 2 {
+		t.Error("alreadyReported must not mask the wrapped usage exit code")
+	}
+}

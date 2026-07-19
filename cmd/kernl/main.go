@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -48,6 +49,12 @@ var (
 func main() {
 	args := os.Args[1:]
 	if err := Dispatch(args); err != nil {
+		// A verb that already wrote its own output (e.g. doctor --json) signals
+		// failure only through the exit code: print nothing more, or we duplicate.
+		var reported alreadyReported
+		if errors.As(err, &reported) {
+			os.Exit(exitCode(err))
+		}
 		// When --json was requested, a failing command must still speak JSON: the
 		// error becomes a structured envelope on stdout (stderr stays empty) so
 		// `kernl <verb> --json | jq` sees a parseable failure instead of empty

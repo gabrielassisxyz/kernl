@@ -37,7 +37,14 @@ func runDoctor(configPath string, args []string) error {
 	}
 
 	if report.RequiredFailed() {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: one or more preflight checks failed — run: kernl doctor for details")
+		err := fmt.Errorf("KERNL DISPATCH FAILURE: one or more preflight checks failed — run: kernl doctor for details")
+		if asJSON {
+			// The report was already written to stdout as JSON above; signal the
+			// failure through the exit code only, so main does not also print an
+			// error envelope and duplicate the output.
+			return reportedElsewhere(err)
+		}
+		return err
 	}
 	return nil
 }
