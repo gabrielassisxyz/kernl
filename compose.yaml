@@ -11,6 +11,12 @@ services:
     image: kernl:local
     ports:
       - "8080:8080"
+    environment:
+      # kernl binds loopback by default, which inside a container would make the
+      # published port unreachable. The host mapping above is what limits who can
+      # actually connect — keep it bound to 127.0.0.1 there if the machine is not
+      # alone on its network, because the API has no authentication.
+      - KERNL_HOST=0.0.0.0
     volumes:
       - ./kernl.yaml:/home/kernl/kernl.yaml:ro
       - kernl-data:/home/kernl/.kernl

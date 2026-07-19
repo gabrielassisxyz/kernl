@@ -76,3 +76,28 @@ func TestServeDispatchesAutoTick(t *testing.T) {
 		t.Fatalf("dispatch serve failed: %v", err)
 	}
 }
+
+func TestResolveBindHostDefaultsToLoopback(t *testing.T) {
+	// The API has no authentication, so the default must never be an address
+	// other machines can reach — an unconfigured kernl is a private kernl.
+	tests := []struct {
+		name       string
+		configured string
+		env        string
+		want       string
+	}{
+		{name: "nothing set", want: "127.0.0.1"},
+		{name: "blank config", configured: "   ", want: "127.0.0.1"},
+		{name: "config chooses", configured: "0.0.0.0", want: "0.0.0.0"},
+		{name: "env overrides config", configured: "127.0.0.1", env: "0.0.0.0", want: "0.0.0.0"},
+		{name: "env is trimmed", env: "  192.168.1.5  ", want: "192.168.1.5"},
+		{name: "blank env falls back to config", configured: "10.0.0.2", env: "", want: "10.0.0.2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveBindHost(tt.configured, tt.env); got != tt.want {
+				t.Errorf("resolveBindHost(%q, %q) = %q, want %q", tt.configured, tt.env, got, tt.want)
+			}
+		})
+	}
+}

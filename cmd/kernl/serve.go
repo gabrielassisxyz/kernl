@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -44,6 +45,21 @@ func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
 		BackoffMinutes:   cfg.Sweep.BackoffMinutes,
 	}
 	return sweep.New(adapter, ghAdapter, sweepCfg), nil
+}
+
+// resolveBindHost decides which interface the server binds. KERNL_HOST wins so
+// a container can open the bind without editing the mounted config; otherwise
+// the configured host applies, and the fallback is loopback. Defaulting to
+// loopback is the point: the API has no authentication, so "reachable from the
+// network" has to be something a person chose, not something they inherited.
+func resolveBindHost(configured, env string) string {
+	if h := strings.TrimSpace(env); h != "" {
+		return h
+	}
+	if h := strings.TrimSpace(configured); h != "" {
+		return h
+	}
+	return "127.0.0.1"
 }
 
 func runServe(configPath string, port int, noOrchestrator bool) error {
@@ -84,8 +100,10 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 
 	handler := api.NewRouter(a)
 
+	host := resolveBindHost(cfg.Server.Host, os.Getenv("KERNL_HOST"))
+
 	srv := &http.Server{
-		Addr:         ":" + portStr,
+		Addr:         net.JoinHostPort(host, portStr),
 		Handler:      handler,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
@@ -112,7 +130,10 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 	}
 
 	go func() {
-		fmt.Printf("kernl serving — API http://localhost:%s\n", portStr)
+		fmt.Printf("kernl serving — API http://%s\n", srv.Addr)
+		if host == "0.0.0.0" || host == "::" {
+			fmt.Printf("  reachable from the network, and the API has no authentication.\n")
+		}
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)
 			os.Exit(1)

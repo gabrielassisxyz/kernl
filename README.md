@@ -376,6 +376,19 @@ Another process is using the default port.
 kernl --port 8081 serve
 ```
 
+### The server is not reachable from another machine
+
+That is the default. `kernl serve` binds `127.0.0.1`, because the API has no
+authentication and serves your vault. To expose it deliberately, set
+`server.host` in `kernl.yaml` or `KERNL_HOST`:
+
+```bash
+KERNL_HOST=0.0.0.0 kernl serve
+```
+
+Only do this on a network you trust. Anything that can reach the port can read
+and write the vault.
+
 ### Docker starts, but orchestration does not work
 
 The Docker setup is for the API and web UI. Full orchestration needs host
