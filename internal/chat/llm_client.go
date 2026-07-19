@@ -23,6 +23,12 @@ type Message struct {
 	// ToolCalls is set on an assistant turn that invoked tools.
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	// ToolCallID is set on a tool turn, naming the call it answers.
+	//
+	// These tags are deliberately snake_case: this struct is the
+	// OpenAI-compatible request body sent to the model provider, an EXTERNAL
+	// contract we do not own. kernl's own API is camelCase, so a sweep that
+	// renames wire keys will be tempted to "fix" these — renaming them breaks
+	// the conversation with the provider instead.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 

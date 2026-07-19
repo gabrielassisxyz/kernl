@@ -101,7 +101,7 @@ func listBookmarksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(list)
+	json.NewEncoder(w).Encode(newBookmarkResponses(list))
 }
 
 func addHighlightHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
@@ -147,5 +147,5 @@ func addHighlightHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(highlight)
+	json.NewEncoder(w).Encode(newHighlightResponse(highlight))
 }

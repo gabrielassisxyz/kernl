@@ -43,11 +43,11 @@
     <div class="flex flex-col">
       <IngestItem
         v-for="(item, index) in items" 
-        :key="item.ID" 
+        :key="item.id" 
         :item="item" 
         :isSelected="selectedIndex === index"
         @select="selectedIndex = index"
-        @action="(action) => handleAction(item.ID, action)"
+        @action="(action) => handleAction(item.id, action)"
       />
     </div>
     
@@ -234,7 +234,7 @@ const resolveAction = async (
       body: { action, ...extra }
     })
     if (data.value) {
-      data.value = data.value.filter(i => i.ID !== id)
+      data.value = data.value.filter(i => i.id !== id)
     }
     if (selectedIndex.value >= items.value.length) {
       selectedIndex.value = Math.max(0, items.value.length - 1)
@@ -341,11 +341,11 @@ const handleKeydown = (e: KeyboardEvent) => {
     e.preventDefault()
     selectedIndex.value = (selectedIndex.value - 1 + items.value.length) % items.value.length
   } else if (e.key === 'c' || e.key === 'C') {
-    handleAction(items.value[selectedIndex.value].ID, 'Create Page')
+    handleAction(items.value[selectedIndex.value].id, 'Create Page')
   } else if (e.key === 's' || e.key === 'S') {
-    handleAction(items.value[selectedIndex.value].ID, 'Skip')
+    handleAction(items.value[selectedIndex.value].id, 'Skip')
   } else if (e.key === 'u' || e.key === 'U') {
-    handleAction(items.value[selectedIndex.value].ID, 'Update')
+    handleAction(items.value[selectedIndex.value].id, 'Update')
   } else if (e.key === 't' || e.key === 'T') {
     handleTrigger()
   }

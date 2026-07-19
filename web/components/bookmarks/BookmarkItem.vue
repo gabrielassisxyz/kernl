@@ -5,19 +5,19 @@
     <div v-if="isSelected" class="absolute left-0 top-0 bottom-0 w-[2px] bg-primary"></div>
     
     <div class="flex items-center gap-base mb-tight">
-      <h3 class="font-headline text-text-primary truncate font-medium">{{ item.Title || 'Untitled' }}</h3>
+      <h3 class="font-headline text-text-primary truncate font-medium">{{ item.title || 'Untitled' }}</h3>
     </div>
     
     <div class="flex flex-col gap-tight">
-      <p class="font-body text-text-muted truncate text-body">{{ item.Description || item.Excerpt || item.URL }}</p>
+      <p class="font-body text-text-muted truncate text-body">{{ item.description || item.excerpt || item.url }}</p>
       <div class="flex gap-tight mt-1 items-center">
-        <span class="font-mono-data text-mono-data text-text-faint truncate max-w-[200px]">{{ domain(item.URL) }}</span>
-        <div v-if="item.Tags && item.Tags.length > 0" class="flex gap-tight">
-          <span class="font-mono-data text-mono-data text-text-faint bg-surface border border-border-hairline px-tight py-[1px]" v-for="tag in item.Tags.slice(0, 2)" :key="tag">
+        <span class="font-mono-data text-mono-data text-text-faint truncate max-w-[200px]">{{ domain(item.url) }}</span>
+        <div v-if="item.tags && item.tags.length > 0" class="flex gap-tight">
+          <span class="font-mono-data text-mono-data text-text-faint bg-surface border border-border-hairline px-tight py-[1px]" v-for="tag in item.tags.slice(0, 2)" :key="tag">
             {{ tag }}
           </span>
-          <span class="font-mono-data text-mono-data text-text-faint" v-if="item.Tags.length > 2">
-            +{{ item.Tags.length - 2 }}
+          <span class="font-mono-data text-mono-data text-text-faint" v-if="item.tags.length > 2">
+            +{{ item.tags.length - 2 }}
           </span>
         </div>
       </div>
@@ -29,18 +29,18 @@
 export interface BookmarkHighlight {
   text: string
   note?: string
-  created_at: string
+  createdAt: string
 }
 
 export interface BookmarkItemData {
-  ID: string
-  CreatedAt: string
-  Title: string
-  URL: string
-  Description: string
-  Excerpt: string
-  Tags: string[]
-  Highlights?: BookmarkHighlight[]
+  id: string
+  createdAt: string
+  title: string
+  url: string
+  description: string
+  excerpt: string
+  tags: string[]
+  highlights?: BookmarkHighlight[]
 }
 
 defineProps<{

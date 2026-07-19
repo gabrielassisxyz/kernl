@@ -34,7 +34,7 @@
         <template v-else>
           <BookmarkItem
             v-for="(bookmark, index) in bookmarks"
-            :key="bookmark.ID"
+            :key="bookmark.id"
             :item="bookmark"
             :isSelected="selectedIndex === index"
             @select="selectIndex(index)"
@@ -88,7 +88,7 @@ const handleHighlight = async (highlightData: { text: string, note?: string }) =
   if (!selectedBookmark.value) return
   
   try {
-    const res = await fetch(`/api/bookmarks/${selectedBookmark.value.ID}/highlights`, {
+    const res = await fetch(`/api/bookmarks/${selectedBookmark.value.id}/highlights`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

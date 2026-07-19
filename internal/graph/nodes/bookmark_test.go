@@ -2,6 +2,8 @@ package nodes
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -336,5 +338,75 @@ func TestBookmarkHighlightsRoundtrip(t *testing.T) {
 	}
 	if got.Highlights[1].Text != "second passage" || got.Highlights[1].Note != "" {
 		t.Errorf("highlight[1] mismatch: %+v", got.Highlights[1])
+	}
+}
+
+// TestBookmarkHighlightStorageFormat pins the persisted shape of a highlight.
+//
+// Highlight's json tags do double duty: NodeAttrs marshals []Highlight straight
+// into the nodes.attrs column, so those tags ARE the storage format, not a wire
+// format. Renaming created_at to createdAt to satisfy the REST camelCase
+// contract would make every already-stored highlight read back with a zero
+// timestamp — a silent data loss with no migration. The API converts through a
+// DTO instead; this test is what makes that rename fail loudly.
+func TestBookmarkHighlightStorageFormat(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	// A fixed instant, so an exact comparison after the round-trip is meaningful.
+	at := time.Date(2026, 3, 14, 15, 9, 26, 0, time.UTC)
+
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = CreateBookmark(ctx, tx, Bookmark{
+			Title:      "T",
+			URL:        "https://e.com",
+			Highlights: []Highlight{{Text: "passage", Note: "note", CreatedAt: at}},
+		}, Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("CreateBookmark: %v", err)
+	}
+
+	var rawAttrs sql.NullString
+	var got *Bookmark
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		if err := tx.QueryRow(`SELECT attrs FROM nodes WHERE id = ?`, id).Scan(&rawAttrs); err != nil {
+			return err
+		}
+		var err error
+		got, err = GetBookmark(ctx, tx, id)
+		return err
+	}); err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+
+	var stored struct {
+		Highlights []map[string]json.RawMessage `json:"highlights"`
+	}
+	if err := json.Unmarshal([]byte(rawAttrs.String), &stored); err != nil {
+		t.Fatalf("unmarshal stored attrs: %v", err)
+	}
+	if len(stored.Highlights) != 1 {
+		t.Fatalf("expected 1 stored highlight, got %d", len(stored.Highlights))
+	}
+	for _, key := range []string{"text", "note", "created_at"} {
+		if _, ok := stored.Highlights[0][key]; !ok {
+			t.Errorf("storage format changed: key %q missing from attrs %s", key, rawAttrs.String)
+		}
+	}
+	if _, ok := stored.Highlights[0]["createdAt"]; ok {
+		t.Errorf("camelCase createdAt leaked into the storage format: %s", rawAttrs.String)
+	}
+
+	if len(got.Highlights) != 1 {
+		t.Fatalf("expected 1 highlight back, got %d", len(got.Highlights))
+	}
+	if !got.Highlights[0].CreatedAt.Equal(at) {
+		t.Errorf("highlight timestamp did not survive storage: got %v, want %v", got.Highlights[0].CreatedAt, at)
+	}
+	if got.Highlights[0].Text != "passage" || got.Highlights[0].Note != "note" {
+		t.Errorf("highlight fields did not survive storage: %+v", got.Highlights[0])
 	}
 }

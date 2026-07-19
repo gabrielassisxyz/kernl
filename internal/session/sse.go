@@ -20,7 +20,8 @@ func (m *SessionConnectionManager) ServeSSE(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Origin policy belongs to the API's CORS middleware; a wildcard set here
+	// would override it for the route that streams terminal output.
 	flusher.Flush()
 
 	m.Connect(sessionID)

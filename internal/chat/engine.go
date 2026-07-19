@@ -421,20 +421,23 @@ func (e *ChatEngine) emitErrorEvent(msg string) error {
 }
 
 func (e *ChatEngine) emitStateEvent(cs *nodes.ChatSession) error {
+	// Messages go out as wire types, not the stored nodes: their snake_case
+	// tags are the storage format and would leak into kernl's own event
+	// contract, which is camelCase like the REST surface.
 	return e.writeEvent(map[string]any{
-		"event":              "state",
-		"messages":           cs.Messages,
-		"pending_permission": cs.PendingPermission,
+		"event":             "state",
+		"messages":          NewWireMessages(cs.Messages),
+		"pendingPermission": NewWirePendingPermission(cs.PendingPermission),
 	})
 }
 
 func (e *ChatEngine) emitPermissionRequiredEvent(pp *nodes.PendingPermissionState) error {
 	return e.writeEvent(map[string]any{
-		"event":        "permission_required",
-		"tool_call_id": pp.ToolCallID,
-		"node_id":      pp.RequestedNodeID,
-		"node_path":    pp.RequestedNodePath,
-		"description":  "The agent wants to read this node.",
+		"event":       "permission_required",
+		"toolCallId":  pp.ToolCallID,
+		"nodeId":      pp.RequestedNodeID,
+		"nodePath":    pp.RequestedNodePath,
+		"description": "The agent wants to read this node.",
 	})
 }
 

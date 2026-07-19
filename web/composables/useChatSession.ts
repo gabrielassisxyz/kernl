@@ -7,14 +7,14 @@ export interface SSEMessage {
 
 export interface SSEState {
   event: string;
-  messages?: { role: string; content: string; learned_candidate?: LearnedCandidate }[];
-  pending_permission?: PermissionEvent;
+  messages?: { role: string; content: string; learnedCandidate?: LearnedCandidate }[];
+  pendingPermission?: PermissionEvent;
 }
 
 export interface PermissionEvent {
-  tool_call_id: string;
-  node_id: string;
-  node_path: string;
+  toolCallId: string;
+  nodeId: string;
+  nodePath: string;
   description: string;
 }
 
@@ -48,7 +48,7 @@ export interface RoutingSuggestion {
 }
 
 export function useChatSession() {
-  const messages = ref<{ role: string; content: string; learned_candidate?: LearnedCandidate }[]>([]);
+  const messages = ref<{ role: string; content: string; learnedCandidate?: LearnedCandidate }[]>([]);
   const pendingPermission = ref<PermissionEvent | null>(null);
   const diffSuggestion = ref<DiffSuggestion | null>(null);
   const routingSuggestion = ref<RoutingSuggestion | null>(null);
@@ -92,15 +92,15 @@ export function useChatSession() {
           // the state snapshot is the full transcript.
           messages.value = (data.messages || []).map((m) => ({ ...m }));
           streamingIndex = null;
-          if (data.pending_permission) {
-            pendingPermission.value = data.pending_permission;
+          if (data.pendingPermission) {
+            pendingPermission.value = data.pendingPermission;
           }
           break;
         case 'permission_required':
           pendingPermission.value = {
-            tool_call_id: (data as unknown as PermissionEvent).tool_call_id,
-            node_id: (data as unknown as PermissionEvent).node_id,
-            node_path: (data as unknown as PermissionEvent).node_path,
+            toolCallId: (data as unknown as PermissionEvent).toolCallId,
+            nodeId: (data as unknown as PermissionEvent).nodeId,
+            nodePath: (data as unknown as PermissionEvent).nodePath,
             description: (data as unknown as PermissionEvent).description,
           };
           break;
@@ -166,7 +166,7 @@ export function useChatSession() {
     action: string,
     feedback?: string
   ): Promise<void> {
-    const body: Record<string, string> = { tool_call_id: toolCallId, action };
+    const body: Record<string, string> = { toolCallId, action };
     if (feedback) body.feedback = feedback;
     await fetch(`/api/chat/sessions/${sessionId}/resolve-permission`, {
       method: 'POST',
@@ -185,8 +185,8 @@ export function useChatSession() {
 
     // Optimistic UI update: hide the card.
     messages.value.forEach(m => {
-      if (m.learned_candidate && m.learned_candidate.statement === originalStatement) {
-        m.learned_candidate = undefined;
+      if (m.learnedCandidate && m.learnedCandidate.statement === originalStatement) {
+        m.learnedCandidate = undefined;
       }
     });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {
@@ -200,8 +200,8 @@ export function useChatSession() {
     if (!sessionId) return;
     // Optimistic UI update: hide the card
     messages.value.forEach(m => {
-      if (m.learned_candidate && m.learned_candidate.statement === statement) {
-        m.learned_candidate = undefined;
+      if (m.learnedCandidate && m.learnedCandidate.statement === statement) {
+        m.learnedCandidate = undefined;
       }
     });
     await fetch(`/api/chat/sessions/${sessionId}/learned`, {

@@ -41,7 +41,7 @@ func chatResolveHandler(a *app.App) http.HandlerFunc {
 		}
 
 		var body struct {
-			ToolCallID string  `json:"tool_call_id"`
+			ToolCallID string  `json:"toolCallId"`
 			Action     string  `json:"action"`
 			Feedback   *string `json:"feedback,omitempty"`
 		}

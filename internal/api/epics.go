@@ -43,7 +43,8 @@ func serveEpicSSE(w http.ResponseWriter, r *http.Request, hub *epic.EpicEventHub
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Origin policy is corsMiddleware's alone; a wildcard set here would override
+	// it for the one route that streams live agent output.
 	flusher.Flush()
 
 	ch, unsub := hub.Subscribe(epicID)

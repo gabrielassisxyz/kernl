@@ -97,9 +97,9 @@ describe('useChatSession', () => {
     await sendMessage('Test');
 
     const perm = {
-      tool_call_id: 'tc1',
-      node_id: 'n1',
-      node_path: '/foo',
+      toolCallId: 'tc1',
+      nodeId: 'n1',
+      nodePath: '/foo',
       description: 'read foo',
     };
 
@@ -109,7 +109,7 @@ describe('useChatSession', () => {
         data: JSON.stringify({
           event: 'state',
           messages: [{ role: 'user', content: 'Hi' }],
-          pending_permission: perm,
+          pendingPermission: perm,
         }),
       } as MessageEvent);
       expect(messages.value).toEqual([{ role: 'user', content: 'Hi' }]);
@@ -164,7 +164,7 @@ describe('useChatSession', () => {
         messages: [{
           role: 'assistant',
           content: 'I learned something.',
-          learned_candidate: {
+          learnedCandidate: {
             subject: 'planning',
             statement: 'Original claim.',
           },
@@ -175,7 +175,7 @@ describe('useChatSession', () => {
     mockFetch.mockClear();
     await keepCandidate('planning-style', 'Edited claim.', 'Original claim.');
 
-    expect(messages.value[0].learned_candidate).toBeUndefined();
+    expect(messages.value[0].learnedCandidate).toBeUndefined();
     expect(mockFetch).toHaveBeenCalledWith('/api/chat/sessions/sess-8/learned', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

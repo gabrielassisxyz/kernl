@@ -7,12 +7,12 @@
     <div class="flex flex-col flex-1 min-w-0 pr-break">
       <div class="flex items-center gap-base mb-tight">
         <span class="font-mono-data text-mono-data tracking-widest px-tight text-text-faint border border-border-hairline uppercase">
-          {{ item.Action || 'REVIEW' }}
+          {{ item.action || 'REVIEW' }}
         </span>
-        <h3 class="font-headline text-text-primary truncate">{{ item.Title || 'Untitled Ingest Review' }}</h3>
+        <h3 class="font-headline text-text-primary truncate">{{ item.title || 'Untitled Ingest Review' }}</h3>
       </div>
       
-      <p class="font-body text-text-muted truncate font-mono-data text-mono-data">{{ item.SourceNodeID }}</p>
+      <p class="font-body text-text-muted truncate font-mono-data text-mono-data">{{ item.sourceNodeId }}</p>
     </div>
     
     <div class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex items-center gap-section transition-opacity duration-200 bg-surface-hover pl-section shrink-0">
@@ -25,15 +25,15 @@
 
 <script setup lang="ts">
 export interface IngestReviewData {
-  ID: string
-  CreatedAt: string
-  UpdatedAt: string
-  Title: string
-  SourceNodeID: string
-  Action: string
-  Payload: string
-  ContentHash: string
-  Tags: string[]
+  id: string
+  createdAt: string
+  updatedAt: string
+  title: string
+  sourceNodeId: string
+  action: string
+  payload: string
+  contentHash: string
+  tags: string[]
 }
 
 defineProps<{

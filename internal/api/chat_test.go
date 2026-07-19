@@ -36,7 +36,7 @@ func TestCreateChatSession(t *testing.T) {
 	}
 	var res struct {
 		ID        string `json:"id"`
-		CreatedAt string `json:"created_at"`
+		CreatedAt string `json:"createdAt"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
 		t.Fatalf("unmarshal: %v", err)
