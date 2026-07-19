@@ -44,6 +44,7 @@ var (
 	approvalFn func(v verbContext, args []string) error = runApproval
 	sessionFn  func(v verbContext, args []string) error = runSession
 	ingestFn   func(v verbContext, args []string) error = runIngest
+	triageFn   func(v verbContext, args []string) error = runTriage
 )
 
 func main() {
@@ -226,6 +227,8 @@ func Dispatch(args []string) error {
 	}
 
 	switch args[0] {
+	case "triage":
+		return triageFn(vctx, args[1:])
 	case "serve":
 		return serveFn(configPath, port, noOrch)
 	case "doctor":

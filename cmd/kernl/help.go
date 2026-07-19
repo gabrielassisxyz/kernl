@@ -18,6 +18,30 @@ type commandMeta struct {
 
 var commandTable = []commandMeta{
 	{
+		// First in the table on purpose: it is the answer to the question an
+		// agent or a returning human asks first, so it should be the first
+		// thing `kernl --help` offers.
+		Name:    "triage",
+		Summary: "What needs attention right now, in one call",
+		Usage:   "kernl triage [--json]",
+		Details: `Answers "what should I do now" without five separate reads. Reports, in
+the order you would act on them: captures waiting to be processed, ingest
+reviews, beads in flight, beads ready to start, open tasks, approvals, and
+whether the server is healthy. Each section names the command that shows
+the rest.
+
+A section that cannot be read says so and names why; it does not report
+zero. "Nothing pending" and "could not ask" are different answers, and
+conflating them is how a caller concludes no judgment gate is waiting.
+
+Exit code is non-zero only when NOTHING could be read — a partial report
+is a successful triage.
+
+Flags:
+  --json  Emit the whole report as one document, every section carrying
+          {available, reason, count, items, command}`,
+	},
+	{
 		Name:    "serve",
 		Summary: "Start the HTTP API server (add --no-orchestrator for GUI-only)",
 		Usage:   "kernl [--config <path>] [--port <port>] serve [--no-orchestrator]",
@@ -343,10 +367,15 @@ func rootFlagHint(flag string) string {
 // verbAliasHints maps verbs agents reach for out of habit (bd/git idioms) to
 // the kernl invocation they almost certainly meant.
 var verbAliasHints = map[string]string{
+	// "what is going on / what do I do now" all mean triage. They used to
+	// answer `kernl epic list`, which sent someone asking what to work on to an
+	// orchestrator listing that omits captures, tasks and approvals entirely.
+	"status": "kernl triage",
+	"ready":  "kernl triage",
+	"next":   "kernl triage",
+	"todo":   "kernl triage",
 	"list":   "kernl epic list",
 	"ls":     "kernl epic list",
-	"status": "kernl epic list",
-	"ready":  "kernl epic list",
 	"run":    "kernl epic run <epic-id>",
 	"check":  "kernl doctor",
 	"init":   "kernl doctor",
