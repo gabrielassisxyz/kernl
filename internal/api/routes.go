@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,15 +92,50 @@ func vaultDisplayPath(root string) string {
 	return "~/" + filepath.ToSlash(rel)
 }
 
+// corsMiddleware grants cross-origin access to local development origins only.
+//
+// The API has no authentication and serves the user's vault, graph and
+// orchestrator, so a wildcard here let any page the user happened to visit read
+// and mutate all of it. The shipped UI is embedded in the binary and served
+// same-origin, which needs no CORS at all; the only legitimate cross-origin
+// caller is a frontend running from a local dev server, so the grant is scoped
+// to loopback origins and nothing else.
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Set on every response, including rejections: the answer depends on the
+		// request's Origin, so a shared cache must not replay one origin's
+		// response (or a header-less rejection) for a different origin.
+		w.Header().Add("Vary", "Origin")
+
+		if origin := r.Header.Get("Origin"); isLocalDevOrigin(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		}
+
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isLocalDevOrigin reports whether an Origin header names a loopback host over
+// http/https on any port. Parsing rather than prefix-matching is deliberate:
+// "http://localhost.evil.example" starts with an allowed prefix but is not a
+// loopback host.
+func isLocalDevOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	switch u.Hostname() {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	return false
 }
