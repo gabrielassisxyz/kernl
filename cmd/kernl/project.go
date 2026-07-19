@@ -174,7 +174,7 @@ func projectCreate(v verbContext, c *apiClient, asJSON bool, args []string) erro
 	if err := decodeInto(raw, "POST /api/projects", &created); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.stdout(), "Created project %s — %s\n", created.ID, title)
+	fmt.Fprintln(v.stdout(), createdLine("Created project", title, "", created.ID))
 	return nil
 }
 

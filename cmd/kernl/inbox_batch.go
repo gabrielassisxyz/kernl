@@ -164,7 +164,10 @@ func printInboxBatchResult(w io.Writer, raw json.RawMessage, route string) error
 	if err := decodeInto(raw, "POST "+route, &result); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "Created batch %s with %d capture(s). Inspect it with: kernl inbox batch-log %s\n",
-		result.BatchID, len(result.IDs), result.BatchID)
+	// A batch has no title, so what it is worth leading with is its size — the
+	// one number the caller can check. The id follows in parentheses, per the
+	// shape createdLine documents.
+	_, err := fmt.Fprintf(w, "Created batch of %d capture(s) (%s). Inspect it with: kernl inbox batch-log %s\n",
+		len(result.IDs), result.BatchID, result.BatchID)
 	return err
 }

@@ -222,7 +222,8 @@ func runMemoryAddClaim(v verbContext, asJSON bool, args []string) error {
 	if err := decodeInto(raw, "POST /api/memory/claims", &created); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.stdout(), "Added claim %s under %s\n", created.ID, subject)
+	statement, _ := body["statement"].(string)
+	fmt.Fprintln(v.stdout(), createdLine("Added claim", statement, fmt.Sprintf("under %q", subject), created.ID))
 	return nil
 }
 

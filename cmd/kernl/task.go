@@ -32,8 +32,13 @@ Run 'kernl task <subcommand> --help' for details on each.`,
 		{
 			Name:    "create",
 			Summary: "Create a task",
-			Usage:   "kernl task create <title> [--project <id>] [--status <status>] [--description <text>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]",
-			Details: `Flags:
+			Usage:   "kernl task create <title> [--title <t>] [--project <id>] [--status <status>] [--description <text>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]",
+			Details: `The title comes from the positional argument or --title, never both. An
+unquoted multi-word positional title is joined into one string; the success
+line quotes what was stored, so a swallowed word is visible.
+
+Flags:
+  --title <t>          The title, as an alternative to the positional form
   --project <id>       Attach the task to a project (creates the part_of edge)
   --status <status>    Initial status (server default when omitted)
   --description <text> Long-form body
@@ -148,7 +153,8 @@ func runTaskCreate(v verbContext, asJSON bool, args []string) error {
 	if err := decodeInto(raw, "POST /api/tasks", &created); err != nil {
 		return err
 	}
-	fmt.Fprintf(v.stdout(), "Created task %s\n", created.ID)
+	title, _ := body["title"].(string)
+	fmt.Fprintln(v.stdout(), createdLine("Created task", title, "", created.ID))
 	return nil
 }
 
@@ -251,16 +257,46 @@ func taskCreateBody(args []string) (map[string]any, error) {
 	if present {
 		body["tags"] = splitTaskTags(tags)
 	}
+	title, hasTitle, rest, err := takeFlag(rest, "--title")
+	if err != nil {
+		return nil, err
+	}
 	if err := rejectUnknownFlags("task create", rest); err != nil {
 		return nil, err
 	}
-	if len(rest) == 0 {
-		return nil, usagef(`KERNL DISPATCH FAILURE: task create requires a title — run: kernl task create "<title>" [--project <id>]`)
+	resolved, err := taskCreateTitle(title, hasTitle, rest)
+	if err != nil {
+		return nil, err
 	}
-	// Unquoted multi-word titles are the common shell slip; joining them is
-	// what the user meant, and the title is echoed back on success anyway.
-	body["title"] = strings.Join(rest, " ")
+	body["title"] = resolved
 	return body, nil
+}
+
+// taskCreateTitle resolves the title from --title or the positional args,
+// refusing both at once the way project create does — silently preferring one
+// would hide a typo'd flag.
+//
+// Unquoted multi-word titles are the common shell slip, and joining them is what
+// the caller meant, so the join stays as interactive forgiveness. It is safe to
+// keep now that --title gives an unambiguous alternative and the joined title is
+// echoed back on success; before that the join's only stated safety net —
+// "the title is echoed back anyway" — did not exist, since the verb printed the
+// id alone.
+func taskCreateTitle(title string, hasTitle bool, rest []string) (string, error) {
+	if hasTitle && len(rest) > 0 {
+		return "", usagef("KERNL DISPATCH FAILURE: task create got a title both positionally (%q) and via --title (%q) — pass only one",
+			strings.Join(rest, " "), title)
+	}
+	if hasTitle {
+		if strings.TrimSpace(title) == "" {
+			return "", usagef(`KERNL DISPATCH FAILURE: task create got an empty --title — run: kernl task create --title "<title>"`)
+		}
+		return title, nil
+	}
+	if len(rest) == 0 {
+		return "", usagef(`KERNL DISPATCH FAILURE: task create requires a title — run: kernl task create "<title>" [--project <id>]`)
+	}
+	return strings.Join(rest, " "), nil
 }
 
 // taskPatchBody maps set flags onto the PATCH payload and returns the leftover

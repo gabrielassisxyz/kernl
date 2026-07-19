@@ -37,6 +37,25 @@ func emitJSON(w io.Writer, raw json.RawMessage) error {
 	return err
 }
 
+// createdLine renders one creation confirmation: what you named first and in
+// quotes, the id last and in parentheses.
+//
+// WHY this shape. Graph node ids are bare UUIDv7 — no readable prefix, nothing a
+// caller can check against what they typed. Leading with the id therefore opens
+// every confirmation with the one field carrying no information. The quotes are
+// load-bearing rather than decorative: several of these verbs join unquoted
+// positional words into the title, and unquoted output makes a swallowed or
+// stray word invisible. Staying on one line keeps grep and awk working; a
+// structured consumer uses --json, which this does not touch.
+// lead is the action and the thing ("Created task"), tail is any extra context
+// that belongs between the name and the id ("under \"habits\"") or empty.
+func createdLine(lead, name, tail, id string) string {
+	if tail != "" {
+		return fmt.Sprintf("%s %q %s (%s)", lead, name, tail, id)
+	}
+	return fmt.Sprintf("%s %q (%s)", lead, name, id)
+}
+
 // decodeInto unmarshals an API response, naming the route in the error so a
 // contract change reads as a contract change rather than a parse failure.
 func decodeInto(raw json.RawMessage, route string, target any) error {
