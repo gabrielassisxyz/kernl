@@ -287,6 +287,9 @@ func readNoteBody(sub, flag, source string, hasSource bool) ([]byte, error) {
 		}
 		return body, nil
 	}
+	if stdinIsTerminal() {
+		return nil, usagef("KERNL DISPATCH FAILURE: note %s reads its body from stdin, but stdin is a terminal — pipe content in (echo ... | kernl note %s <path>) or pass %s <local-path>", sub, sub, flag)
+	}
 	body, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return nil, wrapLoud("reading the note body from stdin", err)

@@ -228,6 +228,9 @@ func inboxAdd(v verbContext, args []string) error {
 func inboxAddText(v verbContext, text string, asJSON bool) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
+		if stdinIsTerminal() {
+			return usagef("KERNL DISPATCH FAILURE: inbox add got no text and stdin is a terminal — pass text as an argument or pipe it in. Run: kernl inbox add --help")
+		}
 		read, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return wrapLoud("reading capture text from stdin", err)

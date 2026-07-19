@@ -31,6 +31,9 @@ func runCapture(configPath string, args []string) error {
 	if len(args) > 0 {
 		text = strings.Join(args, " ")
 	} else {
+		if stdinIsTerminal() {
+			return usagef("KERNL DISPATCH FAILURE: capture got no text and stdin is a terminal — pass text as an argument (kernl capture \"<text>\") or pipe it in. Run: kernl capture --help")
+		}
 		bytes, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("read stdin: %w", err)

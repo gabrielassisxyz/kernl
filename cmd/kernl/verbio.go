@@ -5,8 +5,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 )
+
+// stdinIsTerminal reports whether stdin is an interactive terminal (a char
+// device) rather than a pipe, redirect or file. A blocking io.ReadAll on a
+// terminal with no input hangs forever with no prompt — the worst trap for an
+// agent that forgot to pipe input — so the stdin-reading verbs check this and
+// fail fast with a usage error. It is a package var so a test can force the
+// terminal branch without allocating a pty.
+var stdinIsTerminal = func() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
 
 // emitJSON writes an API response through untouched. The REST layer already
 // speaks camelCase, so passing the server's own body along keeps the CLI's

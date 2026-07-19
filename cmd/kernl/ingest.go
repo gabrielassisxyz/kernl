@@ -169,6 +169,9 @@ func ingestPasteText(fromArgs string) (string, error) {
 	if text != "" {
 		return text, nil
 	}
+	if stdinIsTerminal() {
+		return "", usagef("KERNL DISPATCH FAILURE: ingest paste got no text and stdin is a terminal — pass it as an argument (kernl ingest paste \"<text>\") or pipe it in. Run: kernl ingest paste --help")
+	}
 	read, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", wrapLoud("reading pasted text from stdin", err)

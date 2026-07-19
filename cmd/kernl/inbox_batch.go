@@ -105,6 +105,9 @@ func readInboxBatchText(sub, path string) (string, error) {
 		}
 		return string(content), nil
 	}
+	if stdinIsTerminal() {
+		return "", usagef("KERNL DISPATCH FAILURE: inbox batch %s got no text and stdin is a terminal — pass --file <path> or pipe the export in. Run: kernl inbox batch --help", sub)
+	}
 	read, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", wrapLoud("reading the batch text from stdin", err)
