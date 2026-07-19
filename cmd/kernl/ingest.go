@@ -16,7 +16,9 @@ import (
 
 var ingestSubcommands = []string{"paste", "upload", "source", "trigger", "queue"}
 
-var ingestQueueSubcommands = []string{"list", "resolve", "merge-plan"}
+// Derived from the queue command's Subs so dispatch, help and capabilities
+// cannot disagree about which subcommands exist.
+var ingestQueueSubcommands = subNames(findCommand(ingestCommand.Subs, "queue"))
 
 // ingestResolveActions maps a shell-friendly token onto the action string the
 // API expects. The wire values contain a space ("Create Page"), which no one
@@ -90,19 +92,40 @@ Flags:
 			Name:    "queue",
 			Summary: "Read and resolve the ingest review queue",
 			Usage:   "kernl ingest queue <list|resolve|merge-plan> [args...]",
-			Details: `list                  Pending reviews: id, proposed action, title
-resolve <id>          Apply a review (--action create-page|update|discard)
-merge-plan <id>       Ask the LLM which hunks an Update would add
+			Details: `Hunk-by-hunk merge review is a GUI flow. 'resolve --action update' from the
+CLI links the source to the target note and clears the review without
+rewriting the note's body.
 
-Flags on resolve:
+Run 'kernl ingest queue <subcommand> --help' for details on each.`,
+			Subs: []commandMeta{
+				{
+					Name:    "list",
+					Summary: "List the pending reviews: id, proposed action, title",
+					Usage:   "kernl ingest queue list [--json]",
+					Details: `Flags:
+  --json  Emit the API's review array verbatim (camelCase)`,
+				},
+				{
+					Name:    "resolve",
+					Summary: "Apply a review: create a page, merge into one, or discard it",
+					Usage:   "kernl ingest queue resolve <id> --action <create-page|update|discard> [--target-note <id>] [--json]",
+					Details: `Flags:
   --action <a>       create-page, update or discard — REQUIRED, no default.
                      'discard' deletes the review permanently; there is no undo.
   --target-note <id> With --action update: the note to merge into
   --json             Emit the API response verbatim
 
-Hunk-by-hunk merge review is a GUI flow. 'resolve --action update' from the
-CLI links the source to the target note and clears the review without
-rewriting the note's body.`,
+There is no default action: an omitted --action used to mean "discard", so a
+forgotten flag destroyed the review it was resolving.`,
+				},
+				{
+					Name:    "merge-plan",
+					Summary: "Ask the LLM which hunks an Update would add",
+					Usage:   "kernl ingest queue merge-plan <id> [--json]",
+					Details: `Reads only — it plans the merge without applying it. An empty target means
+there is no confident note to merge into; resolve with --action create-page.`,
+				},
+			},
 		},
 	},
 }

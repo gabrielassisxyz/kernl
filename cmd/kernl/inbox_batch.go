@@ -9,7 +9,8 @@ import (
 	"strings"
 )
 
-var inboxBatchSubcommands = []string{"analyze", "preview", "apply"}
+// Derived from inboxBatchCommand.Subs — see the note on ingestQueueSubcommands.
+var inboxBatchSubcommands = subNames(&inboxBatchCommand)
 
 var inboxBatchCommand = commandMeta{
 	Name:    "batch",
@@ -17,21 +18,44 @@ var inboxBatchCommand = commandMeta{
 	Usage:   "kernl inbox batch <analyze|preview|apply> [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]",
 	Details: `Reads the text from --file, or from stdin when the flag is omitted.
 
-  analyze  Deterministic split plus LLM enrichment (a title, merges to consider)
-  preview  Deterministic split only, no LLM in the path
-  apply    Create the captures; requires --yes (without it you get a preview)
-
-Flags:
+Flags (all three subcommands):
   --file <path>   Local file to read instead of stdin
   --split <mode>  auto (default), whatsapp, lines, blocks, divider, markdown, semantic
   --source <s>    whatsapp or text; the server infers it when omitted
   --title <text>  Context title for the batch
-  --yes           On apply only: actually create the captures
   --json          Emit the API response verbatim
 
 The pasted text is sent exactly as read. Capture bodies are rebuilt
 server-side from that text, so neither this CLI nor a model behind it can
-rewrite what you captured; merge decisions are a GUI review flow.`,
+rewrite what you captured; merge decisions are a GUI review flow.
+
+Run 'kernl inbox batch <subcommand> --help' for details on each.`,
+	Subs: []commandMeta{
+		{
+			Name:    "analyze",
+			Summary: "Split the text and enrich it with an LLM (a title, merges to consider)",
+			Usage:   "kernl inbox batch analyze [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]",
+			Details: `Needs an LLM provider on the server; 'preview' is the same split without one.
+Writes nothing — it only reports how the text would divide.`,
+		},
+		{
+			Name:    "preview",
+			Summary: "Split the text deterministically, with no LLM in the path",
+			Usage:   "kernl inbox batch preview [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]",
+			Details: `Writes nothing. Use it to check a --split mode before applying it.`,
+		},
+		{
+			Name:    "apply",
+			Summary: "Create the captures (requires --yes)",
+			Usage:   "kernl inbox batch apply [--file <path>] [--split <mode>] [--source <s>] [--title <text>] --yes [--json]",
+			Details: `Without --yes nothing is created: the request is answered by the preview
+route and the output says so, including under --json, which wraps the preview
+in {"applied":false,"wouldApply":true,...}.
+
+Flags:
+  --yes  Actually create the captures`,
+		},
+	},
 }
 
 func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
