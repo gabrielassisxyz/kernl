@@ -3,9 +3,9 @@
 #
 # WHY: this repo is worked on by many parallel agent sessions, and nothing tells one
 # session that another exists. Sharing the main tree means they clobber each other's
-# branches and lose each other's uncommitted files. The rule is structural: the main
-# tree stays on the default branch as a clean reference, and EVERY session works in
-# its own worktree. This wraps the git plumbing so that is one
+# branches and lose each other's uncommitted files. The rule (AGENTS.md §6)
+# is structural: the main tree stays on the default branch as a clean reference, and
+# EVERY session works in its own worktree. This wraps the git plumbing so that is one
 # command, always branched off a FRESH origin/<default> — so nobody has to remember a
 # `git pull`, and a stale local default can never leak into new work.
 #
@@ -43,6 +43,79 @@ Worktrees live in $WORKTREE_BASE/$repo/<task>.
 EOF
 }
 
+# Ignored-but-needed paths, symlinked from the main tree into every new worktree.
+#
+# WHY at all: `git worktree add` materializes only TRACKED files, so a fresh worktree starts
+# without any of these. The failure is silent — the session simply works without the file and
+# never learns it existed (an agent with no AGENTS.md, a deploy with no credentials, a
+# maintainer's backlog that reads as empty).
+#
+# WHY symlink, never copy: a copy diverges. Edit the copy in the worktree and the main tree
+# keeps the old value, so the next session reads stale config. One file, many views.
+#
+# WHY a per-repo file and not a hardcoded array any more. The array carried a note saying to
+# extract this file once either "a path only ONE project uses" or "more than 6 entries" became
+# true. Adding `journal/` — which exists only here — tripped the first condition, so the fence
+# did its job and this is the extraction it asked for. The defaults below still apply to a repo
+# with no `.worktree-links`, so nothing regresses for the repos that never needed one.
+WORKTREE_LINKS_DEFAULT=(local .ai-jail config/deploy.env .env)
+WORKTREE_LINKS_FILE=".worktree-links"
+
+# Read the repo's link list: one path per line, `#` comments and blanks ignored.
+read_worktree_links() {
+    local file="$main_root/$WORKTREE_LINKS_FILE" line
+    if [ ! -f "$file" ]; then
+        printf '%s\n' "${WORKTREE_LINKS_DEFAULT[@]}"
+        return 0
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"
+        line="$(printf '%s' "$line" | tr -d '[:space:]')"
+        [ -n "$line" ] && printf '%s\n' "$line"
+    done < "$file"
+}
+
+# Link each existing WORKTREE_LINKS path from the main tree into the new worktree.
+# Absolute targets: these links are git-ignored and never leave this machine, so a machine
+# path here costs nothing and survives the worktree being moved.
+# Link one path, descending into it when the worktree already has something there.
+#
+# WHY descend instead of skipping. A listed directory can be MIXED: mostly ignored, but
+# with a stray tracked file inside. `git worktree add` materializes that file, so the
+# directory exists, and a plain "already there, skip" then silently drops every ignored
+# sibling — in kernl that is `artifacts/`, one tracked plan next to 58 ignored ones, the
+# most valuable directory in the repo. Descending links the missing children instead,
+# and a tracked file still wins its own name because only a missing path is ever linked.
+link_path() {
+    local src="$1" dst="$2" rel="$3" child
+    if [ ! -e "$dst" ]; then
+        mkdir -p "$(dirname "$dst")"
+        ln -s "$src" "$dst"
+        linked+=("$rel")
+        return 0
+    fi
+    # Only two real directories can be merged. A symlink or a file at dst is left alone:
+    # it is either already linked or a tracked file, and neither may be shadowed.
+    [ -d "$src" ] && [ -d "$dst" ] && [ ! -L "$dst" ] || return 0
+    shopt -s nullglob dotglob
+    for child in "$src"/*; do
+        link_path "$child" "$dst/${child##*/}" "$rel/${child##*/}"
+    done
+    shopt -u nullglob dotglob
+    return 0
+}
+
+link_ignored() {
+    local dir="$1" rel
+    local -a linked=()
+    while IFS= read -r rel; do
+        [ -e "$main_root/$rel" ] || continue
+        link_path "$main_root/$rel" "$dir/$rel" "$rel"
+    done < <(read_worktree_links)
+    [ ${#linked[@]} -gt 0 ] && echo "==> linked from the main tree: ${linked[*]}"
+    return 0
+}
+
 cmd_new() {
     local branch="${1:-}"
     [ -n "$branch" ] || { echo "usage: worktree new <type>/<desc>" >&2; exit 2; }
@@ -57,6 +130,7 @@ cmd_new() {
     # feature branch has no remote of its own until `git push -u`; leaving upstream unset is
     # what lets `status` flag it "no-remote" (unbacked work) instead of comparing to master.
     git worktree add --no-track -b "$branch" "$dir" "origin/$def"
+    link_ignored "$dir"
     echo
     echo "worktree ready — enter it with:"
     echo "  cd $dir"
@@ -100,6 +174,41 @@ cmd_rm() {
     local dir
     dir="$WORKTREE_BASE/$repo/$(slug "$key")"
     [ -d "$dir" ] || { echo "no worktree at $dir" >&2; exit 1; }
+
+    # Everything tracked lives in the object store and survives this. Git-ignored files
+    # do NOT: `git worktree remove` checks for dirty and untracked content but ignores
+    # ignored paths entirely, so it deletes them without a word, with or without -f.
+    # A real file was lost this way. Anything symlinked from the main tree is safe (only
+    # the link goes), so the ones worth stopping for are the ignored NON-symlinks.
+    local at_risk=()
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        [ -L "$dir/$rel" ] && continue
+        at_risk+=("$rel")
+    done < <(git -C "$dir" ls-files --others --ignored --exclude-standard --directory 2>/dev/null)
+
+    if [ ${#at_risk[@]} -gt 0 ]; then
+        echo "WARNING: these git-ignored paths exist only in this worktree and will be destroyed:" >&2
+        printf '  %s\n' "${at_risk[@]}" >&2
+        echo >&2
+        echo "Nothing tracked is at risk — only these. Move what matters out, or add the path to" >&2
+        echo "$WORKTREE_LINKS_FILE so future worktrees link it from the main tree instead." >&2
+        if [ -z "$force" ]; then
+            echo "Refusing to remove. Re-run with -f once you have looked." >&2
+            exit 1
+        fi
+    fi
+
+    # Drop the symlinks this tool created before handing over to git. They are
+    # untracked by definition, so git counts them as "modified or untracked files" and
+    # refuses every removal — which would make `rm` require -f in EVERY worktree, and a
+    # flag that is always required is a flag that stops being read. Removing a symlink
+    # only removes the link; the target in the main tree is untouched.
+    while IFS= read -r rel; do
+        [ -n "$rel" ] || continue
+        [ -L "$dir/$rel" ] && rm -f "$dir/$rel"
+    done < <(read_worktree_links)
+
     if [ -n "$force" ]; then
         git worktree remove --force "$dir"
     else
