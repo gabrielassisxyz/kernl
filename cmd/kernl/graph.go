@@ -202,9 +202,24 @@ func runGraphBriefing(v verbContext, asJSON bool, args []string) error {
 	if err != nil {
 		return err
 	}
-	raw, err := requestGraph(v, "/api/nodes/"+url.PathEscape(id)+"/briefing")
+	// A node with no briefing yet is a normal answer to a fair question, not a
+	// mis-invocation, so it exits 0 with an explicit "none" rather than the
+	// exit 2 a bare 404 would produce.
+	c, err := v.client()
 	if err != nil {
 		return err
+	}
+	raw, found, err := c.getOptional(context.Background(), "/api/nodes/"+url.PathEscape(id)+"/briefing")
+	if err != nil {
+		return err
+	}
+	if !found {
+		if asJSON {
+			_, err := fmt.Fprintln(v.stdout(), `{"briefing":null}`)
+			return err
+		}
+		fmt.Fprintf(v.stdout(), "No briefing for %s yet.\n", id)
+		return nil
 	}
 	if asJSON {
 		return emitJSON(v.stdout(), raw)

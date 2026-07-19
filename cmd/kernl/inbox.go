@@ -91,7 +91,9 @@ default when the server restarts.`,
 			Summary: "Generate (or show) the DA briefing note for a capture",
 			Usage:   "kernl inbox prep <capture-id> [--show] [--json]",
 			Details: `Flags:
-  --show  Read the existing prep note instead of generating one (exit 2 if none)
+  --show  Read the existing prep note instead of generating one. When none
+          exists this prints "no prep yet" and exits 0 — absence is an
+          answer, not a bad invocation
 
 Generating needs an LLM provider; --show does not.`,
 		},
@@ -421,14 +423,29 @@ func inboxPrep(ctx context.Context, v verbContext, c *apiClient, asJSON bool, ar
 	}
 	route := "/api/inbox/" + url.PathEscape(id) + "/prep"
 	// --show must stay a pure read: generating a briefing costs an LLM call.
+	// It also treats "no prep yet" as an answer rather than a mis-invocation —
+	// the route says 404, but asking whether a briefing exists and learning it
+	// does not is exactly what --show is for.
 	var raw json.RawMessage
 	if show {
-		raw, err = c.get(ctx, route)
+		var found bool
+		raw, found, err = c.getOptional(ctx, route)
+		if err != nil {
+			return err
+		}
+		if !found {
+			if asJSON {
+				_, err := fmt.Fprintln(v.stdout(), `{"prep":null}`)
+				return err
+			}
+			fmt.Fprintf(v.stdout(), "No prep for %s yet. Generate one with: kernl inbox prep %s\n", id, id)
+			return nil
+		}
 	} else {
 		raw, err = c.post(ctx, route, nil)
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
 	if asJSON {
 		return emitJSON(v.stdout(), raw)

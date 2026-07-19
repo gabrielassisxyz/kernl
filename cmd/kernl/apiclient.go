@@ -147,6 +147,16 @@ func (c *apiClient) unreachable(err error) error {
 	return wrapLoud(fmt.Sprintf("request to %s failed", c.baseURL), err)
 }
 
+// notFoundError marks a 404 so a verb can tell "this does not exist" apart from
+// the other 4xx answers. It wraps a usage error, so a verb that does NOT opt in
+// keeps the old behaviour: a bad id is still exit 2, which is right — asking
+// about a task that isn't there IS a bad invocation. Only the reads where
+// absence is a legitimate answer call getOptional.
+type notFoundError struct{ err error }
+
+func (n notFoundError) Error() string { return n.err.Error() }
+func (n notFoundError) Unwrap() error { return n.err }
+
 // httpStatusError maps HTTP status onto the CLI's exit-code contract: a 4xx is
 // something about the invocation (bad id, bad value) and exits 2; a 5xx is the
 // backend failing and exits 1.
@@ -158,6 +168,9 @@ func httpStatusError(method, path string, status int, raw []byte) error {
 	if detail == "" {
 		detail = http.StatusText(status)
 	}
+	if status == http.StatusNotFound {
+		return notFoundError{err: usagef("KERNL DISPATCH FAILURE: %s %s rejected with 404: %s", method, path, detail)}
+	}
 	if status >= 400 && status < 500 {
 		return usagef("KERNL DISPATCH FAILURE: %s %s rejected with %d: %s", method, path, status, detail)
 	}
@@ -166,6 +179,24 @@ func httpStatusError(method, path string, status int, raw []byte) error {
 
 func (c *apiClient) get(ctx context.Context, path string) (json.RawMessage, error) {
 	return c.request(ctx, http.MethodGet, path, nil)
+}
+
+// getOptional is for reads where the thing legitimately may not exist yet — a
+// briefing that has not been generated, a prep note nobody asked for. Those
+// routes answer 404, which the default mapping turns into exit 2, telling a
+// caller it invoked the command wrong when it merely asked a question whose
+// answer is "none yet". Here absence is a value, not an error: found=false,
+// and the verb decides how to say it.
+func (c *apiClient) getOptional(ctx context.Context, path string) (raw json.RawMessage, found bool, err error) {
+	raw, err = c.request(ctx, http.MethodGet, path, nil)
+	if err == nil {
+		return raw, true, nil
+	}
+	var missing notFoundError
+	if errors.As(err, &missing) {
+		return nil, false, nil
+	}
+	return nil, false, err
 }
 
 func (c *apiClient) post(ctx context.Context, path string, body any) (json.RawMessage, error) {

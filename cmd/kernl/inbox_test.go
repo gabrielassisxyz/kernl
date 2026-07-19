@@ -298,14 +298,49 @@ func TestInboxBatchLogQueriesBatchID(t *testing.T) {
 }
 
 func TestInboxNotFoundExitsTwo(t *testing.T) {
-	ts, _ := fakeInboxAPI(t, http.StatusNotFound, `no prep`)
+	// A 404 on a route where the id is the whole request is still a bad
+	// invocation: the caller named something that does not exist.
+	ts, _ := fakeInboxAPI(t, http.StatusNotFound, `no such capture`)
 
-	_, err := driveInbox(t, ts, "prep", "--show", "cap-nope")
+	_, err := driveInbox(t, ts, "reopen", "cap-nope")
 	if exitCode(err) != 2 {
 		t.Fatalf("a 404 must exit 2 (bad invocation), got %d: %v", exitCode(err), err)
 	}
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Fatalf("expected a loud failure, got %v", err)
+	}
+}
+
+func TestInboxPrepShowTreatsMissingPrepAsAnAnswer(t *testing.T) {
+	// 'prep --show' asks whether a briefing exists. "It does not" answers the
+	// question, so it exits 0 — the 404 underneath is not a mis-invocation.
+	ts, _ := fakeInboxAPI(t, http.StatusNotFound, `no prep`)
+
+	out, err := driveInbox(t, ts, "prep", "--show", "cap-nope")
+	if err != nil {
+		t.Fatalf("missing prep must not be an error, got: %v", err)
+	}
+	if !strings.Contains(out, "No prep for cap-nope yet") {
+		t.Errorf("expected an explicit no-prep line, got %q", out)
+	}
+}
+
+func TestInboxPrepShowJSONEmitsNullWhenMissing(t *testing.T) {
+	// A script reading --json needs a parseable document, not empty output.
+	ts, _ := fakeInboxAPI(t, http.StatusNotFound, `no prep`)
+
+	out, err := driveInbox(t, ts, "prep", "--show", "--json", "cap-nope")
+	if err != nil {
+		t.Fatalf("missing prep must not be an error, got: %v", err)
+	}
+	var doc struct {
+		Prep *string `json:"prep"`
+	}
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &doc); jsonErr != nil {
+		t.Fatalf("--json output is not valid JSON (%v): %q", jsonErr, out)
+	}
+	if doc.Prep != nil {
+		t.Errorf("expected a null prep, got %v", *doc.Prep)
 	}
 }
 

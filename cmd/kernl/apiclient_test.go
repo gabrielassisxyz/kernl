@@ -172,3 +172,62 @@ func TestGetSendsNoBody(t *testing.T) {
 		t.Errorf("GET sent a %d-byte body", length)
 	}
 }
+
+// getOptional is the opt-in for reads where absence is a legitimate answer.
+// The default path must be unaffected: a 404 nobody opted out of is still a
+// usage error, which TestRequestMapsStatusToExitCode pins.
+func TestGetOptionalReportsAbsenceWithoutAnError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("no briefing"))
+	}))
+	defer ts.Close()
+
+	c := &apiClient{baseURL: ts.URL, http: ts.Client()}
+	raw, found, err := c.getOptional(context.Background(), "/api/nodes/n1/briefing")
+	if err != nil {
+		t.Fatalf("a 404 must not be an error for getOptional, got: %v", err)
+	}
+	if found {
+		t.Error("found must be false on a 404")
+	}
+	if raw != nil {
+		t.Errorf("no body should come back, got %q", raw)
+	}
+}
+
+func TestGetOptionalStillFailsOnRealErrors(t *testing.T) {
+	// Only 404 means "absent". Everything else must keep failing loud, or
+	// getOptional would quietly turn a broken backend into "nothing here".
+	for _, status := range []int{http.StatusBadRequest, http.StatusInternalServerError} {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(status)
+		}))
+		c := &apiClient{baseURL: ts.URL, http: ts.Client()}
+		_, found, err := c.getOptional(context.Background(), "/api/nodes/n1/briefing")
+		ts.Close()
+
+		if err == nil {
+			t.Errorf("status %d must still be an error", status)
+		}
+		if found {
+			t.Errorf("status %d must not report found", status)
+		}
+	}
+}
+
+func TestGetOptionalReturnsTheBodyWhenPresent(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"title":"Prep"}`))
+	}))
+	defer ts.Close()
+
+	c := &apiClient{baseURL: ts.URL, http: ts.Client()}
+	raw, found, err := c.getOptional(context.Background(), "/api/inbox/c1/prep")
+	if err != nil || !found {
+		t.Fatalf("present resource: found=%v err=%v", found, err)
+	}
+	if string(raw) != `{"title":"Prep"}` {
+		t.Errorf("body not passed through, got %q", raw)
+	}
+}

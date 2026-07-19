@@ -226,11 +226,11 @@ func TestGraphEdgesPrintsTheConnections(t *testing.T) {
 }
 
 func TestGraphAPIErrorsMapToExitCodes(t *testing.T) {
-	// A node the DA never briefed answers 404 — a 4xx is about the invocation.
-	notFound := newFakeGraphAPI(t, http.StatusNotFound, "no briefing\n")
-	_, err := notFound.run("briefing", "ghost")
+	// A 400 is about the invocation and exits 2.
+	badRequest := newFakeGraphAPI(t, http.StatusBadRequest, "bad limit\n")
+	_, err := badRequest.run("related", "n1")
 	if err == nil || exitCode(err) != 2 {
-		t.Fatalf("a 404 must exit 2, got exit %d from %v", exitCode(err), err)
+		t.Fatalf("a 400 must exit 2, got exit %d from %v", exitCode(err), err)
 	}
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Errorf("API errors must carry the marker, got: %v", err)
@@ -262,5 +262,35 @@ func TestGraphReadOnlyVerbsRejectStrayPositionalArgs(t *testing.T) {
 		if len(fake.calls) != 0 {
 			t.Errorf("a rejected invocation must not reach the API: %+v", fake.calls)
 		}
+	}
+}
+
+func TestGraphBriefingTreatsMissingBriefingAsAnAnswer(t *testing.T) {
+	// A node nobody briefed yet is a fair question with a real answer, so it
+	// exits 0 and says so rather than reporting a bad invocation.
+	api := newFakeGraphAPI(t, http.StatusNotFound, "no briefing\n")
+	out, err := api.run("briefing", "n1")
+	if err != nil {
+		t.Fatalf("a missing briefing must not be an error, got: %v", err)
+	}
+	if !strings.Contains(out, "No briefing for n1 yet") {
+		t.Errorf("expected an explicit no-briefing line, got %q", out)
+	}
+}
+
+func TestGraphBriefingJSONEmitsNullWhenMissing(t *testing.T) {
+	api := newFakeGraphAPI(t, http.StatusNotFound, "no briefing\n")
+	out, err := api.run("briefing", "--json", "n1")
+	if err != nil {
+		t.Fatalf("a missing briefing must not be an error, got: %v", err)
+	}
+	var doc struct {
+		Briefing *string `json:"briefing"`
+	}
+	if jsonErr := json.Unmarshal([]byte(strings.TrimSpace(out)), &doc); jsonErr != nil {
+		t.Fatalf("--json output is not valid JSON (%v): %q", jsonErr, out)
+	}
+	if doc.Briefing != nil {
+		t.Errorf("expected a null briefing, got %v", *doc.Briefing)
 	}
 }
