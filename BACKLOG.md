@@ -461,6 +461,58 @@ component renders either. Either the UI for resolving a tool-call permission was
 never built or it was removed; the composable and its backing route are live
 regardless.
 
+## Deferred — Human judgment gates (approvals): the capture flow is unbuilt (decided 2026-07-19)
+
+**This is the product's core promise — "the human touches only judgment gates" —
+and it does not work end-to-end.** The approval subsystem is fully-typed
+scaffolding with no runtime wiring. Confirmed across three layers:
+
+- Neither registry is ever instantiated in runtime: `approvals.NewApprovalRegistry`
+  has no caller, and `terminal` `RecordPendingApproval` / `SetApprovalResponder`
+  have no caller. `internal/approvals` is imported by no runtime package.
+- The execution helper `terminal.PerformApprovalAction` has no runtime caller.
+- The agent adapters *can* be configured with an MCP approval bridge
+  (`kernl_approval`, `--permission-prompt-tool`, `KERNL_APPROVAL_BRIDGE_BASE_URL`),
+  but the `Build*WithBridge` arg builders that would activate it have no runtime
+  caller, and the bridge base URL is read nowhere.
+
+So no live agent permission prompt is ever captured into anything the API could
+serve. The three `/api/approvals*` routes were empty stubs; the web client's
+`pendingPermission`/`resolvePermission` (see the entry above) is the GUI half of
+the same unbuilt feature.
+
+**What was done instead (the honest-facade fix, shipped):** the routes now answer
+`501 Not Implemented` with a clear message rather than faking success. Before
+this, `POST /api/approvals/{id}/actions` reported success for an id that never
+existed — `kernl approval resolve apr-999 --action approve --yes` printed
+"Resolved" at exit 0 — and `GET /api/approvals` reported "nothing pending" when
+it could report nothing at all. 501 lets a caller tell "unbuilt" from "idle".
+
+**What building it for real requires (the future project):**
+1. **Activate the approval bridge in agent dispatch** — call the `*WithBridge`
+   arg builders so a live agent routes permission prompts through the
+   `kernl_approval` MCP server (or the per-adapter equivalent: Codex
+   `approval_policy`, ACP permission requests).
+2. **Receive prompts at an endpoint** and extract them
+   (`approvals.ExtractApprovalRequest` already exists) into a
+   `PendingApprovalRecord`; call `RecordPendingApproval` on the owning session.
+3. **Wire the responder** (`SetApprovalResponder`) so applying an action replies
+   to the agent over its native transport (ACP / stdio / JSON-RPC) to unblock it.
+   `PerformApprovalAction` already encapsulates the status transitions and
+   returns an `HTTPStatus`, ready to be called from the API.
+4. **Instantiate the registry in `app.App`** and thread it into
+   `RegisterApprovalRoutes`, then replace the 501 handlers with real ones.
+5. Design decisions still open: which adapters/transports are in scope first, how
+   the bridge authenticates (`KERNL_APPROVAL_BRIDGE_TOKEN`), how a reply injects
+   per transport, and how the terminal-session route relates to the
+   orchestrator-gate route (two vocabularies today: accept/always_approve/decline
+   vs the gate's).
+
+**Dependency:** the `kernl triage` mega-command (a pass-2 ergonomics candidate)
+wants an "approvals waiting on you" slice. Until this project lands, `triage`
+must show approvals as *unavailable*, not *0 pending* — the 501 makes that
+distinction detectable.
+
 ## Deferred — CLI ⇄ GUI parity track (decided 2026-07-18, implemented 2026-07-19)
 
 ### `kernl` CLI parity with the web GUI — IMPLEMENTED, in review

@@ -158,6 +158,40 @@ func TestApprovalResolveApproveWithYesPostsAction(t *testing.T) {
 	}
 }
 
+// The backend answers 501 until the judgment-gate capture flow exists. The verb
+// must surface that as a loud, non-zero failure — never the old fabricated
+// "Resolved" for an id the server never saw. This is the regression guard for
+// the honest-facade fix.
+func TestApprovalResolveSurfacesNotImplemented(t *testing.T) {
+	api := &fakeApprovalAPI{t: t, status: http.StatusNotImplemented,
+		body: `{"error":"approvals are not implemented yet","implemented":false}`}
+	out, err := runApprovalVerb(t, api, "resolve", "apr-999", "--action", "approve", "--yes")
+	if err == nil {
+		t.Fatalf("a 501 must be a non-nil error, got success with output: %q", out)
+	}
+	if exitCode(err) != 1 {
+		t.Errorf("501 is a server-side failure — want exit 1, got %d", exitCode(err))
+	}
+	if strings.Contains(out, "Resolved") {
+		t.Errorf("must not fabricate a resolution, got: %q", out)
+	}
+	if !strings.Contains(err.Error(), "not implemented") {
+		t.Errorf("error should carry the server's not-implemented message, got: %v", err)
+	}
+}
+
+func TestApprovalListSurfacesNotImplemented(t *testing.T) {
+	api := &fakeApprovalAPI{t: t, status: http.StatusNotImplemented,
+		body: `{"error":"approvals are not implemented yet","implemented":false}`}
+	out, err := runApprovalVerb(t, api, "list")
+	if err == nil {
+		t.Fatalf("list against a 501 must fail, got success with output: %q", out)
+	}
+	if strings.Contains(out, "Nothing waiting") {
+		t.Errorf("must not report an idle gate when the gate is unbuilt, got: %q", out)
+	}
+}
+
 func TestApprovalResolveRejectNeedsNoConfirmation(t *testing.T) {
 	api := &fakeApprovalAPI{t: t, status: http.StatusOK, body: `{}`}
 	// Declining only stops work, so it is not gated — asserted so the
