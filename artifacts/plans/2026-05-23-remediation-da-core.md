@@ -1,8 +1,6 @@
 # Detailed Remediation Plan — kernl-5j6o (DA Core)
 
-**Status:** Awaiting user approval
-**Created:** 2026-05-23T23:00:00Z
-**Target:** Bring all epic child beads to 900–1000 score
+**Status:** Awaiting user approval **Created:** 2026-05-23T23:00:00Z **Target:** Bring all epic child beads to 900–1000 score
 
 ---
 
@@ -25,9 +23,7 @@
 ## 2. Remediation Beads (4 created)
 
 ### 2.1 `kernl-5j6o.1` — LLM Client Integration
-**What:** Replace `NoopLLMClient` with real OpenAI, Anthropic, and Ollama providers via a minimal abstraction.
-**Est. effort:** Medium (1 developer, 2–3 days)
-**Output files:**
+**What:** Replace `NoopLLMClient` with real OpenAI, Anthropic, and Ollama providers via a minimal abstraction. **Est. effort:** Medium (1 developer, 2–3 days) **Output files:**
 - `internal/chat/llm_provider.go`
 - `internal/chat/openai_client.go`
 - `internal/chat/anthropic_client.go`
@@ -36,9 +32,7 @@
 - `internal/config/config.go` (add LLM section)
 
 ### 2.2 `kernl-5j6o.2` — Permission Engine Cleanup
-**What:** Delete `stubPermissionChecker`, make `PermissionChecker` required in `NewChatEngine`, add deny-path integration test, clean stale comments.
-**Est. effort:** Small (1 developer, 1 day)
-**Output changes:**
+**What:** Delete `stubPermissionChecker`, make `PermissionChecker` required in `NewChatEngine`, add deny-path integration test, clean stale comments. **Est. effort:** Small (1 developer, 1 day) **Output changes:**
 - Delete `internal/chat/engine.go:24-28` (stub)
 - Modify `internal/chat/engine.go:43` → error on nil pc
 - Add `TestChatPermissionDenyAndContinue`
@@ -46,9 +40,7 @@
 - Target: `internal/chat` coverage ≥ 60%
 
 ### 2.3 `kernl-5j6o.3` — Vue Frontend Migration
-**What:** Rewrite vanilla JS frontend (chat UI, scope selector, DA config) to Vue 3 + Nuxt. Initialize Nuxt, port all features to `.vue` pages/components/composables, add Vitest and Playwright tests.
-**Est. effort:** Large (1 developer, 3–5 days)
-**Output files:**
+**What:** Rewrite vanilla JS frontend (chat UI, scope selector, DA config) to Vue 3 + Nuxt. Initialize Nuxt, port all features to `.vue` pages/components/composables, add Vitest and Playwright tests. **Est. effort:** Large (1 developer, 3–5 days) **Output files:**
 - `web/package.json` (Nuxt + Vue + Tailwind + Vitest + Playwright)
 - `web/nuxt.config.ts`
 - `web/pages/chat.vue`, `web/pages/config/da.vue`
@@ -60,9 +52,7 @@
 - Delete: `web/chat.html`, `web/chat.js`, `web/da-config.html`, `web/da-config.js`, `web/scope-selector.js`
 
 ### 2.4 `kernl-5j6o.4` — Integration Test Completion
-**What:** Complete the integration test matrix with deny-path, deny-with-feedback, concurrency, and SSE reconnect tests. Remove all `stubPermissionChecker` usage from integration tests.
-**Est. effort:** Small (1 developer, 1 day)
-**Output changes:**
+**What:** Complete the integration test matrix with deny-path, deny-with-feedback, concurrency, and SSE reconnect tests. Remove all `stubPermissionChecker` usage from integration tests. **Est. effort:** Small (1 developer, 1 day) **Output changes:**
 - Add `TestChatPermissionDenyAndContinue`
 - Add `TestChatPermissionDenyWithFeedback`
 - Add `TestChatConcurrentMessages`
