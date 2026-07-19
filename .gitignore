@@ -45,13 +45,16 @@ __pycache__/
 *.db-shm
 .beads-credential-key
 
-.claude/
-.opencode/
-.gemini/
-.codex/
+# No trailing slash on the paths listed in `.worktree-links`: bin/worktree materializes
+# them as SYMLINKS in every worktree, and a `dir/` pattern matches only a real directory.
+# With the slash the link is untracked, so `git add -A` in a worktree stages it.
+.claude
+.opencode
+.gemini
+.codex
 .cursor/
 .augment/
-.agents/
+.agents
 .github/
 .impeccable/
 .vibe-chaos-to-concept/
@@ -62,8 +65,8 @@ AGENTS.md
 # Solutions are compound-engineering artifacts; they live in the wiki vault, not in git.
 docs/solutions/
 
-.bv/
-.beads/
+.bv
+.beads
 
 kernl.yaml
 !kernl.yaml.example
@@ -78,7 +81,7 @@ SESSION_REPORT.md
 SESSION_TODO.md
 SESSION_*.md
 artifact-*.json
-artifacts/
+artifacts
 *.mcp.json
 *.mcp.json.*.bak
 opencode.json
