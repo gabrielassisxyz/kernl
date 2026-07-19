@@ -10,7 +10,8 @@ import (
 //
 //	0  success
 //	1  runtime/internal error (backend, config load, network, agent run)
-//	2  usage error (unknown verb/flag, missing argument, bad value)
+//	2  usage error (unknown verb/flag, missing argument, bad value, or a
+//	   destructive invocation refused for want of --yes)
 //
 // Callers can branch on `case $? in 2) fix the invocation;; 1) retry/inspect;;`.
 type usageError struct{ err error }
@@ -35,6 +36,25 @@ func (a alreadyReported) Unwrap() error { return a.err }
 
 // reportedElsewhere wraps an error the verb has already surfaced itself.
 func reportedElsewhere(err error) error { return alreadyReported{err: err} }
+
+// refusedWithoutYes ends a destructive invocation that previewed instead of
+// acting. The verb has already written the preview — prose or JSON — so this
+// contributes only the exit code.
+//
+// WHY exit 2 and not 0. The caller asked for a mutation and did not get one.
+// Exit 0 states that the command succeeded, which is how an agent branching on
+// `$?` concludes the delete happened and moves on; the refusal is visible only
+// to something that reads prose. Exit 2 is the same answer the CLI already
+// gives any other incomplete invocation, and `epic abort` has always refused
+// this way — before this, the two conventions disagreed inside one binary.
+//
+// It is deliberately not a new exit code: "you left out a required flag" is
+// what 2 already means, and a fourth code would have to be taught to every
+// caller to buy nothing.
+func refusedWithoutYes(verb string) error {
+	return reportedElsewhere(usagef(
+		"KERNL DISPATCH FAILURE: %s refused: nothing was changed — re-run with --yes to confirm", verb))
+}
 
 // wrapLoud prefixes context onto an error, adding the KERNL DISPATCH FAILURE
 // marker only when the wrapped error does not already carry it — the marker

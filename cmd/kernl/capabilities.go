@@ -65,7 +65,7 @@ var capabilityEnvVars = []capabilityEnvVar{
 var capabilityExitCodes = []capabilityExit{
 	{Code: 0, Meaning: "success"},
 	{Code: 1, Meaning: "runtime/internal error (backend, config, network, agent run)"},
-	{Code: 2, Meaning: "usage error (unknown verb/flag, missing argument, bad value)"},
+	{Code: 2, Meaning: "usage error (unknown verb/flag, missing argument, bad value, or a destructive invocation refused for want of --yes)"},
 }
 
 var capabilityGlobalFlags = []capabilityFlag{

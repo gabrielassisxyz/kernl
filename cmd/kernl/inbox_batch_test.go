@@ -65,9 +65,7 @@ func TestInboxBatchApplyWithoutYesOnlyPreviews(t *testing.T) {
 		`{"source":"whatsapp","separator":"whatsapp","segments":[{"sequence":1,"body":"buy milk"}]}`)
 
 	out, err := driveInbox(t, ts, "batch", "apply", "--file", writeBatchFixture(t))
-	if err != nil {
-		t.Fatalf("inbox batch apply: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "inbox batch apply")
 	if (*seen)[0].path != "/api/inbox/batch/preview" {
 		t.Fatalf("an unconfirmed apply must not write, it hit %s", (*seen)[0].path)
 	}
@@ -83,9 +81,7 @@ func TestInboxBatchApplyWithoutYesJSONSaysNotApplied(t *testing.T) {
 		`{"source":"whatsapp","separator":"whatsapp","segments":[{"sequence":1,"body":"buy milk"}]}`)
 
 	out, err := driveInbox(t, ts, "batch", "apply", "--json", "--file", writeBatchFixture(t))
-	if err != nil {
-		t.Fatalf("inbox batch apply --json: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "inbox batch apply")
 	if (*seen)[0].path != "/api/inbox/batch/preview" {
 		t.Fatalf("an unconfirmed apply must not write, it hit %s", (*seen)[0].path)
 	}

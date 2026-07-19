@@ -200,10 +200,13 @@ func runTaskDelete(v verbContext, asJSON bool, args []string) error {
 	// invocation must not depend on the server being reachable to be safe.
 	if !confirmed {
 		if asJSON {
-			return emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"deleted":false,"wouldDelete":true}`, id)))
+			if err := emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"deleted":false,"wouldDelete":true}`, id))); err != nil {
+				return err
+			}
+			return refusedWithoutYes("task delete")
 		}
 		fmt.Fprintf(v.stdout(), "Would delete task %s and its companion note. Re-run with --yes to confirm.\n", id)
-		return nil
+		return refusedWithoutYes("task delete")
 	}
 
 	raw, err := requestTask(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {

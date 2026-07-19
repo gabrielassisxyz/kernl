@@ -308,10 +308,15 @@ func runNoteDelete(ctx context.Context, c *apiClient, out io.Writer, asJSON bool
 	}
 	if !confirmed {
 		if asJSON {
-			return json.NewEncoder(out).Encode(map[string]string{"path": path, "status": "dry-run"})
+			if err := json.NewEncoder(out).Encode(map[string]string{"path": path, "status": "dry-run"}); err != nil {
+				return err
+			}
+			return refusedWithoutYes("note delete")
 		}
-		_, err := fmt.Fprintf(out, "Would delete %s. Re-run with --yes to delete it.\n", path)
-		return err
+		if _, err := fmt.Fprintf(out, "Would delete %s. Re-run with --yes to delete it.\n", path); err != nil {
+			return err
+		}
+		return refusedWithoutYes("note delete")
 	}
 	raw, err := c.delete(ctx, noteFileRoute(path))
 	if err != nil {

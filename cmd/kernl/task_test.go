@@ -198,9 +198,7 @@ func TestTaskSetJSONEmitsAckForEmpty204Body(t *testing.T) {
 func TestTaskDeleteWithoutYesIssuesNoRequest(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
 	out, err := runTaskVerb(t, api, "delete", "tsk-1")
-	if err != nil {
-		t.Fatalf("unconfirmed delete must succeed as a preview, got: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "task delete")
 	if len(api.calls) != 0 {
 		t.Fatalf("delete without --yes must not touch the server, got %+v", api.calls)
 	}
@@ -214,9 +212,7 @@ func TestTaskDeleteWithoutYesIssuesNoRequest(t *testing.T) {
 func TestTaskDeletePreviewHonoursJSON(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
 	out, err := runTaskVerb(t, api, "delete", "tsk-1", "--json")
-	if err != nil {
-		t.Fatalf("unconfirmed --json delete must succeed as a preview, got: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "task delete")
 	if len(api.calls) != 0 {
 		t.Fatalf("delete without --yes must not touch the server, got %+v", api.calls)
 	}

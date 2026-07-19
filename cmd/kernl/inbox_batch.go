@@ -89,14 +89,25 @@ func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, a
 			// reads a dry-run as a completed apply. Wrap the preview in a envelope
 			// that states, unmistakably, that nothing was created.
 			env := fmt.Sprintf(`{"applied":false,"wouldApply":true,"preview":%s}`, raw)
-			return emitJSON(v.stdout(), json.RawMessage(env))
+			if err := emitJSON(v.stdout(), json.RawMessage(env)); err != nil {
+				return err
+			}
+			return refusedWithoutYes("inbox batch apply")
 		}
 		return emitJSON(v.stdout(), raw)
 	}
 	if sub == "apply" && confirmed {
 		return printInboxBatchResult(v.stdout(), raw, route)
 	}
-	return printInboxBatchSplit(v.stdout(), raw, route, sub == "apply")
+	if err := printInboxBatchSplit(v.stdout(), raw, route, unconfirmedApply); err != nil {
+		return err
+	}
+	// analyze and preview are read-only and end here at exit 0; only apply
+	// reached this line by refusing to act.
+	if unconfirmedApply {
+		return refusedWithoutYes("inbox batch apply")
+	}
+	return nil
 }
 
 // inboxBatchBody carries only what the API accepts: the text as read and the

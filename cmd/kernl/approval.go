@@ -152,7 +152,7 @@ func runApprovalResolve(v verbContext, asJSON bool, args []string) error {
 	if approvalGrantingActions[action] && !confirmed {
 		fmt.Fprintf(v.stdout(), "Would resolve approval %s with %q%s. Re-run with --yes to confirm.\n",
 			id, action, approvalSessionSuffix(session))
-		return nil
+		return refusedWithoutYes("approval resolve")
 	}
 	return sendApprovalAction(v, asJSON, id, session, action)
 }

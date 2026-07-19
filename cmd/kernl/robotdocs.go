@@ -27,11 +27,16 @@ Read the machine contract first: kernl capabilities --json
 ## Ground rules
 - stdout is data, stderr is diagnostics. All errors carry the greppable
   marker KERNL DISPATCH FAILURE and exit non-zero.
-- Exit codes: 0 success · 1 runtime/internal error · 2 usage error.
+- Exit codes: 0 success · 1 runtime/internal error · 2 usage error, which
+  includes a destructive invocation refused for want of --yes.
 - --help/-h/help work on every verb and sub-verb, never run work, exit 0.
 - NO_COLOR=1, TERM=dumb or CI=true guarantee ANSI-free output.
-- Destructive verbs are gated: 'sweep' previews as dry-run without --yes;
-  'epic abort' refuses without --yes; both accept --dry-run.
+- Destructive verbs are gated, and a refused one EXITS 2 while printing the
+  preview: task/note/project delete, inbox reopen, inbox batch apply,
+  bead close, bead mark-terminal, bead rollback, approval resolve, epic abort.
+  Never read exit 0 from one of these as "it happened" — re-run with --yes.
+- 'sweep' is the deliberate exception and exits 0: its default mode is a
+  read-only scan announced on stderr, not a mutation you asked for and lost.
 
 ## JSON read surfaces
 `)

@@ -128,9 +128,7 @@ func TestApprovalListJSONPassesServerBodyThrough(t *testing.T) {
 func TestApprovalResolveGrantRequiresYes(t *testing.T) {
 	api := &fakeApprovalAPI{t: t, status: http.StatusOK, body: `{}`}
 	out, err := runApprovalVerb(t, api, "resolve", "apr-7", "--action", "approve")
-	if err != nil {
-		t.Fatalf("unconfirmed grant must succeed as a preview, got: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "approval resolve")
 	if len(api.calls) != 0 {
 		t.Fatalf("approving without --yes must not touch the server, got %+v", api.calls)
 	}

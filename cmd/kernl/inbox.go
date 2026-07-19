@@ -360,10 +360,15 @@ func inboxReopen(ctx context.Context, v verbContext, c *apiClient, asJSON bool, 
 	}
 	if !confirmed {
 		if asJSON {
-			return emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"reopened":false,"wouldReopen":true}`, id)))
+			if err := emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"reopened":false,"wouldReopen":true}`, id))); err != nil {
+				return err
+			}
+			return refusedWithoutYes("inbox reopen")
 		}
-		_, err := fmt.Fprintf(v.stdout(), "Would reopen %s: this deletes its derived node and requeues the capture. Re-run with --yes to confirm.\n", id)
-		return err
+		if _, err := fmt.Fprintf(v.stdout(), "Would reopen %s: this deletes its derived node and requeues the capture. Re-run with --yes to confirm.\n", id); err != nil {
+			return err
+		}
+		return refusedWithoutYes("inbox reopen")
 	}
 	return inboxSimplePost(ctx, v, c, asJSON, "reopen", []string{id}, "Reopened")
 }

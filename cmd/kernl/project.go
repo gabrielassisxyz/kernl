@@ -257,10 +257,13 @@ func previewProjectDelete(v verbContext, c *apiClient, asJSON bool, id string) e
 			continue
 		}
 		if asJSON {
-			return emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"title":%q,"deleted":false,"wouldDelete":true}`, p.ID, p.Title)))
+			if err := emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"title":%q,"deleted":false,"wouldDelete":true}`, p.ID, p.Title))); err != nil {
+				return err
+			}
+			return refusedWithoutYes("project delete")
 		}
 		fmt.Fprintf(v.stdout(), "Would delete project %s — %s, plus its companion note. Re-run with --yes.\n", p.ID, p.Title)
-		return nil
+		return refusedWithoutYes("project delete")
 	}
 	return usagef("KERNL DISPATCH FAILURE: no project with id %q — list them with: kernl project list", id)
 }
