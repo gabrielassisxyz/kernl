@@ -460,7 +460,11 @@ func sortedKeys[V any](m map[string]V) []string {
 // JSON), reusing the client's transport and its status/exit-code mapping —
 // apiClient.post would JSON-encode the markdown and write a quoted string.
 func (c *apiClient) postRaw(ctx context.Context, path, contentType string, body []byte) (json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	base, err := c.base()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, wrapLoud("building request", err)
 	}

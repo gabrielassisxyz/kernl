@@ -450,7 +450,11 @@ func emitIngestAck(v verbContext, raw json.RawMessage) error {
 // transport and its status/exit-code mapping — apiClient.post would JSON-encode
 // the form and send it as a quoted string.
 func (c *apiClient) postMultipart(ctx context.Context, path, contentType string, form []byte) (json.RawMessage, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(form))
+	base, err := c.base()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+path, bytes.NewReader(form))
 	if err != nil {
 		return nil, wrapLoud("building request", err)
 	}
