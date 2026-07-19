@@ -96,6 +96,57 @@ A checkbox to toggle whether auto-classify runs, plus a button to trigger the cl
 
 **Verify:** `go test ./internal/inbox/... ./internal/api/...` green; then `run.sh` and drive the UI — paste a batch with auto-classify **OFF**, confirm the created captures stay unclassified (no background suggestions appear); click "Classify now", confirm the suggestions appear; toggle back ON.
 
+### Ingest review resolution: refuse an empty action, and stop calling a delete "skip"
+
+Resolving an ingest review with no action permanently destroys it. `ResolveReview` (`internal/ingest/resolve.go:74`) treats `""` and `"Skip"` the same and both run `DeleteIngestReview` — so a `POST /api/ingest/queue/{id}/resolve` with an empty body discards the review with no confirmation, and `kernl ingest queue resolve <id>` with no `--action` inherits that. The CLI default is *deliberate* and carries a comment (`cmd/kernl/ingest.go:366`) explaining that inventing a different default would make the CLI resolve reviews differently from the API it is a client of. That reasoning is sound, which is why the fix belongs in the API, not the CLI.
+
+Two defects, one root: an action that means "discard permanently" is both the **implicit default** and named **`skip`**, a word that reads as "leave it for later".
+
+**Decided 2026-07-19 (both parts together):**
+- **Refuse the empty action at the API.** `ResolveReview` stops accepting `""` as `Skip` and returns a validation error; the handler (`internal/api/ingest.go:342`) maps it to **400**. `ingestResolveAction` then requires `--action` and exits **2** with the valid-token list it already builds. One decision, one place, CLI and API back in agreement.
+- **Rename the CLI token `skip` → `discard`**, no alias, no deprecation window. The wire value stays `"Skip"` — only the shell-facing token changes, via the translation map that already exists for `create-page` → `"Create Page"` (`ingestResolveActions`, `cmd/kernl/ingest.go:21`). Renaming the wire value is a separate wire-contract change and is **not** in scope here.
+
+**Why breaking the default is safe:** the web UI never takes this path — `resolveAction` (`web/pages/ingest.vue:232`) always sends an explicit action. The empty-action path is reachable only from the CLI or a direct API call, so there is no consumer to deprecate for.
+
+**Anti-goal:** no soft-delete or undo for reviews; no change to what `Create Page` / `Update` do; no rename of the `"Skip"` wire value.
+
+**Tests:** `ResolveReview` with `""` returns the validation error and leaves the review in place (today it deletes it); the handler answers 400; a regression tripwire asserting `kernl ingest queue resolve <id>` with no `--action` exits 2 and writes nothing.
+
+**Verify:** create a review, call resolve with an empty body — the review is still in `kernl ingest queue list`. Then `--action discard` removes it.
+
+### Creation output leads with an opaque UUID instead of the thing you just named
+
+Graph node ids are bare **UUIDv7** — `createNode` calls `ids.New()` (`internal/graph/nodes/chokepoint.go:48`), which is `uuid.NewV7().String()`. There is no short human-readable prefix; that convention belongs to bd bead ids, a different store. So a 36-character opaque string carries no information a reader can check, and every creation message currently opens with one:
+
+- `task create` → `Created task <uuid>` (`cmd/kernl/task.go:151`) — **no title at all**
+- `project create` → `Created project <uuid> — <title>` (`cmd/kernl/project.go:177`)
+- `memory add-claim` → `Added claim <uuid> under <subject>` (`cmd/kernl/memory.go:225`)
+- `inbox batch` → `Created batch <uuid> with N capture(s)` (`cmd/kernl/inbox_batch.go:167`)
+
+`task create` is the worst of the four because it is also the verb that *constructs* its title: unquoted positional args are joined into one string (`taskCreateBody`, `cmd/kernl/task.go:258`). The comment defending that join says the slip is harmless because "the title is echoed back on success anyway" — **it is not**; that verb echoes only the id. The join's stated safety net does not exist.
+
+`note write` already gets this right (`Wrote <path> (N bytes)`, `cmd/kernl/note.go:273`): where the identity is human-readable, the code already leads with it.
+
+**Decided 2026-07-19 — one format across the four:**
+
+    Created task "Fix the login bug" (01912f3e-7c4a-7b3d-9f21-4e8a1c2b5d70)
+
+- **Title first, quoted.** The quotes delimit where the title starts and ends, which is precisely what needs checking when a positional join built it — unquoted, a swallowed word is invisible.
+- **Id last, in parentheses.** Still there to copy, out of the reading path.
+- **One line**, so `grep`/`awk` keep working. Structured consumers use `--json`, which does not change.
+
+**Also decided, same unit of work:** add `--title` to `task create`, mirroring `project create` (`cmd/kernl/project.go:39`). The join exists because the verb has no unambiguous alternative — `task create` is positional-only today. With `--title` present and the title echoed back, the join costs nothing and stays as interactive forgiveness.
+
+**Not in scope:** `bead create` (`cmd/kernl/bead_api.go:214`) keeps leading with its id — bd ids are short and readable, and beads are the orchestrator's store, not the graph. Making `task create` strict like `project create` was rejected: completing the verb is the fix, and strictness would only be reachable *after* `--title` exists anyway.
+
+**Tests:** `task create` with unquoted multi-word input echoes the joined title in quotes; `--title` and a positional title together are rejected (mirror `projectCreateTitle`, `cmd/kernl/project.go:188`); a golden-output assertion per verb for the new line shape.
+
+### Keep the CLI in step when the ingest screen is reworked
+
+The ingest CLI and the ingest UI are two clients of one contract, and the CLI is the one that gets forgotten — it has no screen to look wrong on. Whenever the ingest flow or its screen is reworked, re-check the CLI surface in the same unit of work: the action vocabulary (`ingestResolveActions`), what `queue list` shows, and the help/`capabilities` text that describes them. A UI-only change that adds or renames a resolution action leaves `kernl ingest queue resolve` silently unable to express it.
+
+Also pending on that rework, from the agent-ergonomics pass: `ingest queue list` still emits PascalCase against the camelCase wire contract (R2-007b, in `## Deferred`) and the third-level `ingest queue *` subcommands are invisible to `capabilities --json`. Both are cheapest to fix while the route is already open.
+
 ### Add a way to organize and categorize projects
 Some structure for grouping/categorizing projects.
 
@@ -177,13 +228,18 @@ Decided (2026-07-14): **llm-workflow stays the source of truth**. A symlink into
 
 The pass-2 audit scored 401 CLI surfaces and applied 9 of 10 recommendations on PR #109. These are the pieces consciously left out — kept here (not only in the gitignored audit workspace) because two of them need a decision from the maintainer and the rest are real follow-up work.
 
-### Needs a decision — default changes (R2-006 c/d)
-Two destructive-default changes were held back because they would break existing scripts:
-- **`ingest queue resolve` defaults to `Skip`** — omitting `--action` permanently discards a review with no confirmation. The safe fix is to refuse when `--action` is omitted, but that changes the default. Decide: refuse (breaking), or gate behind a deprecation warning first.
-- **`inbox prep` mutates by default** — the bare form POSTs and spends an LLM call; the *read* is the flagged `--show`. Making `--show` the default (or at least warning that bare `prep` costs an LLM call) inverts the default. Decide the direction.
+Both "needs a decision" items were decided on 2026-07-19 and moved to `## Tasks`: R2-006 c (the `ingest queue resolve` empty-action default) and R2-006 d (`inbox prep`, whose finding did not survive review — see below).
 
-### Needs a decision — a deliberate design, not a bug (R2-009 part 1)
-`task create` silently joins extra positional args into the title (`taskCreateBody`, with a comment defending it as "what the user meant"), while `project create` rejects them and asks you to quote. The inconsistency is real; which way to resolve it is a taste call. Not reversed unilaterally because the join is a documented, intentional choice.
+### Corrected finding — `inbox prep` does not have an expensive default (R2-006 d)
+The pass-2 audit recorded this as "mutates by default; the safe path is opt-in, the expensive LLM path is the default". **That characterisation is wrong**, and it is kept here so a later pass does not reopen the question from the same false premise.
+
+`inbox.Prep` short-circuits on an existing prep edge *before* constructing any prompt (`internal/inbox/prep.go:52-62`), and the handler documents the property (`internal/api/inbox.go:671`). So bare `prep` and `prep --show` differ **only** for a never-prepped capture: bare `prep` generates once, `--show` answers "no prep yet" at exit 0. On an already-prepped capture the two are identical and neither costs an LLM call.
+
+The pair is therefore coherent — `prep` is **get-or-create**, `--show` is **get-if-exists**. What is actually defective is that nothing says so: the `Details` text (`cmd/kernl/inbox.go:99-103`) documents `--show` alone and never states that the bare form generates, or that generation costs an LLM call the first time.
+
+**Decided:** keep the default; fix the description. Rewrite the `prep` `Details` to state the get-or-create semantics and the first-call LLM cost, so it reaches `capabilities --json` too (which exposes `Details` since R2-003). Inverting the default (`--generate` to write) and splitting into `prep make` / `prep show` were both rejected: they trade one surprise for another and break a fence the code justifies. A `--yes` gate was rejected as well — the operation destroys nothing, and using the gate here would dilute the signal it now carries on `inbox reopen` and `inbox batch apply`.
+
+(R2-009 part 1 — the `task create` positional join — was decided on 2026-07-19 and moved to `## Tasks`. It was filed as a taste call; it turned out to rest on a comment the code contradicts.)
 
 ### Backlog work — a feature, not a CLI tweak (R2-009 part 2)
 `task set` has no `--description` / `--project`, so a task can never be re-described or re-parented from the CLI. Adding the flags requires backend work first: the PATCH handler (`internal/api/tasks.go`) only accepts title/status/tags/dueDate, and there is no `nodes.SetTaskDescription` or task re-parent (re-parenting is a graph-edge operation, not a field write). Wire the node-layer setters + the PATCH handler, *then* the CLI flags — otherwise the flags are a silent no-op.
