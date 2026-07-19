@@ -32,8 +32,10 @@ Run 'kernl settings <subcommand> --help' for details on each.`,
 what the running process holds. The LLM API key is never returned by the
 server — only whether one is set.
 
-Flags:
-  --json  Emit the API's settings object verbatim (camelCase)`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: "Emit the API's settings object verbatim (camelCase)"},
+			},
 		},
 		{
 			Name:    "set",
@@ -60,11 +62,13 @@ runtime  --server-port <1-65535>   --worktree-root <absolute path>
          --sweep-interval-sec <n>  --pr-stale-warn-days <n>
          --sweep-failure-limit <n> --sweep-backoff-minutes <5,15,60>
 
-Flags:
-  --json  Emit the API's full settings object after the write
+{{flags}}
 
 Example:
   kernl settings set llm --provider openai --model gpt-4o-mini`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: "Emit the API's full settings object after the write"},
+			},
 		},
 	},
 }

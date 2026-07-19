@@ -27,9 +27,11 @@ Run 'kernl inbox <subcommand> --help' for details on each.`,
 			Name:    "list",
 			Summary: "List pending captures (or the processed ones)",
 			Usage:   "kernl inbox list [--processed] [--json]",
-			Details: `Flags:
-  --processed  List captures that already left the queue, and what they became
-  --json       Emit the API response verbatim (camelCase)`,
+			Details: `{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--processed", Description: "List captures that already left the queue, and what they became"},
+				{Name: "--json", Description: "Emit the API response verbatim (camelCase)"},
+			},
 		},
 		{
 			Name:    "add",
@@ -46,18 +48,20 @@ Examples:
 			Name:    "process",
 			Summary: "Turn a capture into a node (note, task, project, bookmark, discard)",
 			Usage:   "kernl inbox process <capture-id> --target <note|task|project|bookmark|update|discard> [flags]",
-			Details: `Flags:
-  --target <t>       What the capture becomes (required)
-  --title <text>     Title for the created node (default: the capture's own)
-  --project-id <id>  File a task under an existing project
-  --tags <a,b,c>     Comma-separated tags
-  --due <YYYY-MM-DD> Due date; on --target task only
-  --link-to <id>     Link the created node to an existing node
-  --target-note <id> With --target update: the note to merge into
-  --json             Emit the API response verbatim
+			Details: `{{flags}}
 
 One invocation sends one action. A capture that fans out into several nodes
 at once is a GUI/API flow; here, reopen and process again.`,
+			Flags: []commandFlag{
+				{Name: "--target", Value: "<t>", Description: "What the capture becomes (required)"},
+				{Name: "--title", Value: "<text>", Description: "Title for the created node (default: the capture's own)"},
+				{Name: "--project-id", Value: "<id>", Description: "File a task under an existing project"},
+				{Name: "--tags", Value: "<a,b,c>", Description: "Comma-separated tags"},
+				{Name: "--due", Value: "<YYYY-MM-DD>", Description: "Due date; on --target task only"},
+				{Name: "--link-to", Value: "<id>", Description: "Link the created node to an existing node"},
+				{Name: "--target-note", Value: "<id>", Description: "With --target update: the note to merge into"},
+				{Name: "--json", Description: "Emit the API response verbatim"},
+			},
 		},
 		{
 			Name:    "convert",
@@ -74,9 +78,11 @@ title, tags, a project and a due date.`,
 --yes. Without it nothing is written — the capture that would be reopened is
 printed and the command exits 0.
 
-Flags:
-  --yes   Actually reopen
-  --json  Emit {"id","reopened":true} (or the preview) on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--yes", Description: "Actually reopen"},
+				{Name: "--json", Description: `Emit {"id","reopened":true} (or the preview) on stdout`},
+			},
 		},
 		{
 			Name:    "classify",
@@ -105,12 +111,16 @@ the first prep of a given capture is the only invocation that spends anything
 '--show' is get-if-exists: it never generates. On an already-prepped capture
 the two forms are identical.
 
-Flags:
-  --show  Read the existing prep note instead of generating one. When none
-          exists this prints "no prep yet" and exits 0 — absence is an
-          answer, not a bad invocation
+{{flags}}
 
 Generating needs an LLM provider; --show does not.`,
+			Flags: []commandFlag{
+				{Name: "--show", Description: "Read the existing prep note instead of generating one. When none",
+					Continuation: []string{
+						`exists this prints "no prep yet" and exits 0 — absence is an`,
+						"answer, not a bad invocation",
+					}},
+			},
 		},
 		{
 			Name:    "rollups",

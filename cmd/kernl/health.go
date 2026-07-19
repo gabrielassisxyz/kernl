@@ -20,10 +20,12 @@ GUI's update banner.
 When no server answers, the error names the address that was tried and how
 to start one — that failure is the useful answer, not a crash.
 
-Flags:
-  --json  Emit the API's {"status","vaultRoot","vaultLabel"} verbatim
+{{flags}}
 
 Run 'kernl health update-check' for the app-update check.`,
+	Flags: []commandFlag{
+		{Name: "--json", Description: `Emit the API's {"status","vaultRoot","vaultLabel"} verbatim`},
+	},
 	Subs: []commandMeta{
 		{
 			Name:    "update-check",
@@ -33,8 +35,10 @@ Run 'kernl health update-check' for the app-update check.`,
 not contact any release feed yet — it answers {"status":"unknown","checked":false}.
 Branch on "checked": false means "nobody looked", not "you are current".
 
-Flags:
-  --json  Emit the API's {"status","checked","detail"} verbatim`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit the API's {"status","checked","detail"} verbatim`},
+			},
 		},
 	},
 }

@@ -25,9 +25,11 @@ Run 'kernl task <subcommand> --help' for details on each.`,
 			Name:    "list",
 			Summary: "List tasks, optionally scoped to one project",
 			Usage:   "kernl task list [--project <project-id>] [--json]",
-			Details: `Flags:
-  --project <id>  Only tasks belonging to that project
-  --json          Emit the API's task array verbatim (camelCase)`,
+			Details: `{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--project", Value: "<id>", Description: "Only tasks belonging to that project"},
+				{Name: "--json", Description: "Emit the API's task array verbatim (camelCase)"},
+			},
 		},
 		{
 			Name:    "create",
@@ -37,17 +39,19 @@ Run 'kernl task <subcommand> --help' for details on each.`,
 unquoted multi-word positional title is joined into one string; the success
 line quotes what was stored, so a swallowed word is visible.
 
-Flags:
-  --title <t>          The title, as an alternative to the positional form
-  --project <id>       Attach the task to a project (creates the part_of edge)
-  --status <status>    Initial status (server default when omitted)
-  --description <text> Long-form body
-  --tags <a,b,c>       Comma-separated tags
-  --due <YYYY-MM-DD>   Due date, a calendar day (no time, no timezone)
-  --json               Emit {"id"} on stdout
+{{flags}}
 
 Example:
   kernl task create "renew the domain" --project prj-1 --due 2026-08-01`,
+			Flags: []commandFlag{
+				{Name: "--title", Value: "<t>", Description: "The title, as an alternative to the positional form"},
+				{Name: "--project", Value: "<id>", Description: "Attach the task to a project (creates the part_of edge)"},
+				{Name: "--status", Value: "<status>", Description: "Initial status (server default when omitted)"},
+				{Name: "--description", Value: "<text>", Description: "Long-form body"},
+				{Name: "--tags", Value: "<a,b,c>", Description: "Comma-separated tags"},
+				{Name: "--due", Value: "<YYYY-MM-DD>", Description: "Due date, a calendar day (no time, no timezone)"},
+				{Name: "--json", Description: `Emit {"id"} on stdout`},
+			},
 		},
 		{
 			Name:    "set",
@@ -57,12 +61,14 @@ Example:
 passing an empty value clears the field: --tags "" removes every tag and
 --due "" removes the due date.
 
-Flags:
-  --title <text>      New title (cannot be empty)
-  --status <status>   New status (cannot be empty)
-  --tags <a,b,c>      Replace the tag set; "" clears it
-  --due <YYYY-MM-DD>  Replace the due date; "" clears it
-  --json              Emit {"id","updated"} on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--title", Value: "<text>", Description: "New title (cannot be empty)"},
+				{Name: "--status", Value: "<status>", Description: "New status (cannot be empty)"},
+				{Name: "--tags", Value: "<a,b,c>", Description: `Replace the tag set; "" clears it`},
+				{Name: "--due", Value: "<YYYY-MM-DD>", Description: `Replace the due date; "" clears it`},
+				{Name: "--json", Description: `Emit {"id","updated"} on stdout`},
+			},
 		},
 		{
 			Name:    "delete",

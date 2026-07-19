@@ -13,7 +13,35 @@ type commandMeta struct {
 	Summary string
 	Usage   string
 	Details string
-	Subs    []commandMeta
+	Flags   []commandFlag
+	// FlagsHeading overrides the "Flags:" line above the block. `inbox batch`
+	// needs it to say the flags cover all three of its subcommands — a fact
+	// about scope, not decoration, which would have been lost by forcing every
+	// block to the same heading.
+	FlagsHeading string
+	Subs         []commandMeta
+}
+
+// commandFlag is one flag, described once. The "Flags:" block of a help page is
+// RENDERED from this — it is not written by hand into Details — so `--help` and
+// `capabilities --json` cannot disagree about what a flag is or takes.
+//
+// WHY it works this way. Before this, the flags existed only as prose inside
+// Details: an agent invited to pin against the machine contract could see 22
+// verbs and none of their 125 flags, and the two descriptions could drift apart
+// silently. Putting the structured data next to the prose would have been the
+// same defect with extra steps — two sources for one fact. So the prose became
+// the derived artifact and this became the source.
+//
+// Value is the placeholder shown after the flag ("<n>", "<path>"); empty means
+// the flag is a boolean. Description is one line; use Continuation for the rare
+// flag whose explanation genuinely needs a second one.
+type commandFlag struct {
+	Name         string
+	Alias        string
+	Value        string
+	Description  string
+	Continuation []string
 }
 
 var commandTable = []commandMeta{
@@ -37,19 +65,23 @@ conflating them is how a caller concludes no judgment gate is waiting.
 Exit code is non-zero only when NOTHING could be read — a partial report
 is a successful triage.
 
-Flags:
-  --json  Emit the whole report as one document, every section carrying
-          {available, reason, count, items, command}`,
+{{flags}}`,
+		Flags: []commandFlag{
+			{Name: "--json", Description: "Emit the whole report as one document, every section carrying",
+				Continuation: []string{"{available, reason, count, items, command}"}},
+		},
 	},
 	{
 		Name:    "serve",
 		Summary: "Start the HTTP API server (add --no-orchestrator for GUI-only)",
 		Usage:   "kernl [--config <path>] [--port <port>] serve [--no-orchestrator]",
-		Details: `Flags:
-  --port, -p         Server port (default: from kernl.yaml, or 8080)
-  --no-orchestrator  Serve only the GUI/graph/notes; do not require bd
+		Details: `{{flags}}
 
 The server hosts the web GUI, the REST API and the SSE event streams.`,
+		Flags: []commandFlag{
+			{Name: "--port", Alias: "-p", Description: "Server port (default: from kernl.yaml, or 8080)"},
+			{Name: "--no-orchestrator", Description: "Serve only the GUI/graph/notes; do not require bd"},
+		},
 	},
 	{
 		Name:    "doctor",
@@ -58,8 +90,10 @@ The server hosts the web GUI, the REST API and the SSE event streams.`,
 		Details: `Checks that bd, the agent CLI, Go and the config file are usable.
 Exit code is non-zero when a required check fails.
 
-Flags:
-  --json  Emit {"ok","checks":[...],"recommendedAction"} on stdout`,
+{{flags}}`,
+		Flags: []commandFlag{
+			{Name: "--json", Description: `Emit {"ok","checks":[...],"recommendedAction"} on stdout`},
+		},
 	},
 	{
 		Name:    "epic",
@@ -74,17 +108,21 @@ the others drive the orchestrator locally.`,
 				Name:    "list",
 				Summary: "List epics with child counts and state",
 				Usage:   "kernl epic list [--json]",
-				Details: `Flags:
-  --json  Emit {"epics":[{"id","title","children","state"}]} on stdout`,
+				Details: "{{flags}}",
+				Flags: []commandFlag{
+					{Name: "--json", Description: `Emit {"epics":[{"id","title","children","state"}]} on stdout`},
+				},
 			},
 			{
 				Name:    "run",
 				Summary: "Execute an epic's bead graph in parallel",
 				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] <epic-id>",
-				Details: `Flags:
-  --workflow <path>  Use a custom workflow YAML instead of the default profile
-  --autonomous       Let the DA infer the workflow shape without prompting
-  --interactive      With --autonomous: confirm the inferred shape first`,
+				Details: "{{flags}}",
+				Flags: []commandFlag{
+					{Name: "--workflow", Value: "<path>", Description: "Use a custom workflow YAML instead of the default profile"},
+					{Name: "--autonomous", Description: "Let the DA infer the workflow shape without prompting"},
+					{Name: "--interactive", Description: "With --autonomous: confirm the inferred shape first"},
+				},
 			},
 			{
 				Name:    "merge",
@@ -126,13 +164,15 @@ the merged ones (epic + children) in the tracker.
 
 Without --yes this is a dry-run preview: nothing is closed.
 
-Flags:
-  --yes                     Actually close the merged epics
-  --dry-run                 Preview without closing (default behavior)
-  --repo <path>             Repo to sweep (default: current directory)
-  --failure-threshold <n>   Consecutive failures before backing off
-  --backoff-minutes <list>  Comma-separated backoff schedule, e.g. 5,15,60
-  --stale-warn-days <n>     Warn when a PR is open longer than n days`,
+{{flags}}`,
+		Flags: []commandFlag{
+			{Name: "--yes", Description: "Actually close the merged epics"},
+			{Name: "--dry-run", Description: "Preview without closing (default behavior)"},
+			{Name: "--repo", Value: "<path>", Description: "Repo to sweep (default: current directory)"},
+			{Name: "--failure-threshold", Value: "<n>", Description: "Consecutive failures before backing off"},
+			{Name: "--backoff-minutes", Value: "<list>", Description: "Comma-separated backoff schedule, e.g. 5,15,60"},
+			{Name: "--stale-warn-days", Value: "<n>", Description: "Warn when a PR is open longer than n days"},
+		},
 	},
 	{
 		Name:    "bookmark",
@@ -167,11 +207,13 @@ Examples:
 		Name:    "plan",
 		Summary: "Show the vault notes relevant to a topic (substrate-aware planning)",
 		Usage:   "kernl plan [--json] <topic>",
-		Details: `Flags:
-  --json  Emit {"topic","notes":[{"title","via","snippet"}]} on stdout
+		Details: `{{flags}}
 
 Example:
   kernl plan "caching strategy"`,
+		Flags: []commandFlag{
+			{Name: "--json", Description: `Emit {"topic","notes":[{"title","via","snippet"}]} on stdout`},
+		},
 	},
 	{
 		Name:    "capabilities",
@@ -190,8 +232,10 @@ the flag.`,
 		Name:    "version",
 		Summary: "Print version and build information",
 		Usage:   "kernl version [--json]",
-		Details: `Flags:
-  --json  Emit {"version","commit","built","go"} on stdout`,
+		Details: "{{flags}}",
+		Flags: []commandFlag{
+			{Name: "--json", Description: `Emit {"version","commit","built","go"} on stdout`},
+		},
 	},
 	// GUI-parity verbs declare their own metadata next to their
 	// implementation, so one file owns a verb's dispatch, help and tests.
@@ -303,9 +347,62 @@ func renderCommandHelp(qualified string, cmd *commandMeta) string {
 		}
 	}
 	if cmd.Details != "" {
-		b.WriteString("\n" + cmd.Details + "\n")
+		b.WriteString("\n" + expandFlagsPlaceholder(cmd) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// flagsPlaceholder marks where in a command's Details the rendered flag block
+// goes. It is an explicit token rather than an appended section because the
+// block sits mid-page — prose above it, an Example below — and moving it would
+// change every help page this migration was required not to change.
+const flagsPlaceholder = "{{flags}}"
+
+// expandFlagsPlaceholder substitutes the rendered flag block into Details.
+// TestEveryCommandWithFlagsRendersThem pins the two halves together, so a
+// command can never carry flags it does not show or a token it cannot fill.
+func expandFlagsPlaceholder(cmd *commandMeta) string {
+	if !strings.Contains(cmd.Details, flagsPlaceholder) {
+		return cmd.Details
+	}
+	heading := cmd.FlagsHeading
+	if heading == "" {
+		heading = "Flags:"
+	}
+	return strings.Replace(cmd.Details, flagsPlaceholder, heading+renderFlagBlock(cmd.Flags), 1)
+}
+
+// renderFlagBlock lays the flags out the way they were laid out by hand: each
+// label padded to the width of the widest, then two spaces, then the
+// description. Deriving the column instead of eyeballing it is a side benefit —
+// adding a long flag now re-aligns its neighbours automatically.
+func renderFlagBlock(flags []commandFlag) string {
+	width := 0
+	for _, f := range flags {
+		if n := len(flagLabel(f)); n > width {
+			width = n
+		}
+	}
+	var b strings.Builder
+	for _, f := range flags {
+		fmt.Fprintf(&b, "\n  %-*s  %s", width, flagLabel(f), f.Description)
+		for _, line := range f.Continuation {
+			// Continuations align under the description, not the flag.
+			fmt.Fprintf(&b, "\n  %-*s  %s", width, "", line)
+		}
+	}
+	return b.String()
+}
+
+func flagLabel(f commandFlag) string {
+	label := f.Name
+	if f.Alias != "" {
+		label += ", " + f.Alias
+	}
+	if f.Value != "" {
+		label += " " + f.Value
+	}
+	return label
 }
 
 func commandNames() []string {

@@ -29,8 +29,10 @@ Run 'kernl graph <subcommand> --help' for details on each.`,
 			Details: `The whole graph, tombstones excluded. The route takes no filters, so
 narrow it with 'kernl graph search' rather than expecting flags here.
 
-Flags:
-  --json  Emit [{"id","title","type"}] verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit [{"id","title","type"}] verbatim on stdout`},
+			},
 		},
 		{
 			Name:    "search",
@@ -39,13 +41,15 @@ Flags:
 			Details: `Matches title prefixes (this is the editor's wikilink autocomplete),
 not full-text over bodies.
 
-Flags:
-  --type <node-type>  Restrict to one node type, e.g. note, task, project
-  --limit <n>         Maximum hits, 1-50 (server default: 10; it clamps at 50)
-  --json              Emit [{"id","title","type"}] verbatim on stdout
+{{flags}}
 
 Example:
   kernl graph search backup --type note --limit 5`,
+			Flags: []commandFlag{
+				{Name: "--type", Value: "<node-type>", Description: "Restrict to one node type, e.g. note, task, project"},
+				{Name: "--limit", Value: "<n>", Description: "Maximum hits, 1-50 (server default: 10; it clamps at 50)"},
+				{Name: "--json", Description: `Emit [{"id","title","type"}] verbatim on stdout`},
+			},
 		},
 		{
 			Name:    "related",
@@ -54,9 +58,11 @@ Example:
 			Details: `Computed relevance, not stored edges — use 'kernl graph edges' for the
 connections as persisted.
 
-Flags:
-  --limit <n>  Maximum results (server default: 10)
-  --json       Emit [{"id","title","type"}] verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--limit", Value: "<n>", Description: "Maximum results (server default: 10)"},
+				{Name: "--json", Description: `Emit [{"id","title","type"}] verbatim on stdout`},
+			},
 		},
 		{
 			Name:    "briefing",
@@ -66,9 +72,11 @@ Flags:
 invocation: it exits 0 with "No briefing for <id> yet." (or {"briefing":null}
 under --json), so branch on the body/JSON, never on the exit code.
 
-Flags:
-  --json  Emit {"id","title","body"} verbatim on stdout, or {"briefing":null}
-          when the node has no briefing yet`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit {"id","title","body"} verbatim on stdout, or {"briefing":null}`,
+					Continuation: []string{"when the node has no briefing yet"}},
+			},
 		},
 		{
 			Name:    "edges",
@@ -77,8 +85,10 @@ Flags:
 			Details: `The edges table as persisted — the source of truth for checking that
 connections are actually being made.
 
-Flags:
-  --json  Emit [{"id","src","dst","label"}] verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit [{"id","src","dst","label"}] verbatim on stdout`},
+			},
 		},
 	},
 }

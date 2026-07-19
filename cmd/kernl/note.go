@@ -29,10 +29,12 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 			Name:    "list",
 			Summary: "List notes with their graph node id, type and title",
 			Usage:   "kernl note list [--files] [--json]",
-			Details: `Flags:
-  --files  List the .md files on disk instead (files the graph has not
-           indexed yet show up here and nowhere else)
-  --json   Emit the API response verbatim on stdout`,
+			Details: `{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--files", Description: "List the .md files on disk instead (files the graph has not",
+					Continuation: []string{"indexed yet show up here and nowhere else)"}},
+				{Name: "--json", Description: "Emit the API response verbatim on stdout"},
+			},
 		},
 		{
 			Name:    "read",
@@ -40,9 +42,11 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 			Usage:   "kernl note read <path> [--json]",
 			Details: `Writes the file bytes to stdout unchanged, so it pipes.
 
-Flags:
-  --json  Emit {"path","content"} instead — the route itself returns
-          text/plain, so there is no server JSON to pass through`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit {"path","content"} instead — the route itself returns`,
+					Continuation: []string{"text/plain, so there is no server JSON to pass through"}},
+			},
 		},
 		{
 			Name:    "write",
@@ -52,13 +56,15 @@ Flags:
 Writing a .md note the server does not know yet gets a node id injected
 into its frontmatter.
 
-Flags:
-  --file <local-path>  Read the body from a local file instead of stdin
-  --json               Emit {"status":"saved"} on stdout
+{{flags}}
 
 Examples:
   kernl note write inbox/idea.md --file ./draft.md
   echo "# Title" | kernl note write inbox/idea.md`,
+			Flags: []commandFlag{
+				{Name: "--file", Value: "<local-path>", Description: "Read the body from a local file instead of stdin"},
+				{Name: "--json", Description: `Emit {"status":"saved"} on stdout`},
+			},
 		},
 		{
 			Name:    "delete",
@@ -68,16 +74,20 @@ Examples:
 reconciles its graph node away. Without --yes this prints what would be
 deleted and exits 0.
 
-Flags:
-  --yes   Actually delete
-  --json  Emit {"path","status"} on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--yes", Description: "Actually delete"},
+				{Name: "--json", Description: `Emit {"path","status"} on stdout`},
+			},
 		},
 		{
 			Name:    "tags",
 			Summary: "List every note tag with the files carrying it",
 			Usage:   "kernl note tags [--json]",
-			Details: `Flags:
-  --json  Emit {"<tag>":{"files":[...]}} on stdout`,
+			Details: `{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit {"<tag>":{"files":[...]}} on stdout`},
+			},
 		},
 		{
 			Name:    "suggest",
@@ -87,9 +97,11 @@ Flags:
 fed back through 'kernl note apply-hunks'. Needs an llm section in
 kernl.yaml — without one the server answers 503.
 
-Flags:
-  --instruction <text>  What to change (required)
-  --json                Emit {"hunks":[{"id","from","to","content"}]}`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--instruction", Value: "<text>", Description: "What to change (required)"},
+				{Name: "--json", Description: `Emit {"hunks":[{"id","from","to","content"}]}`},
+			},
 		},
 		{
 			Name:    "apply-hunks",
@@ -99,13 +111,15 @@ Flags:
 response, or the whole response object — from --hunks or stdin, and
 applies exactly those. Pass only the hunks that were reviewed.
 
-Flags:
-  --hunks <local-path>  Read the hunks from a local file instead of stdin
-  --json                Emit {"status","last_modified"} on stdout
+{{flags}}
 
 Example:
   kernl note suggest daily.md --instruction "tighten the intro" --json > h.json
   kernl note apply-hunks daily.md --hunks h.json`,
+			Flags: []commandFlag{
+				{Name: "--hunks", Value: "<local-path>", Description: "Read the hunks from a local file instead of stdin"},
+				{Name: "--json", Description: `Emit {"status","last_modified"} on stdout`},
+			},
 		},
 	},
 }

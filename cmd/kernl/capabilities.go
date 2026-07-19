@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"runtime"
+	"strings"
 )
 
 // contractVersion identifies the shape of the capabilities/robot output.
@@ -30,12 +31,19 @@ type capabilityCommand struct {
 	Summary     string              `json:"summary"`
 	Usage       string              `json:"usage"`
 	Details     string              `json:"details,omitempty"`
+	Flags       []capabilityFlag    `json:"flags,omitempty"`
 	Subcommands []capabilityCommand `json:"subcommands,omitempty"`
 }
 
+// capabilityFlag is the wire shape of a flag. Value carries the placeholder
+// ("<n>", "<path>") and is absent for booleans, which is how a caller tells a
+// flag that takes an argument from one that does not — the single most useful
+// thing to know before composing an invocation, and the thing prose could
+// only imply.
 type capabilityFlag struct {
 	Name        string `json:"name"`
 	Alias       string `json:"alias,omitempty"`
+	Value       string `json:"value,omitempty"`
 	Description string `json:"description"`
 }
 
@@ -65,16 +73,21 @@ var capabilityEnvVars = []capabilityEnvVar{
 var capabilityExitCodes = []capabilityExit{
 	{Code: 0, Meaning: "success"},
 	{Code: 1, Meaning: "runtime/internal error (backend, config, network, agent run)"},
-	{Code: 2, Meaning: "usage error (unknown verb/flag, missing argument, bad value, or a destructive invocation refused for want of --yes)"},
+	{Code: 2, Meaning: "usage error (unknown verb/flag, missing argument, bad value, or a refused --yes gate)"},
 }
 
-var capabilityGlobalFlags = []capabilityFlag{
-	{Name: "--config", Alias: "-c", Description: "path to kernl.yaml (default: kernl.yaml; accepts --config=path)"},
-	{Name: "--port", Alias: "-p", Description: "server port (default: from kernl.yaml, or 8080)"},
-	{Name: "--server", Description: "full address of the running server for GUI-parity verbs (e.g. http://127.0.0.1:8080); overrides --port and KERNL_SERVER"},
-	{Name: "--no-orchestrator", Description: "serve only the GUI/graph/notes; do not require bd"},
-	{Name: "--version", Alias: "-v", Description: "print version and build information"},
-	{Name: "--help", Alias: "-h", Description: "show help for kernl or any verb/sub-verb"},
+// capabilityGlobalFlags is the one description of the root flags: the help page
+// renders its "Flags:" block from this, and `capabilities --json` serialises
+// it. It used to be duplicated as prose in printHelp, and the two copies had
+// already drifted apart in wording.
+var capabilityGlobalFlags = []commandFlag{
+	{Name: "--config", Alias: "-c", Description: "Path to kernl.yaml (default: kernl.yaml; accepts --config=path)"},
+	{Name: "--port", Alias: "-p", Description: "Server port (default: from kernl.yaml, or 8080)"},
+	{Name: "--server", Value: "<url>", Description: "Address of the running server the GUI-parity verbs call",
+		Continuation: []string{"(default: http://127.0.0.1:<port>; env: KERNL_SERVER)"}},
+	{Name: "--no-orchestrator", Description: "Serve only the GUI/graph/notes; do not require bd"},
+	{Name: "--version", Alias: "-v", Description: "Print version and build information"},
+	{Name: "--help", Alias: "-h", Description: "Show help for kernl or any verb/sub-verb"},
 }
 
 func runCapabilities(w io.Writer, args []string) error {
@@ -90,13 +103,37 @@ func runCapabilities(w io.Writer, args []string) error {
 		ContractVersion: contractVersion,
 		Go:              runtime.Version(),
 		Commands:        capabilityCommands(commandTable),
-		GlobalFlags:     capabilityGlobalFlags,
+		GlobalFlags:     capabilityFlags(capabilityGlobalFlags),
 		EnvVars:         capabilityEnvVars,
 		ExitCodes:       capabilityExitCodes,
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+// capabilityFlags projects the help-side flag records onto the wire. The
+// Continuation lines are a rendering concern — where a long description wraps
+// on a terminal — so they are folded back into one description here rather
+// than shipped as a layout artifact a caller would have to rejoin.
+func capabilityFlags(flags []commandFlag) []capabilityFlag {
+	if len(flags) == 0 {
+		return nil
+	}
+	out := make([]capabilityFlag, 0, len(flags))
+	for _, f := range flags {
+		description := f.Description
+		for _, line := range f.Continuation {
+			description += " " + line
+		}
+		out = append(out, capabilityFlag{
+			Name:        f.Name,
+			Alias:       f.Alias,
+			Value:       f.Value,
+			Description: description,
+		})
+	}
+	return out
 }
 
 func capabilityCommands(table []commandMeta) []capabilityCommand {
@@ -106,11 +143,12 @@ func capabilityCommands(table []commandMeta) []capabilityCommand {
 			Name:    c.Name,
 			Summary: c.Summary,
 			Usage:   c.Usage,
-			// Details carries the per-command flag documentation and examples.
-			// Emitting it puts the flag contract in the machine surface instead of
-			// leaving it human-only in --help. (Structured per-flag data would need
-			// a Flags field on commandMeta across every verb — a larger change.)
-			Details:     c.Details,
+			// Details is the prose page minus its flag block, which now ships as
+			// structured Flags instead of being buried in it. The placeholder is
+			// stripped rather than expanded: a machine reader wants the fields,
+			// not a rendered table it would have to parse back.
+			Details:     strings.TrimSpace(strings.ReplaceAll(c.Details, flagsPlaceholder, "")),
+			Flags:       capabilityFlags(c.Flags),
 			Subcommands: capabilityCommands(c.Subs),
 		})
 	}
