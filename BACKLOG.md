@@ -410,6 +410,61 @@ bridge included).
 needs no `args`. `kernl doctor` green; the server was not running, so nothing
 needed a restart.
 
+## Deferred — agent-ergonomics pass 2 (decided 2026-07-19)
+
+The pass-2 audit scored 401 CLI surfaces and applied 9 of 10 recommendations on
+PR #109. These are the pieces consciously left out — kept here (not only in the
+gitignored audit workspace) because two of them need a decision from the
+maintainer and the rest are real follow-up work.
+
+### Needs a decision — default changes (R2-006 c/d)
+Two destructive-default changes were held back because they would break existing
+scripts:
+- **`ingest queue resolve` defaults to `Skip`** — omitting `--action` permanently
+  discards a review with no confirmation. The safe fix is to refuse when
+  `--action` is omitted, but that changes the default. Decide: refuse (breaking),
+  or gate behind a deprecation warning first.
+- **`inbox prep` mutates by default** — the bare form POSTs and spends an LLM
+  call; the *read* is the flagged `--show`. Making `--show` the default (or at
+  least warning that bare `prep` costs an LLM call) inverts the default. Decide
+  the direction.
+
+### Needs a decision — a deliberate design, not a bug (R2-009 part 1)
+`task create` silently joins extra positional args into the title
+(`taskCreateBody`, with a comment defending it as "what the user meant"), while
+`project create` rejects them and asks you to quote. The inconsistency is real;
+which way to resolve it is a taste call. Not reversed unilaterally because the
+join is a documented, intentional choice.
+
+### Backlog work — a feature, not a CLI tweak (R2-009 part 2)
+`task set` has no `--description` / `--project`, so a task can never be
+re-described or re-parented from the CLI. Adding the flags requires backend work
+first: the PATCH handler (`internal/api/tasks.go`) only accepts
+title/status/tags/dueDate, and there is no `nodes.SetTaskDescription` or task
+re-parent (re-parenting is a graph-edge operation, not a field write). Wire the
+node-layer setters + the PATCH handler, *then* the CLI flags — otherwise the
+flags are a silent no-op.
+
+### Backlog work — mechanical, no decision needed
+- **R2-004(b)** — a dangling flag value (`--project` with nothing after it) points
+  the recovery hint at root `kernl --help` instead of the owning verb's help
+  (`takeFlag`, `verbio.go`). The clean fix threads the verb through `takeFlag`'s
+  ~35 call sites. Deferred for churn, not risk.
+- **R2-007(b)(c)** — `ingest queue list` and `memory claims --json` leak
+  PascalCase (`ID`/`Title`) against the camelCase wire contract. Fixing it is a
+  wire-shape change: add json tags (or a DTO) *and* flip the CLI decoder
+  atomically, and check the web GUI does not consume those routes first, or the
+  listing goes silently empty.
+- **capabilities third-level subcommands** — `ingest queue *` and `inbox batch *`
+  live in plain string slices, not `commandMeta.Subs`, so they are invisible to
+  `capabilities --json` and their `--help` renders the parent topic. Promoting
+  them to `commandMeta.Subs` fixes both. (Structured per-flag data in
+  capabilities is the same class of change: needs a `Flags` field on
+  `commandMeta`; the command `Details` string is exposed today as the interim.)
+
+The `kernl triage` mega-command (the pass-3 headline) sits on top of these plus
+the approvals decision — see the API contract audit's approvals note / PR #110.
+
 ## Deferred — findings from the API contract audit (decided 2026-07-19)
 
 Building a CLI client against all ~88 REST routes exercised surfaces nothing

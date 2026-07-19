@@ -62,11 +62,13 @@ Flags:
 			Name:    "briefing",
 			Summary: "Print the DA briefing note attached to a node",
 			Usage:   "kernl graph briefing <node-id> [--json]",
-			Details: `A node the DA never briefed answers 404, which exits 2 — that is
-"no briefing yet", not a broken invocation.
+			Details: `A node the DA never briefed is a normal answer, not a broken
+invocation: it exits 0 with "No briefing for <id> yet." (or {"briefing":null}
+under --json), so branch on the body/JSON, never on the exit code.
 
 Flags:
-  --json  Emit {"id","title","body"} verbatim on stdout`,
+  --json  Emit {"id","title","body"} verbatim on stdout, or {"briefing":null}
+          when the node has no briefing yet`,
 		},
 		{
 			Name:    "edges",

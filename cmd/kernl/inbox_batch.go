@@ -57,7 +57,16 @@ func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, a
 	if err != nil {
 		return err
 	}
+	unconfirmedApply := sub == "apply" && !confirmed
 	if asJSON {
+		if unconfirmedApply {
+			// `apply` without --yes is answered by the preview route and creates
+			// nothing. Human output says so; the JSON must too, or a --json caller
+			// reads a dry-run as a completed apply. Wrap the preview in a envelope
+			// that states, unmistakably, that nothing was created.
+			env := fmt.Sprintf(`{"applied":false,"wouldApply":true,"preview":%s}`, raw)
+			return emitJSON(v.stdout(), json.RawMessage(env))
+		}
 		return emitJSON(v.stdout(), raw)
 	}
 	if sub == "apply" && confirmed {
@@ -104,6 +113,9 @@ func readInboxBatchText(sub, path string) (string, error) {
 			return "", wrapLoud("reading the batch text from "+path, err)
 		}
 		return string(content), nil
+	}
+	if stdinIsTerminal() {
+		return "", usagef("KERNL DISPATCH FAILURE: inbox batch %s got no text and stdin is a terminal — pass --file <path> or pipe the export in. Run: kernl inbox batch --help", sub)
 	}
 	read, err := io.ReadAll(os.Stdin)
 	if err != nil {

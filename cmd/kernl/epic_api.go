@@ -165,8 +165,12 @@ func streamEpicEvents(v verbContext, c *apiClient, id string, asJSON bool, opts 
 		defer cancel()
 	}
 
+	base, err := c.base()
+	if err != nil {
+		return err
+	}
 	path := "/api/epics/" + url.PathEscape(id) + "/events"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 	if err != nil {
 		return wrapLoud("building request", err)
 	}

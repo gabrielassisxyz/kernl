@@ -30,11 +30,11 @@ Run 'kernl health update-check' for the app-update check.`,
 			Summary: "Ask the server whether a newer kernl is available",
 			Usage:   "kernl health update-check [--json]",
 			Details: `Calls the same endpoint the GUI's update banner uses. That endpoint does
-not contact any release feed yet — it always answers "up_to_date", so a
-clean result here means "nothing is wired up", not "you are current".
+not contact any release feed yet — it answers {"status":"unknown","checked":false}.
+Branch on "checked": false means "nobody looked", not "you are current".
 
 Flags:
-  --json  Emit the API's {"status"} verbatim`,
+  --json  Emit the API's {"status","checked","detail"} verbatim`,
 		},
 	},
 }

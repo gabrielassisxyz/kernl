@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 )
 
@@ -212,7 +213,7 @@ func projectSet(v verbContext, c *apiClient, asJSON bool, args []string) error {
 	if len(body) == 0 {
 		return usagef("KERNL DISPATCH FAILURE: project set %s changes nothing — pass at least one of --title, --description, --status, --tags", id)
 	}
-	raw, err := c.patch(context.Background(), "/api/projects/"+id, body)
+	raw, err := c.patch(context.Background(), "/api/projects/"+url.PathEscape(id), body)
 	if err != nil {
 		return err
 	}
@@ -232,7 +233,7 @@ func projectDelete(v verbContext, c *apiClient, asJSON bool, args []string) erro
 		return previewProjectDelete(v, c, asJSON, id)
 	}
 
-	raw, err := c.delete(context.Background(), "/api/projects/"+id)
+	raw, err := c.delete(context.Background(), "/api/projects/"+url.PathEscape(id))
 	if err != nil {
 		return err
 	}

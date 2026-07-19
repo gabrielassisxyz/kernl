@@ -69,7 +69,14 @@ title, tags, a project and a due date.`,
 		{
 			Name:    "reopen",
 			Summary: "Undo a process: delete the derived node, requeue the capture",
-			Usage:   "kernl inbox reopen <capture-id> [--json]",
+			Usage:   "kernl inbox reopen <capture-id> --yes [--json]",
+			Details: `Destructive: deletes the capture's derived node and requeues it. Requires
+--yes. Without it nothing is written — the capture that would be reopened is
+printed and the command exits 0.
+
+Flags:
+  --yes   Actually reopen
+  --json  Emit {"id","reopened":true} (or the preview) on stdout`,
 		},
 		{
 			Name:    "classify",
@@ -142,7 +149,7 @@ func runInbox(v verbContext, args []string) error {
 	case "convert":
 		return inboxConvert(ctx, v, client, asJSON, rest)
 	case "reopen":
-		return inboxSimplePost(ctx, v, client, asJSON, "reopen", rest, "Reopened")
+		return inboxReopen(ctx, v, client, asJSON, rest)
 	case "classify":
 		return inboxClassify(ctx, v, client, asJSON, rest)
 	case "auto-classify":
@@ -228,6 +235,9 @@ func inboxAdd(v verbContext, args []string) error {
 func inboxAddText(v verbContext, text string, asJSON bool) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
+		if stdinIsTerminal() {
+			return usagef("KERNL DISPATCH FAILURE: inbox add got no text and stdin is a terminal — pass text as an argument or pipe it in. Run: kernl inbox add --help")
+		}
 		read, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return wrapLoud("reading capture text from stdin", err)
@@ -328,6 +338,26 @@ func inboxConvert(ctx context.Context, v verbContext, c *apiClient, asJSON bool,
 	}
 	_, err = fmt.Fprintf(v.stdout(), "Converted %s to %s.\n", id, action)
 	return err
+}
+
+// inboxReopen gates the heaviest inbox mutation behind --yes: reopening deletes
+// the capture's derived node and requeues it, and it was the only inbox write of
+// that weight with no confirmation (sweep, epic abort and inbox batch apply all
+// gate). Without --yes it previews and writes nothing, matching those verbs.
+func inboxReopen(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
+	confirmed, rest := parseBoolFlag(args, "--yes")
+	id, err := requireID("reopen", rest)
+	if err != nil {
+		return err
+	}
+	if !confirmed {
+		if asJSON {
+			return emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"reopened":false,"wouldReopen":true}`, id)))
+		}
+		_, err := fmt.Fprintf(v.stdout(), "Would reopen %s: this deletes its derived node and requeues the capture. Re-run with --yes to confirm.\n", id)
+		return err
+	}
+	return inboxSimplePost(ctx, v, c, asJSON, "reopen", []string{id}, "Reopened")
 }
 
 // inboxSimplePost covers the id-only POSTs whose response carries no data

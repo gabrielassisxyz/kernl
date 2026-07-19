@@ -164,7 +164,7 @@ func TestInboxConvertPostsAction(t *testing.T) {
 func TestInboxReopenPostsToCapture(t *testing.T) {
 	ts, seen := fakeInboxAPI(t, http.StatusOK, `{"status":"ok"}`)
 
-	out, err := driveInbox(t, ts, "reopen", "cap-4")
+	out, err := driveInbox(t, ts, "reopen", "cap-4", "--yes")
 	if err != nil {
 		t.Fatalf("inbox reopen: %v", err)
 	}
@@ -173,6 +173,23 @@ func TestInboxReopenPostsToCapture(t *testing.T) {
 	}
 	if !strings.Contains(out, "Reopened cap-4") {
 		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+// R2-006: reopen deletes the derived node — without --yes it must preview and
+// write nothing, like sweep / epic abort / inbox batch apply.
+func TestInboxReopenWithoutYesPreviewsAndWritesNothing(t *testing.T) {
+	ts, seen := fakeInboxAPI(t, http.StatusOK, `{"status":"ok"}`)
+
+	out, err := driveInbox(t, ts, "reopen", "cap-4")
+	if err != nil {
+		t.Fatalf("unconfirmed reopen must preview, got: %v", err)
+	}
+	if len(*seen) != 0 {
+		t.Fatalf("reopen without --yes must not touch the server, hit %+v", *seen)
+	}
+	if !strings.Contains(out, "Would reopen cap-4") || !strings.Contains(out, "--yes") {
+		t.Errorf("preview must name the capture and the confirmation flag, got: %q", out)
 	}
 }
 
@@ -302,7 +319,7 @@ func TestInboxNotFoundExitsTwo(t *testing.T) {
 	// invocation: the caller named something that does not exist.
 	ts, _ := fakeInboxAPI(t, http.StatusNotFound, `no such capture`)
 
-	_, err := driveInbox(t, ts, "reopen", "cap-nope")
+	_, err := driveInbox(t, ts, "reopen", "cap-nope", "--yes")
 	if exitCode(err) != 2 {
 		t.Fatalf("a 404 must exit 2 (bad invocation), got %d: %v", exitCode(err), err)
 	}

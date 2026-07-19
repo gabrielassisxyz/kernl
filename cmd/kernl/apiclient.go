@@ -24,9 +24,37 @@ import (
 // cannot reach state that only exists inside the server process (the runtime
 // auto-classify flag, chat sessions, SSE streams, the ingest service). capture,
 // bookmark and plan stay direct on purpose: they are the offline capture path.
+// The server address is resolved lazily, on the first request, NOT when the
+// client is built. Resolution reads kernl.yaml when no --server/KERNL_SERVER/
+// --port was given, and that read used to run before the verb validated its
+// arguments — so from a directory with no config, a malformed invocation
+// (missing arg, unknown flag) failed with a config-load error at exit 1 instead
+// of its real usage error at exit 2. Deferring resolution to base() lets each
+// verb's argument validation run first; config is only touched once a request
+// is actually about to go out.
 type apiClient struct {
-	baseURL string
+	// Inputs for lazy resolution. Empty configPath/server + zero port is valid:
+	// base() falls through to kernl.yaml / the default port at request time.
+	configPath string
+	server     string
+	port       int
+
+	baseURL string // resolved+memoized by base(); may be set directly in tests
 	http    *http.Client
+}
+
+// base returns the resolved server URL, resolving (and memoizing) on first use.
+// A directly-set baseURL (the test fakes) short-circuits resolution.
+func (c *apiClient) base() (string, error) {
+	if c.baseURL != "" {
+		return c.baseURL, nil
+	}
+	resolved, err := resolveServerURL(c.configPath, c.server, c.port, os.Getenv)
+	if err != nil {
+		return "", err
+	}
+	c.baseURL = resolved
+	return c.baseURL, nil
 }
 
 // resolveServerURL picks the server address, most explicit source first:
@@ -89,16 +117,17 @@ func (v verbContext) stdout() io.Writer {
 	return v.out
 }
 
+// client builds a client but does NOT resolve the server address — that happens
+// lazily in base(), after the verb has validated its arguments. It returns an
+// error for signature stability with callers that check one; today it is always
+// nil, and a genuinely missing config surfaces from the first request instead.
 func (v verbContext) client() (*apiClient, error) {
-	return newAPIClient(v.configPath, v.server, v.port, os.Getenv)
-}
-
-func newAPIClient(configPath, serverFlag string, port int, env func(string) string) (*apiClient, error) {
-	base, err := resolveServerURL(configPath, serverFlag, port, env)
-	if err != nil {
-		return nil, err
-	}
-	return &apiClient{baseURL: base, http: &http.Client{Timeout: 60 * time.Second}}, nil
+	return &apiClient{
+		configPath: v.configPath,
+		server:     v.server,
+		port:       v.port,
+		http:       &http.Client{Timeout: 60 * time.Second},
+	}, nil
 }
 
 // request performs one API call and returns the raw response body. body is
@@ -113,7 +142,11 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any) 
 		payload = bytes.NewReader(encoded)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, payload)
+	base, err := c.base()
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, base+path, payload)
 	if err != nil {
 		return nil, wrapLoud("building request", err)
 	}
