@@ -110,9 +110,11 @@ func TestMemoryTopicsEmptyTeachesNextStep(t *testing.T) {
 }
 
 func TestMemoryClaimsSendsTopicAsAnEscapedQuery(t *testing.T) {
-	// The route serializes Go field names, not camelCase; the readable listing
-	// must survive that spelling.
-	body := `{"claims":[{"ID":"c1","Statement":"deploy from tags","Subject":"deploys","Source":"user","Confidence":0.9}]}`
+	// The route emits camelCase (TestMemoryClaimsJSONContract pins it server
+	// side). Decoding the wrong spelling fails silently — zero-valued fields
+	// print as blank columns, never as an error — so the listing is asserted
+	// against a body in the shape the server actually sends.
+	body := `{"claims":[{"id":"c1","statement":"deploy from tags","subject":"deploys","source":"user","confidence":0.9}]}`
 	fake := newFakeMemoryAPI(t, http.StatusOK, body)
 	out, err := fake.run("claims", "--topic", "deploys & rollbacks")
 	if err != nil {

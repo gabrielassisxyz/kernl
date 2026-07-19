@@ -83,9 +83,10 @@ Flags:
 }
 
 // memoryClaimView is the subset of the claim DTO the readable listing prints.
-// The route serializes Go field names (Statement, Subject, …) rather than the
-// camelCase the rest of the API emits; encoding/json matches case-insensitively,
-// so these tags read both spellings and survive the contract being fixed.
+// The route once serialized Go field names (Statement, Subject, …) instead of
+// the camelCase the rest of the API emits. nodes.MemoryClaim carries json tags
+// now and TestMemoryClaimsJSONContract pins them, so these tags name the live
+// contract rather than tolerating two.
 type memoryClaimView struct {
 	ID         string  `json:"id"`
 	Statement  string  `json:"statement"`

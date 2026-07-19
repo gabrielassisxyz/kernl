@@ -315,14 +315,17 @@ func ingestQueueList(ctx context.Context, v verbContext, c *apiClient, asJSON bo
 	return printIngestQueue(v, raw)
 }
 
-// printIngestQueue reads the review DTO in Go field-name case on purpose: this
-// route serializes nodes.IngestReview directly, which carries no json tags, so
-// it is the one ingest response that is not camelCase.
+// printIngestQueue decodes the subset of the review DTO the listing prints.
+// The route used to serialize nodes.IngestReview with no json tags, which put
+// Go field names on the wire; the struct carries camelCase tags now, and
+// TestIngestQueueJSONContract pins that. encoding/json matches case-insensitively,
+// so the old spelling kept working here and hid the drift — these tags name the
+// contract that is actually in force.
 func printIngestQueue(v verbContext, raw json.RawMessage) error {
 	var reviews []struct {
-		ID     string `json:"ID"`
-		Title  string `json:"Title"`
-		Action string `json:"Action"`
+		ID     string `json:"id"`
+		Title  string `json:"title"`
+		Action string `json:"action"`
 	}
 	if err := decodeInto(raw, "GET /api/ingest/queue", &reviews); err != nil {
 		return err

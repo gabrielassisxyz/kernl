@@ -201,6 +201,24 @@ func TestIngestQueueResolveMapsActionAndEscapesID(t *testing.T) {
 	}
 }
 
+// The listing decodes the server's camelCase keys. The failure mode this pins
+// is silent: a decoder reading the wrong spelling yields zero-valued fields and
+// prints a row of blanks, not an error.
+func TestIngestQueueListReadsCamelCaseKeys(t *testing.T) {
+	ts, _ := fakeIngestAPI(t, http.StatusOK,
+		`[{"id":"rv-1","title":"Meeting notes","action":"Create Page"}]`)
+
+	out, err := driveIngest(t, ts, "queue", "list")
+	if err != nil {
+		t.Fatalf("ingest queue list: %v", err)
+	}
+	for _, want := range []string{"rv-1", "Meeting notes", "Create Page"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("camelCase field lost in the listing (want %q): %s", want, out)
+		}
+	}
+}
+
 func TestIngestQueueResolveRejectsUnknownAction(t *testing.T) {
 	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
 
