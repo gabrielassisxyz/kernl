@@ -29,6 +29,7 @@ type capabilityCommand struct {
 	Name        string              `json:"name"`
 	Summary     string              `json:"summary"`
 	Usage       string              `json:"usage"`
+	Details     string              `json:"details,omitempty"`
 	Subcommands []capabilityCommand `json:"subcommands,omitempty"`
 }
 
@@ -49,6 +50,7 @@ type capabilityExit struct {
 }
 
 var capabilityEnvVars = []capabilityEnvVar{
+	{Name: "KERNL_SERVER", Description: "address of the running server the GUI-parity verbs call (e.g. http://127.0.0.1:8080); overridden by --server"},
 	{Name: "KERNL_LOG_LEVEL", Description: "slog level for all verbs: debug, info (default), warn, error"},
 	{Name: "KERNL_JSON_LOG_DIR", Description: "when set, structured JSON logs are also written to this directory"},
 	{Name: "KERNL_LOG_ROOT", Description: "root directory for per-session dispatch forensics logs"},
@@ -69,6 +71,7 @@ var capabilityExitCodes = []capabilityExit{
 var capabilityGlobalFlags = []capabilityFlag{
 	{Name: "--config", Alias: "-c", Description: "path to kernl.yaml (default: kernl.yaml; accepts --config=path)"},
 	{Name: "--port", Alias: "-p", Description: "server port (default: from kernl.yaml, or 8080)"},
+	{Name: "--server", Description: "full address of the running server for GUI-parity verbs (e.g. http://127.0.0.1:8080); overrides --port and KERNL_SERVER"},
 	{Name: "--no-orchestrator", Description: "serve only the GUI/graph/notes; do not require bd"},
 	{Name: "--version", Alias: "-v", Description: "print version and build information"},
 	{Name: "--help", Alias: "-h", Description: "show help for kernl or any verb/sub-verb"},
@@ -100,9 +103,14 @@ func capabilityCommands(table []commandMeta) []capabilityCommand {
 	out := make([]capabilityCommand, 0, len(table))
 	for _, c := range table {
 		out = append(out, capabilityCommand{
-			Name:        c.Name,
-			Summary:     c.Summary,
-			Usage:       c.Usage,
+			Name:    c.Name,
+			Summary: c.Summary,
+			Usage:   c.Usage,
+			// Details carries the per-command flag documentation and examples.
+			// Emitting it puts the flag contract in the machine surface instead of
+			// leaving it human-only in --help. (Structured per-flag data would need
+			// a Flags field on commandMeta across every verb — a larger change.)
+			Details:     c.Details,
 			Subcommands: capabilityCommands(c.Subs),
 		})
 	}
