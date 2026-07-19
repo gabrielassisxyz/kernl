@@ -46,10 +46,52 @@ var (
 )
 
 func main() {
-	if err := Dispatch(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+	args := os.Args[1:]
+	if err := Dispatch(args); err != nil {
+		// When --json was requested, a failing command must still speak JSON: the
+		// error becomes a structured envelope on stdout (stderr stays empty) so
+		// `kernl <verb> --json | jq` sees a parseable failure instead of empty
+		// stdout + prose. Otherwise the human path: prose on stderr.
+		if wantsJSONOutput(args) {
+			fmt.Fprintln(os.Stdout, errorEnvelope(err))
+		} else {
+			fmt.Fprintln(os.Stderr, err)
+		}
 		os.Exit(exitCode(err))
 	}
+}
+
+// wantsJSONOutput reports whether --json appears as a standalone token. --json
+// is always the boolean output flag across every verb (never a flag value), so
+// an exact-token scan is a reliable signal of "the caller wants machine output"
+// without threading the verb-local flag up to main.
+func wantsJSONOutput(args []string) bool {
+	for _, a := range args {
+		if a == "--json" {
+			return true
+		}
+		// Everything after the end-of-flags sentinel is payload, not flags.
+		if a == "--" {
+			return false
+		}
+	}
+	return false
+}
+
+// errorEnvelope renders a failed command as the same shape the success --json
+// paths use: ok:false, the message, and the exit code the process will return,
+// so a caller can branch on exitCode without re-parsing the prose.
+func errorEnvelope(err error) string {
+	env, marshalErr := json.Marshal(struct {
+		OK       bool   `json:"ok"`
+		Error    string `json:"error"`
+		ExitCode int    `json:"exitCode"`
+	}{OK: false, Error: err.Error(), ExitCode: exitCode(err)})
+	if marshalErr != nil {
+		// A message that will not marshal is still an error we must not swallow.
+		return fmt.Sprintf(`{"ok":false,"error":%q,"exitCode":%d}`, err.Error(), exitCode(err))
+	}
+	return string(env)
 }
 
 // parseStringFlag strips every occurrence of a global value flag, accepting
