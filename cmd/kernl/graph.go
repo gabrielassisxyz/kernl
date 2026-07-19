@@ -135,7 +135,7 @@ func runGraphNodes(v verbContext, asJSON bool, args []string) error {
 }
 
 func runGraphSearch(v verbContext, asJSON bool, args []string) error {
-	nodeType, _, rest, err := takeFlag(args, "--type")
+	nodeType, _, rest, err := takeFlag("graph search", args, "--type")
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func requestGraph(v verbContext, path string) (json.RawMessage, error) {
 // an unparseable value: silently serving the default is exactly the kind of
 // quiet wrong answer a scripted caller cannot detect.
 func takeGraphLimit(args []string, verb string) (string, []string, error) {
-	raw, present, rest, err := takeFlag(args, "--limit")
+	raw, present, rest, err := takeFlag(verb, args, "--limit")
 	if err != nil {
 		return "", nil, err
 	}

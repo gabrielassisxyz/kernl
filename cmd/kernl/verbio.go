@@ -69,13 +69,18 @@ func decodeInto(raw json.RawMessage, route string, target any) error {
 // whether it was present, so a verb can tell "flag omitted" from "flag set to
 // the empty string" (the difference between leaving a field alone and clearing
 // it in a PATCH).
-func takeFlag(args []string, name string) (value string, present bool, rest []string, err error) {
+//
+// verb is the full subcommand path ("task create"), used only to point a
+// dangling flag at the help that documents it. Root 'kernl --help' lists the
+// verbs and none of their flags, so it cannot answer the question the caller
+// just got wrong; the owning verb's help can.
+func takeFlag(verb string, args []string, name string) (value string, present bool, rest []string, err error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
 		case a == name:
 			if i+1 >= len(args) {
-				return "", false, nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl --help", name)
+				return "", false, nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl %s --help", name, verb)
 			}
 			value, present = args[i+1], true
 			i++

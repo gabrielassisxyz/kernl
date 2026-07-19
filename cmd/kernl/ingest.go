@@ -139,7 +139,7 @@ func runIngest(v verbContext, args []string) error {
 func ingestPaste(v verbContext, args []string) error {
 	head, tail := splitAtSentinel(args)
 	asJSON, head := parseBoolFlag(head, "--json")
-	title, _, head, err := takeFlag(head, "--title")
+	title, _, head, err := takeFlag("ingest paste", head, "--title")
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func ingestUploadForm(filename string, content []byte) ([]byte, string, error) {
 }
 
 func ingestSource(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	flags, rest, err := takeFlags(args, "--kind", "--title")
+	flags, rest, err := takeFlags("ingest source", args, "--kind", "--title")
 	if err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func ingestSource(ctx context.Context, v verbContext, c *apiClient, asJSON bool,
 }
 
 func ingestTrigger(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	node, _, rest, err := takeFlag(args, "--node")
+	node, _, rest, err := takeFlag("ingest trigger", args, "--node")
 	if err != nil {
 		return err
 	}
@@ -341,7 +341,7 @@ func printIngestQueue(v verbContext, raw json.RawMessage) error {
 }
 
 func ingestQueueResolve(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	flags, rest, err := takeFlags(args, "--action", "--target-note")
+	flags, rest, err := takeFlags("ingest queue resolve", args, "--action", "--target-note")
 	if err != nil {
 		return err
 	}

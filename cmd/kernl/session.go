@@ -85,7 +85,7 @@ func runSession(v verbContext, args []string) error {
 }
 
 func runSessionNudge(v verbContext, asJSON bool, args []string) error {
-	body, rest, err := sessionNudgeBody(args)
+	body, rest, err := sessionNudgeBody("session nudge", args)
 	if err != nil {
 		return err
 	}
@@ -144,13 +144,13 @@ func requestSession(v verbContext, call func(context.Context, *apiClient) (json.
 // sessionNudgeBody maps the nudge flags onto the POST payload and returns the
 // leftover positional args. Only flags the caller passed are included: the
 // handler owns the default preset, and sending an empty one would override it.
-func sessionNudgeBody(args []string) (map[string]any, []string, error) {
+func sessionNudgeBody(verb string, args []string) (map[string]any, []string, error) {
 	body := map[string]any{}
-	preset, presetGiven, rest, err := takeFlag(args, "--preset")
+	preset, presetGiven, rest, err := takeFlag(verb, args, "--preset")
 	if err != nil {
 		return nil, nil, err
 	}
-	prompt, promptGiven, rest, err := takeFlag(rest, "--prompt")
+	prompt, promptGiven, rest, err := takeFlag(verb, rest, "--prompt")
 	if err != nil {
 		return nil, nil, err
 	}

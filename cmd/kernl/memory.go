@@ -150,7 +150,7 @@ func runMemoryTopics(v verbContext, asJSON bool, args []string) error {
 }
 
 func runMemoryClaims(v verbContext, asJSON bool, args []string) error {
-	topic, present, rest, err := takeFlag(args, "--topic")
+	topic, present, rest, err := takeFlag("memory claims", args, "--topic")
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func runMemoryTelos(v verbContext, asJSON bool, args []string) error {
 }
 
 func runMemoryAddClaim(v verbContext, asJSON bool, args []string) error {
-	subject, _, rest, err := takeFlag(args, "--subject")
+	subject, _, rest, err := takeFlag("memory add-claim", args, "--subject")
 	if err != nil {
 		return err
 	}
@@ -228,7 +228,7 @@ func runMemoryAddClaim(v verbContext, asJSON bool, args []string) error {
 }
 
 func runMemoryRefute(v verbContext, asJSON bool, args []string) error {
-	reason, _, rest, err := takeFlag(args, "--reason")
+	reason, _, rest, err := takeFlag("memory refute", args, "--reason")
 	if err != nil {
 		return err
 	}

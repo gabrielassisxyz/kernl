@@ -174,11 +174,11 @@ func runInbox(v verbContext, args []string) error {
 
 // takeFlags pulls several value flags in one pass so a verb's own body stays
 // about the request it builds rather than about argument plumbing.
-func takeFlags(args []string, names ...string) (map[string]string, []string, error) {
+func takeFlags(verb string, args []string, names ...string) (map[string]string, []string, error) {
 	values := make(map[string]string, len(names))
 	rest := args
 	for _, name := range names {
-		value, present, remaining, err := takeFlag(rest, name)
+		value, present, remaining, err := takeFlag(verb, rest, name)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -277,7 +277,7 @@ func inboxAddText(v verbContext, text string, asJSON bool) error {
 }
 
 func inboxProcess(ctx context.Context, v verbContext, c *apiClient, asJSON bool, args []string) error {
-	flags, args, err := takeFlags(args,
+	flags, args, err := takeFlags("inbox process", args,
 		"--target", "--title", "--project-id", "--tags", "--due", "--link-to", "--target-note")
 	if err != nil {
 		return err

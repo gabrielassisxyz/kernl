@@ -79,7 +79,7 @@ func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, a
 // split parameters. It never sends rawSegments or finalSegments — those are a
 // reviewed split, and nothing here has reviewed anything.
 func inboxBatchBody(sub string, args []string) (map[string]string, error) {
-	flags, rest, err := takeFlags(args, "--file", "--split", "--source", "--title")
+	flags, rest, err := takeFlags("inbox batch", args, "--file", "--split", "--source", "--title")
 	if err != nil {
 		return nil, err
 	}

@@ -106,7 +106,7 @@ func runTask(v verbContext, args []string) error {
 }
 
 func runTaskList(v verbContext, asJSON bool, args []string) error {
-	project, _, rest, err := takeFlag(args, "--project")
+	project, _, rest, err := takeFlag("task list", args, "--project")
 	if err != nil {
 		return err
 	}
@@ -134,7 +134,7 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 }
 
 func runTaskCreate(v verbContext, asJSON bool, args []string) error {
-	body, err := taskCreateBody(args)
+	body, err := taskCreateBody("task create", args)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func runTaskCreate(v verbContext, asJSON bool, args []string) error {
 }
 
 func runTaskSet(v verbContext, asJSON bool, args []string) error {
-	body, rest, err := taskPatchBody(args)
+	body, rest, err := taskPatchBody("task set", args)
 	if err != nil {
 		return err
 	}
@@ -232,7 +232,7 @@ func requestTask(v verbContext, call func(context.Context, *apiClient) (json.Raw
 
 // taskCreateBody maps create flags onto the POST /api/tasks payload. Only flags
 // the caller passed are included, so the server keeps ownership of the defaults.
-func taskCreateBody(args []string) (map[string]any, error) {
+func taskCreateBody(verb string, args []string) (map[string]any, error) {
 	body := map[string]any{}
 	rest := args
 	for _, f := range []struct{ flag, field string }{
@@ -241,7 +241,7 @@ func taskCreateBody(args []string) (map[string]any, error) {
 		{"--project", "projectId"},
 		{"--due", "dueDate"},
 	} {
-		value, present, remaining, err := takeFlag(rest, f.flag)
+		value, present, remaining, err := takeFlag(verb, rest, f.flag)
 		if err != nil {
 			return nil, err
 		}
@@ -250,14 +250,14 @@ func taskCreateBody(args []string) (map[string]any, error) {
 			body[f.field] = value
 		}
 	}
-	tags, present, rest, err := takeFlag(rest, "--tags")
+	tags, present, rest, err := takeFlag(verb, rest, "--tags")
 	if err != nil {
 		return nil, err
 	}
 	if present {
 		body["tags"] = splitTaskTags(tags)
 	}
-	title, hasTitle, rest, err := takeFlag(rest, "--title")
+	title, hasTitle, rest, err := takeFlag(verb, rest, "--title")
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +302,7 @@ func taskCreateTitle(title string, hasTitle bool, rest []string) (string, error)
 // taskPatchBody maps set flags onto the PATCH payload and returns the leftover
 // positional args. Presence, not emptiness, decides inclusion: the handler
 // reads an absent key as "leave alone" and an empty value as "clear".
-func taskPatchBody(args []string) (map[string]any, []string, error) {
+func taskPatchBody(verb string, args []string) (map[string]any, []string, error) {
 	body := map[string]any{}
 	rest := args
 	for _, f := range []struct{ flag, field string }{
@@ -310,7 +310,7 @@ func taskPatchBody(args []string) (map[string]any, []string, error) {
 		{"--status", "status"},
 		{"--due", "dueDate"},
 	} {
-		value, present, remaining, err := takeFlag(rest, f.flag)
+		value, present, remaining, err := takeFlag(verb, rest, f.flag)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -319,7 +319,7 @@ func taskPatchBody(args []string) (map[string]any, []string, error) {
 			body[f.field] = value
 		}
 	}
-	tags, present, rest, err := takeFlag(rest, "--tags")
+	tags, present, rest, err := takeFlag(verb, rest, "--tags")
 	if err != nil {
 		return nil, nil, err
 	}
