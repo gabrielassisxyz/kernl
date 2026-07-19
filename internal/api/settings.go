@@ -79,13 +79,43 @@ type readOnlySettingRow struct {
 	Reason      string `json:"reason"`
 }
 
-// llmUpdate uses a pointer for the credential so the UI can leave it untouched
-// (omitted) without having to echo the key back to the server.
+// The update structs are pointer-per-field so a PUT is a genuine partial update:
+// nil means the client never sent the field and the stored value must survive,
+// while a non-nil zero value is a deliberate "set it to empty". Plain structs made
+// every PUT a whole-section replace — an omitted field arrived as its zero value
+// and silently overwrote what was on disk.
+//
+// The API key was already a pointer for the same reason: the UI leaves it out
+// rather than echoing the credential back to the server.
 type llmUpdate struct {
-	Provider string  `json:"provider"`
-	Model    string  `json:"model"`
-	Endpoint string  `json:"endpoint"`
+	Provider *string `json:"provider"`
+	Model    *string `json:"model"`
+	Endpoint *string `json:"endpoint"`
 	APIKey   *string `json:"apiKey"`
+}
+
+type vaultUpdate struct {
+	Root              *string `json:"root"`
+	CoalesceWindowMs  *int    `json:"coalesceWindowMs"`
+	MoveWindowMs      *int    `json:"moveWindowMs"`
+	RescanIntervalSec *int    `json:"rescanIntervalSec"`
+}
+
+type inboxUpdate struct {
+	AutoPrep *bool   `json:"autoPrep"`
+	DASubdir *string `json:"daSubdir"`
+}
+
+type runtimeUpdate struct {
+	ServerPort          *int    `json:"serverPort"`
+	WorktreeRoot        *string `json:"worktreeRoot"`
+	MaxConcurrentBeads  *int    `json:"maxConcurrentBeads"`
+	RunStatePath        *string `json:"runStatePath"`
+	StageRetryAttempts  *int    `json:"stageRetryAttempts"`
+	SweepIntervalSec    *int    `json:"sweepIntervalSec"`
+	PRStaleWarnDays     *int    `json:"prStaleWarnDays"`
+	SweepFailureLimit   *int    `json:"sweepFailureLimit"`
+	SweepBackoffMinutes *[]int  `json:"sweepBackoffMinutes"`
 }
 
 func RegisterSettingsRoutes(mux *http.ServeMux, a *app.App) {
@@ -299,162 +329,261 @@ func agentRows(cfg *config.Config) []readOnlySettingRow {
 }
 
 func updateLLMHandler(a *app.App) http.HandlerFunc {
-	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
+	return writeHandler(a, func(body []byte, saved *config.Config) ([]config.Update, error) {
 		var update llmUpdate
 		if err := json.Unmarshal(body, &update); err != nil {
 			return nil, badRequest("request body is not valid JSON")
 		}
 
-		provider := strings.TrimSpace(update.Provider)
-		model := strings.TrimSpace(update.Model)
-		endpoint := strings.TrimSpace(update.Endpoint)
+		updates := []config.Update{}
+		provider, model := saved.LLM.Provider, saved.LLM.Model
 
-		if provider != "" && !contains(llmProviders, provider) {
-			return nil, badRequest(fmt.Sprintf("unknown provider %q — pick one of %s", provider, strings.Join(llmProviders, ", ")))
+		if update.Provider != nil {
+			provider = strings.TrimSpace(*update.Provider)
+			if provider != "" && !contains(llmProviders, provider) {
+				return nil, badRequest(fmt.Sprintf("unknown provider %q — pick one of %s", provider, strings.Join(llmProviders, ", ")))
+			}
+			updates = append(updates, config.Update{Path: []string{"llm", "provider"}, Value: provider})
 		}
+		if update.Model != nil {
+			model = strings.TrimSpace(*update.Model)
+			updates = append(updates, config.Update{Path: []string{"llm", "model"}, Value: model})
+		}
+		// Checked against the resulting pair rather than just what this request
+		// carried: a partial update must not be able to strand a provider without a
+		// model by touching only one of the two.
 		if provider != "" && model == "" {
 			return nil, badRequest("a model is required when a provider is set")
 		}
-		if endpoint != "" {
-			parsed, err := url.Parse(endpoint)
-			if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-				return nil, badRequest("endpoint must be an absolute http:// or https:// URL")
+		if update.Endpoint != nil {
+			endpoint := strings.TrimSpace(*update.Endpoint)
+			if err := validateEndpoint(endpoint); err != nil {
+				return nil, err
 			}
-		}
-
-		updates := []config.Update{
-			{Path: []string{"llm", "provider"}, Value: provider},
-			{Path: []string{"llm", "model"}, Value: model},
-			{Path: []string{"llm", "endpoint"}, Value: endpoint},
+			updates = append(updates, config.Update{Path: []string{"llm", "endpoint"}, Value: endpoint})
 		}
 		// A nil APIKey means "leave the stored credential alone", which is what the
 		// UI sends whenever the user did not retype the key.
 		if update.APIKey != nil {
 			updates = append(updates, config.Update{Path: []string{"llm", "api_key"}, Value: strings.TrimSpace(*update.APIKey)})
 		}
-		return updates, nil
+		return requireSomeField(updates)
 	})
+}
+
+// validateEndpoint accepts an empty endpoint: clearing it is meaningful, it hands
+// the provider back its own default base URL.
+func validateEndpoint(endpoint string) error {
+	if endpoint == "" {
+		return nil
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return badRequest("endpoint must be an absolute http:// or https:// URL")
+	}
+	return nil
 }
 
 func updateVaultHandler(a *app.App) http.HandlerFunc {
-	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
-		var update vaultSettings
+	return writeHandler(a, func(body []byte, saved *config.Config) ([]config.Update, error) {
+		var update vaultUpdate
 		if err := json.Unmarshal(body, &update); err != nil {
 			return nil, badRequest("request body is not valid JSON")
 		}
 
-		root := strings.TrimSpace(update.Root)
-		if root != "" {
-			if !filepath.IsAbs(root) {
-				return nil, badRequest("vault root must be an absolute path")
+		updates := []config.Update{}
+		if update.Root != nil {
+			root := strings.TrimSpace(*update.Root)
+			if err := validateVaultRoot(root); err != nil {
+				return nil, err
 			}
-			info, err := os.Stat(root)
-			if err != nil || !info.IsDir() {
-				return nil, badRequest(fmt.Sprintf("vault root %s is not an existing directory", root))
+			updates = append(updates, config.Update{Path: []string{"vault", "root"}, Value: root})
+		}
+		if update.CoalesceWindowMs != nil {
+			if err := requireNonNegative("coalesce window", *update.CoalesceWindowMs); err != nil {
+				return nil, err
 			}
+			updates = append(updates, config.Update{Path: []string{"vault", "coalesceWindowMs"}, Value: *update.CoalesceWindowMs})
 		}
-		if err := requireNonNegative("coalesce window", update.CoalesceWindowMs); err != nil {
-			return nil, err
+		if update.MoveWindowMs != nil {
+			if err := requireNonNegative("move window", *update.MoveWindowMs); err != nil {
+				return nil, err
+			}
+			updates = append(updates, config.Update{Path: []string{"vault", "moveWindowMs"}, Value: *update.MoveWindowMs})
 		}
-		if err := requireNonNegative("move window", update.MoveWindowMs); err != nil {
-			return nil, err
+		if update.RescanIntervalSec != nil {
+			if err := requireNonNegative("rescan interval", *update.RescanIntervalSec); err != nil {
+				return nil, err
+			}
+			updates = append(updates, config.Update{Path: []string{"vault", "rescanIntervalSec"}, Value: *update.RescanIntervalSec})
 		}
-		if err := requireNonNegative("rescan interval", update.RescanIntervalSec); err != nil {
-			return nil, err
-		}
-
-		return []config.Update{
-			{Path: []string{"vault", "root"}, Value: root},
-			{Path: []string{"vault", "coalesceWindowMs"}, Value: update.CoalesceWindowMs},
-			{Path: []string{"vault", "moveWindowMs"}, Value: update.MoveWindowMs},
-			{Path: []string{"vault", "rescanIntervalSec"}, Value: update.RescanIntervalSec},
-		}, nil
+		return requireSomeField(updates)
 	})
 }
 
+// validateVaultRoot accepts an empty root: a vault-less kernl is a supported
+// state (VaultConfig.Enabled reads exactly this), so detaching the vault stays
+// possible. Only a non-empty root has to resolve to a directory that exists.
+func validateVaultRoot(root string) error {
+	if root == "" {
+		return nil
+	}
+	if !filepath.IsAbs(root) {
+		return badRequest("vault root must be an absolute path")
+	}
+	info, err := os.Stat(root)
+	if err != nil || !info.IsDir() {
+		return badRequest(fmt.Sprintf("vault root %s is not an existing directory", root))
+	}
+	return nil
+}
+
 func updateInboxHandler(a *app.App) http.HandlerFunc {
-	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
-		var update inboxSettings
+	return writeHandler(a, func(body []byte, saved *config.Config) ([]config.Update, error) {
+		var update inboxUpdate
 		if err := json.Unmarshal(body, &update); err != nil {
 			return nil, badRequest("request body is not valid JSON")
 		}
 
-		subdir := strings.TrimSpace(update.DASubdir)
-		if subdir == "" {
-			return nil, badRequest("DA subdirectory is required")
+		updates := []config.Update{}
+		if update.AutoPrep != nil {
+			updates = append(updates, config.Update{Path: []string{"inbox", "auto_prep"}, Value: *update.AutoPrep})
 		}
-		// The subdir is joined onto the vault root to write DA-authored notes, so an
-		// absolute or climbing path would let the inbox write outside the vault.
-		if filepath.IsAbs(subdir) || strings.Contains(subdir, "..") {
-			return nil, badRequest("DA subdirectory must be a relative path inside the vault")
+		if update.DASubdir != nil {
+			subdir := strings.TrimSpace(*update.DASubdir)
+			// Unlike the vault root, an empty subdir has no meaning: the inbox always
+			// needs somewhere under the vault to materialize DA-authored notes.
+			if subdir == "" {
+				return nil, badRequest("DA subdirectory is required")
+			}
+			// The subdir is joined onto the vault root to write DA-authored notes, so an
+			// absolute or climbing path would let the inbox write outside the vault.
+			if filepath.IsAbs(subdir) || strings.Contains(subdir, "..") {
+				return nil, badRequest("DA subdirectory must be a relative path inside the vault")
+			}
+			updates = append(updates, config.Update{Path: []string{"inbox", "da_subdir"}, Value: subdir})
 		}
-
-		return []config.Update{
-			{Path: []string{"inbox", "auto_prep"}, Value: update.AutoPrep},
-			{Path: []string{"inbox", "da_subdir"}, Value: subdir},
-		}, nil
+		return requireSomeField(updates)
 	})
 }
 
 func updateRuntimeHandler(a *app.App) http.HandlerFunc {
-	return writeHandler(a, func(body []byte, current *config.Config) ([]config.Update, error) {
-		var update runtimeSettings
+	return writeHandler(a, func(body []byte, saved *config.Config) ([]config.Update, error) {
+		var update runtimeUpdate
 		if err := json.Unmarshal(body, &update); err != nil {
 			return nil, badRequest("request body is not valid JSON")
 		}
 
-		if update.ServerPort < 1 || update.ServerPort > 65535 {
+		updates, err := serverAndOrchestratorUpdates(update)
+		if err != nil {
+			return nil, err
+		}
+		sweep, err := sweepUpdates(update)
+		if err != nil {
+			return nil, err
+		}
+		return requireSomeField(append(updates, sweep...))
+	})
+}
+
+// serverAndOrchestratorUpdates collects the writes for the server and
+// orchestrator fields the request actually carried. Every bound here rejects the
+// zero value, so those fields can only be set to something usable — never cleared.
+func serverAndOrchestratorUpdates(update runtimeUpdate) ([]config.Update, error) {
+	updates := []config.Update{}
+
+	if update.ServerPort != nil {
+		if *update.ServerPort < 1 || *update.ServerPort > 65535 {
 			return nil, badRequest("server port must be between 1 and 65535")
 		}
-		if update.MaxConcurrentBeads < 1 || update.MaxConcurrentBeads > 64 {
+		updates = append(updates, config.Update{Path: []string{"server", "port"}, Value: *update.ServerPort})
+	}
+	if update.WorktreeRoot != nil {
+		if err := requireAbsolute("worktree root", *update.WorktreeRoot); err != nil {
+			return nil, err
+		}
+		updates = append(updates, config.Update{Path: []string{"orchestrator", "worktreeRoot"}, Value: strings.TrimSpace(*update.WorktreeRoot)})
+	}
+	if update.MaxConcurrentBeads != nil {
+		if *update.MaxConcurrentBeads < 1 || *update.MaxConcurrentBeads > 64 {
 			return nil, badRequest("max concurrent beads must be between 1 and 64")
 		}
-		if update.StageRetryAttempts < 0 || update.StageRetryAttempts > 10 {
+		updates = append(updates, config.Update{Path: []string{"orchestrator", "maxConcurrentBeads"}, Value: *update.MaxConcurrentBeads})
+	}
+	if update.RunStatePath != nil {
+		if err := requireAbsolute("run-state path", *update.RunStatePath); err != nil {
+			return nil, err
+		}
+		updates = append(updates, config.Update{Path: []string{"orchestrator", "runStatePath"}, Value: strings.TrimSpace(*update.RunStatePath)})
+	}
+	// Zero retries is a legitimate choice, so this bound admits it.
+	if update.StageRetryAttempts != nil {
+		if *update.StageRetryAttempts < 0 || *update.StageRetryAttempts > 10 {
 			return nil, badRequest("stage retry attempts must be between 0 and 10")
 		}
-		if err := requireAbsolute("worktree root", update.WorktreeRoot); err != nil {
+		updates = append(updates, config.Update{Path: []string{"orchestrator", "stageRetryAttempts"}, Value: *update.StageRetryAttempts})
+	}
+	return updates, nil
+}
+
+// sweepUpdates collects the writes for the sweep fields the request carried. The
+// three counters accept zero — it disables that particular guard — but the
+// backoff schedule cannot be emptied, since the sweeper would have no step to take.
+func sweepUpdates(update runtimeUpdate) ([]config.Update, error) {
+	updates := []config.Update{}
+
+	if update.SweepIntervalSec != nil {
+		if err := requireNonNegative("sweep interval", *update.SweepIntervalSec); err != nil {
 			return nil, err
 		}
-		if err := requireAbsolute("run-state path", update.RunStatePath); err != nil {
+		updates = append(updates, config.Update{Path: []string{"sweep", "auto_interval_seconds"}, Value: *update.SweepIntervalSec})
+	}
+	if update.PRStaleWarnDays != nil {
+		if err := requireNonNegative("PR stale warning", *update.PRStaleWarnDays); err != nil {
 			return nil, err
 		}
-		if err := requireNonNegative("sweep interval", update.SweepIntervalSec); err != nil {
+		updates = append(updates, config.Update{Path: []string{"sweep", "pr_stale_warn_days"}, Value: *update.PRStaleWarnDays})
+	}
+	if update.SweepFailureLimit != nil {
+		if err := requireNonNegative("failure threshold", *update.SweepFailureLimit); err != nil {
 			return nil, err
 		}
-		if err := requireNonNegative("PR stale warning", update.PRStaleWarnDays); err != nil {
-			return nil, err
-		}
-		if err := requireNonNegative("failure threshold", update.SweepFailureLimit); err != nil {
-			return nil, err
-		}
-		if len(update.SweepBackoffMinutes) == 0 {
+		updates = append(updates, config.Update{Path: []string{"sweep", "failure_threshold"}, Value: *update.SweepFailureLimit})
+	}
+	if update.SweepBackoffMinutes != nil {
+		schedule := *update.SweepBackoffMinutes
+		if len(schedule) == 0 {
 			return nil, badRequest("the backoff schedule needs at least one step")
 		}
-		for _, minutes := range update.SweepBackoffMinutes {
+		for _, minutes := range schedule {
 			if minutes <= 0 {
 				return nil, badRequest("every backoff step must be a positive number of minutes")
 			}
 		}
+		updates = append(updates, config.Update{Path: []string{"sweep", "backoff_minutes"}, Value: schedule})
+	}
+	return updates, nil
+}
 
-		return []config.Update{
-			{Path: []string{"server", "port"}, Value: update.ServerPort},
-			{Path: []string{"orchestrator", "worktreeRoot"}, Value: strings.TrimSpace(update.WorktreeRoot)},
-			{Path: []string{"orchestrator", "maxConcurrentBeads"}, Value: update.MaxConcurrentBeads},
-			{Path: []string{"orchestrator", "runStatePath"}, Value: strings.TrimSpace(update.RunStatePath)},
-			{Path: []string{"orchestrator", "stageRetryAttempts"}, Value: update.StageRetryAttempts},
-			{Path: []string{"sweep", "auto_interval_seconds"}, Value: update.SweepIntervalSec},
-			{Path: []string{"sweep", "pr_stale_warn_days"}, Value: update.PRStaleWarnDays},
-			{Path: []string{"sweep", "failure_threshold"}, Value: update.SweepFailureLimit},
-			{Path: []string{"sweep", "backoff_minutes"}, Value: update.SweepBackoffMinutes},
-		}, nil
-	})
+// requireSomeField turns a body that carried no known field into a 400. Applying
+// an empty update set would rewrite the user's config file to say nothing new,
+// and it almost always means the client sent the wrong field names.
+func requireSomeField(updates []config.Update) ([]config.Update, error) {
+	if len(updates) == 0 {
+		return nil, badRequest("nothing to update: send at least one field of this section")
+	}
+	return updates, nil
 }
 
 // writeHandler is the shared shape of every settings write: guard that a file
 // exists to write to, validate the body into a whitelisted update set, apply it,
 // then answer with the freshly re-read settings so the UI never has to guess what
 // landed on disk.
-func writeHandler(a *app.App, validate func(body []byte, current *config.Config) ([]config.Update, error)) http.HandlerFunc {
+//
+// validate receives the config as it is on disk, not the one this process booted
+// with. A partial update is merged into what is persisted, and the two diverge on
+// purpose after any earlier save (that divergence is what restartPending reports).
+func writeHandler(a *app.App, validate func(body []byte, saved *config.Config) ([]config.Update, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.Config == nil {
 			writeError(w, http.StatusServiceUnavailable, "settings require a loaded config")
@@ -471,7 +600,13 @@ func writeHandler(a *app.App, validate func(body []byte, current *config.Config)
 			return
 		}
 
-		updates, err := validate(body, a.Config)
+		saved, err := savedConfig(a)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		updates, err := validate(body, saved)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -482,7 +617,7 @@ func writeHandler(a *app.App, validate func(body []byte, current *config.Config)
 			return
 		}
 
-		saved, err := savedConfig(a)
+		saved, err = savedConfig(a)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
