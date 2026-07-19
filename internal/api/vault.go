@@ -91,7 +91,11 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
-		fullPath := filepath.Join(root, filePath)
+		fullPath, err := resolveVaultFilePath(root, filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		data, err := os.ReadFile(fullPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
@@ -122,7 +126,11 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
-		fullPath := filepath.Join(root, filePath)
+		fullPath, err := resolveVaultFilePath(root, filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -175,11 +183,15 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		}
 
 		// Destructive op: refuse anything that escapes the vault root.
-		fullPath := filepath.Join(root, filePath)
-		absRoot, _ := filepath.Abs(root)
-		absPath, _ := filepath.Abs(fullPath)
-		if !strings.HasPrefix(absPath, absRoot+string(filepath.Separator)) {
-			http.Error(w, "path escapes vault root", http.StatusBadRequest)
+		fullPath, err := resolveVaultFilePath(root, filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// resolveVaultFilePath treats the root itself as contained; deleting it
+		// would trash the whole vault, so only paths *below* it are targets.
+		if absRoot, absErr := filepath.Abs(root); absErr != nil || fullPath == absRoot {
+			http.Error(w, "path must stay within the vault", http.StatusBadRequest)
 			return
 		}
 

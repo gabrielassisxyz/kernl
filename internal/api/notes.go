@@ -55,7 +55,12 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 			home, _ := os.UserHomeDir()
 			root = filepath.Join(home, ".kernl", "vault")
 		}
-		current, err := os.ReadFile(filepath.Join(root, req.Path))
+		fullPath, err := resolveVaultFilePath(root, req.Path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		current, err := os.ReadFile(fullPath)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
@@ -96,7 +101,11 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 
 		clientLastModifiedStr := r.Header.Get("If-Match")
 
-		fullPath := filepath.Join(root, filePath)
+		fullPath, err := resolveVaultFilePath(root, filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

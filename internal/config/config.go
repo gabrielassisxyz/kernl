@@ -62,6 +62,11 @@ type RepoEntry struct {
 
 type ServerConfig struct {
 	Port int `yaml:"port"`
+	// Host is the interface to bind. It defaults to loopback: the API has no
+	// authentication, so binding every interface would offer the vault and the
+	// orchestrator to anything that can reach the machine. Set it to 0.0.0.0
+	// deliberately (a container, a trusted LAN), never by accident.
+	Host string `yaml:"host,omitempty"`
 }
 
 type OrchestratorConfig struct {
@@ -153,6 +158,10 @@ func Load(path string) (*Config, error) {
 
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
+	}
+
+	if cfg.Server.Host == "" {
+		cfg.Server.Host = "127.0.0.1"
 	}
 
 	if cfg.Inbox.DASubdir == "" {

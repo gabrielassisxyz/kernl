@@ -84,6 +84,11 @@ orchestrator:
 server:
   # Port for the REST + SSE API (default: 8080).
   port: 8080
+  # Interface to bind (default: 127.0.0.1). The API has no authentication and
+  # serves the vault, so loopback is the default on purpose. Set 0.0.0.0 only
+  # when you mean it — a container, or a network you trust. The KERNL_HOST
+  # environment variable overrides this.
+  # host: 127.0.0.1
 
 # Vault block enables the notes watcher and graph integration.
 # When vault.root is empty (or the block is absent), vault watching is disabled.
