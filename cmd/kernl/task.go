@@ -193,6 +193,9 @@ func runTaskDelete(v verbContext, asJSON bool, args []string) error {
 	// Preview without contacting the server at all: an unconfirmed destructive
 	// invocation must not depend on the server being reachable to be safe.
 	if !confirmed {
+		if asJSON {
+			return emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"deleted":false,"wouldDelete":true}`, id)))
+		}
 		fmt.Fprintf(v.stdout(), "Would delete task %s and its companion note. Re-run with --yes to confirm.\n", id)
 		return nil
 	}

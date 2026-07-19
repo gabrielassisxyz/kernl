@@ -171,6 +171,26 @@ func TestTaskDeleteWithoutYesIssuesNoRequest(t *testing.T) {
 	}
 }
 
+// R2-007: the preview path must honour --json (it used to print prose, so
+// `task delete X --json | jq` broke — note/project delete both emit JSON here).
+func TestTaskDeletePreviewHonoursJSON(t *testing.T) {
+	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
+	out, err := runTaskVerb(t, api, "delete", "tsk-1", "--json")
+	if err != nil {
+		t.Fatalf("unconfirmed --json delete must succeed as a preview, got: %v", err)
+	}
+	if len(api.calls) != 0 {
+		t.Fatalf("delete without --yes must not touch the server, got %+v", api.calls)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("preview --json must emit JSON, got %q (%v)", out, err)
+	}
+	if got["id"] != "tsk-1" || got["wouldDelete"] != true {
+		t.Errorf("preview JSON must carry id + wouldDelete:true, got %v", got)
+	}
+}
+
 func TestTaskDeleteWithYesIssuesDelete(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
 	out, err := runTaskVerb(t, api, "delete", "tsk-1", "--yes")
