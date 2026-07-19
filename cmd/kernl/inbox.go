@@ -97,7 +97,15 @@ default when the server restarts.`,
 			Name:    "prep",
 			Summary: "Generate (or show) the DA briefing note for a capture",
 			Usage:   "kernl inbox prep <capture-id> [--show] [--json]",
-			Details: `Flags:
+			Details: `Bare 'prep' is get-or-create: it returns the capture's existing prep note,
+and only generates one when there is none. Generation costs one LLM call, so
+the first prep of a given capture is the only invocation that spends anything
+— every later one is a read, and re-running is free and idempotent.
+
+'--show' is get-if-exists: it never generates. On an already-prepped capture
+the two forms are identical.
+
+Flags:
   --show  Read the existing prep note instead of generating one. When none
           exists this prints "no prep yet" and exits 0 — absence is an
           answer, not a bad invocation
