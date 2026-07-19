@@ -15,7 +15,11 @@ import (
 type projectCall struct {
 	method string
 	path   string
-	body   map[string]any
+	// escaped is the raw, still-percent-encoded request path, so a test can tell
+	// an escaped id from a raw one (r.URL.Path decodes both back to the same
+	// string).
+	escaped string
+	body    map[string]any
 }
 
 // fakeProjectAPI stands in for a running `kernl serve`: it records every call
@@ -37,7 +41,7 @@ func newFakeProjectAPI(t *testing.T, status int, body string) *fakeProjectAPI {
 }
 
 func (f *fakeProjectAPI) serve(w http.ResponseWriter, r *http.Request) {
-	call := projectCall{method: r.Method, path: r.URL.Path}
+	call := projectCall{method: r.Method, path: r.URL.Path, escaped: r.URL.EscapedPath()}
 	if raw, err := io.ReadAll(r.Body); err == nil && len(bytes.TrimSpace(raw)) > 0 {
 		if err := json.Unmarshal(raw, &call.body); err != nil {
 			f.t.Errorf("request body is not JSON: %s", raw)
@@ -236,6 +240,32 @@ func TestProjectDeleteWithoutYesPreviewsAndDeletesNothing(t *testing.T) {
 	}
 	if !strings.Contains(out, "Would delete") || !strings.Contains(out, "--yes") {
 		t.Errorf("preview must say what would go and how to confirm, got: %s", out)
+	}
+}
+
+// R2-010: an id with URL-significant characters must be percent-escaped into
+// the request path, not concatenated raw — otherwise a '/' or '?' in the id
+// rewrites the endpoint the CLI hits (task delete already escapes; project
+// delete/set regressed).
+func TestProjectDeleteEscapesTheIDInThePath(t *testing.T) {
+	fake := newFakeProjectAPI(t, http.StatusNoContent, "")
+	if _, err := fake.run("delete", "a/b", "--yes"); err != nil {
+		t.Fatalf("project delete: %v", err)
+	}
+	call := fake.only(t)
+	if call.escaped != "/api/projects/a%2Fb" {
+		t.Fatalf("id must be percent-escaped in the path, got %q", call.escaped)
+	}
+}
+
+func TestProjectSetEscapesTheIDInThePath(t *testing.T) {
+	fake := newFakeProjectAPI(t, http.StatusNoContent, "")
+	if _, err := fake.run("set", "--status", "done", "a/b"); err != nil {
+		t.Fatalf("project set: %v", err)
+	}
+	call := fake.only(t)
+	if call.escaped != "/api/projects/a%2Fb" {
+		t.Fatalf("id must be percent-escaped in the path, got %q", call.escaped)
 	}
 }
 
