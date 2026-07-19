@@ -179,6 +179,57 @@ func TestTriageFailsOnlyWhenNothingAnswers(t *testing.T) {
 	}
 }
 
+// A fresh agent ran `kernl triage` from a directory with no kernl.yaml — the
+// natural first move, since triage is the first verb in the help and says it
+// reports what needs attention. It got six identical "run kernl from the
+// directory containing kernl.yaml, or pass --config <path>" lines: one cause
+// reported six times, and a remedy that cannot work, because there is no
+// kernl.yaml anywhere to point --config at. The flag that works is --server,
+// which the message never named.
+func TestTriageWithNoServerAddressFailsOnceAndNamesTheFlagThatWorks(t *testing.T) {
+	var out bytes.Buffer
+	// No server, no config path: nothing to resolve an address from.
+	err := runTriage(verbContext{out: &out, configPath: "/nonexistent/kernl.yaml"}, nil)
+	if err == nil {
+		t.Fatal("triage with no resolvable server must fail")
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("an unusable invocation must exit 2, got %d", exitCode(err))
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "--server") {
+		t.Errorf("the fix must name --server, the flag that actually works here: %s", msg)
+	}
+	if strings.Count(msg, "Fix:") != 1 {
+		t.Errorf("exactly one remedy, not a correct one stacked on a wrong one: %s", msg)
+	}
+	// Reported once, not once per section: the sections never ran.
+	if out.Len() != 0 {
+		t.Errorf("no per-section report should be written when the address never resolved, got: %s", out.String())
+	}
+}
+
+// Truncating a list is good manners; truncating an error removes the reason it
+// was printed. The remedy comes last in these messages, so a naive cut always
+// takes the actionable half — and mid-word, leaving "--config <path-to-ker…".
+func TestTriageReasonKeepsTheRemedyAndCutsOnWords(t *testing.T) {
+	long := "KERNL DISPATCH FAILURE: " + strings.Repeat("diagnosis words that go on and on ", 12) +
+		"— Fix: pass --server <url> or set KERNL_SERVER"
+	got := triageReason(errors.New(long))
+
+	if !strings.Contains(got, "--server <url>") {
+		t.Errorf("the remedy must survive truncation intact, got: %q", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("an over-long reason should show that it was cut, got: %q", got)
+	}
+	for _, fragment := range []string{"<url", "--serv"} {
+		if strings.HasSuffix(strings.TrimSuffix(got, "… "), fragment) {
+			t.Errorf("cut left an unusable fragment: %q", got)
+		}
+	}
+}
+
 func TestTriageRejectsArgumentsAndUnknownFlags(t *testing.T) {
 	ts := triageServer(t, fullTriageRoutes())
 	for _, args := range [][]string{{"extra"}, {"--nope"}} {

@@ -83,6 +83,14 @@ func runTriage(v verbContext, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Resolve the address ONCE, before fanning out. The client resolves it
+	// lazily on first use, so without this a single unresolvable server is
+	// discovered independently by all six readers and reported six times — one
+	// cause wearing six costumes, which buries the fact that they share one.
+	// It is also the wrong diagnosis per section: the sections are fine.
+	if _, err := c.base(); err != nil {
+		return triageUnreachable(err)
+	}
 
 	report := collectTriage(context.Background(), c)
 	if asJSON {
@@ -102,6 +110,26 @@ func runTriage(v verbContext, args []string) error {
 		return reportedElsewhere(err)
 	}
 	return nil
+}
+
+// triageUnreachable explains a failure to even locate the server.
+//
+// WHY it names --server first. The generic config error says "run kernl from
+// the directory containing kernl.yaml, or pass --config <path>" — advice that
+// is useless here, because a triage run from an arbitrary directory has no
+// kernl.yaml to point at and does not need one: it needs an address. A fix hint
+// that omits the fix that works is worse than no hint, since it reads as
+// authoritative and sends the caller down a dead end.
+func triageUnreachable(err error) error {
+	// Keep the diagnosis, drop the generic remedy riding on it: two "Fix:"
+	// clauses in one message, the first of them wrong, is worse than one.
+	cause := triageReason(err)
+	if fix := strings.Index(cause, "Fix:"); fix >= 0 {
+		cause = strings.TrimRight(strings.TrimSpace(cause[:fix]), " —")
+	}
+	return usagef("KERNL DISPATCH FAILURE: triage cannot tell where the server is — %s\n"+
+		"Fix: pass --server <url> (e.g. --server http://127.0.0.1:8080), set KERNL_SERVER, "+
+		"or run from a directory that has a kernl.yaml", cause)
 }
 
 // exitCode reports failure only when NOTHING could be read — which means the
@@ -332,18 +360,43 @@ func triageHealthCheck(ctx context.Context, c *apiClient) triageHealth {
 	return triageHealth{Available: true, Status: body.Status}
 }
 
-// triageReason compresses an error into one line a human can act on. The full
-// error is still available by running the slice's own command, which is what
-// the Command field is for.
+// triageReason compresses an error into one line a human can act on.
+//
+// The cut keeps the "Fix:" clause when there is one. Truncating a list is good
+// manners; truncating an error removes the reason it was printed, and the half
+// that gets cut is always the actionable half — the remedy comes last. So the
+// remedy is preferred over the diagnosis when both will not fit, and the full
+// text stays one command away, which is what the slice's Command field is for.
 func triageReason(err error) string {
 	msg := strings.TrimPrefix(err.Error(), "KERNL DISPATCH FAILURE: ")
-	if i := strings.IndexByte(msg, '\n'); i >= 0 {
-		msg = msg[:i]
+	msg = strings.Join(strings.Fields(msg), " ")
+
+	const budget = 200
+	if len(msg) <= budget {
+		return msg
 	}
-	if len(msg) > 160 {
-		msg = msg[:160] + "…"
+	if fix := strings.Index(msg, "Fix:"); fix >= 0 {
+		remedy := msg[fix:]
+		if len(remedy) >= budget {
+			return truncateOnWord(remedy, budget)
+		}
+		// Keep the whole remedy, spending what is left on the diagnosis.
+		return truncateOnWord(msg[:fix], budget-len(remedy)) + remedy
 	}
-	return msg
+	return truncateOnWord(msg, budget)
+}
+
+// truncateOnWord cuts at a word boundary so a flag or path is never left as a
+// fragment the reader cannot act on ("--config <path-to-ker…").
+func truncateOnWord(s string, budget int) string {
+	if len(s) <= budget {
+		return s
+	}
+	cut := s[:budget]
+	if i := strings.LastIndexByte(cut, ' '); i > budget/2 {
+		cut = cut[:i]
+	}
+	return strings.TrimRight(cut, " ") + "… "
 }
 
 func printTriage(w io.Writer, r triageReport) error {
