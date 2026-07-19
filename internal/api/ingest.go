@@ -327,7 +327,7 @@ func ingestQueueResolveHandler(a *app.App, enabled bool) http.HandlerFunc {
 			TargetNoteID  string             `json:"targetNoteId"`
 			AcceptedHunks []ingest.MergeHunk `json:"acceptedHunks"`
 		}
-		_ = json.NewDecoder(r.Body).Decode(&body) // empty body → Skip
+		_ = json.NewDecoder(r.Body).Decode(&body) // an absent action is rejected below, not defaulted
 
 		vaultRoot := ""
 		if a.Config != nil {
@@ -340,6 +340,10 @@ func ingestQueueResolveHandler(a *app.App, enabled bool) http.HandlerFunc {
 		}
 
 		err := ingest.ResolveReview(r.Context(), a.Graph, vaultRoot, id, body.Action, update)
+		if errors.Is(err, ingest.ErrActionRequired) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		if errors.Is(err, ingest.ErrActionNotImplemented) {
 			http.Error(w, "action not implemented yet: "+body.Action, http.StatusNotImplemented)
 			return

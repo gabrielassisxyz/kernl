@@ -213,6 +213,45 @@ func TestIngestQueueResolveRejectsUnknownAction(t *testing.T) {
 	}
 }
 
+// A forgotten --action used to mean "Skip", which deletes the review. The verb
+// must refuse rather than pick the destructive branch for the caller.
+func TestIngestQueueResolveRequiresAction(t *testing.T) {
+	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
+
+	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1")
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "requires --action") {
+		t.Fatalf("expected exit 2 demanding --action, got %d: %v", exitCode(err), err)
+	}
+	if len(*seen) != 0 {
+		t.Fatal("a missing action must not reach the server")
+	}
+}
+
+// The shell token is 'discard' — the wire value stays "Skip", which the GUI sends.
+func TestIngestQueueResolveDiscardSendsSkip(t *testing.T) {
+	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
+
+	if _, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "discard"); err != nil {
+		t.Fatalf("ingest queue resolve --action discard: %v", err)
+	}
+	if len(*seen) != 1 || (*seen)[0].body["action"] != "Skip" {
+		t.Fatalf("expected the wire value Skip, got %#v", *seen)
+	}
+}
+
+// 'skip' is gone with no alias — it read as "leave it for later" while deleting.
+func TestIngestQueueResolveRejectsRetiredSkipToken(t *testing.T) {
+	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
+
+	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "skip")
+	if exitCode(err) != 2 || !strings.Contains(err.Error(), "discard") {
+		t.Fatalf("expected exit 2 pointing at discard, got %d: %v", exitCode(err), err)
+	}
+	if len(*seen) != 0 {
+		t.Fatal("a rejected action must not reach the server")
+	}
+}
+
 func TestIngestQueueMergePlanSummarizesHunks(t *testing.T) {
 	ts, seen := fakeIngestAPI(t, http.StatusOK,
 		`{"targetNoteId":"nt-1","targetTitle":"Kubernetes","hunks":[{"text":"a"},{"text":"b"}]}`)
@@ -235,7 +274,7 @@ func TestIngestSurfacesUnconfiguredLLM(t *testing.T) {
 	ts, _ := fakeIngestAPI(t, http.StatusServiceUnavailable,
 		"ingest requires an LLM provider; set llm.provider in kernl.yaml")
 
-	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1")
+	_, err := driveIngest(t, ts, "queue", "resolve", "rv-1", "--action", "create-page")
 	if err == nil || !strings.Contains(err.Error(), "set llm.provider in kernl.yaml") {
 		t.Fatalf("expected the server's own message to surface, got %v", err)
 	}

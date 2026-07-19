@@ -20,11 +20,15 @@ var ingestQueueSubcommands = []string{"list", "resolve", "merge-plan"}
 
 // ingestResolveActions maps a shell-friendly token onto the action string the
 // API expects. The wire values contain a space ("Create Page"), which no one
-// should have to quote correctly to skip a review.
+// should have to quote correctly to discard a review.
+//
+// The token for the wire's "Skip" is "discard" because that is what it does: the
+// review is deleted, permanently and with no undo. "skip" reads as "leave it for
+// later", which is the opposite of the outcome.
 var ingestResolveActions = map[string]string{
 	"create-page": "Create Page",
 	"update":      "Update",
-	"skip":        "Skip",
+	"discard":     "Skip",
 }
 
 var ingestCommand = commandMeta{
@@ -87,11 +91,12 @@ Flags:
 			Summary: "Read and resolve the ingest review queue",
 			Usage:   "kernl ingest queue <list|resolve|merge-plan> [args...]",
 			Details: `list                  Pending reviews: id, proposed action, title
-resolve <id>          Apply a review (--action create-page|update|skip)
+resolve <id>          Apply a review (--action create-page|update|discard)
 merge-plan <id>       Ask the LLM which hunks an Update would add
 
 Flags on resolve:
-  --action <a>       create-page, update or skip (default: skip)
+  --action <a>       create-page, update or discard — REQUIRED, no default.
+                     'discard' deletes the review permanently; there is no undo.
   --target-note <id> With --action update: the note to merge into
   --json             Emit the API response verbatim
 
@@ -363,18 +368,20 @@ func ingestQueueResolve(ctx context.Context, v verbContext, c *apiClient, asJSON
 	return err
 }
 
-// ingestResolveAction defaults to Skip because that is what the handler does
-// with an absent action, and a CLI that invented a different default would
-// resolve reviews differently from the API it is a client of.
+// ingestResolveAction requires --action. It used to default to Skip, mirroring
+// the handler, which meant a forgotten flag silently deleted the review. The API
+// now rejects an absent action too, so both ends agree that resolving is always
+// an explicit choice.
 func ingestResolveAction(raw string) (string, error) {
+	valid := []string{"create-page", "update", "discard"}
 	token := strings.TrimSpace(raw)
 	if token == "" {
-		return "Skip", nil
+		return "", usagef("KERNL DISPATCH FAILURE: ingest queue resolve requires --action — valid: %s (discard deletes the review permanently). Run: kernl ingest queue --help",
+			strings.Join(valid, ", "))
 	}
 	if action, ok := ingestResolveActions[token]; ok {
 		return action, nil
 	}
-	valid := []string{"create-page", "update", "skip"}
 	return "", usagef("KERNL DISPATCH FAILURE: unknown --action %q%s — valid: %s. Run: kernl ingest queue --help",
 		token, didYouMean(token, valid), strings.Join(valid, ", "))
 }
