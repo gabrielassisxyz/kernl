@@ -2,13 +2,9 @@
 
 This is a synthesized, agent-facing changelog for Kernl.
 
-Scope window: project inception on 2026-05-15 through the current pre-release
-branch state on 2026-06-16.
+Scope window: project inception on 2026-05-15 through the current pre-release branch state on 2026-06-16.
 
-This document was built from git history, GitHub PR metadata, and the local
-project state docs. It is organized by landed capabilities rather than raw diff
-order. GoReleaser will still generate per-release notes for GitHub Releases;
-this file is the durable project history.
+This document was built from git history, GitHub PR metadata, and the local project state docs. It is organized by landed capabilities rather than raw diff order. GoReleaser will still generate per-release notes for GitHub Releases; this file is the durable project history.
 
 ## Version Timeline
 
@@ -19,9 +15,7 @@ this file is the durable project history.
 
 ## Workstreams
 
-The public workstream spine is currently GitHub PRs. Local bead metadata exists
-outside the public repository, so this changelog links PRs for durable
-branch-level intent and commit links for implementation evidence.
+The public workstream spine is currently GitHub PRs. Local bead metadata exists outside the public repository, so this changelog links PRs for durable branch-level intent and commit links for implementation evidence.
 
 | Workstream | Merged | Summary |
 | --- | --- | --- |
@@ -45,32 +39,19 @@ branch-level intent and commit links for implementation evidence.
 
 ### Dev environment, CI, and release path
 
-This branch turns Kernl from a local-only prototype repo into something that can
-be built, checked, packaged, installed, and released from the public repository.
+This branch turns Kernl from a local-only prototype repo into something that can be built, checked, packaged, installed, and released from the public repository.
 
 Delivered capability:
 
-- Replaced the dead CI workflow with a full `ci` workflow for formatting, vet,
-  unit tests, web generation/tests, advisory lint, vulnerability checks, and
-  secret scanning.
-- Added `bin/ci`, `bin/install-hooks`, `.gitleaks.toml`, and `.golangci.yml` so
-  local checks mirror the repository gates.
-- Switched web dependency installation in CI/local scripts back to reproducible
-  `npm ci` on Node 24.
-- Reduced npm audit findings with conservative Nuxt 3/Vitest 3-compatible web
-  dependency updates, leaving only the Vite dev-server advisory that requires a
-  future Nuxt/Vite major-line decision.
-- Added GoReleaser config, a tag-triggered release workflow, `install.sh`,
-  Dockerfile, Compose file, and Docker ignore rules.
-- Hardened workflows with top-level permissions, concurrency, job timeouts,
-  SHA-pinned actions, and Dependabot updates for GitHub Actions and Go modules.
-- Hardened the installer so checksum verification is mandatory and latest-version
-  resolution can fall back when the GitHub API is rate-limited.
-- Added `kernl version`, `--version`, and build metadata variables populated by
-  release ldflags.
-- Rewrote the README around Kernl as an all-in-one local-first graph substrate
-  plus orchestrator, removed the stale parallel demo GIF, and documented install,
-  Docker, source-build, command, config, troubleshooting, and limitation paths.
+- Replaced the dead CI workflow with a full `ci` workflow for formatting, vet, unit tests, web generation/tests, advisory lint, vulnerability checks, and secret scanning.
+- Added `bin/ci`, `bin/install-hooks`, `.gitleaks.toml`, and `.golangci.yml` so local checks mirror the repository gates.
+- Switched web dependency installation in CI/local scripts back to reproducible `npm ci` on Node 24.
+- Reduced npm audit findings with conservative Nuxt 3/Vitest 3-compatible web dependency updates, leaving only the Vite dev-server advisory that requires a future Nuxt/Vite major-line decision.
+- Added GoReleaser config, a tag-triggered release workflow, `install.sh`, Dockerfile, Compose file, and Docker ignore rules.
+- Hardened workflows with top-level permissions, concurrency, job timeouts, SHA-pinned actions, and Dependabot updates for GitHub Actions and Go modules.
+- Hardened the installer so checksum verification is mandatory and latest-version resolution can fall back when the GitHub API is rate-limited.
+- Added `kernl version`, `--version`, and build metadata variables populated by release ldflags.
+- Rewrote the README around Kernl as an all-in-one local-first graph substrate plus orchestrator, removed the stale parallel demo GIF, and documented install, Docker, source-build, command, config, troubleshooting, and limitation paths.
 
 Representative commits:
 
@@ -86,20 +67,14 @@ Representative commits:
 
 ### Foundation and orchestrator bootstrap
 
-Kernl began as a Go single-binary orchestration runner, then evolved into a
-substrate-centered product. The early history established the CLI, config,
-preflight checks, bead DAG execution, worktree isolation, event streams, and the
-first monitoring UI.
+Kernl began as a Go single-binary orchestration runner, then evolved into a substrate-centered product. The early history established the CLI, config, preflight checks, bead DAG execution, worktree isolation, event streams, and the first monitoring UI.
 
 Delivered capability:
 
 - Imported and renamed the engine into the Kernl module and vocabulary.
 - Added `kernl serve`, `kernl doctor`, `kernl bead run`, and `kernl epic run`.
-- Added config loading, preflight checks, bead DAG loading, ready-set execution,
-  semaphore-limited parallelism, worktree management, run-state storage, and
-  SSE-based monitoring.
-- Added integration harnesses and a packaged parallel demo, later superseded by
-  the broader product README.
+- Added config loading, preflight checks, bead DAG loading, ready-set execution, semaphore-limited parallelism, worktree management, run-state storage, and SSE-based monitoring.
+- Added integration harnesses and a packaged parallel demo, later superseded by the broader product README.
 
 Representative commits:
 
@@ -110,19 +85,13 @@ Representative commits:
 
 ### Graph substrate and vault watcher
 
-The next wave made the graph the product center: SQLite-backed typed nodes and
-edges, tags, FTS, revisions, traversal, relevance, and a markdown vault watcher
-that keeps human-authored notes as files while indexing them into the graph.
+The next wave made the graph the product center: SQLite-backed typed nodes and edges, tags, FTS, revisions, traversal, relevance, and a markdown vault watcher that keeps human-authored notes as files while indexing them into the graph.
 
 Delivered capability:
 
-- Added the graph package, migration runner, transaction boundaries, typed node
-  CRUD, FTS, tags, revisions, and graph test utilities.
-- Added traversal helpers, shortest path, depth-limited neighbors, and a
-  structural relatedness scorer.
-- Added the Note node type, frontmatter UUID injection, wikilink parsing,
-  path-cache based rename handling, revision logging, tombstones, cold-start
-  reconciliation, watcher lifecycle wiring, and an e2e vault watcher suite.
+- Added the graph package, migration runner, transaction boundaries, typed node CRUD, FTS, tags, revisions, and graph test utilities.
+- Added traversal helpers, shortest path, depth-limited neighbors, and a structural relatedness scorer.
+- Added the Note node type, frontmatter UUID injection, wikilink parsing, path-cache based rename handling, revision logging, tombstones, cold-start reconciliation, watcher lifecycle wiring, and an e2e vault watcher suite.
 
 Representative commits:
 
@@ -133,20 +102,14 @@ Representative commits:
 
 ### Digital assistant, workflow engine, and dispatch
 
-Kernl then gained the persistent assistant surface, chat/session protocol, scope
-and permissions, custom workflow support, subprocess stages, autonomous dispatch,
-auditable decisions, and the epic integration-to-PR path.
+Kernl then gained the persistent assistant surface, chat/session protocol, scope and permissions, custom workflow support, subprocess stages, autonomous dispatch, auditable decisions, and the epic integration-to-PR path.
 
 Delivered capability:
 
-- Added assistant identity and chat session node types, chat APIs, event flow,
-  permissions, and UI surfaces.
-- Added custom workflow YAML resolution, embedded canonical workflow parity tests,
-  handoff payloads, subprocess runner support, and failure handling.
-- Added autonomous workflow inference, hard gates, audit-decision nodes, CLI flags,
-  and config-driven dispatch.
-- Added epic-level integration, integration review, shipment, manual merge
-  recovery, sweep support, and epic abort cleanup.
+- Added assistant identity and chat session node types, chat APIs, event flow, permissions, and UI surfaces.
+- Added custom workflow YAML resolution, embedded canonical workflow parity tests, handoff payloads, subprocess runner support, and failure handling.
+- Added autonomous workflow inference, hard gates, audit-decision nodes, CLI flags, and config-driven dispatch.
+- Added epic-level integration, integration review, shipment, manual merge recovery, sweep support, and epic abort cleanup.
 
 Representative commits:
 
@@ -164,21 +127,15 @@ Related PRs:
 
 ### Wave 2 modules and the magic loop
 
-The Wave 2 work made Kernl feel like a product instead of isolated backend
-pieces. Inbox, notes, bookmarks, memory, ingest, dispatch, and the GUI shell were
-wired end-to-end, and the keystone substrate-aware planning slice landed.
+The Wave 2 work made Kernl feel like a product instead of isolated backend pieces. Inbox, notes, bookmarks, memory, ingest, dispatch, and the GUI shell were wired end-to-end, and the keystone substrate-aware planning slice landed.
 
 Delivered capability:
 
-- Added CLI and UI capture, inbox triage, conversion routing, pending APIs, and
-  daily rollups.
-- Added source-first note editing, autosave to revisions, conflict detection,
-  diff suggestions, tag hierarchy, and visible authorship markers.
-- Added bookmark archiving, imports, reader/highlighter UI, memory claims and
-  refutations, ingest manifests, review queue, and structured extraction.
+- Added CLI and UI capture, inbox triage, conversion routing, pending APIs, and daily rollups.
+- Added source-first note editing, autosave to revisions, conflict detection, diff suggestions, tag hierarchy, and visible authorship markers.
+- Added bookmark archiving, imports, reader/highlighter UI, memory claims and refutations, ingest manifests, review queue, and structured extraction.
 - Unified the graph database used by CLI, API, and watcher.
-- Added `kernl plan` and the planning-context API so relevant vault notes are
-  retrieved automatically for a planning topic.
+- Added `kernl plan` and the planning-context API so relevant vault notes are retrieved automatically for a planning topic.
 
 Representative commits:
 
@@ -199,20 +156,15 @@ Related PRs:
 
 ### Web product surfaces
 
-The web app then moved from individual module surfaces toward a cohesive
-workspace: live home data, chat, polished inbox/notes screens, Projects and Tasks
-as human graph nodes, and a graph view with companion notes and wikilink
-autocomplete.
+The web app then moved from individual module surfaces toward a cohesive workspace: live home data, chat, polished inbox/notes screens, Projects and Tasks as human graph nodes, and a graph view with companion notes and wikilink autocomplete.
 
 Delivered capability:
 
 - Served the Nuxt Home route at `/` and wired module data to live APIs.
-- Added chat search over notes, Home layout improvements, inbox polish, note
-  editor fixes, and web test coverage.
+- Added chat search over notes, Home layout improvements, inbox polish, note editor fixes, and web test coverage.
 - Added Orchestrator, Projects, and Tasks screens.
 - Modeled Projects and Tasks as graph nodes rather than orchestrator beads.
-- Added graph visualization, node type registry, companion-note creation,
-  wikilink autocomplete/editor wiring, node search, and edges APIs.
+- Added graph visualization, node type registry, companion-note creation, wikilink autocomplete/editor wiring, node search, and edges APIs.
 
 Representative commits:
 
@@ -233,7 +185,5 @@ Related PRs:
 - Start with the Version Timeline to understand whether a public version exists.
 - Use the Unreleased section for the current release-prep branch.
 - Use the Pre-release History sections for architectural orientation.
-- Commit links are implementation evidence; PR links are useful for branch-level
-  intent and discussion.
-- Do not treat GoReleaser-generated GitHub Release notes as a replacement for
-  this file. They are release artifacts; this is project memory.
+- Commit links are implementation evidence; PR links are useful for branch-level intent and discussion.
+- Do not treat GoReleaser-generated GitHub Release notes as a replacement for this file. They are release artifacts; this is project memory.

@@ -219,10 +219,7 @@ The palette is near-black and cool-neutral, with a single blue-violet assistant/
 
 ## Typography
 
-**Display Font:** IBM Plex Sans with system UI fallback.
-**Body Font:** IBM Plex Sans with system UI fallback.
-**Label/Mono Font:** IBM Plex Sans for labels; IBM Plex Mono with `ui-monospace` fallback for metadata, IDs, timestamps, counts, and command-like hints.
-**Icon Font:** Material Symbols Outlined, self-hosted as a subset and rendered with low optical weight.
+**Display Font:** IBM Plex Sans with system UI fallback. **Body Font:** IBM Plex Sans with system UI fallback. **Label/Mono Font:** IBM Plex Sans for labels; IBM Plex Mono with `ui-monospace` fallback for metadata, IDs, timestamps, counts, and command-like hints. **Icon Font:** Material Symbols Outlined, self-hosted as a subset and rendered with low optical weight.
 
 **Character:** The type is product-native and unobtrusive. It should feel like a serious desktop tool: compact, readable, and stable under dense information rather than expressive or editorial.
 

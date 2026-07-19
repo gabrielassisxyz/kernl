@@ -33,8 +33,7 @@ This directory demonstrates the custom workflow and escape hatch capability of t
 ### 1. `context_payload` Size Management
 
 > [!IMPORTANT]
-> The engine stores `context_payload` in the agent state store to carry state between stages. However, keeping this payload small is highly recommended. 
-> Authors should avoid dumping large raw files, datasets, or complex objects inside the `context_payload` string itself.
+> The engine stores `context_payload` in the agent state store to carry state between stages. However, keeping this payload small is highly recommended. Authors should avoid dumping large raw files, datasets, or complex objects inside the `context_payload` string itself.
 >
 > Instead, follow this pattern:
 > - Store large output files directly within the bead's `worktree_path`.

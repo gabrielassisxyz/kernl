@@ -11,9 +11,7 @@ Solo developers who build their own tools, use agents to accelerate execution, a
 Kernl is the solo developer's cognitive substrate. It unifies knowledge (notes, bookmarks), project management (tasks, epics), and multi-agent execution into a single local-first knowledge graph. It exists so that judgment becomes the only thing the human does, while decomposition and execution run in parallel without requiring continuous supervision.
 
 ## Brand Personality
-Focused, utilitarian, structured. 
-The interface should feel like a native, responsive tool that stays out of the way so complex data and workflows can shine. 
-References: Linear (for high data density without clutter and excellent dark mode), Obsidian (for the local-first "vault" aesthetic), and Ghostty/Raycast (for raw, keyboard-driven utility and speed).
+Focused, utilitarian, structured. The interface should feel like a native, responsive tool that stays out of the way so complex data and workflows can shine. References: Linear (for high data density without clutter and excellent dark mode), Obsidian (for the local-first "vault" aesthetic), and Ghostty/Raycast (for raw, keyboard-driven utility and speed).
 
 ## Anti-references
 - Jira: Bureaucratic, cluttered, slow, and overly enterprise-focused.

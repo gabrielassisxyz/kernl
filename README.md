@@ -1,23 +1,12 @@
 # Kernl
 
-[![CI](https://github.com/gabrielassisxyz/kernl/actions/workflows/ci.yml/badge.svg)](https://github.com/gabrielassisxyz/kernl/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8.svg)](https://go.dev/)
+[![CI](https://github.com/gabrielassisxyz/kernl/actions/workflows/ci.yml/badge.svg)](https://github.com/gabrielassisxyz/kernl/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8.svg)](https://go.dev/)
 
-Kernl is a local-first workspace for solo developers: notes, captures, bookmarks,
-projects, tasks, memory, and multi-agent execution all living in one typed graph.
+Kernl is a local-first workspace for solo developers: notes, captures, bookmarks, projects, tasks, memory, and multi-agent execution all living in one typed graph.
 
-It is built for the problem of having one tool for notes, another for tasks,
-another for bookmarks, another for planning context, and another for agent
-orchestration with almost no shared state between them. Kernl's bet is that these
-are not separate products. They are one substrate.
+It is built for the problem of having one tool for notes, another for tasks, another for bookmarks, another for planning context, and another for agent orchestration with almost no shared state between them. Kernl's bet is that these are not separate products. They are one substrate.
 
-Kernl is opinionated out of the box and deeply configurable when you need it. The
-default path should stay boring: point it at a vault and a repo, run the server,
-capture ideas, ask for planning context, and watch work move. The advanced path is
-there for technical users: custom workflow shapes, agent pools, repository
-registries, and self-hosted runtime state without turning first-run setup into a
-configuration project.
+Kernl is opinionated out of the box and deeply configurable when you need it. The default path should stay boring: point it at a vault and a repo, run the server, capture ideas, ask for planning context, and watch work move. The advanced path is there for technical users: custom workflow shapes, agent pools, repository registries, and self-hosted runtime state without turning first-run setup into a configuration project.
 
 ## What It Does
 
@@ -33,22 +22,15 @@ configuration project.
 
 ## Current Status
 
-Kernl is pre-1.0 and actively shaped around a solo-developer workflow. The graph,
-vault watcher, capture path, bookmarks, memory, planning context, web shell, and
-orchestrator core exist. The orchestrator's epic-to-PR path is implemented and
-covered by hermetic tests, but still needs more real-world runtime mileage against
-live agent CLIs.
+Kernl is pre-1.0 and actively shaped around a solo-developer workflow. The graph, vault watcher, capture path, bookmarks, memory, planning context, web shell, and orchestrator core exist. The orchestrator's epic-to-PR path is implemented and covered by hermetic tests, but still needs more real-world runtime mileage against live agent CLIs.
 
-Use it if you are comfortable with local-first developer tooling and want one
-system that joins personal knowledge with agentic execution. Do not use it yet if
-you need a polished team SaaS, mobile-first PKM app, or hosted task manager.
+Use it if you are comfortable with local-first developer tooling and want one system that joins personal knowledge with agentic execution. Do not use it yet if you need a polished team SaaS, mobile-first PKM app, or hosted task manager.
 
 ## Installation
 
 ### Released Binary
 
-The installer downloads a checksummed release archive for Linux or macOS and
-installs `kernl` into `~/.local/bin` by default:
+The installer downloads a checksummed release archive for Linux or macOS and installs `kernl` into `~/.local/bin` by default:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/gabrielassisxyz/kernl/master/install.sh | bash
@@ -60,13 +42,11 @@ Install a specific version:
 KERNL_VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/gabrielassisxyz/kernl/master/install.sh | bash
 ```
 
-The installer expects a published GitHub Release. Until the first `v*` release
-exists, build from source.
+The installer expects a published GitHub Release. Until the first `v*` release exists, build from source.
 
 ### From Source
 
-Kernl embeds the generated Nuxt site into the Go binary. On a fresh checkout, build
-the web assets before any Go build:
+Kernl embeds the generated Nuxt site into the Go binary. On a fresh checkout, build the web assets before any Go build:
 
 ```bash
 git clone https://github.com/gabrielassisxyz/kernl.git
@@ -94,8 +74,7 @@ docker compose up --build
 
 Open `http://localhost:8080`.
 
-Docker is best for the graph, notes, API, and UI experience. Full orchestration
-still needs host tools and credentials such as `git`, `gh`, `bd`, and agent CLIs.
+Docker is best for the graph, notes, API, and UI experience. Full orchestration still needs host tools and credentials such as `git`, `gh`, `bd`, and agent CLIs.
 
 ## Prerequisites
 
@@ -142,8 +121,7 @@ kernl capture "Investigate semantic relevance for converted captures"
 kernl plan "semantic relevance"
 ```
 
-The server defaults to `http://localhost:8080`. Override it with `--port` or the
-`server.port` value in `kernl.yaml`.
+The server defaults to `http://localhost:8080`. Override it with `--port` or the `server.port` value in `kernl.yaml`.
 
 ## Commands
 
@@ -203,8 +181,7 @@ kernl sweep            # dry-run preview: shows what would close
 kernl sweep --yes      # actually close merged epics
 ```
 
-Close epics whose PRs have already merged. Without `--yes` this is a
-dry-run preview.
+Close epics whose PRs have already merged. Without `--yes` this is a dry-run preview.
 
 ```bash
 kernl version
@@ -220,14 +197,11 @@ kernl doctor --json      # env checks with a recommendedAction
 kernl plan --json "topic"
 ```
 
-Agent/automation surface. Every verb answers `--help`; exit codes are
-`0` success, `1` runtime error, `2` usage error.
+Agent/automation surface. Every verb answers `--help`; exit codes are `0` success, `1` runtime error, `2` usage error.
 
 ### Everything the web UI can do
 
-The verbs above work standalone. The rest of the UI's surface is reachable
-through a running `kernl serve`, which these verbs call over the same REST
-API the browser uses:
+The verbs above work standalone. The rest of the UI's surface is reachable through a running `kernl serve`, which these verbs call over the same REST API the browser uses:
 
 ```bash
 kernl task list --json
@@ -256,14 +230,9 @@ kernl health
 | `ingest` | paste, upload, source, trigger, queue list/resolve/merge-plan |
 | `settings`, `health` | get/set, server health and update check |
 
-They need the server up, and say so when it is not. Point them elsewhere
-with `--server <url>` or `KERNL_SERVER`; the default is the port in
-`kernl.yaml`. `capture`, `bookmark add|import` and `plan` are the exception
-— they write the graph directly and work with no server running.
+They need the server up, and say so when it is not. Point them elsewhere with `--server <url>` or `KERNL_SERVER`; the default is the port in `kernl.yaml`. `capture`, `bookmark add|import` and `plan` are the exception — they write the graph directly and work with no server running.
 
-Every subcommand takes `--json`, and destructive ones require `--yes`:
-without it they print what would happen and exit `0` without contacting the
-server.
+Every subcommand takes `--json`, and destructive ones require `--yes`: without it they print what would happen and exit `0` without contacting the server.
 
 ## Configuration
 
@@ -357,9 +326,7 @@ Key ideas:
 +---------------+                  +-------------------+
 ```
 
-The graph is the unifier. User notes stay as markdown files. Operational objects
-such as captures, bookmarks, tasks, memory claims, sessions, and workflow state are
-stored as graph nodes and edges.
+The graph is the unifier. User notes stay as markdown files. Operational objects such as captures, bookmarks, tasks, memory claims, sessions, and workflow state are stored as graph nodes and edges.
 
 ## Development
 
@@ -389,8 +356,7 @@ Integration tests are manual-only:
 go test -tags=integration ./...
 ```
 
-They require real local tools such as `bd` and an agent CLI, and may spend paid
-provider tokens. They are not part of default CI.
+They require real local tools such as `bd` and an agent CLI, and may spend paid provider tokens. They are not part of default CI.
 
 ## Troubleshooting
 
@@ -420,21 +386,17 @@ kernl --port 8081 serve
 
 ### The server is not reachable from another machine
 
-That is the default. `kernl serve` binds `127.0.0.1`, because the API has no
-authentication and serves your vault. To expose it deliberately, set
-`server.host` in `kernl.yaml` or `KERNL_HOST`:
+That is the default. `kernl serve` binds `127.0.0.1`, because the API has no authentication and serves your vault. To expose it deliberately, set `server.host` in `kernl.yaml` or `KERNL_HOST`:
 
 ```bash
 KERNL_HOST=0.0.0.0 kernl serve
 ```
 
-Only do this on a network you trust. Anything that can reach the port can read
-and write the vault.
+Only do this on a network you trust. Anything that can reach the port can read and write the vault.
 
 ### Docker starts, but orchestration does not work
 
-The Docker setup is for the API and web UI. Full orchestration needs host
-credentials and tools: `git`, `gh`, `bd`, and your configured agent CLIs.
+The Docker setup is for the API and web UI. Full orchestration needs host credentials and tools: `git`, `gh`, `bd`, and your configured agent CLIs.
 
 ### `npm ci` reports a lockfile mismatch in `web/`
 
@@ -456,9 +418,7 @@ npm ci
 
 ## Contributing
 
-Issues and PRs are welcome. A full contributor guide and issue/PR templates are
-planned after the first tagged release, when there is a stable binary and version
-output to reference.
+Issues and PRs are welcome. A full contributor guide and issue/PR templates are planned after the first tagged release, when there is a stable binary and version output to reference.
 
 For now:
 
