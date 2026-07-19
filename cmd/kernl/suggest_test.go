@@ -85,7 +85,7 @@ func TestRootFlagHintRedirectsSubcommandFlags(t *testing.T) {
 		"--yes":        "kernl sweep --yes",
 		"--autonomous": "kernl epic run --autonomous",
 		"--workflow":   "kernl epic run --workflow",
-		"--json":       "kernl <epic list|plan|doctor|version> --json",
+		"--json":       "after the subcommand: e.g. kernl task list --json",
 		"--dryrun":     "kernl sweep --dry-run",
 		"--autonomos":  "kernl epic run --autonomous",
 	} {

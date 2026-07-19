@@ -297,7 +297,9 @@ var subcommandFlagOwners = map[string]string{
 	"--workflow":          "kernl epic run --workflow <path> <epic-id>",
 	"--autonomous":        "kernl epic run --autonomous <epic-id>",
 	"--interactive":       "kernl epic run --interactive <epic-id>",
-	"--json":              "kernl <epic list|plan|doctor|version> --json",
+	// --json is near-universal now (every read verb has it), so the useful hint
+	// is where it goes — after the subcommand — not a stale list of four verbs.
+	"--json": "any read verb, placed after the subcommand: e.g. kernl task list --json",
 }
 
 // rootFlagHint builds the recovery hint for an unknown flag at the root:
