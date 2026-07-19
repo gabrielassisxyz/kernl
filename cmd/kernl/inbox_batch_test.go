@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -72,6 +73,28 @@ func TestInboxBatchApplyWithoutYesOnlyPreviews(t *testing.T) {
 	}
 	if !strings.Contains(out, "--yes") {
 		t.Fatalf("expected the confirmation hint, got %q", out)
+	}
+}
+
+// R2-006: under --json, an unconfirmed apply must state applied:false so a
+// caller cannot read the preview body as a completed apply.
+func TestInboxBatchApplyWithoutYesJSONSaysNotApplied(t *testing.T) {
+	ts, seen := fakeInboxAPI(t, http.StatusOK,
+		`{"source":"whatsapp","separator":"whatsapp","segments":[{"sequence":1,"body":"buy milk"}]}`)
+
+	out, err := driveInbox(t, ts, "batch", "apply", "--json", "--file", writeBatchFixture(t))
+	if err != nil {
+		t.Fatalf("inbox batch apply --json: %v", err)
+	}
+	if (*seen)[0].path != "/api/inbox/batch/preview" {
+		t.Fatalf("an unconfirmed apply must not write, it hit %s", (*seen)[0].path)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("--json output must parse, got %q (%v)", out, err)
+	}
+	if got["applied"] != false || got["wouldApply"] != true {
+		t.Errorf("unconfirmed apply must report applied:false, wouldApply:true — got %v", got)
 	}
 }
 

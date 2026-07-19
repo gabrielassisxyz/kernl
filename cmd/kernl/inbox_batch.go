@@ -57,7 +57,16 @@ func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, a
 	if err != nil {
 		return err
 	}
+	unconfirmedApply := sub == "apply" && !confirmed
 	if asJSON {
+		if unconfirmedApply {
+			// `apply` without --yes is answered by the preview route and creates
+			// nothing. Human output says so; the JSON must too, or a --json caller
+			// reads a dry-run as a completed apply. Wrap the preview in a envelope
+			// that states, unmistakably, that nothing was created.
+			env := fmt.Sprintf(`{"applied":false,"wouldApply":true,"preview":%s}`, raw)
+			return emitJSON(v.stdout(), json.RawMessage(env))
+		}
 		return emitJSON(v.stdout(), raw)
 	}
 	if sub == "apply" && confirmed {
