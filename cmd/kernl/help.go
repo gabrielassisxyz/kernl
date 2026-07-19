@@ -40,9 +40,12 @@ Flags:
 	{
 		Name:    "epic",
 		Summary: "Manage epics (bead graphs)",
-		Usage:   "kernl epic <list|run|merge|abort> [args...]",
-		Details: `Run 'kernl epic <subcommand> --help' for details on each.`,
-		Subs: []commandMeta{
+		Usage:   "kernl epic <list|run|merge|abort|events|sessions> [args...]",
+		Details: `Run 'kernl epic <subcommand> --help' for details on each.
+
+'events' and 'sessions' read an epic's history from a running 'kernl serve';
+the others drive the orchestrator locally.`,
+		Subs: append([]commandMeta{
 			{
 				Name:    "list",
 				Summary: "List epics with child counts and state",
@@ -73,19 +76,22 @@ Use it to recover a blocked epic; it does not run the children.`,
 				Details: `Destructive: closes the epic and every child bead, removes their worktrees
 and purges agent state. Requires --yes; use --dry-run to preview.`,
 			},
-		},
+		}, epicAPISubcommands...),
 	},
 	{
 		Name:    "bead",
-		Summary: "Manage individual beads",
-		Usage:   "kernl bead run <bead-id>",
-		Subs: []commandMeta{
+		Summary: "Manage individual beads (run one locally, or read and edit the tracker)",
+		Usage:   "kernl bead <run|list|get|create|set|close|rollback|refine-scope|mark-terminal> [args...]",
+		Details: `'bead run' drives an agent in a local worktree and needs the orchestrator
+toolchain. Every other subcommand reads or edits the tracker through a
+running 'kernl serve'.`,
+		Subs: append([]commandMeta{
 			{
 				Name:    "run",
 				Summary: "Drive a single bead through its workflow",
 				Usage:   "kernl bead run <bead-id>",
 			},
-		},
+		}, beadAPISubcommands...),
 	},
 	{
 		Name:    "sweep",
@@ -163,6 +169,19 @@ the flag.`,
 		Details: `Flags:
   --json  Emit {"version","commit","built","go"} on stdout`,
 	},
+	// GUI-parity verbs declare their own metadata next to their
+	// implementation, so one file owns a verb's dispatch, help and tests.
+	taskCommand,
+	projectCommand,
+	noteCommand,
+	inboxCommand,
+	memoryCommand,
+	graphCommand,
+	settingsCommand,
+	healthCommand,
+	approvalCommand,
+	sessionCommand,
+	ingestCommand,
 }
 
 func findCommand(table []commandMeta, name string) *commandMeta {
@@ -240,7 +259,7 @@ func renderCommandHelp(qualified string, cmd *commandMeta) string {
 	if len(cmd.Subs) > 0 {
 		b.WriteString("\nSubcommands:\n")
 		for _, s := range cmd.Subs {
-			fmt.Fprintf(&b, "  %-10s %s\n", s.Name, s.Summary)
+			fmt.Fprintf(&b, "  %-14s %s\n", s.Name, s.Summary)
 		}
 	}
 	if cmd.Details != "" {

@@ -223,6 +223,48 @@ kernl plan --json "topic"
 Agent/automation surface. Every verb answers `--help`; exit codes are
 `0` success, `1` runtime error, `2` usage error.
 
+### Everything the web UI can do
+
+The verbs above work standalone. The rest of the UI's surface is reachable
+through a running `kernl serve`, which these verbs call over the same REST
+API the browser uses:
+
+```bash
+kernl task list --json
+kernl task create "renew the domain" --due 2026-08-01
+kernl project list
+kernl note read inbox/idea.md
+kernl inbox list --processed
+kernl memory claims --topic architecture
+kernl graph search "caching" --limit 10
+kernl bead list --json
+kernl approval list
+kernl settings get
+kernl health
+```
+
+| Verb | Covers |
+| --- | --- |
+| `task`, `project` | list, create, set, delete |
+| `note` | list, read, write, delete, tags, suggest, apply-hunks |
+| `inbox` | list, add, process, convert, reopen, classify, auto-classify, prep, rollups, batch-log, batch |
+| `memory` | topics, claims, telos, add-claim, refute |
+| `graph` | nodes, search, related, briefing, edges |
+| `bead` | list, get, create, set, close, rollback, refine-scope, mark-terminal |
+| `epic` | events, sessions |
+| `approval`, `session` | list/resolve, nudge/nudge-prompts |
+| `ingest` | paste, upload, source, trigger, queue list/resolve/merge-plan |
+| `settings`, `health` | get/set, server health and update check |
+
+They need the server up, and say so when it is not. Point them elsewhere
+with `--server <url>` or `KERNL_SERVER`; the default is the port in
+`kernl.yaml`. `capture`, `bookmark add|import` and `plan` are the exception
+— they write the graph directly and work with no server running.
+
+Every subcommand takes `--json`, and destructive ones require `--yes`:
+without it they print what would happen and exit `0` without contacting the
+server.
+
 ## Configuration
 
 Start from `kernl.yaml.example`:

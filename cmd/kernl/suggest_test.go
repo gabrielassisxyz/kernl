@@ -107,7 +107,7 @@ func TestVerbAliasHints(t *testing.T) {
 
 func TestEpicSubcommandValidatedBeforeConfig(t *testing.T) {
 	// Typo diagnosis must not depend on a loadable config.
-	err := runEpic("definitely-missing.yaml", []string{"staus"})
+	err := runEpic(verbContext{configPath: "definitely-missing.yaml"}, []string{"staus"})
 	if err == nil || !strings.Contains(err.Error(), "unknown epic subcommand") {
 		t.Fatalf("epic sub-verb typo must be diagnosed before config, got: %v", err)
 	}

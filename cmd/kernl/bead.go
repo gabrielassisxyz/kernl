@@ -3,20 +3,28 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 )
 
-func runBead(configPath string, args []string) error {
+// beadSubcommands splits the verb in two on a real boundary. `run` drives an
+// agent in a local worktree, so it needs the app wired up here and cannot be a
+// call to a remote server. Everything else is tracker data the API already
+// serves, and is dispatched before any of that setup — building the app
+// requires bd, and asking for a bead list should not.
+var beadSubcommands = []string{"run", "list", "get", "create", "set", "close", "rollback", "refine-scope", "mark-terminal"}
+
+func runBead(v verbContext, args []string) error {
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — run: kernl bead run <bead-id>")
+		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — valid: %s. Run: kernl bead --help",
+			strings.Join(beadSubcommands, ", "))
 	}
 	if args[0] != "run" {
-		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s — valid: run. Run: kernl bead run <bead-id>",
-			args[0], didYouMean(args[0], []string{"run"}))
+		return runBeadAPI(v, args)
 	}
 
-	cfg, err := loadCLIConfig(configPath)
+	cfg, err := loadCLIConfig(v.configPath)
 	if err != nil {
 		return err
 	}

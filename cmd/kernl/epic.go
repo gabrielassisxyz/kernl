@@ -40,14 +40,21 @@ func execGitRun(dir string, args ...string) (string, error) {
 	return string(out), nil
 }
 
-func runEpic(configPath string, args []string) error {
+func runEpic(v verbContext, args []string) error {
 	// Usage validation precedes config/app setup: `kernl epic staus` must be
 	// diagnosed as a typo, not fail on whatever config problem comes first.
 	if err := validateEpicSubcommand(args); err != nil {
 		return err
 	}
 
-	cfg, err := loadCLIConfig(configPath)
+	// events and sessions are read-only views the API already serves; they are
+	// dispatched before the app is built because inspecting an epic's history
+	// should not require the orchestrator toolchain the other subcommands need.
+	if args[0] == "events" || args[0] == "sessions" {
+		return runEpicAPI(v, args)
+	}
+
+	cfg, err := loadCLIConfig(v.configPath)
 	if err != nil {
 		return err
 	}
@@ -57,7 +64,7 @@ func runEpic(configPath string, args []string) error {
 		return wrapLoud("creating app", err)
 	}
 
-	return runEpicWithApp(a, configPath, args, nil)
+	return runEpicWithApp(a, v.configPath, args, nil)
 }
 
 func validateEpicSubcommand(args []string) error {
@@ -65,11 +72,11 @@ func validateEpicSubcommand(args []string) error {
 		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
 	}
 	switch args[0] {
-	case "list", "run", "merge", "abort":
+	case "list", "run", "merge", "abort", "events", "sessions":
 		return nil
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s — valid: list, run, merge, abort. Run: kernl epic --help",
-			args[0], didYouMean(args[0], []string{"list", "run", "merge", "abort"}))
+		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s — valid: list, run, merge, abort, events, sessions. Run: kernl epic --help",
+			args[0], didYouMean(args[0], []string{"list", "run", "merge", "abort", "events", "sessions"}))
 	}
 }
 
