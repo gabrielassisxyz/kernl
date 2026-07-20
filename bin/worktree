@@ -3,7 +3,7 @@
 #
 # WHY: this repo is worked on by many parallel agent sessions, and nothing tells one
 # session that another exists. Sharing the main tree means they clobber each other's
-# branches and lose each other's uncommitted files. The rule (AGENTS.md §6)
+# branches and lose each other's uncommitted files. The rule (AGENTS.md §Conventions)
 # is structural: the main tree stays on the default branch as a clean reference, and
 # EVERY session works in its own worktree. This wraps the git plumbing so that is one
 # command, always branched off a FRESH origin/<default> — so nobody has to remember a
@@ -25,7 +25,10 @@ WORKTREE_BASE="${WORKTREE_BASE:-$HOME/repositories/.worktrees}"
 common="$(realpath "$(git rev-parse --git-common-dir)")"
 main_root="$(dirname "$common")"
 repo="$(basename "$main_root")"
-def="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+# `|| true`: under pipefail a missing origin/HEAD ref (a repo set up with `git init`
+# + `remote add` instead of a clone never has it) would abort the whole script here,
+# silently, before the fallback on the next line ever runs.
+def="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
 def="${def:-master}"
 
 slug() { printf '%s' "$1" | tr '/' '-'; }
@@ -55,9 +58,9 @@ EOF
 #
 # WHY a per-repo file and not a hardcoded array any more. The array carried a note saying to
 # extract this file once either "a path only ONE project uses" or "more than 6 entries" became
-# true. Adding `journal/` — which exists only here — tripped the first condition, so the fence
-# did its job and this is the extraction it asked for. The defaults below still apply to a repo
-# with no `.worktree-links`, so nothing regresses for the repos that never needed one.
+# true. The first condition tripped, so the fence did its job and this is the extraction it
+# asked for. The defaults below still apply to a repo with no `.worktree-links`, so nothing
+# regresses for the repos that never needed one.
 WORKTREE_LINKS_DEFAULT=(local .ai-jail config/deploy.env .env)
 WORKTREE_LINKS_FILE=".worktree-links"
 
@@ -83,8 +86,8 @@ read_worktree_links() {
 # WHY descend instead of skipping. A listed directory can be MIXED: mostly ignored, but
 # with a stray tracked file inside. `git worktree add` materializes that file, so the
 # directory exists, and a plain "already there, skip" then silently drops every ignored
-# sibling — in kernl that is `artifacts/`, one tracked plan next to 58 ignored ones, the
-# most valuable directory in the repo. Descending links the missing children instead,
+# sibling — in one repo that was one tracked plan next to 58 ignored ones, the most
+# valuable directory in the repo. Descending links the missing children instead,
 # and a tracked file still wins its own name because only a missing path is ever linked.
 link_path() {
     local src="$1" dst="$2" rel="$3" child
@@ -108,7 +111,7 @@ link_path() {
 # A link the repo's .gitignore does not cover is UNTRACKED in the worktree, so a `git add -A`
 # there stages it — committing a symlink whose target is an absolute path on one machine,
 # useless to anyone else and near-invisible in review until it lands. That already happened
-# twice (`journal` here, five paths in kernl), and both times the cause was identical: the
+# twice, in two different repos, and both times the cause was identical: the
 # ignore pattern was written `path/`, and a trailing slash matches a real directory and NEVER
 # a symlink. So the pattern keeps working in the main tree and silently fails in every
 # worktree — which is exactly why nobody notices. The check costs one `check-ignore` per link,
