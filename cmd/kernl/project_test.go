@@ -230,9 +230,7 @@ func TestProjectDeleteWithYesIssuesTheDelete(t *testing.T) {
 func TestProjectDeleteWithoutYesPreviewsAndDeletesNothing(t *testing.T) {
 	fake := newFakeProjectAPI(t, http.StatusOK, `[{"id":"p1","title":"Homelab","status":"active"}]`)
 	out, err := fake.run("delete", "p1")
-	if err != nil {
-		t.Fatalf("preview must succeed, got: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "project delete")
 	for _, call := range fake.calls {
 		if call.method == http.MethodDelete {
 			t.Fatalf("delete without --yes must not issue a DELETE: %+v", fake.calls)

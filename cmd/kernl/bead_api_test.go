@@ -251,9 +251,7 @@ func TestBeadAPIGatedVerbsSendNothingWithoutYes(t *testing.T) {
 	for _, tc := range cases {
 		fake := newFakeBeadAPI(t, http.StatusOK, `{}`)
 		out, err := fake.run(tc.args...)
-		if err != nil {
-			t.Fatalf("%v: %v", tc.args, err)
-		}
+		requireRefusedWithoutYes(t, err, "bead "+tc.args[0])
 		if len(fake.calls) != 0 {
 			t.Errorf("%v reached the server without --yes: %+v", tc.args, fake.calls)
 		}

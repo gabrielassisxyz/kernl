@@ -25,9 +25,11 @@ Run 'kernl project <subcommand> --help' for details on each.`,
 			Name:    "list",
 			Summary: "List projects with status and task counts",
 			Usage:   "kernl project list [--json]",
-			Details: `Flags:
-  --json  Emit the API's [{"id","title","description","status","tags",
-          "createdAt","updatedAt","taskCount","doneCount"}] on stdout`,
+			Details: `{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit the API's [{"id","title","description","status","tags",`,
+					Continuation: []string{`"createdAt","updatedAt","taskCount","doneCount"}] on stdout`}},
+			},
 		},
 		{
 			Name:    "create",
@@ -35,15 +37,17 @@ Run 'kernl project <subcommand> --help' for details on each.`,
 			Usage:   "kernl project create [--json] [--description <text>] [--status <s>] [--tags <a,b>] <title>",
 			Details: `The title is required; give it positionally or with --title.
 
-Flags:
-  --title <text>        Title, when you prefer a flag over the positional arg
-  --description <text>  Free-text description
-  --status <status>     Initial status (server-side default when omitted)
-  --tags <a,b,c>        Comma-separated tags
-  --json                Emit {"id"} on stdout
+{{flags}}
 
 Example:
   kernl project create --tags home,infra "Rebuild the homelab backups"`,
+			Flags: []commandFlag{
+				{Name: "--title", Value: "<text>", Description: "Title, when you prefer a flag over the positional arg"},
+				{Name: "--description", Value: "<text>", Description: "Free-text description"},
+				{Name: "--status", Value: "<status>", Description: "Initial status (server-side default when omitted)"},
+				{Name: "--tags", Value: "<a,b,c>", Description: "Comma-separated tags"},
+				{Name: "--json", Description: `Emit {"id"} on stdout`},
+			},
 		},
 		{
 			Name:    "set",
@@ -53,15 +57,17 @@ Example:
 empty value clears the field ('--tags ""' removes every tag), which is why
 omitting a flag and passing it empty are different things.
 
-Flags:
-  --title <text>        New title (may not be empty)
-  --description <text>  New description ("" clears it)
-  --status <status>     New status (may not be empty)
-  --tags <a,b,c>        Replace the tag list ("" clears it)
-  --json                Emit {"id","updated":true} on stdout
+{{flags}}
 
 Example:
   kernl project set --status done fkq3v9`,
+			Flags: []commandFlag{
+				{Name: "--title", Value: "<text>", Description: "New title (may not be empty)"},
+				{Name: "--description", Value: "<text>", Description: `New description ("" clears it)`},
+				{Name: "--status", Value: "<status>", Description: "New status (may not be empty)"},
+				{Name: "--tags", Value: "<a,b,c>", Description: `Replace the tag list ("" clears it)`},
+				{Name: "--json", Description: `Emit {"id","updated":true} on stdout`},
+			},
 		},
 		{
 			Name:    "delete",
@@ -74,9 +80,11 @@ projectId and render as unassigned.
 Without --yes nothing is deleted: the project that would go is printed and
 the command exits 0.
 
-Flags:
-  --yes   Actually delete
-  --json  Emit {"id","deleted":true} (or the preview) on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--yes", Description: "Actually delete"},
+				{Name: "--json", Description: `Emit {"id","deleted":true} (or the preview) on stdout`},
+			},
 		},
 	},
 }
@@ -257,10 +265,13 @@ func previewProjectDelete(v verbContext, c *apiClient, asJSON bool, id string) e
 			continue
 		}
 		if asJSON {
-			return emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"title":%q,"deleted":false,"wouldDelete":true}`, p.ID, p.Title)))
+			if err := emitJSON(v.stdout(), json.RawMessage(fmt.Sprintf(`{"id":%q,"title":%q,"deleted":false,"wouldDelete":true}`, p.ID, p.Title))); err != nil {
+				return err
+			}
+			return refusedWithoutYes("project delete")
 		}
 		fmt.Fprintf(v.stdout(), "Would delete project %s — %s, plus its companion note. Re-run with --yes.\n", p.ID, p.Title)
-		return nil
+		return refusedWithoutYes("project delete")
 	}
 	return usagef("KERNL DISPATCH FAILURE: no project with id %q — list them with: kernl project list", id)
 }

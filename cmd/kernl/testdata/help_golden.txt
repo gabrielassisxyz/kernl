@@ -1,0 +1,1384 @@
+### kernl
+kernl — multi-agent orchestration runner
+
+Usage:
+  kernl [--config <path>] [--port <port>] <subcommand> [args...]
+
+Subcommands:
+  triage       What needs attention right now, in one call
+  serve        Start the HTTP API server (add --no-orchestrator for GUI-only)
+  doctor       Run system checks (env, binaries, config)
+  epic         Manage epics (bead graphs)
+  bead         Manage individual beads (run one locally, or read and edit the tracker)
+  sweep        Close epics whose PRs are merged in master
+  bookmark     Manage bookmarks
+  capture      Capture a quick note/idea into the inbox (text arg or stdin)
+  plan         Show the vault notes relevant to a topic (substrate-aware planning)
+  capabilities Print the machine-readable CLI contract (JSON)
+  robot-docs   Print the agent handbook (paste-ready, generated from metadata)
+  version      Print version and build information
+  task         Manage tasks (the GUI's task board, from the shell)
+  project      Manage projects (list, create, edit, delete)
+  note         Read and write vault notes (the same files the editor edits)
+  inbox        Triage the capture inbox (list, add, process, classify)
+  memory       Inspect and edit what the DA remembers (claims and telos)
+  graph        Read the knowledge graph (nodes, edges, search, relatedness)
+  settings     Read and write kernl.yaml through the running server
+  health       Check that the server is up and answering (no subcommand needed)
+  approval     See and resolve the gates waiting on a human
+  session      Poke a running agent session
+  ingest       Feed documents into the graph and triage what they extracted
+
+Flags:
+  --config, -c       Path to kernl.yaml (default: kernl.yaml; accepts --config=path)
+  --port, -p         Server port (default: from kernl.yaml, or 8080)
+  --server <url>     Address of the running server the GUI-parity verbs call
+                     (default: http://127.0.0.1:<port>; env: KERNL_SERVER)
+  --no-orchestrator  Serve only the GUI/graph/notes; do not require bd
+  --version, -v      Print version and build information
+  --help, -h         Show help for kernl or any verb/sub-verb
+
+Exit codes:
+  0  success
+  1  runtime/internal error (backend, config, network, agent run)
+  2  usage error (unknown verb/flag, missing argument, bad value, or a refused --yes gate)
+
+Automation:
+  kernl capabilities       machine-readable contract (JSON)
+  kernl robot-docs guide   agent handbook
+  --json                   on epic list, plan, doctor, version, and every
+                           task/project/note/inbox subcommand
+
+Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.
+
+### kernl triage
+kernl triage — What needs attention right now, in one call
+
+Usage:
+  kernl triage [--json]
+
+Answers "what should I do now" without five separate reads. Reports, in
+the order you would act on them: captures waiting to be processed, ingest
+reviews, beads in flight, beads ready to start, open tasks, approvals, and
+whether the server is healthy. Each section names the command that shows
+the rest.
+
+A section that cannot be read says so and names why; it does not report
+zero. "Nothing pending" and "could not ask" are different answers, and
+conflating them is how a caller concludes no judgment gate is waiting.
+
+Exit code is non-zero only when NOTHING could be read — a partial report
+is a successful triage.
+
+Flags:
+  --json  Emit the whole report as one document, every section carrying
+          {available, reason, count, items, command}
+
+### kernl serve
+kernl serve — Start the HTTP API server (add --no-orchestrator for GUI-only)
+
+Usage:
+  kernl [--config <path>] [--port <port>] serve [--no-orchestrator]
+
+Flags:
+  --port, -p         Server port (default: from kernl.yaml, or 8080)
+  --no-orchestrator  Serve only the GUI/graph/notes; do not require bd
+
+The server hosts the web GUI, the REST API and the SSE event streams.
+
+### kernl doctor
+kernl doctor — Run system checks (env, binaries, config)
+
+Usage:
+  kernl [--config <path>] doctor [--json]
+
+Checks that bd, the agent CLI, Go and the config file are usable.
+Exit code is non-zero when a required check fails.
+
+Flags:
+  --json  Emit {"ok","checks":[...],"recommendedAction"} on stdout
+
+### kernl epic
+kernl epic — Manage epics (bead graphs)
+
+Usage:
+  kernl epic <list|run|merge|abort|events|sessions> [args...]
+
+Subcommands:
+  list           List epics with child counts and state
+  run            Execute an epic's bead graph in parallel
+  merge          (Re-)run only the epic-level integration stages
+  abort          Close an epic and its children; clean worktrees and agent state
+  events         Print an epic's orchestration events
+  sessions       List the agent sessions the server has open
+
+Run 'kernl epic <subcommand> --help' for details on each.
+
+'events' and 'sessions' read an epic's history from a running 'kernl serve';
+the others drive the orchestrator locally.
+
+### kernl epic list
+kernl epic list — List epics with child counts and state
+
+Usage:
+  kernl epic list [--json]
+
+Flags:
+  --json  Emit {"epics":[{"id","title","children","state"}]} on stdout
+
+### kernl epic run
+kernl epic run — Execute an epic's bead graph in parallel
+
+Usage:
+  kernl epic run [--workflow <path>] [--autonomous] [--interactive] <epic-id>
+
+Flags:
+  --workflow <path>  Use a custom workflow YAML instead of the default profile
+  --autonomous       Let the DA infer the workflow shape without prompting
+  --interactive      With --autonomous: confirm the inferred shape first
+
+### kernl epic merge
+kernl epic merge — (Re-)run only the epic-level integration stages
+
+Usage:
+  kernl epic merge <epic-id>
+
+Drives the epic bead through integration -> integration_review -> shipment.
+Use it to recover a blocked epic; it does not run the children.
+
+### kernl epic abort
+kernl epic abort — Close an epic and its children; clean worktrees and agent state
+
+Usage:
+  kernl epic abort [--dry-run] <epic-id> --yes
+
+Destructive: closes the epic and every child bead, removes their worktrees
+and purges agent state. Requires --yes; use --dry-run to preview.
+
+### kernl epic events
+kernl epic events — Print an epic's orchestration events
+
+Usage:
+  kernl epic events <epic-id> [--follow] [--limit <n>] [--timeout <dur>] [--json]
+
+The route is an SSE stream, not a paged list: it replays the hub's buffer
+for the epic and then stays open. So by default this drains the replay
+buffer and exits once the stream falls quiet — what a script wants — and
+--follow keeps it open instead, like 'tail -f'.
+
+Flags:
+  --follow         Keep streaming as events arrive (exit with Ctrl-C)
+  --limit <n>      Stop after n events
+  --timeout <dur>  Give up after a duration (e.g. 30s, 2m)
+  --json           One compact JSON event per line (NDJSON — a stream has
+                   no last element to close an array with)
+
+### kernl epic sessions
+kernl epic sessions — List the agent sessions the server has open
+
+Usage:
+  kernl epic sessions <epic-id> [--json]
+
+The epic id is required by the route but the server answers with every
+active session in the process, not only that epic's — the session manager
+does not index by epic.
+
+  --json  Emit the API's session array verbatim
+
+### kernl bead
+kernl bead — Manage individual beads (run one locally, or read and edit the tracker)
+
+Usage:
+  kernl bead <run|list|get|create|set|close|rollback|refine-scope|mark-terminal> [args...]
+
+Subcommands:
+  run            Drive a single bead through its workflow
+  list           List every bead in the registered repo
+  get            Show one bead
+  create         Create a bead
+  set            Change fields of an existing bead
+  close          Close a bead, recording why
+  mark-terminal  Force a bead into a terminal state, skipping its workflow
+  rollback       Rewind a bead to an earlier workflow state
+  refine-scope   Rewrite a bead's description, notes or acceptance criteria
+
+'bead run' drives an agent in a local worktree and needs the orchestrator
+toolchain. Every other subcommand reads or edits the tracker through a
+running 'kernl serve'.
+
+### kernl bead run
+kernl bead run — Drive a single bead through its workflow
+
+Usage:
+  kernl bead run <bead-id>
+
+### kernl bead list
+kernl bead list — List every bead in the registered repo
+
+Usage:
+  kernl bead list [--json]
+
+The API serves the whole tracker: GET /api/beads takes no filters, so
+there is nothing to scope by here. Filter downstream (--json | jq).
+
+### kernl bead get
+kernl bead get — Show one bead
+
+Usage:
+  kernl bead get <bead-id> [--json]
+
+--json emits the API's full bead object; without it, the fields worth
+reading on a terminal are printed.
+
+### kernl bead create
+kernl bead create — Create a bead
+
+Usage:
+  kernl bead create <title> [--type <t>] [--priority <n>] [--labels <a,b>] [--json]
+
+Text flags: --description, --type, --assignee, --due, --acceptance,
+--notes, --parent <bead-id>, --profile <id>, --workflow <id>.
+Integers: --priority, --estimate. List: --labels <a,b,c>.
+--json emits the created bead verbatim.
+
+Invariants are not settable here: they are structured objects, not a flag.
+
+Example:
+  kernl bead create "wire the SSE reconnect" --parent ep-3 --priority 2
+
+### kernl bead set
+kernl bead set — Change fields of an existing bead
+
+Usage:
+  kernl bead set <bead-id> [--title <t>] [--state <s>] [--priority <n>] [--json]
+
+At least one field is required; only the flags you pass are sent.
+
+Text flags: --title, --description, --type, --state, --assignee, --due,
+--acceptance, --notes, --parent, --profile.
+Integers: --priority, --estimate.
+Labels: --labels adds, --set-labels replaces the whole set, --remove-labels drops.
+--json emits the updated bead verbatim.
+
+### kernl bead close
+kernl bead close — Close a bead, recording why
+
+Usage:
+  kernl bead close <bead-id> [--reason <text>] --yes [--json]
+
+Requires --yes: closing a bead is what unblocks its dependents, so the
+orchestrator may immediately dispatch agents and create worktrees for them.
+Without --yes the close is described and nothing is sent.
+--reason <text> is stored on the bead.
+
+### kernl bead mark-terminal
+kernl bead mark-terminal — Force a bead into a terminal state, skipping its workflow
+
+Usage:
+  kernl bead mark-terminal <bead-id> --state <state> [--reason <text>] --yes [--json]
+
+Requires --yes: this abandons every workflow stage the bead had left —
+review, integration, shipment — without running them. Use it to correct a
+bead the orchestrator cannot finish, not to advance one.
+--state is required; --reason is appended to the bead's notes.
+
+### kernl bead rollback
+kernl bead rollback — Rewind a bead to an earlier workflow state
+
+Usage:
+  kernl bead rollback <bead-id> --state <state> [--reason <text>] --yes [--json]
+
+Requires --yes: rewinding discards the progress recorded after the target
+state, and re-running those stages re-spawns agents.
+--state is required; --reason records why the correction was needed.
+
+The bd backend does not implement rewind — against a bd-backed server this
+route fails loud. The verb exists for backends that do.
+
+### kernl bead refine-scope
+kernl bead refine-scope — Rewrite a bead's description, notes or acceptance criteria
+
+Usage:
+  kernl bead refine-scope <bead-id> [--description <t>] [--notes <t>] [--acceptance <t>] [--json]
+
+At least one of the three is required. Each one you pass replaces that
+field wholesale.
+
+### kernl sweep
+kernl sweep — Close epics whose PRs are merged in master
+
+Usage:
+  kernl sweep [--yes | --dry-run] [--repo <path>] [--failure-threshold <n>] [--backoff-minutes <a,b,...>] [--stale-warn-days <n>]
+
+Lists epics awaiting PR review, asks gh whether each PR merged, and closes
+the merged ones (epic + children) in the tracker.
+
+Without --yes this is a dry-run preview: nothing is closed.
+
+Flags:
+  --yes                     Actually close the merged epics
+  --dry-run                 Preview without closing (default behavior)
+  --repo <path>             Repo to sweep (default: current directory)
+  --failure-threshold <n>   Consecutive failures before backing off
+  --backoff-minutes <list>  Comma-separated backoff schedule, e.g. 5,15,60
+  --stale-warn-days <n>     Warn when a PR is open longer than n days
+
+### kernl bookmark
+kernl bookmark — Manage bookmarks
+
+Usage:
+  kernl bookmark <add|import> [args...]
+
+Subcommands:
+  add            Add a bookmark by URL (archives the page HTML)
+  import         Bulk-import bookmarks from an export file
+
+### kernl bookmark add
+kernl bookmark add — Add a bookmark by URL (archives the page HTML)
+
+Usage:
+  kernl bookmark add <url>
+
+### kernl bookmark import
+kernl bookmark import — Bulk-import bookmarks from an export file
+
+Usage:
+  kernl bookmark import <pocket|pinboard> <file>
+
+### kernl capture
+kernl capture — Capture a quick note/idea into the inbox (text arg or stdin)
+
+Usage:
+  kernl capture [--json] [--] <text> | echo <text> | kernl capture
+
+Prints the created capture's ID; --json (first arg only) emits
+{"id","status"} instead.
+
+Examples:
+  kernl capture "call the accountant tomorrow"
+  echo "idea: robot mode for the CLI" | kernl capture
+  kernl capture -- --help   (captures the literal text "--help")
+
+### kernl plan
+kernl plan — Show the vault notes relevant to a topic (substrate-aware planning)
+
+Usage:
+  kernl plan [--json] <topic>
+
+Flags:
+  --json  Emit {"topic","notes":[{"title","via","snippet"}]} on stdout
+
+Example:
+  kernl plan "caching strategy"
+
+### kernl capabilities
+kernl capabilities — Print the machine-readable CLI contract (JSON)
+
+Usage:
+  kernl capabilities [--json]
+
+Emits every verb, flag, env var and exit code as JSON, plus a
+contractVersion agents can pin against. Output is JSON with or without
+the flag.
+
+### kernl robot-docs
+kernl robot-docs — Print the agent handbook (paste-ready, generated from metadata)
+
+Usage:
+  kernl robot-docs guide
+
+### kernl version
+kernl version — Print version and build information
+
+Usage:
+  kernl version [--json]
+
+Flags:
+  --json  Emit {"version","commit","built","go"} on stdout
+
+### kernl task
+kernl task — Manage tasks (the GUI's task board, from the shell)
+
+Usage:
+  kernl task <list|create|set|delete> [args...]
+
+Subcommands:
+  list           List tasks, optionally scoped to one project
+  create         Create a task
+  set            Change fields of an existing task
+  delete         Delete a task and its companion note
+
+Talks to a running server over the REST API, so 'kernl serve' must be up
+(or point elsewhere with --server <url> / KERNL_SERVER).
+
+Run 'kernl task <subcommand> --help' for details on each.
+
+### kernl task list
+kernl task list — List tasks, optionally scoped to one project
+
+Usage:
+  kernl task list [--project <project-id>] [--json]
+
+Flags:
+  --project <id>  Only tasks belonging to that project
+  --json          Emit the API's task array verbatim (camelCase)
+
+### kernl task create
+kernl task create — Create a task
+
+Usage:
+  kernl task create <title> [--title <t>] [--project <id>] [--status <status>] [--description <text>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]
+
+The title comes from the positional argument or --title, never both. An
+unquoted multi-word positional title is joined into one string; the success
+line quotes what was stored, so a swallowed word is visible.
+
+Flags:
+  --title <t>           The title, as an alternative to the positional form
+  --project <id>        Attach the task to a project (creates the part_of edge)
+  --status <status>     Initial status (server default when omitted)
+  --description <text>  Long-form body
+  --tags <a,b,c>        Comma-separated tags
+  --due <YYYY-MM-DD>    Due date, a calendar day (no time, no timezone)
+  --json                Emit {"id"} on stdout
+
+Example:
+  kernl task create "renew the domain" --project prj-1 --due 2026-08-01
+
+### kernl task set
+kernl task set — Change fields of an existing task
+
+Usage:
+  kernl task set <task-id> [--title <text>] [--status <status>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]
+
+At least one field is required. Only the flags you pass are touched;
+passing an empty value clears the field: --tags "" removes every tag and
+--due "" removes the due date.
+
+Flags:
+  --title <text>      New title (cannot be empty)
+  --status <status>   New status (cannot be empty)
+  --tags <a,b,c>      Replace the tag set; "" clears it
+  --due <YYYY-MM-DD>  Replace the due date; "" clears it
+  --json              Emit {"id","updated"} on stdout
+
+### kernl task delete
+kernl task delete — Delete a task and its companion note
+
+Usage:
+  kernl task delete <task-id> --yes [--json]
+
+Destructive: removes the task node and the companion note that was
+created with it, file included. Requires --yes; without it the task that
+would be deleted is printed and nothing is sent to the server.
+
+### kernl project
+kernl project — Manage projects (list, create, edit, delete)
+
+Usage:
+  kernl project <list|create|set|delete> [args...]
+
+Subcommands:
+  list           List projects with status and task counts
+  create         Create a project (and its companion note)
+  set            Edit a project's title, description, status or tags
+  delete         Delete a project and its companion note (requires --yes)
+
+Projects are graph nodes with a companion note in the vault. These verbs
+call the same REST API the web GUI calls, so a server must be running:
+start one with 'kernl serve', or point elsewhere with --server <url>
+(env: KERNL_SERVER).
+
+Run 'kernl project <subcommand> --help' for details on each.
+
+### kernl project list
+kernl project list — List projects with status and task counts
+
+Usage:
+  kernl project list [--json]
+
+Flags:
+  --json  Emit the API's [{"id","title","description","status","tags",
+          "createdAt","updatedAt","taskCount","doneCount"}] on stdout
+
+### kernl project create
+kernl project create — Create a project (and its companion note)
+
+Usage:
+  kernl project create [--json] [--description <text>] [--status <s>] [--tags <a,b>] <title>
+
+The title is required; give it positionally or with --title.
+
+Flags:
+  --title <text>        Title, when you prefer a flag over the positional arg
+  --description <text>  Free-text description
+  --status <status>     Initial status (server-side default when omitted)
+  --tags <a,b,c>        Comma-separated tags
+  --json                Emit {"id"} on stdout
+
+Example:
+  kernl project create --tags home,infra "Rebuild the homelab backups"
+
+### kernl project set
+kernl project set — Edit a project's title, description, status or tags
+
+Usage:
+  kernl project set [--json] [--title <t>] [--description <d>] [--status <s>] [--tags <a,b>] <id>
+
+Only the fields you pass are touched; at least one is required. Passing an
+empty value clears the field ('--tags ""' removes every tag), which is why
+omitting a flag and passing it empty are different things.
+
+Flags:
+  --title <text>        New title (may not be empty)
+  --description <text>  New description ("" clears it)
+  --status <status>     New status (may not be empty)
+  --tags <a,b,c>        Replace the tag list ("" clears it)
+  --json                Emit {"id","updated":true} on stdout
+
+Example:
+  kernl project set --status done fkq3v9
+
+### kernl project delete
+kernl project delete — Delete a project and its companion note (requires --yes)
+
+Usage:
+  kernl project delete [--json] <id> --yes
+
+Destructive and not undoable: it removes the project node AND deletes the
+companion note file from the vault. Tasks are not cascaded — they keep their
+projectId and render as unassigned.
+
+Without --yes nothing is deleted: the project that would go is printed and
+the command exits 0.
+
+Flags:
+  --yes   Actually delete
+  --json  Emit {"id","deleted":true} (or the preview) on stdout
+
+### kernl note
+kernl note — Read and write vault notes (the same files the editor edits)
+
+Usage:
+  kernl note <list|read|write|delete|tags|suggest|apply-hunks> [args...]
+
+Subcommands:
+  list           List notes with their graph node id, type and title
+  read           Print a note's contents
+  write          Create or overwrite a note from a file or stdin
+  delete         Move a note to the trash (requires --yes)
+  tags           List every note tag with the files carrying it
+  suggest        Ask the DA for edit hunks on a note (never writes)
+  apply-hunks    Apply hunks from 'note suggest' to a note
+
+Every path is vault-relative (e.g. "projects/kernl.md"); the server
+resolves it against vault.root and rejects anything that escapes it.
+
+Run 'kernl note <subcommand> --help' for details on each.
+
+### kernl note list
+kernl note list — List notes with their graph node id, type and title
+
+Usage:
+  kernl note list [--files] [--json]
+
+Flags:
+  --files  List the .md files on disk instead (files the graph has not
+           indexed yet show up here and nowhere else)
+  --json   Emit the API response verbatim on stdout
+
+### kernl note read
+kernl note read — Print a note's contents
+
+Usage:
+  kernl note read <path> [--json]
+
+Writes the file bytes to stdout unchanged, so it pipes.
+
+Flags:
+  --json  Emit {"path","content"} instead — the route itself returns
+          text/plain, so there is no server JSON to pass through
+
+### kernl note write
+kernl note write — Create or overwrite a note from a file or stdin
+
+Usage:
+  kernl note write <path> [--file <local-path>] [--json]
+
+The body comes from --file, or from stdin when --file is omitted.
+Writing a .md note the server does not know yet gets a node id injected
+into its frontmatter.
+
+Flags:
+  --file <local-path>  Read the body from a local file instead of stdin
+  --json               Emit {"status":"saved"} on stdout
+
+Examples:
+  kernl note write inbox/idea.md --file ./draft.md
+  echo "# Title" | kernl note write inbox/idea.md
+
+### kernl note delete
+kernl note delete — Move a note to the trash (requires --yes)
+
+Usage:
+  kernl note delete <path> --yes [--json]
+
+Destructive: the file goes to the system trash and the vault watcher
+reconciles its graph node away. Without --yes this prints what would be
+deleted and exits 0.
+
+Flags:
+  --yes   Actually delete
+  --json  Emit {"path","status"} on stdout
+
+### kernl note tags
+kernl note tags — List every note tag with the files carrying it
+
+Usage:
+  kernl note tags [--json]
+
+Flags:
+  --json  Emit {"<tag>":{"files":[...]}} on stdout
+
+### kernl note suggest
+kernl note suggest — Ask the DA for edit hunks on a note (never writes)
+
+Usage:
+  kernl note suggest <path> --instruction <text> [--json]
+
+Returns line-aligned hunks to review; nothing is written until they are
+fed back through 'kernl note apply-hunks'. Needs an llm section in
+kernl.yaml — without one the server answers 503.
+
+Flags:
+  --instruction <text>  What to change (required)
+  --json                Emit {"hunks":[{"id","from","to","content"}]}
+
+### kernl note apply-hunks
+kernl note apply-hunks — Apply hunks from 'note suggest' to a note
+
+Usage:
+  kernl note apply-hunks <path> [--hunks <local-path>] [--json]
+
+Reads a JSON array of hunks — either the "hunks" array of a suggest
+response, or the whole response object — from --hunks or stdin, and
+applies exactly those. Pass only the hunks that were reviewed.
+
+Flags:
+  --hunks <local-path>  Read the hunks from a local file instead of stdin
+  --json                Emit {"status","last_modified"} on stdout
+
+Example:
+  kernl note suggest daily.md --instruction "tighten the intro" --json > h.json
+  kernl note apply-hunks daily.md --hunks h.json
+
+### kernl inbox
+kernl inbox — Triage the capture inbox (list, add, process, classify)
+
+Usage:
+  kernl inbox <list|add|process|convert|reopen|classify|auto-classify|prep|rollups|batch-log|batch> [args...]
+
+Subcommands:
+  list           List pending captures (or the processed ones)
+  add            Add a capture through the running server (text arg or stdin)
+  process        Turn a capture into a node (note, task, project, bookmark, discard)
+  convert        Legacy single-action triage of a capture
+  reopen         Undo a process: delete the derived node, requeue the capture
+  classify       Run one LLM classification pass over the unclassified pending captures
+  auto-classify  Read or flip the background auto-classify switch
+  prep           Generate (or show) the DA briefing note for a capture
+  rollups        Show captures grouped by the day they were created
+  batch-log      Show the raw and final segments of an imported batch
+  batch          Split one pasted export into many captures (analyze, preview, apply)
+
+Every inbox verb talks to a running 'kernl serve' over the same REST API the
+web inbox uses. 'kernl capture' is the offline path: it writes the graph
+directly and needs no server.
+
+A capture's body is never rewritten here — the CLI sends only what a capture
+becomes (target, title, tags); the body travels untouched from the capture.
+
+Run 'kernl inbox <subcommand> --help' for details on each.
+
+### kernl inbox list
+kernl inbox list — List pending captures (or the processed ones)
+
+Usage:
+  kernl inbox list [--processed] [--json]
+
+Flags:
+  --processed  List captures that already left the queue, and what they became
+  --json       Emit the API response verbatim (camelCase)
+
+### kernl inbox add
+kernl inbox add — Add a capture through the running server (text arg or stdin)
+
+Usage:
+  kernl inbox add [--json] [--] <text> | echo <text> | kernl inbox add
+
+Prints the new capture's ID; --json (first argument only) emits {"id"}.
+
+Examples:
+  kernl inbox add "call the accountant tomorrow"
+  echo "idea: robot mode" | kernl inbox add
+  kernl inbox add -- --help   (adds the literal text "--help")
+
+### kernl inbox process
+kernl inbox process — Turn a capture into a node (note, task, project, bookmark, discard)
+
+Usage:
+  kernl inbox process <capture-id> --target <note|task|project|bookmark|update|discard> [flags]
+
+Flags:
+  --target <t>        What the capture becomes (required)
+  --title <text>      Title for the created node (default: the capture's own)
+  --project-id <id>   File a task under an existing project
+  --tags <a,b,c>      Comma-separated tags
+  --due <YYYY-MM-DD>  Due date; on --target task only
+  --link-to <id>      Link the created node to an existing node
+  --target-note <id>  With --target update: the note to merge into
+  --json              Emit the API response verbatim
+
+One invocation sends one action. A capture that fans out into several nodes
+at once is a GUI/API flow; here, reopen and process again.
+
+### kernl inbox convert
+kernl inbox convert — Legacy single-action triage of a capture
+
+Usage:
+  kernl inbox convert <capture-id> <note|task|project|bookmark|discard> [--json]
+
+Kept because the API keeps it. Prefer 'kernl inbox process', which carries a
+title, tags, a project and a due date.
+
+### kernl inbox reopen
+kernl inbox reopen — Undo a process: delete the derived node, requeue the capture
+
+Usage:
+  kernl inbox reopen <capture-id> --yes [--json]
+
+Destructive: deletes the capture's derived node and requeues it. Requires
+--yes. Without it nothing is written — the capture that would be reopened is
+printed and the command exits 0.
+
+Flags:
+  --yes   Actually reopen
+  --json  Emit {"id","reopened":true} (or the preview) on stdout
+
+### kernl inbox classify
+kernl inbox classify — Run one LLM classification pass over the unclassified pending captures
+
+Usage:
+  kernl inbox classify [--json]
+
+Fails loud when no LLM provider is configured — Fix: set llm.provider in
+kernl.yaml, then restart the server.
+
+### kernl inbox auto-classify
+kernl inbox auto-classify — Read or flip the background auto-classify switch
+
+Usage:
+  kernl inbox auto-classify [on|off] [--json]
+
+With no argument it only reads the current state and reports whether an LLM
+is configured at all. The switch is session-only: it resets to the config
+default when the server restarts.
+
+### kernl inbox prep
+kernl inbox prep — Generate (or show) the DA briefing note for a capture
+
+Usage:
+  kernl inbox prep <capture-id> [--show] [--json]
+
+Bare 'prep' is get-or-create: it returns the capture's existing prep note,
+and only generates one when there is none. Generation costs one LLM call, so
+the first prep of a given capture is the only invocation that spends anything
+— every later one is a read, and re-running is free and idempotent.
+
+'--show' is get-if-exists: it never generates. On an already-prepped capture
+the two forms are identical.
+
+Flags:
+  --show  Read the existing prep note instead of generating one. When none
+          exists this prints "no prep yet" and exits 0 — absence is an
+          answer, not a bad invocation
+
+Generating needs an LLM provider; --show does not.
+
+### kernl inbox rollups
+kernl inbox rollups — Show captures grouped by the day they were created
+
+Usage:
+  kernl inbox rollups [--json]
+
+### kernl inbox batch-log
+kernl inbox batch-log — Show the raw and final segments of an imported batch
+
+Usage:
+  kernl inbox batch-log <batch-id> [--json]
+
+### kernl inbox batch
+kernl inbox batch — Split one pasted export into many captures (analyze, preview, apply)
+
+Usage:
+  kernl inbox batch <analyze|preview|apply> [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]
+
+Subcommands:
+  analyze        Split the text and enrich it with an LLM (a title, merges to consider)
+  preview        Split the text deterministically, with no LLM in the path
+  apply          Create the captures (requires --yes)
+
+Reads the text from --file, or from stdin when the flag is omitted.
+
+Flags (all three subcommands):
+  --file <path>   Local file to read instead of stdin
+  --split <mode>  auto (default), whatsapp, lines, blocks, divider, markdown, semantic
+  --source <s>    whatsapp or text; the server infers it when omitted
+  --title <text>  Context title for the batch
+  --json          Emit the API response verbatim
+
+The pasted text is sent exactly as read. Capture bodies are rebuilt
+server-side from that text, so neither this CLI nor a model behind it can
+rewrite what you captured; merge decisions are a GUI review flow.
+
+Run 'kernl inbox batch <subcommand> --help' for details on each.
+
+### kernl inbox batch analyze
+kernl inbox batch analyze — Split the text and enrich it with an LLM (a title, merges to consider)
+
+Usage:
+  kernl inbox batch analyze [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]
+
+Needs an LLM provider on the server; 'preview' is the same split without one.
+Writes nothing — it only reports how the text would divide.
+
+### kernl inbox batch preview
+kernl inbox batch preview — Split the text deterministically, with no LLM in the path
+
+Usage:
+  kernl inbox batch preview [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]
+
+Writes nothing. Use it to check a --split mode before applying it.
+
+### kernl inbox batch apply
+kernl inbox batch apply — Create the captures (requires --yes)
+
+Usage:
+  kernl inbox batch apply [--file <path>] [--split <mode>] [--source <s>] [--title <text>] --yes [--json]
+
+Without --yes nothing is created: the request is answered by the preview
+route and the output says so, including under --json, which wraps the preview
+in {"applied":false,"wouldApply":true,...}.
+
+Flags:
+  --yes  Actually create the captures
+
+### kernl memory
+kernl memory — Inspect and edit what the DA remembers (claims and telos)
+
+Usage:
+  kernl memory <topics|claims|telos|add-claim|refute> [args...]
+
+Subcommands:
+  topics         List the subjects that still have at least one active claim
+  claims         List the active claims of one topic
+  telos          Show the always-injected telos notes and their context footprint
+  add-claim      Assert a claim yourself, without going through the DA
+  refute         Refute a claim so it stops being retrieved
+
+Talks to a running server over the REST API, so 'kernl serve' must be up
+(or point elsewhere with --server <url> / KERNL_SERVER).
+
+Memory has two halves: claims — statements the DA learned or you asserted,
+retrieved by relevance — and telos, the notes tagged 'telos' that are always
+injected into the DA's context.
+
+Run 'kernl memory <subcommand> --help' for details on each.
+
+### kernl memory topics
+kernl memory topics — List the subjects that still have at least one active claim
+
+Usage:
+  kernl memory topics [--json]
+
+A subject whose every claim was refuted is not listed.
+
+Flags:
+  --json  Emit {"topics":[...]} verbatim on stdout
+
+### kernl memory claims
+kernl memory claims — List the active claims of one topic
+
+Usage:
+  kernl memory claims --topic <topic> [--json]
+
+Refuted claims are filtered out by the server. --topic is required:
+the route has no "all topics" mode.
+
+Flags:
+  --topic <topic>  Which subject to read (list them with: kernl memory topics)
+  --json           Emit {"claims":[...]} verbatim on stdout
+
+### kernl memory telos
+kernl memory telos — Show the always-injected telos notes and their context footprint
+
+Usage:
+  kernl memory telos [--json]
+
+Prints every note tagged 'telos' plus the size of the block the chat
+engine actually injects, so you can see when it is being truncated.
+
+Flags:
+  --json  Emit {"notes":[...],"injection":{...}} verbatim on stdout
+
+### kernl memory add-claim
+kernl memory add-claim — Assert a claim yourself, without going through the DA
+
+Usage:
+  kernl memory add-claim --subject <topic> <statement> [--json]
+
+The claim is stored with user provenance, so it is distinguishable
+from one the DA learned.
+
+Flags:
+  --subject <topic>  The subject the claim belongs to (required)
+  --json             Emit {"id"} on stdout
+
+Example:
+  kernl memory add-claim --subject deploys "releases are cut from tags, never from master"
+
+### kernl memory refute
+kernl memory refute — Refute a claim so it stops being retrieved
+
+Usage:
+  kernl memory refute <claim-id> [--reason <text>] [--json]
+
+The claim is not deleted: a refutation node is recorded against it and
+the read paths stop returning it.
+
+Flags:
+  --reason <text>  Why it is wrong (kept with the refutation)
+  --json           Emit {"status","id"} verbatim on stdout
+
+### kernl graph
+kernl graph — Read the knowledge graph (nodes, edges, search, relatedness)
+
+Usage:
+  kernl graph <nodes|search|related|briefing|edges> [args...]
+
+Subcommands:
+  nodes          List every live node in the graph
+  search         Prefix-search node titles
+  related        Show the nodes a node is related to
+  briefing       Print the DA briefing note attached to a node
+  edges          List every stored edge between live nodes
+
+Every subcommand is read-only. They talk to a running server over the
+REST API, so 'kernl serve' must be up (or point elsewhere with
+--server <url> / KERNL_SERVER).
+
+Run 'kernl graph <subcommand> --help' for details on each.
+
+### kernl graph nodes
+kernl graph nodes — List every live node in the graph
+
+Usage:
+  kernl graph nodes [--json]
+
+The whole graph, tombstones excluded. The route takes no filters, so
+narrow it with 'kernl graph search' rather than expecting flags here.
+
+Flags:
+  --json  Emit [{"id","title","type"}] verbatim on stdout
+
+### kernl graph search
+kernl graph search — Prefix-search node titles
+
+Usage:
+  kernl graph search <query> [--type <node-type>] [--limit <n>] [--json]
+
+Matches title prefixes (this is the editor's wikilink autocomplete),
+not full-text over bodies.
+
+Flags:
+  --type <node-type>  Restrict to one node type, e.g. note, task, project
+  --limit <n>         Maximum hits, 1-50 (server default: 10; it clamps at 50)
+  --json              Emit [{"id","title","type"}] verbatim on stdout
+
+Example:
+  kernl graph search backup --type note --limit 5
+
+### kernl graph related
+kernl graph related — Show the nodes a node is related to
+
+Usage:
+  kernl graph related <node-id> [--limit <n>] [--json]
+
+Computed relevance, not stored edges — use 'kernl graph edges' for the
+connections as persisted.
+
+Flags:
+  --limit <n>  Maximum results (server default: 10)
+  --json       Emit [{"id","title","type"}] verbatim on stdout
+
+### kernl graph briefing
+kernl graph briefing — Print the DA briefing note attached to a node
+
+Usage:
+  kernl graph briefing <node-id> [--json]
+
+A node the DA never briefed is a normal answer, not a broken
+invocation: it exits 0 with "No briefing for <id> yet." (or {"briefing":null}
+under --json), so branch on the body/JSON, never on the exit code.
+
+Flags:
+  --json  Emit {"id","title","body"} verbatim on stdout, or {"briefing":null}
+          when the node has no briefing yet
+
+### kernl graph edges
+kernl graph edges — List every stored edge between live nodes
+
+Usage:
+  kernl graph edges [--json]
+
+The edges table as persisted — the source of truth for checking that
+connections are actually being made.
+
+Flags:
+  --json  Emit [{"id","src","dst","label"}] verbatim on stdout
+
+### kernl settings
+kernl settings — Read and write kernl.yaml through the running server
+
+Usage:
+  kernl settings <get|set> [args...]
+
+Subcommands:
+  get            Show the saved settings and which keys await a restart
+  set            Update one section of kernl.yaml (llm, vault, inbox, runtime)
+
+The same settings page the GUI exposes, from the shell. A server must be
+running ('kernl serve'), or point elsewhere with --server <url> (env:
+KERNL_SERVER).
+
+Every write lands in the kernl.yaml the server was started with — nothing
+is applied to the process that is already running. Fields you change stay
+listed under "restart pending" until the server is restarted.
+
+Run 'kernl settings <subcommand> --help' for details on each.
+
+### kernl settings get
+kernl settings get — Show the saved settings and which keys await a restart
+
+Usage:
+  kernl settings get [--json]
+
+Reads the config file back from disk, so it shows what is persisted, not
+what the running process holds. The LLM API key is never returned by the
+server — only whether one is set.
+
+Flags:
+  --json  Emit the API's settings object verbatim (camelCase)
+
+### kernl settings set
+kernl settings set — Update one section of kernl.yaml (llm, vault, inbox, runtime)
+
+Usage:
+  kernl settings set <llm|vault|inbox|runtime> [--field <value>...] [--json]
+
+Each section is written as a whole, so the current values are read first
+and only the flags you pass are changed. At least one flag is required.
+
+Saved to kernl.yaml, NOT applied to the running server: the process keeps
+the values it booted with until you restart it. The output lists the keys
+still waiting on that restart.
+
+llm      --provider <openai|anthropic|ollama|noop>
+         --model <name>            --endpoint <http(s) url>
+         --api-key <key>           (never echoed back; omit to keep the stored one)
+vault    --root <absolute dir>     (must already exist)
+         --coalesce-window-ms <n>  --move-window-ms <n>
+         --rescan-interval-sec <n>
+inbox    --auto-prep <true|false>  --da-subdir <relative path inside the vault>
+runtime  --server-port <1-65535>   --worktree-root <absolute path>
+         --max-concurrent-beads <1-64>
+         --run-state-path <absolute path>
+         --stage-retry-attempts <0-10>
+         --sweep-interval-sec <n>  --pr-stale-warn-days <n>
+         --sweep-failure-limit <n> --sweep-backoff-minutes <5,15,60>
+
+Flags:
+  --json  Emit the API's full settings object after the write
+
+Example:
+  kernl settings set llm --provider openai --model gpt-4o-mini
+
+### kernl health
+kernl health — Check that the server is up and answering (no subcommand needed)
+
+Usage:
+  kernl health [update-check] [--json]
+
+Subcommands:
+  update-check   Ask the server whether a newer kernl is available
+
+The verb to reach for when something is wrong: it says whether a server is
+reachable at the address this CLI would use, and which vault that server
+has open. Plain 'kernl health' does the check; the subcommand below is the
+GUI's update banner.
+
+When no server answers, the error names the address that was tried and how
+to start one — that failure is the useful answer, not a crash.
+
+Flags:
+  --json  Emit the API's {"status","vaultRoot","vaultLabel"} verbatim
+
+Run 'kernl health update-check' for the app-update check.
+
+### kernl health update-check
+kernl health update-check — Ask the server whether a newer kernl is available
+
+Usage:
+  kernl health update-check [--json]
+
+Calls the same endpoint the GUI's update banner uses. That endpoint does
+not contact any release feed yet — it answers {"status":"unknown","checked":false}.
+Branch on "checked": false means "nobody looked", not "you are current".
+
+Flags:
+  --json  Emit the API's {"status","checked","detail"} verbatim
+
+### kernl approval
+kernl approval — See and resolve the gates waiting on a human
+
+Usage:
+  kernl approval <list|resolve> [args...]
+
+Subcommands:
+  list           Show what is waiting, for what, and since when
+  resolve        Answer one approval (approve/reject, or an in-session prompt)
+
+Approvals are the points where the orchestrator stops and waits for a
+person. These verbs call the same REST API the web GUI calls, so a server
+must be running: start one with 'kernl serve', or point elsewhere with
+--server <url> (env: KERNL_SERVER).
+
+Run 'kernl approval <subcommand> --help' for details on each.
+
+### kernl approval list
+kernl approval list — Show what is waiting, for what, and since when
+
+Usage:
+  kernl approval list [--json]
+
+Actionable requests are listed first, oldest first, each with the exact
+command that resolves it.
+
+Flags:
+  --json  Emit the API's approval array verbatim (camelCase)
+
+### kernl approval resolve
+kernl approval resolve — Answer one approval (approve/reject, or an in-session prompt)
+
+Usage:
+  kernl approval resolve <approval-id> --action <action> [--session <session-id>] [--yes] [--json]
+
+Without --session the request goes to the orchestrator gate, whose actions
+are: approve, reject.
+
+With --session it answers the prompt an agent raised inside that terminal
+session, whose actions are: accept, always_approve, decline. 'always_approve'
+also silences future prompts of the same shape for that session.
+
+Granting an approval (approve, accept, always_approve) requires --yes:
+letting an agent proceed unreviewed is the one mistake this gate exists to
+prevent. Declining does not, since it only stops work. Without --yes nothing
+is sent to the server and the command exits 2 — a refused mutation is not a
+success.
+
+Flags:
+  --action <action>  Required. What to answer
+  --session <id>     Answer inside that terminal session instead
+  --yes              Confirm a granting action
+  --json             Emit {"id","resolved":true} (or the server's body)
+
+Example:
+  kernl approval list
+  kernl approval resolve apr-7 --action approve --yes
+  kernl approval resolve apr-7 --action decline --session sess-2
+
+### kernl session
+kernl session — Poke a running agent session
+
+Usage:
+  kernl session <nudge|nudge-prompts> [args...]
+
+Subcommands:
+  nudge          Send a prompt into a session that has gone quiet
+  nudge-prompts  Show the prompt text each preset would send
+
+A session is one agent run driving one bead. These verbs call the same REST
+API the web GUI calls, so a server must be running: start one with
+'kernl serve', or point elsewhere with --server <url> (env: KERNL_SERVER).
+
+Live session output is an SSE stream and has no CLI verb; read it in the GUI
+or with 'curl -N <server>/api/sessions/<id>/events'.
+
+Run 'kernl session <subcommand> --help' for details on each.
+
+### kernl session nudge
+kernl session nudge — Send a prompt into a session that has gone quiet
+
+Usage:
+  kernl session nudge <session-id> [--preset <preset>] [--prompt <text>] [--json]
+
+Delivers a message to the agent already running in that session. Use it when
+a run stalls, or to push it to record its status.
+
+Flags:
+  --preset <preset>  generic (default, server-side) or advance_status
+  --prompt <text>    Send this exact text instead of the preset's template
+  --json             Emit the API's {"status","sessionId"} on stdout
+
+A session that is mid-turn answers 409 and a session with no agent attached
+answers 422; both exit 2, since the fix is to retry or pick another session.
+
+Example:
+  kernl session nudge sess-2 --preset advance_status
+
+### kernl session nudge-prompts
+kernl session nudge-prompts — Show the prompt text each preset would send
+
+Usage:
+  kernl session nudge-prompts <session-id> [--json]
+
+Prints the templates already substituted for this session's bead and repo,
+so you can read what 'session nudge' would send before sending it — or copy
+one, edit it, and pass it back with --prompt.
+
+Flags:
+  --json  Emit the API's {"beadId","opencodeSessionId","running","generic",
+          "advance_status"} on stdout
+
+### kernl ingest
+kernl ingest — Feed documents into the graph and triage what they extracted
+
+Usage:
+  kernl ingest <paste|upload|source|trigger|queue> [args...]
+
+Subcommands:
+  paste          Ingest text passed as an argument or piped on stdin
+  upload         Ingest a local .md or .txt file (sent as multipart/form-data)
+  source         Fetch a URL and ingest what it returns
+  trigger        Ingest a file already inside the vault, by server-side path
+  queue          Read and resolve the ingest review queue
+
+Ingest talks to a running 'kernl serve' and needs an LLM provider on the
+server: extraction is an LLM pass. Without one every route answers 503 and
+the CLI surfaces that verbatim — Fix: set llm.provider in kernl.yaml, then
+restart the server.
+
+Extraction runs in the background: paste, upload, source and trigger return
+as soon as the content is staged. What they produced shows up in
+'kernl ingest queue list'.
+
+Run 'kernl ingest <subcommand> --help' for details on each.
+
+### kernl ingest paste
+kernl ingest paste — Ingest text passed as an argument or piped on stdin
+
+Usage:
+  kernl ingest paste [--title <text>] [--json] [--] <text> | cat f.md | kernl ingest paste
+
+Flags:
+  --title <text>  Becomes a leading H1 so the extractor can anchor on it
+  --json          Emit the API response verbatim
+
+Everything after '--' is text, even when it looks like a flag.
+
+### kernl ingest upload
+kernl ingest upload — Ingest a local .md or .txt file (sent as multipart/form-data)
+
+Usage:
+  kernl ingest upload <path> [--json]
+
+The file is read locally and uploaded whole; the server rejects anything
+that is not .md or .txt, is empty, is not UTF-8, or exceeds 2 MiB.
+
+### kernl ingest source
+kernl ingest source — Fetch a URL and ingest what it returns
+
+Usage:
+  kernl ingest source <url> [--kind <kind>] [--title <text>] [--json]
+
+Flags:
+  --kind <kind>   How the fetcher should read the URL (server decides by default)
+  --title <text>  Override the title the fetcher derived
+  --json          Emit {"sourceNodeId","title","kind"} verbatim
+
+A bookmark node is created for the source, so the extracted notes stay
+traceable to where they came from.
+
+### kernl ingest trigger
+kernl ingest trigger — Ingest a file already inside the vault, by server-side path
+
+Usage:
+  kernl ingest trigger <file-path> [--node <node-id>] [--json]
+
+The path is resolved by the server, not by this shell: it must be readable
+by the 'kernl serve' process. To send a local file's contents instead, use
+'kernl ingest upload'.
+
+Flags:
+  --node <id>  Attach the extraction to an existing source node
+
+### kernl ingest queue
+kernl ingest queue — Read and resolve the ingest review queue
+
+Usage:
+  kernl ingest queue <list|resolve|merge-plan> [args...]
+
+Subcommands:
+  list           List the pending reviews: id, proposed action, title
+  resolve        Apply a review: create a page, merge into one, or discard it
+  merge-plan     Ask the LLM which hunks an Update would add
+
+Hunk-by-hunk merge review is a GUI flow. 'resolve --action update' from the
+CLI links the source to the target note and clears the review without
+rewriting the note's body.
+
+Run 'kernl ingest queue <subcommand> --help' for details on each.
+
+### kernl ingest queue list
+kernl ingest queue list — List the pending reviews: id, proposed action, title
+
+Usage:
+  kernl ingest queue list [--json]
+
+Flags:
+  --json  Emit the API's review array verbatim (camelCase)
+
+### kernl ingest queue resolve
+kernl ingest queue resolve — Apply a review: create a page, merge into one, or discard it
+
+Usage:
+  kernl ingest queue resolve <id> --action <create-page|update|discard> [--target-note <id>] [--json]
+
+Flags:
+  --action <a>        create-page, update or discard — REQUIRED, no default.
+                      'discard' deletes the review permanently; there is no undo.
+  --target-note <id>  With --action update: the note to merge into
+  --json              Emit the API response verbatim
+
+There is no default action: an omitted --action used to mean "discard", so a
+forgotten flag destroyed the review it was resolving.
+
+### kernl ingest queue merge-plan
+kernl ingest queue merge-plan — Ask the LLM which hunks an Update would add
+
+Usage:
+  kernl ingest queue merge-plan <id> [--json]
+
+Reads only — it plans the merge without applying it. An empty target means
+there is no confident note to merge into; resolve with --action create-page.
+

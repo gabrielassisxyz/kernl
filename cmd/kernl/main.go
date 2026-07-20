@@ -44,6 +44,7 @@ var (
 	approvalFn func(v verbContext, args []string) error = runApproval
 	sessionFn  func(v verbContext, args []string) error = runSession
 	ingestFn   func(v verbContext, args []string) error = runIngest
+	triageFn   func(v verbContext, args []string) error = runTriage
 )
 
 func main() {
@@ -226,6 +227,8 @@ func Dispatch(args []string) error {
 	}
 
 	switch args[0] {
+	case "triage":
+		return triageFn(vctx, args[1:])
 	case "serve":
 		return serveFn(configPath, port, noOrch)
 	case "doctor":
@@ -302,21 +305,15 @@ Subcommands:
 	for _, c := range commandTable {
 		fmt.Fprintf(&b, "  %-12s %s\n", c.Name, c.Summary)
 	}
+	// Rendered from capabilityGlobalFlags and capabilityExitCodes rather than
+	// written out here: both already existed as data for `capabilities --json`,
+	// and keeping a hand-written copy on this page is how the two came to
+	// describe the same flags differently.
+	b.WriteString("\nFlags:" + renderFlagBlock(capabilityGlobalFlags) + "\n\nExit codes:\n")
+	for _, e := range capabilityExitCodes {
+		fmt.Fprintf(&b, "  %d  %s\n", e.Code, e.Meaning)
+	}
 	b.WriteString(`
-Flags:
-  --config, -c       Path to kernl.yaml (default: kernl.yaml)
-  --port,  -p        Server port (default: from kernl.yaml, or 8080)
-  --server <url>     Address of the running server the GUI-parity verbs call
-                     (default: http://127.0.0.1:<port>; env: KERNL_SERVER)
-  --no-orchestrator  serve only the GUI/graph/notes; do not require bd
-  --version, -v      Print version and build information
-  --help,  -h        Show this help
-
-Exit codes:
-  0  success
-  1  runtime/internal error (backend, config, network, agent run)
-  2  usage error (unknown verb/flag, missing argument, bad value)
-
 Automation:
   kernl capabilities       machine-readable contract (JSON)
   kernl robot-docs guide   agent handbook

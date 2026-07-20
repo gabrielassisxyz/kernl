@@ -18,18 +18,21 @@ var inboxBatchCommand = commandMeta{
 	Usage:   "kernl inbox batch <analyze|preview|apply> [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]",
 	Details: `Reads the text from --file, or from stdin when the flag is omitted.
 
-Flags (all three subcommands):
-  --file <path>   Local file to read instead of stdin
-  --split <mode>  auto (default), whatsapp, lines, blocks, divider, markdown, semantic
-  --source <s>    whatsapp or text; the server infers it when omitted
-  --title <text>  Context title for the batch
-  --json          Emit the API response verbatim
+{{flags}}
 
 The pasted text is sent exactly as read. Capture bodies are rebuilt
 server-side from that text, so neither this CLI nor a model behind it can
 rewrite what you captured; merge decisions are a GUI review flow.
 
 Run 'kernl inbox batch <subcommand> --help' for details on each.`,
+	FlagsHeading: "Flags (all three subcommands):",
+	Flags: []commandFlag{
+		{Name: "--file", Value: "<path>", Description: "Local file to read instead of stdin"},
+		{Name: "--split", Value: "<mode>", Description: "auto (default), whatsapp, lines, blocks, divider, markdown, semantic"},
+		{Name: "--source", Value: "<s>", Description: "whatsapp or text; the server infers it when omitted"},
+		{Name: "--title", Value: "<text>", Description: "Context title for the batch"},
+		{Name: "--json", Description: "Emit the API response verbatim"},
+	},
 	Subs: []commandMeta{
 		{
 			Name:    "analyze",
@@ -52,8 +55,10 @@ Writes nothing — it only reports how the text would divide.`,
 route and the output says so, including under --json, which wraps the preview
 in {"applied":false,"wouldApply":true,...}.
 
-Flags:
-  --yes  Actually create the captures`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--yes", Description: "Actually create the captures"},
+			},
 		},
 	},
 }
@@ -89,14 +94,25 @@ func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, a
 			// reads a dry-run as a completed apply. Wrap the preview in a envelope
 			// that states, unmistakably, that nothing was created.
 			env := fmt.Sprintf(`{"applied":false,"wouldApply":true,"preview":%s}`, raw)
-			return emitJSON(v.stdout(), json.RawMessage(env))
+			if err := emitJSON(v.stdout(), json.RawMessage(env)); err != nil {
+				return err
+			}
+			return refusedWithoutYes("inbox batch apply")
 		}
 		return emitJSON(v.stdout(), raw)
 	}
 	if sub == "apply" && confirmed {
 		return printInboxBatchResult(v.stdout(), raw, route)
 	}
-	return printInboxBatchSplit(v.stdout(), raw, route, sub == "apply")
+	if err := printInboxBatchSplit(v.stdout(), raw, route, unconfirmedApply); err != nil {
+		return err
+	}
+	// analyze and preview are read-only and end here at exit 0; only apply
+	// reached this line by refusing to act.
+	if unconfirmedApply {
+		return refusedWithoutYes("inbox batch apply")
+	}
+	return nil
 }
 
 // inboxBatchBody carries only what the API accepts: the text as read and the

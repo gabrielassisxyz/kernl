@@ -30,8 +30,10 @@ Run 'kernl memory <subcommand> --help' for details on each.`,
 			Usage:   "kernl memory topics [--json]",
 			Details: `A subject whose every claim was refuted is not listed.
 
-Flags:
-  --json  Emit {"topics":[...]} verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit {"topics":[...]} verbatim on stdout`},
+			},
 		},
 		{
 			Name:    "claims",
@@ -40,9 +42,11 @@ Flags:
 			Details: `Refuted claims are filtered out by the server. --topic is required:
 the route has no "all topics" mode.
 
-Flags:
-  --topic <topic>  Which subject to read (list them with: kernl memory topics)
-  --json           Emit {"claims":[...]} verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--topic", Value: "<topic>", Description: "Which subject to read (list them with: kernl memory topics)"},
+				{Name: "--json", Description: `Emit {"claims":[...]} verbatim on stdout`},
+			},
 		},
 		{
 			Name:    "telos",
@@ -51,8 +55,10 @@ Flags:
 			Details: `Prints every note tagged 'telos' plus the size of the block the chat
 engine actually injects, so you can see when it is being truncated.
 
-Flags:
-  --json  Emit {"notes":[...],"injection":{...}} verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit {"notes":[...],"injection":{...}} verbatim on stdout`},
+			},
 		},
 		{
 			Name:    "add-claim",
@@ -61,12 +67,14 @@ Flags:
 			Details: `The claim is stored with user provenance, so it is distinguishable
 from one the DA learned.
 
-Flags:
-  --subject <topic>  The subject the claim belongs to (required)
-  --json             Emit {"id"} on stdout
+{{flags}}
 
 Example:
   kernl memory add-claim --subject deploys "releases are cut from tags, never from master"`,
+			Flags: []commandFlag{
+				{Name: "--subject", Value: "<topic>", Description: "The subject the claim belongs to (required)"},
+				{Name: "--json", Description: `Emit {"id"} on stdout`},
+			},
 		},
 		{
 			Name:    "refute",
@@ -75,9 +83,11 @@ Example:
 			Details: `The claim is not deleted: a refutation node is recorded against it and
 the read paths stop returning it.
 
-Flags:
-  --reason <text>  Why it is wrong (kept with the refutation)
-  --json           Emit {"status","id"} verbatim on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--reason", Value: "<text>", Description: "Why it is wrong (kept with the refutation)"},
+				{Name: "--json", Description: `Emit {"status","id"} verbatim on stdout`},
+			},
 		},
 	},
 }

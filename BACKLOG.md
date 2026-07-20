@@ -224,6 +224,26 @@ Decided (2026-07-14): **llm-workflow stays the source of truth**. A symlink into
 
 **Already done (2026-07-18):** the orchestrator harness in `kernl.local.yaml` (gitignored — recorded here because git can't) switched from `opencode run --format json` + claude-sonnet-4-6 to the `claude` CLI with model `claude-opus-4-8`. The adapter builds the non-interactive invocation itself (`-p`, stream-json, permission bridge, `--model` from config), so the entry needs no `args`. `kernl doctor` green; the server was not running, so nothing needed a restart.
 
+### Exit code 3 = safety-block: separate "I refused to touch your data" from "you invoked me wrong" (decided 2026-07-19)
+
+Pass 3 settled a refused `--yes` gate on **exit 2** across eight verbs, because 2 already meant "you left out a required flag" and `epic abort` was already refusing that way — one convention instead of two. That shipped and stays as it is. The decision recorded here is the **next** step, not a revert: add a distinct **exit 3 = safety-block** and move the refusal path onto it.
+
+**Why the settled answer is not the right one.** Exit 2 now conflates two situations that need opposite responses from the caller. A malformed invocation must be *rewritten*; a refused gate must be *re-run verbatim with `--yes`* — and only after a human agrees. Merging them means a caller cannot tell "nothing happened because you typed it wrong" from "nothing happened because I protected you", so neither retry is safe:
+
+> "'exit 2 and nothing happened' is not a safe basis for auto-retrying with `--yes`."
+
+That is a fresh-context agent's phrasing, reached independently while running the canonical tasks against the built binary after the change landed — it contradicted the decision without knowing one had been made. It got to the right conclusion only by reading `wouldDelete` out of `--json`, a round-trip a distinct code removes. Both the original finding (F-1, the seven `--yes` gates that refused at exit 0) and this one land on the same fix.
+
+**It also takes a bite out of F-2**, the neighbouring finding: the dictionary has only 0/1/2, and 2 currently carries three unrelated meanings — "you typed it wrong", "409, busy, retry later", "413, too large, never retry" — so a caller cannot branch on retryability at all. Pulling safety-blocks onto 3 removes one of those meanings. The other two (a retryable-vs-permanent split for the HTTP-derived failures) stay open and are **not** in this item's scope; the fix here should be shaped so that split can follow without another renumbering.
+
+**The trade-off, stated plainly** — this is what was weighed at decision time:
+
+> The more "correct" alternative by the rubric would be to create exit 3 = safety-block, which would also solve half of F-2 — but it expands the contract, and doing that is a deliberate choice rather than a side effect. Risk: it is a behavior change across 7 verbs; the GUI does not call the CLI, so the real blast radius is the maintainer's own scripts.
+
+The contract expansion is accepted: a fourth code has to be taught to every caller once, and the alternative is an ambiguity every caller has to work around forever.
+
+**Scope when drained:** every `--yes` gate that refuses at 2 today, the `capabilities --json` exit-code contract, every help page that documents exit codes (rendered from `commandMeta`, so one source), and a tripwire that pins 3 for a refusal and 2 for a usage error. `sweep` stays exempt at 0 — its default mode is an announced read-only scan, not a refused mutation; R-030 already pins that exemption and must keep passing.
+
 ## Deferred — agent-ergonomics pass 2 (decided 2026-07-19)
 
 The pass-2 audit scored 401 CLI surfaces and applied 9 of 10 recommendations on PR #109. These are the pieces consciously left out — kept here (not only in the gitignored audit workspace) because two of them need a decision from the maintainer and the rest are real follow-up work.

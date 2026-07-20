@@ -25,12 +25,14 @@ for the epic and then stays open. So by default this drains the replay
 buffer and exits once the stream falls quiet — what a script wants — and
 --follow keeps it open instead, like 'tail -f'.
 
-Flags:
-  --follow          Keep streaming as events arrive (exit with Ctrl-C)
-  --limit <n>       Stop after n events
-  --timeout <dur>   Give up after a duration (e.g. 30s, 2m)
-  --json            One compact JSON event per line (NDJSON — a stream has
-                    no last element to close an array with)`,
+{{flags}}`,
+		Flags: []commandFlag{
+			{Name: "--follow", Description: "Keep streaming as events arrive (exit with Ctrl-C)"},
+			{Name: "--limit", Value: "<n>", Description: "Stop after n events"},
+			{Name: "--timeout", Value: "<dur>", Description: "Give up after a duration (e.g. 30s, 2m)"},
+			{Name: "--json", Description: "One compact JSON event per line (NDJSON — a stream has",
+				Continuation: []string{"no last element to close an array with)"}},
+		},
 	},
 	{
 		Name:    "sessions",

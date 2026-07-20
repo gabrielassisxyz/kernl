@@ -45,8 +45,10 @@ Run 'kernl approval <subcommand> --help' for details on each.`,
 			Details: `Actionable requests are listed first, oldest first, each with the exact
 command that resolves it.
 
-Flags:
-  --json  Emit the API's approval array verbatim (camelCase)`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: "Emit the API's approval array verbatim (camelCase)"},
+			},
 		},
 		{
 			Name:    "resolve",
@@ -62,18 +64,21 @@ also silences future prompts of the same shape for that session.
 Granting an approval (approve, accept, always_approve) requires --yes:
 letting an agent proceed unreviewed is the one mistake this gate exists to
 prevent. Declining does not, since it only stops work. Without --yes nothing
-is sent to the server and the command exits 0.
+is sent to the server and the command exits 2 — a refused mutation is not a
+success.
 
-Flags:
-  --action <action>      Required. What to answer
-  --session <id>         Answer inside that terminal session instead
-  --yes                  Confirm a granting action
-  --json                 Emit {"id","resolved":true} (or the server's body)
+{{flags}}
 
 Example:
   kernl approval list
   kernl approval resolve apr-7 --action approve --yes
   kernl approval resolve apr-7 --action decline --session sess-2`,
+			Flags: []commandFlag{
+				{Name: "--action", Value: "<action>", Description: "Required. What to answer"},
+				{Name: "--session", Value: "<id>", Description: "Answer inside that terminal session instead"},
+				{Name: "--yes", Description: "Confirm a granting action"},
+				{Name: "--json", Description: `Emit {"id","resolved":true} (or the server's body)`},
+			},
 		},
 	},
 }
@@ -152,7 +157,7 @@ func runApprovalResolve(v verbContext, asJSON bool, args []string) error {
 	if approvalGrantingActions[action] && !confirmed {
 		fmt.Fprintf(v.stdout(), "Would resolve approval %s with %q%s. Re-run with --yes to confirm.\n",
 			id, action, approvalSessionSuffix(session))
-		return nil
+		return refusedWithoutYes("approval resolve")
 	}
 	return sendApprovalAction(v, asJSON, id, session, action)
 }

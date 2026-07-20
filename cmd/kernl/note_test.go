@@ -150,9 +150,7 @@ func TestNoteWriteWithoutSourceOrStdinFailsLoud(t *testing.T) {
 func TestNoteDeleteRequiresYes(t *testing.T) {
 	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	out, err := api.run(t, "delete", "notes/x.md")
-	if err != nil {
-		t.Fatalf("preview must succeed, got: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "note delete")
 	if len(api.requests) != 0 {
 		t.Fatalf("delete without --yes must not call the API, got %+v", api.requests)
 	}

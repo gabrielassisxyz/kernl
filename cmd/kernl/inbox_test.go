@@ -182,9 +182,7 @@ func TestInboxReopenWithoutYesPreviewsAndWritesNothing(t *testing.T) {
 	ts, seen := fakeInboxAPI(t, http.StatusOK, `{"status":"ok"}`)
 
 	out, err := driveInbox(t, ts, "reopen", "cap-4")
-	if err != nil {
-		t.Fatalf("unconfirmed reopen must preview, got: %v", err)
-	}
+	requireRefusedWithoutYes(t, err, "inbox reopen")
 	if len(*seen) != 0 {
 		t.Fatalf("reopen without --yes must not touch the server, hit %+v", *seen)
 	}

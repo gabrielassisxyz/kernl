@@ -260,7 +260,7 @@ func runBeadClose(v verbContext, asJSON bool, args []string) error {
 	// not depend on the server being reachable to be safe.
 	if !confirmed {
 		fmt.Fprintf(v.stdout(), "Would close bead %s%s, which unblocks its dependents. Re-run with --yes to confirm.\n", id, beadReasonSuffix(reason))
-		return nil
+		return refusedWithoutYes("bead close")
 	}
 	raw, err := beadAPICall(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
 		return c.post(ctx, "/api/beads/"+url.PathEscape(id)+"/close", map[string]any{"reason": reason})
@@ -306,7 +306,7 @@ func runBeadTerminal(v verbContext, asJSON bool, args []string, sub string) erro
 	if !confirmed {
 		fmt.Fprintf(v.stdout(), "Would %s bead %s to state %q%s, %s. Re-run with --yes to confirm.\n",
 			sub, id, state, beadReasonSuffix(reason), beadTerminalBlastRadius(sub))
-		return nil
+		return refusedWithoutYes("bead " + sub)
 	}
 	body := map[string]any{"targetState": state, "reason": reason}
 	raw, err := beadAPICall(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {

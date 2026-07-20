@@ -52,11 +52,13 @@ Run 'kernl ingest <subcommand> --help' for details on each.`,
 			Name:    "paste",
 			Summary: "Ingest text passed as an argument or piped on stdin",
 			Usage:   "kernl ingest paste [--title <text>] [--json] [--] <text> | cat f.md | kernl ingest paste",
-			Details: `Flags:
-  --title <text>  Becomes a leading H1 so the extractor can anchor on it
-  --json          Emit the API response verbatim
+			Details: `{{flags}}
 
 Everything after '--' is text, even when it looks like a flag.`,
+			Flags: []commandFlag{
+				{Name: "--title", Value: "<text>", Description: "Becomes a leading H1 so the extractor can anchor on it"},
+				{Name: "--json", Description: "Emit the API response verbatim"},
+			},
 		},
 		{
 			Name:    "upload",
@@ -69,13 +71,15 @@ that is not .md or .txt, is empty, is not UTF-8, or exceeds 2 MiB.`,
 			Name:    "source",
 			Summary: "Fetch a URL and ingest what it returns",
 			Usage:   "kernl ingest source <url> [--kind <kind>] [--title <text>] [--json]",
-			Details: `Flags:
-  --kind <kind>   How the fetcher should read the URL (server decides by default)
-  --title <text>  Override the title the fetcher derived
-  --json          Emit {"sourceNodeId","title","kind"} verbatim
+			Details: `{{flags}}
 
 A bookmark node is created for the source, so the extracted notes stay
 traceable to where they came from.`,
+			Flags: []commandFlag{
+				{Name: "--kind", Value: "<kind>", Description: "How the fetcher should read the URL (server decides by default)"},
+				{Name: "--title", Value: "<text>", Description: "Override the title the fetcher derived"},
+				{Name: "--json", Description: `Emit {"sourceNodeId","title","kind"} verbatim`},
+			},
 		},
 		{
 			Name:    "trigger",
@@ -85,8 +89,10 @@ traceable to where they came from.`,
 by the 'kernl serve' process. To send a local file's contents instead, use
 'kernl ingest upload'.
 
-Flags:
-  --node <id>  Attach the extraction to an existing source node`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--node", Value: "<id>", Description: "Attach the extraction to an existing source node"},
+			},
 		},
 		{
 			Name:    "queue",
@@ -102,21 +108,25 @@ Run 'kernl ingest queue <subcommand> --help' for details on each.`,
 					Name:    "list",
 					Summary: "List the pending reviews: id, proposed action, title",
 					Usage:   "kernl ingest queue list [--json]",
-					Details: `Flags:
-  --json  Emit the API's review array verbatim (camelCase)`,
+					Details: "{{flags}}",
+					Flags: []commandFlag{
+						{Name: "--json", Description: "Emit the API's review array verbatim (camelCase)"},
+					},
 				},
 				{
 					Name:    "resolve",
 					Summary: "Apply a review: create a page, merge into one, or discard it",
 					Usage:   "kernl ingest queue resolve <id> --action <create-page|update|discard> [--target-note <id>] [--json]",
-					Details: `Flags:
-  --action <a>       create-page, update or discard — REQUIRED, no default.
-                     'discard' deletes the review permanently; there is no undo.
-  --target-note <id> With --action update: the note to merge into
-  --json             Emit the API response verbatim
+					Details: `{{flags}}
 
 There is no default action: an omitted --action used to mean "discard", so a
 forgotten flag destroyed the review it was resolving.`,
+					Flags: []commandFlag{
+						{Name: "--action", Value: "<a>", Description: "create-page, update or discard — REQUIRED, no default.",
+							Continuation: []string{"'discard' deletes the review permanently; there is no undo."}},
+						{Name: "--target-note", Value: "<id>", Description: "With --action update: the note to merge into"},
+						{Name: "--json", Description: "Emit the API response verbatim"},
+					},
 				},
 				{
 					Name:    "merge-plan",

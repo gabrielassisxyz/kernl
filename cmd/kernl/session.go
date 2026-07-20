@@ -35,16 +35,18 @@ Run 'kernl session <subcommand> --help' for details on each.`,
 			Details: `Delivers a message to the agent already running in that session. Use it when
 a run stalls, or to push it to record its status.
 
-Flags:
-  --preset <preset>  generic (default, server-side) or advance_status
-  --prompt <text>    Send this exact text instead of the preset's template
-  --json             Emit the API's {"status","sessionId"} on stdout
+{{flags}}
 
 A session that is mid-turn answers 409 and a session with no agent attached
 answers 422; both exit 2, since the fix is to retry or pick another session.
 
 Example:
   kernl session nudge sess-2 --preset advance_status`,
+			Flags: []commandFlag{
+				{Name: "--preset", Value: "<preset>", Description: "generic (default, server-side) or advance_status"},
+				{Name: "--prompt", Value: "<text>", Description: "Send this exact text instead of the preset's template"},
+				{Name: "--json", Description: `Emit the API's {"status","sessionId"} on stdout`},
+			},
 		},
 		{
 			Name:    "nudge-prompts",
@@ -54,9 +56,11 @@ Example:
 so you can read what 'session nudge' would send before sending it — or copy
 one, edit it, and pass it back with --prompt.
 
-Flags:
-  --json  Emit the API's {"beadId","opencodeSessionId","running","generic",
-          "advance_status"} on stdout`,
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--json", Description: `Emit the API's {"beadId","opencodeSessionId","running","generic",`,
+					Continuation: []string{`"advance_status"} on stdout`}},
+			},
 		},
 	},
 }
