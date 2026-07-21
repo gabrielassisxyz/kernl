@@ -100,7 +100,7 @@ fi
 
 echo
 # anti-slop gate: em-dash in prose + the tool-name leak. Canonical: llm-workflow bin/slop-guard.
-echo "==> slop-guard"; bin/slop-guard || fail=1
+echo "==> slop-guard"; bin/slop-guard --diff "${SLOP_GUARD_BASE:-origin/master}" || fail=1
 
 if [ "$fail" -eq 0 ]; then
     printf '\033[32mbin/ci: all runnable checks passed.\033[0m\n'
