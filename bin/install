@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Build kernl from the current worktree and install it to ~/.local/bin, with
+# real version metadata baked in (same ldflags .goreleaser.yaml uses for a
+# release build, see `builds.ldflags` there).
+#
+#   bin/install
+#
+# Without this, `go build` alone leaves main.Version/Commit/Date at their
+# "dev"/"none"/"unknown" defaults (cmd/kernl/main.go), so `kernl version`
+# can't tell you which commit is actually installed, which is the exact
+# ambiguity that makes a stale ~/.local/bin/kernl hard to notice.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO_ROOT"
+
+BIN_DIR="${KERNL_BIN_DIR:-$HOME/.local/bin}"
+commit="$(git rev-parse --short HEAD)"
+dirty="$(git diff --quiet && git diff --cached --quiet || echo '-dirty')"
+date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+mkdir -p "$BIN_DIR"
+go build -ldflags "\
+    -X main.Version=${commit}${dirty} \
+    -X main.Commit=${commit}${dirty} \
+    -X main.Date=${date}" \
+    -o "$BIN_DIR/kernl" ./cmd/kernl
+echo "installed kernl ${commit}${dirty} → $BIN_DIR/kernl"
