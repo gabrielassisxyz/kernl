@@ -24,13 +24,14 @@ const prepEdgeLabel = "prepared_for"
 // user opens the node to act on it.
 const briefingEdgeLabel = "briefing"
 
-// Prep generates a short DA "briefing" for a capture: a 1–2 paragraph primer
-// drawn from the model's knowledge and grounded in the user's related notes,
-// bookmarks, and (when the classifier suggested one) project. The primer is
-// persisted as a DA-owned note — markdown in the vault's DA subfolder, tagged
-// `da`/`prep`, never mixed with the user's own notes — and linked to the capture
-// with a prepared_for edge. It is idempotent: a capture already prepped returns
-// its existing note. Returns the prep note id.
+// Prep generates a DA "briefing" for a capture: a sectioned work brief (read,
+// viability, approach, draft plan, open questions) drawn from the model's
+// knowledge and grounded in the user's related notes, bookmarks, and (when the
+// classifier suggested one) project. The brief is persisted as a DA-owned note,
+// markdown in the vault's DA subfolder tagged `da`/`prep` and never mixed with
+// the user's own notes, linked to the capture with a prepared_for edge. It is
+// idempotent: a capture already prepped returns its existing note. Returns the
+// prep note id.
 func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, daSubdir, captureID string) (string, error) {
 	if llm == nil {
 		return "", fmt.Errorf("prep: no llm configured")
@@ -152,9 +153,24 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 // whatever related graph material was found.
 func buildPrepPrompt(c *nodes.Capture, notes []planning.ContextNote, bookmarks []string, project *nodes.Project, tasks []*nodes.Task) string {
 	var b strings.Builder
-	b.WriteString("You are the user's personal DA. They captured the thought below. ")
-	b.WriteString("Write a concise 1-2 paragraph primer to familiarize them with it — draw on your own knowledge AND the related material from their graph. ")
-	b.WriteString("Be specific and grounded; reference their material when relevant but never invent facts about it. No preamble, output only the primer.\n\n")
+	b.WriteString("You are the user's DA preparing an Inbox item for future action.\n\n")
+	b.WriteString("Goal: create a compact work brief that reduces the user's future planning work and reduces the future DA work needed to act on this in a new session. ")
+	b.WriteString("Do not summarize the item from a distance. Write as if the user or a future DA session is about to start working on it now. ")
+	b.WriteString("Write in the same language as the capture.\n\n")
+	b.WriteString("Use the capture as the concrete request, idea, or problem; use related notes, bookmarks, and projects as grounding; and use your own technical/domain knowledge when helpful.\n\n")
+	b.WriteString("Output markdown only with these sections:\n")
+	b.WriteString("## Read\nWhat this is really asking for, in 1-2 direct sentences.\n\n")
+	b.WriteString("## Viability\nA short assessment of feasibility, likely scope, and important unknowns.\n\n")
+	b.WriteString("## Suggested Approach\n3-6 concrete bullets. Prefer implementation hints, data sources, commands, APIs, files, or search terms when relevant.\n\n")
+	b.WriteString("## Draft Plan\nIf this should become a project, propose a project title and 3-6 initial tasks. If it is a small task, propose the one best task. If it is a note, state the note angle and the durable idea to preserve.\n\n")
+	b.WriteString("## Questions / Checks\n0-3 questions or checks only if they materially change execution.\n\n")
+	b.WriteString("Rules:\n")
+	b.WriteString("- Never write phrases like \"this capture proposes\", \"the user captured\", or \"this note is about\".\n")
+	b.WriteString("- Do not merely restate the capture.\n")
+	b.WriteString("- Be specific about what you infer, and label uncertainty.\n")
+	b.WriteString("- Reference related graph material only when it is actually useful.\n")
+	b.WriteString("- Do not invent facts about the user's graph.\n")
+	b.WriteString("- No preamble, no sign-off.\n\n")
 	fmt.Fprintf(&b, "Capture:\n%s\n\n", strings.TrimSpace(c.Body))
 
 	if len(notes) > 0 {
@@ -185,7 +201,7 @@ func buildPrepPrompt(c *nodes.Capture, notes []planning.ContextNote, bookmarks [
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("Primer:\n")
+	b.WriteString("Work brief:\n")
 	return b.String()
 }
 

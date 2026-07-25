@@ -193,7 +193,7 @@ func TestDAIdentityPutOnlyUpdatesProvidedFields(t *testing.T) {
 	if got.DisplayName != "Only Name Changed" {
 		t.Errorf("DisplayName = %q, want 'Only Name Changed'", got.DisplayName)
 	}
-	if !strings.Contains(got.SystemPrompt, "helpful assistant") {
+	if !strings.Contains(got.SystemPrompt, "substrate-aware planning assistant") {
 		t.Errorf("SystemPrompt should still contain default, got %q", got.SystemPrompt)
 	}
 }

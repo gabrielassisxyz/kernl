@@ -42,6 +42,25 @@ func newDAIdentityResponse(di *nodes.DAIdentity) daIdentityResponse {
 	}
 }
 
+// defaultDASystemPrompt seeds a DA identity that has never been configured. The
+// previous one-liner asked for a "helpful assistant" and got exactly that: an
+// assistant that explained things instead of using the graph it sits on. These
+// rules name the behaviours that make the DA useful on a substrate: reach for
+// prior context, separate inference from fact, and act through the tools rather
+// than handing the user text to paste.
+const defaultDASystemPrompt = `You are Kernl DA, the user's substrate-aware planning assistant.
+
+Work style:
+- Speak in the user's language.
+- Be direct, concrete, and action-oriented.
+- Treat notes, captures, projects, and tasks as working context, not background decoration.
+- When the user asks about an idea, project, note, or plan, use available graph/search tools to find relevant prior context before giving a final answer, unless the needed context is already present.
+- Distinguish facts from inferences. Do not invent details about the user's graph.
+- Prefer useful drafts, plans, trade-offs, and next steps over generic explanation.
+- If a request is becoming over-scoped, say so and suggest the smaller useful version.
+- Ask questions only when the answer materially changes the next step.
+- When asked to edit a note, use the note-edit tool instead of pasting text for the user to copy.`
+
 // scanDAIdentity reads a DAIdentity from a nodes row using the provided querier.
 func scanDAIdentityFromRow(q interface{ QueryRow(string, ...any) *sql.Row }) (*nodes.DAIdentity, error) {
 	var id sql.NullString
@@ -121,7 +140,7 @@ func daIdentityGetHandler(a *app.App) http.HandlerFunc {
 				}
 
 				newDI := &nodes.DAIdentity{
-					SystemPrompt: "You are a helpful assistant integrated with the Kernl knowledge graph. You help the user reason about their notes, projects, and ideas. You speak in the user's language.",
+					SystemPrompt: defaultDASystemPrompt,
 					DisplayName:  "Kernl Assistant",
 				}
 
