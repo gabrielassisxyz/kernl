@@ -17,14 +17,13 @@
 # why it has to be linked rather than left to `git worktree add`.
 artifacts
 
-# Agent instructions. TEMPORARY: these are git-ignored today, which is itself the bug —
-# a contributor (or a fresh worktree) that does not get them works without the project's
-# conventions. The fix is to commit them, after the hygiene pass that makes them
-# publishable; until then linking is what keeps every worktree from starting blind.
-# Remove these two lines the moment the files are tracked — a tracked file wins its own
-# name anyway, so leaving them here would be dead weight, not a safeguard.
-AGENTS.md
-CLAUDE.md
+# Maintainer notes — backlog, parked ideas, planning scratch. Git-ignored by design and
+# the single largest body of un-versioned context here, so a worktree that does not get it
+# plans against nothing.
+local
+
+# (AGENTS.md and CLAUDE.md were listed here while they were git-ignored. They are tracked
+# now, so `git worktree add` brings them along on its own.)
 
 # Per-harness agent config: skills, settings, permissions.
 .claude

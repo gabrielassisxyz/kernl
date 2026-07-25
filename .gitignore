@@ -57,9 +57,12 @@ __pycache__/
 .agents
 .impeccable/
 .vibe-chaos-to-concept/
-CLAUDE.md
 CLAUDE.local.md
-AGENTS.md
+
+# AGENTS.md and CLAUDE.md are deliberately TRACKED. `git worktree add` materializes only
+# tracked files, so ignoring them left every fresh worktree without the project's
+# conventions, and the failure was silent: the session just worked without them. A cloner
+# hit the same wall. Keeping them publishable is what makes this safe, not hiding them.
 
 # GitHub Copilot's slot for the same agent tooling, narrowed to the two subdirectories
 # it owns. `.github` itself must stay tracked: ignoring the whole directory once
@@ -79,6 +82,14 @@ kernl.yaml
 *.local
 *.local.*
 *.log
+
+# Maintainer notes: backlog, parked ideas, planning scratch. Real work, but not part of
+# the published project. The public counterpart is ROADMAP.md.
+local/
+
+# Agent-run and tooling artifacts. Machine-generated per run, never reviewed as source.
+.kernl/
+.live-tweaks/
 
 RESEARCH_FINDINGS.md
 TOON_INTEGRATION_BRIEF.md
