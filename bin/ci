@@ -7,15 +7,19 @@
 # passes there. Each check that needs a tool you don't have installed is
 # skipped with a hint rather than failing the run (CI is the hard gate).
 #
-# Exit nonzero if any *runnable* check fails.
+# Exit nonzero if any *runnable* check fails. A skip is NOT a pass, so every
+# skipped check is repeated in the closing summary: a lone yellow line 200 lines
+# up is invisible to a human scrolling and to an agent reading only the exit
+# code, which is how a green run with the linter never executed happens.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 fail=0
+skipped=()
 section() { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
-skip()    { printf '    \033[33mskip:\033[0m %s\n' "$1"; }
+skip()    { printf '    \033[33mskip:\033[0m %s\n' "$1"; skipped+=("$1"); }
 ok()      { printf '    \033[32mok\033[0m\n'; }
 bad()     { printf '    \033[31mFAIL\033[0m\n'; fail=1; }
 
@@ -101,6 +105,11 @@ fi
 echo
 # anti-slop gate: em-dash in prose + the tool-name leak. Canonical: llm-workflow bin/slop-guard.
 echo "==> slop-guard"; bin/slop-guard --diff "${SLOP_GUARD_BASE:-origin/master}" || fail=1
+
+if [ ${#skipped[@]} -gt 0 ]; then
+    printf '\n\033[33mbin/ci: %d check(s) did NOT run:\033[0m\n' "${#skipped[@]}"
+    printf '    - %s\n' "${skipped[@]}"
+fi
 
 if [ "$fail" -eq 0 ]; then
     printf '\033[32mbin/ci: all runnable checks passed.\033[0m\n'
