@@ -1,8 +1,8 @@
 # Kernl: Master Agent Briefing
 
 > **Read this before every interaction.** It is the living spec: short,
-> imperative, action-oriented. Every time we discover a gotcha, an
-> architectural decision, or a "common hurdle", add one line here.
+> imperative, action-oriented. Every gotcha, architectural decision or
+> "common hurdle" discovered along the way gets one line added here.
 >
 > This is the single canonical agent-instruction file for all harnesses
 > (Claude Code, Codex, OpenCode, …). `CLAUDE.md` just points here. Both are
@@ -20,28 +20,31 @@
 
 ## 0. Where we are: project context
 
-Project planning notes live in `artifacts/` (gitignored, local-only). Read them
-only when the user asks for that context. `docs/GLOSSARY.md` is tracked; keep
-Ubiquitous Language consistent when changing public concepts.
+`docs/` is for documentation that ships with the public repo, and `docs/GLOSSARY.md`
+is tracked: keep Ubiquitous Language consistent when changing public concepts.
+Markdown that is only useful while developing (handoffs, baselines, scratch plans,
+tracking docs) never belongs in `docs/` or at the repo root.
 
-Markdown that is only for internal development, not useful to a public reader
-of the repo (handoffs, baselines, scratch plans, tracking docs), belongs in
-`artifacts/`, never in `docs/` or the repo root. `docs/` is for documentation
-that ships with the public repo.
+It belongs in **`local/`** instead, which is git-ignored and holds the maintainer's
+own notes. A checkout without it is normal, not a broken clone. `artifacts/` is
+something else: machine-generated agent-run output, never source, never reviewed,
+safe to delete.
 
-Persistent dev knowledge across sessions → the harness's own per-project memory
-directory (for Claude Code: `~/.claude/projects/<slug>/memory/`; write a file +
-index it in `MEMORY.md`).
-Use ai-memory for durable agent-facing learnings: tool drift, recurring gotchas,
-commands that worked, architectural decisions, and handoff context. Do not
-stuff routine progress into memory; update public docs only when behavior,
-setup, release flow, or architecture changes. **Bad memory is worse than none**:
-no memory makes you ask, bad memory gives false certainty. Only promote a learning
-that is *reproducible* and whose evidence you can name; never enshrine a transient
-failure (wrong PATH, expired token, network blip, stale dep, fixed minutes later)
-as a rule like "never use X" / "Z is broken", which poisons every future session.
+Durable learnings that a future session should inherit (tool drift, recurring
+gotchas, commands that worked, architectural decisions) go to the harness's memory,
+not into this file. Routine progress does not go anywhere: promote only a learning
+that is reproducible and whose evidence you can name.
 
 ## 1. Stack & Commands
+
+From a fresh clone, in this order:
+
+```bash
+cd web && npm install && npm run generate   # first: go:embed needs web/.output/public
+bin/install-hooks                           # once per clone
+./run.sh                                    # build + serve on :8080
+bin/ci                                      # before pushing
+```
 
 - **Backend/CLI:** Go 1.26+. Single binary built from `./cmd/kernl`.
 - **Issue tracker / orchestrator storage:** **`bd` only** (gastownhall/beads
@@ -158,16 +161,14 @@ and builds the web for real in the `test-web` job.
 - **Work in your own worktree. Mandatory.** Multiple sessions run in parallel and
   nothing tells you another is active. Before your first write, run **`bin/worktree new
   <type>/<short-name>`** and do everything in the dir it prints (branched off a fresh
-  `origin/master`, in `~/repositories/.worktrees/kernl/<task>`). The main tree stays on
+  `origin/master`, under `$WORKTREE_BASE/kernl/<task>`). The main tree stays on
   `master` as a clean reference, never commit there. `feat/<short-name>` / `fix/<short-name>`,
   or `feat/<epicID>` for an epic. Read-only exploration needs no worktree. Tidy up merged
   worktrees with `bin/worktree status` / `rm`.
 - **Task tracking.** The published statement of direction is **`ROADMAP.md`**: what exists,
   what is missing, what is deliberately out of scope. The working backlog and the parked
-  ideas are maintainer notes and live in **`local/`** (git-ignored, `local/BACKLOG.md` →
-  `## Tasks` / `## Deferred`, `local/IDEAS.md`), which may be absent on a given checkout.
-  That is normal, not a broken clone. Backend for now: **markdown**; the product's
-  `bd`/orchestrator store is a separate runtime concern, never a dev-task backend.
+  ideas are maintainer notes in `local/` (see §0). Backend for now: **markdown**; the
+  product's `bd`/orchestrator store is a separate runtime concern, never a dev-task backend.
 - **Small releases:** atomic commits, `type: what changed`. Every commit on
   `master` passes `bin/ci` and is production-ready. Never `git add .` blind:
   separate unrelated changes. Closed work gets committed before the next task starts;
@@ -217,13 +218,13 @@ and builds the web for real in the `test-web` job.
 5. Refactoring candidates listed (if the change was large).
 6. Security risks flagged (if you touched a sensitive surface).
 7. Docs updated when the change affects user-facing behavior, setup, release flow, or architecture.
-8. ai-memory updated when we learned something future agents should inherit.
+8. Memory updated when the session produced a learning a future one should inherit (see §0).
 
 ## 10. Common hurdles (append as discovered)
 
 - **Embed:** `npm run generate` before any `go build` (see §1). The #1 trip-up.
 - **Web changes need a process restart:** `//go:embed` freezes `web/*` in memory; a
-  running `kernl serve` won't see web edits until rebuilt+restarted ([[kernl-web-assets-embedded-restart-required]]).
+  running `kernl serve` won't see web edits until rebuilt and restarted.
 - **bd CLI drift:** `bd close --reason` is supported in bd 1.0.4, but
   `bd update --reason` is not; terminal updates preserve reasons via
   `bd update --append-notes`.
@@ -248,21 +249,10 @@ and builds the web for real in the `test-web` job.
   matching files found`, because the embed prerequisite never produced its output. The
   output accuses the Go build and the embed directive; the actual cause is a background
   process you started. `pgrep -af nuxt` before believing any of it.
-- **`grep` cannot see `artifacts/`, and fails silently** (2026-07-19): in an agent
-  session `grep` is not GNU grep. It is a shell function from the harness snapshot
-  (`~/.claude/shell-snapshots/snapshot-zsh-*.sh`) that execs the CLI in ugrep mode with
-  `--ignore-files`, so **every gitignored tree is invisible**. In this repo that is
-  `artifacts/` (`.gitignore:100`), where AGENTS.md §0 puts *all* internal dev markdown:
-  handoffs, audit workspaces, plans, UAT notes. A search for something documented there
-  returns **zero hits and exit 0**, which reads exactly like "it was never written down".
-  Measured: `grep -rn --include="*.md" "mega-command" .` → 0 hits under `artifacts/`;
-  `command grep`, same pattern → **137**.
-  **The trap has a second floor:** naming the ignored directory explicitly
-  (`grep -r <pattern> artifacts/`) *does* find it. So the obvious sanity check passes and
-  confirms the wrong conclusion. Only recursion from `.` is filtered.
-  Use **`command grep`** (or an explicit path) whenever a search must cover `artifacts/`,
-  `.beads/`, `local/`, or `web/.output/`. Before concluding "this was never documented",
-  re-run with `command grep`: the absence of a hit is not evidence of absence.
+- **A gitignored tree can be invisible to search.** `local/`, `artifacts/`, `.beads/` and
+  `web/.output/` are git-ignored, and some search tools skip ignored paths by default,
+  returning zero hits and exit 0, which reads exactly like "it was never written down".
+  Name the directory explicitly before concluding something is undocumented.
 
 ## 11. Release / deploy
 
