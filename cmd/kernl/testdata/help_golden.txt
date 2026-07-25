@@ -30,7 +30,7 @@ Subcommands:
   ingest       Feed documents into the graph and triage what they extracted
 
 Flags:
-  --config, -c       Path to kernl.yaml (default: kernl.yaml; accepts --config=path)
+  --config, -c       Path to kernl.yaml (default: kernl.yaml; accepts --config=path; env: KERNL_CONFIG)
   --port, -p         Server port (default: from kernl.yaml, or 8080)
   --server <url>     Address of the running server the GUI-parity verbs call
                      (default: http://127.0.0.1:<port>; env: KERNL_SERVER)

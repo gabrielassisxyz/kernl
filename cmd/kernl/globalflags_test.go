@@ -49,6 +49,34 @@ func TestParsePortInvalidValueFailsLoud(t *testing.T) {
 	}
 }
 
+func TestConfigPathPrecedenceFlagBeatsEnvBeatsDefault(t *testing.T) {
+	var gotConfig string
+	captureFn = func(configPath string, args []string) error { gotConfig = configPath; return nil }
+	t.Cleanup(func() { captureFn = runCapture })
+
+	if err := Dispatch([]string{"capture", "note"}); err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+	if gotConfig != "kernl.yaml" {
+		t.Fatalf("with neither --config nor KERNL_CONFIG, want default kernl.yaml, got %q", gotConfig)
+	}
+
+	t.Setenv("KERNL_CONFIG", "/env/kernl.yaml")
+	if err := Dispatch([]string{"capture", "note"}); err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+	if gotConfig != "/env/kernl.yaml" {
+		t.Fatalf("KERNL_CONFIG must be used when --config is absent, got %q", gotConfig)
+	}
+
+	if err := Dispatch([]string{"--config", "/flag/kernl.yaml", "capture", "note"}); err != nil {
+		t.Fatalf("capture failed: %v", err)
+	}
+	if gotConfig != "/flag/kernl.yaml" {
+		t.Fatalf("--config must win over KERNL_CONFIG, got %q", gotConfig)
+	}
+}
+
 func TestSentinelProtectsPayloadFromGlobalParsing(t *testing.T) {
 	// Text after "--" must never be stolen by global flag stripping.
 	captured := []string(nil)
