@@ -68,7 +68,7 @@ describe('InboxBatchDump', () => {
     handlers['/api/inbox/batch/analyze'] = () => new Promise(resolve => { releaseAnalyze = resolve })
 
     const w = mount(InboxBatchDump)
-    await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')
+    await w.find('textarea').setValue('[7/4/2026, 14:12] Alex: Project idea')
     await clickButton(w, 'Create captures')
     await flushPromises()
 
@@ -77,7 +77,7 @@ describe('InboxBatchDump', () => {
       {
         method: 'POST',
         body: {
-          text: '[7/4/2026, 14:12] Gabriel: Project idea',
+          text: '[7/4/2026, 14:12] Alex: Project idea',
           source: '',
           separator: 'auto',
           contextTitle: '',
@@ -103,7 +103,7 @@ describe('InboxBatchDump', () => {
     })
 
     const w = mount(InboxBatchDump)
-    await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')
+    await w.find('textarea').setValue('[7/4/2026, 14:12] Alex: Project idea')
     await clickButton(w, 'Create captures')
     await flushPromises()
 
@@ -127,7 +127,7 @@ describe('InboxBatchDump', () => {
     })
 
     const w = mount(InboxBatchDump)
-    await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')
+    await w.find('textarea').setValue('[7/4/2026, 14:12] Alex: Project idea')
     await clickButton(w, 'Create captures')
     await flushPromises()
 
@@ -151,7 +151,7 @@ describe('InboxBatchDump', () => {
 
     const w = mount(InboxBatchDump)
     const textarea = w.find('textarea')
-    await textarea.setValue('[7/4/2026, 14:12] Gabriel: Project idea')
+    await textarea.setValue('[7/4/2026, 14:12] Alex: Project idea')
     await clickButton(w, 'Create captures')
     await flushPromises()
 
@@ -178,7 +178,7 @@ describe('InboxBatchDump', () => {
     handlers['/api/inbox/batch/analyze'] = () => Promise.reject(new Error('llm down'))
 
     const w = mount(InboxBatchDump)
-    await w.find('textarea').setValue('[7/4/2026, 14:12] Gabriel: Project idea')
+    await w.find('textarea').setValue('[7/4/2026, 14:12] Alex: Project idea')
     await clickButton(w, 'Create captures')
     await flushPromises()
 

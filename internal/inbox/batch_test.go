@@ -14,7 +14,7 @@ import (
 
 func TestPreviewBatchParsesWhatsAppMessages(t *testing.T) {
 	preview, err := PreviewBatchSplit(BatchInput{
-		RawText: "[06/07/2026, 14:32] Gabriel: Project idea\ncontinued context\n[06/07/2026, 14:33] Gabriel: Task: write parser",
+		RawText: "[06/07/2026, 14:32] Alex: Project idea\ncontinued context\n[06/07/2026, 14:33] Alex: Task: write parser",
 		Source:  "whatsapp",
 	})
 	if err != nil {
@@ -24,8 +24,8 @@ func TestPreviewBatchParsesWhatsAppMessages(t *testing.T) {
 	if len(segments) != 2 {
 		t.Fatalf("expected 2 segments, got %d: %#v", len(segments), segments)
 	}
-	if segments[0].Sender != "Gabriel" {
-		t.Fatalf("Sender = %q, want Gabriel", segments[0].Sender)
+	if segments[0].Sender != "Alex" {
+		t.Fatalf("Sender = %q, want Alex", segments[0].Sender)
 	}
 	if segments[0].Body != "Project idea\ncontinued context" {
 		t.Fatalf("first body = %q", segments[0].Body)
@@ -37,7 +37,7 @@ func TestPreviewBatchParsesWhatsAppMessages(t *testing.T) {
 
 func TestPreviewBatchParsesWhatsAppTimeFirstMessages(t *testing.T) {
 	preview, err := PreviewBatchSplit(BatchInput{
-		RawText: "[13:54, 7/4/2026] Gabriel Assis: substitutos para opencode:\n\n- mariozechner/pi-coding-agent\n[14:12, 7/4/2026] Gabriel Assis: meu objetivo principal é ter dados confiáveis",
+		RawText: "[13:54, 7/4/2026] Alex Rivera: substitutos para opencode:\n\n- mariozechner/pi-coding-agent\n[14:12, 7/4/2026] Alex Rivera: meu objetivo principal é ter dados confiáveis",
 		Source:  "whatsapp",
 	})
 	if err != nil {
@@ -47,8 +47,8 @@ func TestPreviewBatchParsesWhatsAppTimeFirstMessages(t *testing.T) {
 	if len(segments) != 2 {
 		t.Fatalf("expected 2 segments, got %d: %#v", len(segments), segments)
 	}
-	if segments[0].Sender != "Gabriel Assis" {
-		t.Fatalf("Sender = %q, want Gabriel Assis", segments[0].Sender)
+	if segments[0].Sender != "Alex Rivera" {
+		t.Fatalf("Sender = %q, want Alex Rivera", segments[0].Sender)
 	}
 	if segments[0].Timestamp != "7/4/2026 13:54" {
 		t.Fatalf("Timestamp = %q, want 7/4/2026 13:54", segments[0].Timestamp)
@@ -68,7 +68,7 @@ func TestPreviewBatchParsesWhatsAppTimeFirstMessages(t *testing.T) {
 // breaks — the reflowed one-paragraph version is a different document.
 func TestPreviewBatchKeepsMessageParagraphsVerbatim(t *testing.T) {
 	message := "falar \"trablhar 1h por dia\" é facil, mas tenho dificuldade de internalizar.\n\nou me falta entender o que estou construindo, sei la\n\npreciso de uma forma de visualizar esse progresso"
-	raw := "4/1/26, 16:34 - Gabriel Assis: " + message + "\n4/1/26, 19:46 - Gabriel Assis: next message"
+	raw := "4/1/26, 16:34 - Alex Rivera: " + message + "\n4/1/26, 19:46 - Alex Rivera: next message"
 
 	preview, err := PreviewBatchSplit(BatchInput{RawText: raw})
 	if err != nil {
@@ -107,14 +107,14 @@ func TestAnalyzeBatchDetectsShape(t *testing.T) {
 	}{
 		{
 			name:      "whatsapp date first",
-			raw:       "[06/07/2026, 14:32] Gabriel: Project idea\n[06/07/2026, 14:33] Gabriel: Task idea",
+			raw:       "[06/07/2026, 14:32] Alex: Project idea\n[06/07/2026, 14:33] Alex: Task idea",
 			source:    BatchSourceWhatsApp,
 			separator: BatchSplitWhatsApp,
 			count:     2,
 		},
 		{
 			name:      "whatsapp time first",
-			raw:       "[13:54, 7/4/2026] Gabriel Assis: Project idea\n[14:12, 7/4/2026] Gabriel Assis: Task idea",
+			raw:       "[13:54, 7/4/2026] Alex Rivera: Project idea\n[14:12, 7/4/2026] Alex Rivera: Task idea",
 			source:    BatchSourceWhatsApp,
 			separator: BatchSplitWhatsApp,
 			count:     2,
