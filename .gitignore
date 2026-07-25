@@ -61,6 +61,12 @@ CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
 
+# GitHub Copilot's slot for the same agent tooling, narrowed to the two subdirectories
+# it owns. `.github` itself must stay tracked: ignoring the whole directory once
+# swallowed a new CI workflow without a word.
+.github/hooks/
+.github/skills/
+
 # Solutions are compound-engineering artifacts; they live in the wiki vault, not in git.
 docs/solutions/
 
