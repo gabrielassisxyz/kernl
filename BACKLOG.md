@@ -246,6 +246,16 @@ The contract expansion is accepted: a fourth code has to be taught to every call
 
 **Scope when drained:** every `--yes` gate that refuses at 2 today, the `capabilities --json` exit-code contract, every help page that documents exit codes (rendered from `commandMeta`, so one source), and a tripwire that pins 3 for a refusal and 2 for a usage error. `sweep` stays exempt at 0 — its default mode is an announced read-only scan, not a refused mutation; R-030 already pins that exemption and must keep passing.
 
+### A documentation website, after the first release that counts
+
+**Captured 2026-07-25, deliberately deferred.** The `documentation-website-for-software-project` skill generates a docs site from a source repo, and this repo is the obvious candidate: public, non-trivial, with a README carrying more than a README should.
+
+**It is not next, and the reason is the sequencing rather than the value.** A docs site before a release that counts is a storefront with no product. `v0.0.1` has existed since 2026-06-16 while `README.md` still tells the reader to build from source *"until the first `v*` release exists"*, so the install path the site would document is the one that is currently wrong. Publishing docs over that ships the inconsistency to a nicer-looking surface. The release pass and the README pass both come first.
+
+**Check the overlap before adopting it.** `llm-workflow/bin/docs-site` already exists and already builds a documentation surface; whether these are one machine or two is a decision, not a detail. Adopting a second generator without deciding that is how a repo ends up with two docs pipelines and no owner for either.
+
+**Sequenced after** the release work in the maintainer cleanup plan (`local/cleanup-plan.md`).
+
 ## Deferred — agent-ergonomics pass 2 (decided 2026-07-19)
 
 The pass-2 audit scored 401 CLI surfaces and applied 9 of 10 recommendations on PR #109. These are the pieces consciously left out — kept here (not only in the gitignored audit workspace) because two of them need a decision from the maintainer and the rest are real follow-up work.
