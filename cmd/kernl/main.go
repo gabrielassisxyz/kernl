@@ -193,6 +193,9 @@ func Dispatch(args []string) error {
 		return err
 	}
 	if configPath == "" {
+		configPath = os.Getenv("KERNL_CONFIG")
+	}
+	if configPath == "" {
 		configPath = "kernl.yaml"
 	}
 

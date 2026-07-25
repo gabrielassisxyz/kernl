@@ -58,6 +58,7 @@ type capabilityExit struct {
 }
 
 var capabilityEnvVars = []capabilityEnvVar{
+	{Name: "KERNL_CONFIG", Description: "path to kernl.yaml, for a caller running outside a directory that has one; overridden by --config"},
 	{Name: "KERNL_SERVER", Description: "address of the running server the GUI-parity verbs call (e.g. http://127.0.0.1:8080); overridden by --server"},
 	{Name: "KERNL_LOG_LEVEL", Description: "slog level for all verbs: debug, info (default), warn, error"},
 	{Name: "KERNL_JSON_LOG_DIR", Description: "when set, structured JSON logs are also written to this directory"},
@@ -81,7 +82,7 @@ var capabilityExitCodes = []capabilityExit{
 // it. It used to be duplicated as prose in printHelp, and the two copies had
 // already drifted apart in wording.
 var capabilityGlobalFlags = []commandFlag{
-	{Name: "--config", Alias: "-c", Description: "Path to kernl.yaml (default: kernl.yaml; accepts --config=path)"},
+	{Name: "--config", Alias: "-c", Description: "Path to kernl.yaml (default: kernl.yaml; accepts --config=path; env: KERNL_CONFIG)"},
 	{Name: "--port", Alias: "-p", Description: "Server port (default: from kernl.yaml, or 8080)"},
 	{Name: "--server", Value: "<url>", Description: "Address of the running server the GUI-parity verbs call",
 		Continuation: []string{"(default: http://127.0.0.1:<port>; env: KERNL_SERVER)"}},
