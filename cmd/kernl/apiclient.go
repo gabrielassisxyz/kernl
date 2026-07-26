@@ -108,6 +108,10 @@ type verbContext struct {
 	// out is where the verb writes its result. Injected so a test can drive a
 	// verb end-to-end through Dispatch and read what it printed.
 	out io.Writer
+	// errOut carries what the caller should know but a consumer of stdout must
+	// not have to parse around: notes about a result rather than the result. Kept
+	// separate so `--json` stdout stays a document another tool can read whole.
+	errOut io.Writer
 }
 
 func (v verbContext) stdout() io.Writer {
@@ -115,6 +119,13 @@ func (v verbContext) stdout() io.Writer {
 		return os.Stdout
 	}
 	return v.out
+}
+
+func (v verbContext) stderr() io.Writer {
+	if v.errOut == nil {
+		return os.Stderr
+	}
+	return v.errOut
 }
 
 // client builds a client but does NOT resolve the server address - that happens

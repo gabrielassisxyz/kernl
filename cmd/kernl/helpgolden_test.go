@@ -99,7 +99,7 @@ func helpPaths(table []commandMeta, prefix []string) [][]string {
 // Regenerate deliberately, never reflexively - a diff here means a help page
 // changed, which is either the point of your commit or a bug in it:
 //
-//	go test ./cmd/kernl/ -run TestHelpTextIsUnchanged -update-help-golden
+//	UPDATE_HELP_GOLDEN=1 go test ./cmd/kernl/ -run TestHelpTextIsUnchanged
 func TestHelpTextIsUnchanged(t *testing.T) {
 	var b strings.Builder
 	// The root page first. It is rendered by printHelp rather than
