@@ -403,7 +403,7 @@ Usage:
   kernl task <list|create|set|delete> [args...]
 
 Subcommands:
-  list           List tasks, optionally scoped to one project
+  list           List the open tasks, optionally scoped to one project
   create         Create a task
   set            Change fields of an existing task
   delete         Delete a task and its companion note
@@ -414,14 +414,24 @@ Talks to a running server over the REST API, so 'kernl serve' must be up
 Run 'kernl task <subcommand> --help' for details on each.
 
 ### kernl task list
-kernl task list - List tasks, optionally scoped to one project
+kernl task list - List the open tasks, optionally scoped to one project
 
 Usage:
-  kernl task list [--project <project-id>] [--json]
+  kernl task list [--project <project-id>] [--status <status>] [--all] [--json]
+
+Done tasks are left out of the default listing, on --json as well as on
+the human one: a finished task outnumbers an open one several times over
+once a backlog has any history, and a list that shows both is a list
+nobody reads. The count line reports how many were hidden, so the
+omission is never silent.
+
+--all brings them back; --status done lists only those.
 
 Flags:
-  --project <id>  Only tasks belonging to that project
-  --json          Emit the API's task array verbatim (camelCase)
+  --project <id>     Only tasks belonging to that project
+  --status <status>  Only tasks with that status: todo, in_progress or done
+  --all              Keep every status, done included
+  --json             Emit the API's task objects verbatim (camelCase), minus the ones the status filter dropped
 
 ### kernl task create
 kernl task create - Create a task

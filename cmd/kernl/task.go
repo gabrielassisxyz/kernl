@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/url"
 	"strings"
+
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
 var taskSubcommands = []string{"list", "create", "set", "delete"}
@@ -23,12 +25,22 @@ Run 'kernl task <subcommand> --help' for details on each.`,
 	Subs: []commandMeta{
 		{
 			Name:    "list",
-			Summary: "List tasks, optionally scoped to one project",
-			Usage:   "kernl task list [--project <project-id>] [--json]",
-			Details: `{{flags}}`,
+			Summary: "List the open tasks, optionally scoped to one project",
+			Usage:   "kernl task list [--project <project-id>] [--status <status>] [--all] [--json]",
+			Details: `Done tasks are left out of the default listing, on --json as well as on
+the human one: a finished task outnumbers an open one several times over
+once a backlog has any history, and a list that shows both is a list
+nobody reads. The count line reports how many were hidden, so the
+omission is never silent.
+
+--all brings them back; --status done lists only those.
+
+{{flags}}`,
 			Flags: []commandFlag{
 				{Name: "--project", Value: "<id>", Description: "Only tasks belonging to that project"},
-				{Name: "--json", Description: "Emit the API's task array verbatim (camelCase)"},
+				{Name: "--status", Value: "<status>", Description: "Only tasks with that status: todo, in_progress or done"},
+				{Name: "--all", Description: "Keep every status, done included"},
+				{Name: "--json", Description: "Emit the API's task objects verbatim (camelCase), minus the ones the status filter dropped"},
 			},
 		},
 		{
@@ -124,11 +136,23 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 	if err != nil {
 		return err
 	}
+	status, hasStatus, rest, err := takeFlag("task list", rest, "--status")
+	if err != nil {
+		return err
+	}
+	all, rest := parseBoolFlag(rest, "--all")
 	if err := rejectUnknownFlags("task list", rest); err != nil {
 		return err
 	}
 	if len(rest) > 0 {
 		return usagef("KERNL DISPATCH FAILURE: task list takes no positional arguments, got %q - run: kernl task list --help", rest[0])
+	}
+	if all && hasStatus {
+		return usagef("KERNL DISPATCH FAILURE: task list got --all and --status %q together, and they contradict - --all keeps every status, --status keeps one. Run: kernl task list --help", status)
+	}
+	if hasStatus && !knownTaskStatus(status) {
+		return usagef("KERNL DISPATCH FAILURE: task list got an unknown --status %q%s - valid: %s. Run: kernl task list --help",
+			status, didYouMean(status, taskListStatuses), strings.Join(taskListStatuses, ", "))
 	}
 
 	path := "/api/tasks"
@@ -141,10 +165,79 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 	if err != nil {
 		return err
 	}
-	if asJSON {
-		return emitJSON(v.stdout(), raw)
+	rows, err := decodeTaskRows(raw)
+	if err != nil {
+		return err
 	}
-	return printTaskList(v.stdout(), raw)
+	kept, hiddenDone := selectTasks(rows, all, status, hasStatus)
+	if asJSON {
+		return emitTaskRows(v.stdout(), kept)
+	}
+	return printTaskList(v.stdout(), kept, hiddenDone)
+}
+
+// taskListStatuses is the vocabulary --status accepts, in board order. It reads
+// the node package's constants instead of restating them, so a status cannot be
+// legal in the graph and unknown to the filter at the same time.
+var taskListStatuses = []string{nodes.TaskStatusTodo, nodes.TaskStatusInProgress, nodes.TaskStatusDone}
+
+func knownTaskStatus(status string) bool {
+	for _, s := range taskListStatuses {
+		if s == status {
+			return true
+		}
+	}
+	return false
+}
+
+// taskRow pairs one task's bytes as the server sent them with the fields the CLI
+// filters and prints on. Keeping the element verbatim is what lets --json stay
+// the server's own document once the filter drops entries: re-encoding taskView
+// would silently strip description, createdAt and updatedAt from a contract
+// other tools read.
+type taskRow struct {
+	raw  json.RawMessage
+	view taskView
+}
+
+func decodeTaskRows(raw json.RawMessage) ([]taskRow, error) {
+	var elements []json.RawMessage
+	if err := decodeInto(raw, "GET /api/tasks", &elements); err != nil {
+		return nil, err
+	}
+	rows := make([]taskRow, 0, len(elements))
+	for _, element := range elements {
+		var view taskView
+		if err := decodeInto(element, "GET /api/tasks", &view); err != nil {
+			return nil, err
+		}
+		rows = append(rows, taskRow{raw: element, view: view})
+	}
+	return rows, nil
+}
+
+// selectTasks applies the status policy and reports how many done tasks it
+// dropped. The filtering is the client's own, not a query the server answers:
+// the board and the web list need every status in one response, so hiding done
+// is a listing decision, made where the listing is rendered. triageTasks already
+// makes the same call for the same reason.
+func selectTasks(rows []taskRow, all bool, status string, hasStatus bool) (kept []taskRow, hiddenDone int) {
+	kept = make([]taskRow, 0, len(rows))
+	for _, row := range rows {
+		switch {
+		case hasStatus:
+			if row.view.Status == status {
+				kept = append(kept, row)
+			}
+		case all:
+			kept = append(kept, row)
+		case row.view.Status == nodes.TaskStatusDone:
+			hiddenDone++
+		default:
+			kept = append(kept, row)
+		}
+	}
+	return kept, hiddenDone
 }
 
 func runTaskCreate(v verbContext, asJSON bool, args []string) error {
@@ -384,20 +477,45 @@ func emitTaskAck(w io.Writer, raw json.RawMessage, id, action string) error {
 	return emitJSON(w, ack)
 }
 
-func printTaskList(w io.Writer, raw json.RawMessage) error {
-	var tasks []taskView
-	if err := decodeInto(raw, "GET /api/tasks", &tasks); err != nil {
-		return err
+// emitTaskRows re-assembles the array from the elements the server sent, so the
+// only difference between this document and the response body is which entries
+// are in it.
+func emitTaskRows(w io.Writer, rows []taskRow) error {
+	elements := make([]json.RawMessage, 0, len(rows))
+	for _, row := range rows {
+		elements = append(elements, row.raw)
 	}
-	if len(tasks) == 0 {
+	body, err := json.Marshal(elements)
+	if err != nil {
+		return wrapLoud("encoding the filtered task list", err)
+	}
+	return emitJSON(w, body)
+}
+
+func printTaskList(w io.Writer, rows []taskRow, hiddenDone int) error {
+	if len(rows) == 0 {
+		if hiddenDone > 0 {
+			fmt.Fprintf(w, "No open tasks, and %d done one(s) hidden. See them with: kernl task list --all\n", hiddenDone)
+			return nil
+		}
 		fmt.Fprintln(w, "No tasks. Create one with: kernl task create \"<title>\"")
 		return nil
 	}
-	for _, t := range tasks {
+	for _, row := range rows {
+		t := row.view
 		fmt.Fprintf(w, "%-24s [%-11s] %s%s\n", t.ID, t.Status, t.Title, taskAnnotations(t))
 	}
-	fmt.Fprintf(w, "\n%d task(s)\n", len(tasks))
+	fmt.Fprintf(w, "\n%d task(s)%s\n", len(rows), hiddenDoneNote(hiddenDone))
 	return nil
+}
+
+// hiddenDoneNote is the honesty half of the default filter: a listing that drops
+// rows without saying so reads as the whole truth about how much work exists.
+func hiddenDoneNote(hiddenDone int) string {
+	if hiddenDone == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %d done hidden (--all keeps them, --status done lists only those)", hiddenDone)
 }
 
 func taskAnnotations(t taskView) string {
