@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 // taskDTO is the camelCase shape the web client consumes.
@@ -132,7 +133,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "tasks", title, "task")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.TasksFolder, title, "task")
 		return err
 	})
 	if err != nil {

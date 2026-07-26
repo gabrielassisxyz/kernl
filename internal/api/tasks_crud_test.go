@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 func deleteTaskViaAPI(t *testing.T, r http.Handler, id string, wantCode int) {
@@ -136,7 +137,7 @@ func TestDeleteTaskRemovesCompanion(t *testing.T) {
 	ctx := context.Background()
 	id := createTaskViaAPI(t, r, `{"title":"Doomed Task"}`, http.StatusCreated)
 
-	companionFile := filepath.Join(vault, "tasks", "doomed-task.md")
+	companionFile := filepath.Join(vault, filepath.FromSlash(layout.TasksFolder), "doomed-task.md")
 	if _, err := os.Stat(companionFile); err != nil {
 		t.Fatalf("companion file should exist before delete: %v", err)
 	}

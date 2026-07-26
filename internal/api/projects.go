@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 // projectDTO is the camelCase shape the web client consumes.
@@ -136,7 +137,7 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err != nil {
 			return err
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "projects", title, "project")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.ProjectsFolder, title, "project")
 		return err
 	})
 	if err != nil {

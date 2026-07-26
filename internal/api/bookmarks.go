@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 func RegisterBookmarkRoutes(mux *http.ServeMux, a *app.App) {
@@ -51,7 +51,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		}
 		// The bookmark title is "Pending" until archived, so label the companion
 		// note by its URL (the meaningful identifier at creation time).
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "bookmarks", req.URL, "bookmark")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.BookmarksFolder, req.URL, "bookmark")
 		return err
 	})
 
@@ -66,8 +66,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	// Archive (raw HTML + excerpt) in the background so the response is fast,
 	// matching the CLI/inbox paths which also archive.
-	dataDir := filepath.Join(a.Config.Vault.Root, ".kernl", "archives")
-	archiver := bookmarks.NewArchiver(nil, dataDir)
+	archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(a.Config.Vault.Root))
 	go func() {
 		if err := bookmarks.ArchiveAndPersist(context.Background(), a.Graph, archiver, id); err != nil {
 			slog.Warn("bookmark archive failed", "id", id, "error", err)

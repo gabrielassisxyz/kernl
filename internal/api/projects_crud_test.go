@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 func createProjectViaAPI(t *testing.T, r http.Handler, title string) string {
@@ -56,7 +57,7 @@ func TestCompanionNoteTagsInFrontmatter(t *testing.T) {
 
 	createProjectViaAPI(t, r, "Frontmatter Tags")
 
-	data, err := os.ReadFile(filepath.Join(vault, "projects", "frontmatter-tags.md"))
+	data, err := os.ReadFile(filepath.Join(vault, filepath.FromSlash(layout.ProjectsFolder), "frontmatter-tags.md"))
 	if err != nil {
 		t.Fatalf("companion file: %v", err)
 	}
@@ -186,7 +187,7 @@ func TestDeleteProjectRemovesCompanion(t *testing.T) {
 	ctx := context.Background()
 	id := createProjectViaAPI(t, r, "Doomed Project")
 
-	companionFile := filepath.Join(vault, "projects", "doomed-project.md")
+	companionFile := filepath.Join(vault, filepath.FromSlash(layout.ProjectsFolder), "doomed-project.md")
 	if _, err := os.Stat(companionFile); err != nil {
 		t.Fatalf("companion file should exist before delete: %v", err)
 	}

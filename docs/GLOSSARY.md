@@ -59,3 +59,11 @@ A set of beads within an epic that have no remaining unsatisfied dependencies an
 ## knots (dormant)
 
 A lease system that records which agent is working on which bead, with canonical metadata (agent name, type, provider). Single-bead sessions create a Knots lease on spawn and release it on completion. Scene (parent-with-children) sessions do not create leases. Marked **dormant**; the implementation is deferred but the concept is reserved in the domain model. See `orchestrator/specs/00-architecture.md` §5.4.
+
+## companion note
+
+The markdown note Kernl creates alongside every task, project and bookmark, so the entity has somewhere to hold working material: references, a draft, links to other nodes. It is a real note in the graph, tied to its entity by a `describes` edge, and the DA primer written for a capture is the same idea with a `prepared_for` edge. The note is the user's to edit; only its frontmatter is machine-managed. See `internal/api/companion.go`.
+
+## kernl/ namespace
+
+The one vault folder Kernl writes generated notes into (`kernl/tasks/`, `kernl/projects/`, `kernl/bookmarks/`, `kernl/DA/`). It exists so a regeneration can never overwrite something a person wrote, and so the rest of the vault stays organized however its owner wants, by tag rather than by folder. The folder is tidiness, never identity: no code infers "this note describes a task" from a path, and `kernl doctor` reports notes living there that no entity claims instead of moving or refusing them. Distinct from `.kernl/`, which holds machine blobs nobody opens by hand (archived pages, ingest staging) and is hidden for that reason. See `internal/vault/layout`.

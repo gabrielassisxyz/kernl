@@ -119,7 +119,9 @@ type InboxConfig struct {
 	// reads as questions. The manual prep trigger works regardless.
 	AutoPrep bool `yaml:"auto_prep,omitempty"`
 	// DASubdir is the folder under the vault root where DA-authored notes (preps)
-	// are materialized as markdown. Default: "DA".
+	// are materialized as markdown. Default: "kernl/DA" - under the same
+	// namespace as every other note kernl writes, so the rest of the vault stays
+	// the user's.
 	DASubdir string `yaml:"da_subdir,omitempty"`
 	// AutoClassify seeds the runtime auto-classify switch the background
 	// classifier reads each tick. A pointer, not a plain bool, because the
@@ -165,7 +167,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	if cfg.Inbox.DASubdir == "" {
-		cfg.Inbox.DASubdir = "DA"
+		cfg.Inbox.DASubdir = "kernl/DA"
 	}
 
 	if cfg.Settings.Defaults.InteractiveSessionTimeoutMinutes == 0 {

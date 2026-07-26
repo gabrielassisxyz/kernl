@@ -353,7 +353,7 @@
             setting-key="inbox.da_subdir"
             :pending="isPending('inbox.da_subdir')"
           >
-            <UiInput id="inbox-subdir" v-model="inbox.daSubdir" placeholder="DA" :disabled="saving === 'inbox'" />
+            <UiInput id="inbox-subdir" v-model="inbox.daSubdir" placeholder="kernl/DA" :disabled="saving === 'inbox'" />
           </SettingsFieldRow>
 
           <div class="panel-footer">

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
@@ -59,8 +58,7 @@ func runBookmarkAdd(a *app.App, args []string) error {
 		}
 
 		b.ID = id
-		dataDir := filepath.Join(a.Config.Vault.Root, ".kernl", "archives")
-		archiver := bookmarks.NewArchiver(nil, dataDir)
+		archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(a.Config.Vault.Root))
 		res, err := archiver.ArchiveBookmark(ctx, &b)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: archiver failed: %v\n", err)

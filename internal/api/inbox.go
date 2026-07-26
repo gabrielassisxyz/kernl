@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -527,11 +526,8 @@ func convertCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
-	// Provide an archiver. Usually, we store bookmarks under ~/.kernl/bookmarks
-	// We check Vault root to base this off, or fallback.
 	vaultRoot := a.Config.Vault.Root
-	bookmarksDir := filepath.Join(vaultRoot, ".kernl", "bookmarks")
-	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
+	archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(vaultRoot))
 
 	err := inbox.Process(r.Context(), a.Graph, vaultRoot, archiver, id, req.Action)
 	if err != nil {
@@ -578,8 +574,7 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	vaultRoot := a.Config.Vault.Root
-	bookmarksDir := filepath.Join(vaultRoot, ".kernl", "bookmarks")
-	archiver := bookmarks.NewArchiver(nil, bookmarksDir)
+	archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(vaultRoot))
 
 	err = inbox.ProcessCapture(r.Context(), a.Graph, vaultRoot, archiver, id, inbox.ProcessRequest{
 		Actions:       actions,

@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -503,14 +504,40 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 
 	// Check whether an already-tombstoned node with this UUID is coming back
 	if noteID != "" {
-		var wasTombstoned bool
+		var wasTombstoned, isLive bool
 		checkErr := r.g.DoRead(ctx, func(tx *graph.ReadTx) error {
 			var err error
 			wasTombstoned, err = nodes.IsNoteTombstoned(ctx, tx, noteID)
-			return err
+			if err != nil {
+				return err
+			}
+			if wasTombstoned {
+				return nil
+			}
+			// Not tombstoned does not mean absent: the node can be alive and
+			// simply missing from note_paths (a cache row lost, a file restored
+			// from a backup). Creating it again violates the id constraint and
+			// the file is skipped on every start after that, so the live case
+			// has to be recognised before the fresh-create path is reached.
+			_, err = nodes.GetNote(ctx, tx, noteID)
+			switch {
+			case err == nil:
+				isLive = true
+			case errors.Is(err, graph.ErrNotFound):
+			default:
+				return err
+			}
+			return nil
 		})
 		if checkErr != nil {
 			return fmt.Errorf("reconcile OnCreate %q: tombstone check: %w", absPath, checkErr)
+		}
+
+		if isLive {
+			if err := r.adoptNote(ctx, absPath, relPath, contentHash, noteID, title, body, fm, author); err != nil {
+				return err
+			}
+			return nil
 		}
 
 		if wasTombstoned {
@@ -618,6 +645,54 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 		"path", absPath,
 		"node_id", noteID,
 		"decision", "create",
+		"dangling_promoted", promoted,
+	)
+	return nil
+}
+
+// adoptNote binds an existing live note to the file carrying its id: the graph
+// takes the file's content (the file is the source of truth everywhere else in
+// the reconciler) and the path cache learns where that note now lives.
+func (r *Reconciler) adoptNote(
+	ctx context.Context,
+	absPath, relPath, contentHash, noteID, title, body string,
+	fm *frontmatter.Frontmatter,
+	author nodes.Author,
+) error {
+	var promoted int
+	err := r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		if err := nodes.UpdateNote(ctx, tx, nodes.Note{
+			ID:     noteID,
+			Title:  title,
+			Body:   body,
+			Origin: fm.Origin,
+			Author: fm.Author,
+			Tags:   fm.Tags,
+		}, author); err != nil {
+			return fmt.Errorf("UpdateNote (adopt): %w", err)
+		}
+		if _, err := r.resolver.ResolveInTx(ctx, tx, noteID, body); err != nil {
+			return fmt.Errorf("ResolveInTx (adopt): %w", err)
+		}
+		p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, danglingKeysFor(title, absPath)...)
+		if err != nil {
+			return fmt.Errorf("PromoteDanglingInTx (adopt): %w", err)
+		}
+		promoted = p
+		return upsertInTx(tx, noteID, relPath, contentHash)
+	})
+	if err != nil {
+		return fmt.Errorf("reconcile OnCreate (adopt) %q: %w", absPath, err)
+	}
+
+	r.eventsProcessed.Add(1)
+	r.danglingPromoted.Add(int64(promoted))
+
+	slog.Info("reconcile: adopt",
+		"event", "create",
+		"path", absPath,
+		"node_id", noteID,
+		"decision", "adopt",
 		"dangling_promoted", promoted,
 	)
 	return nil
