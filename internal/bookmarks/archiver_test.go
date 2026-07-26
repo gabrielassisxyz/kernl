@@ -114,6 +114,68 @@ func TestArchiver_ArchiveBookmark_NotFound(t *testing.T) {
 	}
 }
 
+// TestArchiveBookmarkFillsPlaceholderTitle covers the defect the whole title
+// path exists for: a bookmark is created before its page is fetched, so its
+// title starts as a stand-in, and the archiver is the only place every surface
+// passes through with the HTML in hand.
+func TestArchiveBookmarkFillsPlaceholderTitle(t *testing.T) {
+	const page = `<html><head><title>The Real Title</title></head><body>text</body></html>`
+
+	cases := []struct {
+		name    string
+		initial string
+		want    string
+	}{
+		{"legacy api placeholder", "Pending", "The Real Title"},
+		{"legacy cli placeholder", "Imported via CLI", "The Real Title"},
+		{"url standing in", "https://example.com", "The Real Title"},
+		{"empty", "", "The Real Title"},
+		{"a title the user supplied is never overwritten", "My Own Name For It", "My Own Name For It"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := newTestClient(func(req *http.Request) *http.Response {
+				return &http.Response{
+					StatusCode: 200,
+					Body:       io.NopCloser(bytes.NewBufferString(page)),
+					Header:     make(http.Header),
+				}
+			})
+			archiver := NewArchiver(client, t.TempDir())
+
+			b := &nodes.Bookmark{ID: "bkm-1", URL: "https://example.com", Title: tc.initial}
+			if _, err := archiver.ArchiveBookmark(context.Background(), b); err != nil {
+				t.Fatalf("archive: %v", err)
+			}
+			if b.Title != tc.want {
+				t.Errorf("title = %q, want %q", b.Title, tc.want)
+			}
+		})
+	}
+}
+
+// A page that states no title must leave the stand-in alone rather than blank
+// the bookmark: a URL is a poor title, an empty one is an unfindable node.
+func TestArchiveBookmarkKeepsStandInWhenPageStatesNoTitle(t *testing.T) {
+	client := newTestClient(func(req *http.Request) *http.Response {
+		return &http.Response{
+			StatusCode: 200,
+			Body:       io.NopCloser(bytes.NewBufferString("<html><body>no title here</body></html>")),
+			Header:     make(http.Header),
+		}
+	})
+	archiver := NewArchiver(client, t.TempDir())
+
+	b := &nodes.Bookmark{ID: "bkm-2", URL: "https://example.com", Title: "https://example.com"}
+	if _, err := archiver.ArchiveBookmark(context.Background(), b); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if b.Title != "https://example.com" {
+		t.Errorf("title = %q, want the URL kept as stand-in", b.Title)
+	}
+}
+
 // TestArchiveDirIsTheSameForEverySurface pins the one thing the two hardcoded
 // paths got wrong: an archive has to land in the same place no matter which
 // surface created the bookmark, or a page archived through the inbox is

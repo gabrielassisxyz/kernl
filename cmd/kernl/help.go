@@ -177,17 +177,33 @@ Without --yes this is a dry-run preview: nothing is closed.
 	{
 		Name:    "bookmark",
 		Summary: "Manage bookmarks",
-		Usage:   "kernl bookmark <add|import> [args...]",
+		Usage:   "kernl bookmark <add|import|retitle> [args...]",
 		Subs: []commandMeta{
 			{
 				Name:    "add",
 				Summary: "Add a bookmark by URL (archives the page HTML)",
-				Usage:   "kernl bookmark add <url>",
+				Usage:   "kernl bookmark add [--title <title>] <url>",
+				Details: `The title is taken from the archived page (og:title, then <title>,
+then <h1>). Pass --title to set it yourself; extraction never
+overwrites a title you supplied. If the page cannot be reached and
+no --title was given, the URL stands in until you run retitle.
+
+{{flags}}`,
+				Flags: []commandFlag{
+					{Name: "--title", Value: "<title>", Description: "Set the title instead of extracting it from the page"},
+				},
 			},
 			{
 				Name:    "import",
 				Summary: "Bulk-import bookmarks from an export file",
 				Usage:   "kernl bookmark import <pocket|pinboard> <file>",
+			},
+			{
+				Name:    "retitle",
+				Summary: "Change a bookmark's title",
+				Usage:   "kernl bookmark retitle <id> <title>",
+				Details: `Repairs bookmarks whose title was never extracted, including the
+ones stored as their own URL. Does not re-fetch the page.`,
 			},
 		},
 	},
