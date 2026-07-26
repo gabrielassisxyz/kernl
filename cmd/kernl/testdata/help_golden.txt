@@ -327,23 +327,41 @@ Flags:
 kernl bookmark - Manage bookmarks
 
 Usage:
-  kernl bookmark <add|import> [args...]
+  kernl bookmark <add|import|retitle> [args...]
 
 Subcommands:
   add            Add a bookmark by URL (archives the page HTML)
   import         Bulk-import bookmarks from an export file
+  retitle        Change a bookmark's title
 
 ### kernl bookmark add
 kernl bookmark add - Add a bookmark by URL (archives the page HTML)
 
 Usage:
-  kernl bookmark add <url>
+  kernl bookmark add [--title <title>] <url>
+
+The title is taken from the archived page (og:title, then <title>,
+then <h1>). Pass --title to set it yourself; extraction never
+overwrites a title you supplied. If the page cannot be reached and
+no --title was given, the URL stands in until you run retitle.
+
+Flags:
+  --title <title>  Set the title instead of extracting it from the page
 
 ### kernl bookmark import
 kernl bookmark import - Bulk-import bookmarks from an export file
 
 Usage:
   kernl bookmark import <pocket|pinboard> <file>
+
+### kernl bookmark retitle
+kernl bookmark retitle - Change a bookmark's title
+
+Usage:
+  kernl bookmark retitle <id> <title>
+
+Repairs bookmarks whose title was never extracted, including the
+ones stored as their own URL. Does not re-fetch the page.
 
 ### kernl capture
 kernl capture - Capture a quick note/idea into the inbox (text arg or stdin)
