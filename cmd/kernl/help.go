@@ -177,7 +177,7 @@ Without --yes this is a dry-run preview: nothing is closed.
 	{
 		Name:    "bookmark",
 		Summary: "Manage bookmarks",
-		Usage:   "kernl bookmark <add|import|retitle> [args...]",
+		Usage:   "kernl bookmark <add|import|retitle|rm> [args...]",
 		Subs: []commandMeta{
 			{
 				Name:    "add",
@@ -204,6 +204,14 @@ no --title was given, the URL stands in until you run retitle.
 				Usage:   "kernl bookmark retitle <id> <title>",
 				Details: `Repairs bookmarks whose title was never extracted, including the
 ones stored as their own URL. Does not re-fetch the page.`,
+			},
+			{
+				Name:    "rm",
+				Summary: "Delete a bookmark",
+				Usage:   "kernl bookmark rm <id>",
+				Details: `Deletes the bookmark and any generated companion note that describes it.
+The companion markdown file is removed with the graph node so the vault
+watcher cannot adopt or revive an orphaned note on the next pass.`,
 			},
 		},
 	},
