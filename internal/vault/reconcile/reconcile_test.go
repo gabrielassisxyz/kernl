@@ -654,58 +654,54 @@ func TestOnCreate_DanglingPromotedOnArrival(t *testing.T) {
 	}
 }
 
-// TestOnCreate_RollbackOnFailure verifies that an injected failure inside the
-// DoWrite rolls back the entire event - no orphan node/FTS row and no path-cache
-// entry survive.
-// Strategy: write a file with a UUID that is the same as an existing node, so
-// the second CreateNote inside the single transaction fails with a UNIQUE
-// constraint - simulating mid-tx failure.
+// TestOnCreate_RollbackOnFailure verifies that a failure inside the DoWrite
+// rolls back the entire event - no orphan node/FTS row and no path-cache entry
+// survive.
+//
+// Strategy: squat the target path in note_paths under a different uuid, so the
+// create succeeds and the cache upsert that follows it in the same transaction
+// fails on UNIQUE(note_paths.path). The failure has to land AFTER the node
+// insert, or the rollback being asserted never has anything to undo.
+//
+// This used to be injected with a duplicate node id, which stopped failing once
+// OnCreate learned to adopt a live node absent from the cache. The property
+// under test was never "an id clash errors" - it is "a mid-transaction failure
+// leaves nothing behind" - so the trigger moved and the assertions stayed.
 func TestOnCreate_RollbackOnFailure(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
 	vault := newVaultDir(t)
 
-	// Pre-insert a node with id "clash-id" so the second create fails
-	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		_, err := nodes.CreateNote(ctx, tx, nodes.Note{
-			ID:    "clash-id",
-			Title: "Pre-existing",
-			Body:  "pre",
-		}, nodes.Author{Name: "human"})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("pre-insert: %v", err)
+	const squatter = "squatter-uuid"
+	if err := reconcile.Upsert(ctx, g, squatter, "clash.md", "some-hash"); err != nil {
+		t.Fatalf("squat the path: %v", err)
 	}
 
-	// Create a file that uses the same id
 	path := filepath.Join(vault, "clash.md")
-	writeFile(t, path, "---\nid: clash-id\ntitle: Clash\n---\n\nBody.\n")
+	writeFile(t, path, "---\nid: fresh-id\ntitle: Clash\n---\n\nBody.\n")
 
 	rec := reconcile.New(g, vault)
-	oncreateErr := rec.OnCreate(ctx, path)
-	// We expect an error due to the UNIQUE constraint on the node id
-	if oncreateErr == nil {
-		t.Fatal("expected OnCreate to fail due to id clash; got nil")
+	if err := rec.OnCreate(ctx, path); err == nil {
+		t.Fatal("expected OnCreate to fail: the path is already claimed by another uuid")
 	}
 
-	// Path-cache entry must NOT exist (transaction rolled back)
-	_, found, err := reconcile.Lookup(ctx, g, "clash.md")
+	// The cache must still hold the squatter, never the half-written note.
+	uuid, found, err := reconcile.Lookup(ctx, g, "clash.md")
 	if err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
-	if found {
-		t.Error("path-cache entry must not persist after rolled-back transaction")
+	if !found || uuid != squatter {
+		t.Errorf("path cache = (%q, %v), want (%q, true) after rollback", uuid, found, squatter)
 	}
 
-	// Node count must be exactly 1 (the pre-existing one)
+	// The node created inside the rolled-back transaction must be gone.
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var count int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes`).Scan(&count); err != nil {
 			return err
 		}
-		if count != 1 {
-			t.Errorf("node count = %d, want 1 after rollback", count)
+		if count != 0 {
+			t.Errorf("node count = %d, want 0 after rollback", count)
 		}
 		return nil
 	})
@@ -1153,5 +1149,68 @@ func TestMoveByContentHash_NoUUID(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestOnCreate_AdoptsLiveNodeMissingFromPathCache covers a file whose
+// frontmatter id names a note that is alive in the graph but has no note_paths
+// row. Nothing in the create path claimed it: the pending-delete window did not
+// match, the node is not tombstoned, so it fell through to a fresh create and
+// hit `UNIQUE constraint failed: nodes.id`. Cold start logged the failure and
+// skipped the file, on every single start, forever - the row it needed to stop
+// failing is the one it never got to write.
+func TestOnCreate_AdoptsLiveNodeMissingFromPathCache(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	const noteID = "note-orphaned-from-cache"
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := nodes.CreateNote(ctx, tx, nodes.Note{
+			ID:    noteID,
+			Title: "Stale title",
+			Body:  "the graph's copy\n",
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed note: %v", err)
+	}
+
+	path := filepath.Join(vault, "adopted.md")
+	writeFile(t, path, "---\nid: "+noteID+"\ntitle: Fresh title\n---\n\nthe file's copy\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate on a live node absent from the cache: %v", err)
+	}
+
+	uuid, found, err := reconcile.Lookup(ctx, g, "adopted.md")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if !found || uuid != noteID {
+		t.Fatalf("path cache = (%q, %v), want (%q, true)", uuid, found, noteID)
+	}
+
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'note'`).Scan(&count); err != nil {
+			return err
+		}
+		if count != 1 {
+			t.Errorf("note count = %d, want 1 (adoption must not duplicate the node)", count)
+		}
+		n, err := nodes.GetNote(ctx, tx, noteID)
+		if err != nil {
+			return err
+		}
+		// The file is the source of truth, as it is everywhere else in the
+		// reconciler: adopting it means the graph takes the file's content.
+		if n.Title != "Fresh title" || !strings.Contains(n.Body, "the file's copy") {
+			t.Errorf("node not synced from file: title=%q body=%q", n.Title, n.Body)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify node: %v", err)
 	}
 }
