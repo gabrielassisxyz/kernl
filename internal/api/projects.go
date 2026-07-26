@@ -137,10 +137,7 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err != nil {
 			return err
 		}
-		// No description in the frontmatter: only a task's is kept in sync on
-		// edit, and a value written once and never updated is a lie the file
-		// tells every time the project changes.
-		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.ProjectsFolder, title, "", "project")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.ProjectsFolder, title, req.Description, "project")
 		return err
 	})
 	if err != nil {
@@ -189,6 +186,7 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	ctx := r.Context()
+	var companion CompanionFile
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		if req.Title != nil || req.Description != nil {
 			// Read-modify-write inside the same tx so a partial patch (title
@@ -221,6 +219,14 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			if err := nodes.UpdateProjectMeta(ctx, tx, id, newTitle, newDescription, nodes.Author{Name: "api"}); err != nil {
 				return err
 			}
+			// The title is deliberately not synced: the companion keeps its file
+			// name and its own frontmatter title, same as a task's.
+			if req.Description != nil {
+				var err error
+				if companion, err = SyncCompanionDescription(ctx, tx, a, id, newDescription); err != nil {
+					return err
+				}
+			}
 		}
 		if req.Status != nil {
 			if err := nodes.SetProjectStatus(ctx, tx, id, *req.Status, nodes.Author{Name: "api"}); err != nil {
@@ -238,6 +244,12 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update project: "+err.Error())
+		return
+	}
+	// After the commit, mirroring the create path: the hash the transaction
+	// recorded describes these bytes, so the file is written last.
+	if err := WriteCompanionFile(a, companion); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update companion note: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
