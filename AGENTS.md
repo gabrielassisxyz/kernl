@@ -10,7 +10,7 @@
 
 `docs/` is for documentation that ships with the public repo, and `docs/GLOSSARY.md` is tracked: keep Ubiquitous Language consistent when changing public concepts. Markdown that is only useful while developing (handoffs, baselines, scratch plans, tracking docs) never belongs in `docs/` or at the repo root.
 
-It belongs in **`local/`** instead, which is git-ignored and holds the maintainer's own notes. A checkout without it is normal, not a broken clone. `artifacts/` is something else: machine-generated agent-run output, never source, never reviewed, safe to delete.
+It belongs in **`local/`** instead, the one git-ignored place for everything the maintainer keeps outside the published project: notes, plans, research, and machine-generated agent-run output alike. A checkout without it is normal, not a broken clone.
 
 Durable learnings that a future session should inherit (tool drift, recurring gotchas, commands that worked, architectural decisions) go to the harness's memory, not into this file. Routine progress does not go anywhere: promote only a learning that is reproducible and whose evidence you can name.
 
@@ -134,7 +134,7 @@ cd web && npm install && npm run generate   # produces web/.output/public
 - **`npm install` vs `npm ci` (breaks `run.sh`):** after adding/bumping a web dependency, always run `cd web && npm install` to fully refresh `package-lock.json`, then verify with `npm ci`. `npm install` is lenient and reconciles a partially-stale lock against the existing `node_modules`, so a broken lock (missing/mismatched transitive deps, e.g. `@emnapi/*`) can pass locally yet make `run.sh` fail at "Regenerating frontend", because that step runs the strict `npm ci`. Commit the lock only after `npm ci` succeeds from a clean state.
   - **The npm binary's own version is part of this** (2026-07-18): a plain `npm install` under npm 11.6.2 wrote a lock its *own* `npm ci` then rejected (`@emnapi/*` missing + version-mismatched). `npx -y npm@latest install` produced a lock both accept, with an 11-line diff and no churn. If `npm install` → `npm ci` still disagrees, regenerate with `npm@latest` before suspecting anything else.
 - **Kill your dev server before running `bin/ci`** (2026-07-18): `nuxt dev` holds a lock, so `nuxt generate` aborts with `Another Nuxt dev is already running (PID …)`. That failure then cascades: every Go step reports `web/embed.go: pattern all:.output/public: no matching files found`, because the embed prerequisite never produced its output. The output accuses the Go build and the embed directive; the actual cause is a background process you started. `pgrep -af nuxt` before believing any of it.
-- **A gitignored tree can be invisible to search.** `local/`, `artifacts/`, `.beads/` and `web/.output/` are git-ignored, and some search tools skip ignored paths by default, returning zero hits and exit 0, which reads exactly like "it was never written down". Name the directory explicitly before concluding something is undocumented.
+- **A gitignored tree can be invisible to search.** `local/`, `.beads/` and `web/.output/` are git-ignored, and some search tools skip ignored paths by default, returning zero hits and exit 0, which reads exactly like "it was never written down". Name the directory explicitly before concluding something is undocumented.
 
 ## 11. Release / deploy
 

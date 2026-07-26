@@ -83,8 +83,7 @@ kernl.yaml
 *.local.*
 *.log
 
-# Maintainer notes: backlog, parked ideas, planning scratch. Real work, but not part of
-# the published project. The public counterpart is ROADMAP.md.
+# Maintainer notes
 local/
 
 # Agent-run and tooling artifacts. Machine-generated per run, never reviewed as source.
@@ -97,7 +96,6 @@ SESSION_REPORT.md
 SESSION_TODO.md
 SESSION_*.md
 artifact-*.json
-artifacts
 *.mcp.json
 *.mcp.json.*.bak
 opencode.json
