@@ -437,7 +437,8 @@ Flags:
   --title <t>           The title, as an alternative to the positional form
   --project <id>        Attach the task to a project (creates the part_of edge)
   --status <status>     Initial status (server default when omitted)
-  --description <text>  Long-form body
+  --description <text>  A sentence or two of context, mirrored into the companion note's frontmatter
+                        (the long-form material goes in the note's body)
   --tags <a,b,c>        Comma-separated tags
   --due <YYYY-MM-DD>    Due date, a calendar day (no time, no timezone)
   --json                Emit {"id"} on stdout
@@ -449,18 +450,25 @@ Example:
 kernl task set - Change fields of an existing task
 
 Usage:
-  kernl task set <task-id> [--title <text>] [--status <status>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]
+  kernl task set <task-id> [--title <text>] [--description <text>] [--status <status>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]
 
 At least one field is required. Only the flags you pass are touched;
 passing an empty value clears the field: --tags "" removes every tag and
 --due "" removes the due date.
 
+--description also rewrites the description in the frontmatter of the task's
+companion note. That frontmatter belongs to kernl and is regenerated on every
+sync, so edit the description here rather than in the file - a change typed
+into the frontmatter is overwritten without warning. The body of the note,
+below the frontmatter, is yours and is never touched.
+
 Flags:
-  --title <text>      New title (cannot be empty)
-  --status <status>   New status (cannot be empty)
-  --tags <a,b,c>      Replace the tag set; "" clears it
-  --due <YYYY-MM-DD>  Replace the due date; "" clears it
-  --json              Emit {"id","updated"} on stdout
+  --title <text>        New title (cannot be empty). Does not rename the companion note
+  --description <text>  Replace the description; "" clears it
+  --status <status>     New status (cannot be empty)
+  --tags <a,b,c>        Replace the tag set; "" clears it
+  --due <YYYY-MM-DD>    Replace the due date; "" clears it
+  --json                Emit {"id","updated"} on stdout
 
 ### kernl task delete
 kernl task delete - Delete a task and its companion note

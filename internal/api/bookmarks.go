@@ -51,7 +51,9 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		}
 		// The bookmark title is "Pending" until archived, so label the companion
 		// note by its URL (the meaningful identifier at creation time).
-		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.BookmarksFolder, req.URL, "bookmark")
+		// A bookmark has no description of its own; the excerpt the archiver
+		// fetches lives on the bookmark node, not in the note's frontmatter.
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.BookmarksFolder, req.URL, "", "bookmark")
 		return err
 	})
 

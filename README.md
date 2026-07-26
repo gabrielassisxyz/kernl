@@ -139,6 +139,14 @@ Validate local prerequisites and config, and report notes sitting under `kernl/`
 
 Kernl writes the notes it generates under a single vault folder, `kernl/` (`kernl/tasks/`, `kernl/projects/`, `kernl/bookmarks/`, `kernl/DA/`). Everything outside it is yours to organize however you like. The folder is a convention for tidiness only: what makes a note the companion of a task is the edge between them in the graph, never its path, so moving one out of `kernl/` breaks nothing.
 
+Inside a companion note the split is: **the frontmatter is Kernl's, the body is yours.** A task's title and description are mirrored into the frontmatter so you see them at the top of the note (an editor renders them as a properties panel), and that block is regenerated from the task on every sync. Editing the description there does not change the task and is silently overwritten the next time the task is touched, so change it where it lives:
+
+```bash
+kernl task set <task-id> --description "one or two sentences of context"
+```
+
+Everything below the frontmatter is the working material the note exists for: references, drafts, links to other notes. Kernl never rewrites it.
+
 ```bash
 kernl capture "text to save"
 printf "text from stdin" | kernl capture

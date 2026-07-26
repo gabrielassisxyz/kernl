@@ -62,7 +62,9 @@ A lease system that records which agent is working on which bead, with canonical
 
 ## companion note
 
-The markdown note Kernl creates alongside every task, project and bookmark, so the entity has somewhere to hold working material: references, a draft, links to other nodes. It is a real note in the graph, tied to its entity by a `describes` edge, and the DA primer written for a capture is the same idea with a `prepared_for` edge. The note is the user's to edit; only its frontmatter is machine-managed. See `internal/api/companion.go`.
+The markdown note Kernl creates alongside every task, project and bookmark, so the entity has somewhere to hold working material: references, a draft, links to other nodes. It is a real note in the graph, tied to its entity by a `describes` edge, and the DA primer written for a capture is the same idea with a `prepared_for` edge. The note is the user's to edit; only its frontmatter is machine-managed.
+
+That boundary is one-way while sync is: **the file loses, the node wins.** A task's description is mirrored into its companion's frontmatter, and the whole block is regenerated from the task whenever it changes, so a description edited in the file is overwritten without warning (`kernl task set <id> --description` is where it is edited). The body below the fence is never touched. The note is found through its `describes` edge, never by deriving a file name from the title: duplicate titles are legal and get suffixed paths. See `internal/api/companion.go`.
 
 ## kernl/ namespace
 

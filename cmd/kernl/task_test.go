@@ -180,6 +180,29 @@ func TestTaskSetPatchesOnlyTheFlagsGiven(t *testing.T) {
 	}
 }
 
+// The description was writable at create and nowhere else: `task set` knew only
+// title/status/tags/due, so the one field the companion note shows in its
+// frontmatter could never be corrected from the shell. Clearing it has to reach
+// the server too, which is why presence and not emptiness decides inclusion.
+func TestTaskSetSendsTheDescription(t *testing.T) {
+	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
+	if _, err := runTaskVerb(t, api, "set", "tsk-1", "--description", "A sentence of context."); err != nil {
+		t.Fatalf("task set --description failed: %v", err)
+	}
+	want := map[string]any{"description": "A sentence of context."}
+	if !reflect.DeepEqual(api.calls[0].body, want) {
+		t.Errorf("patch body = %#v, want %#v", api.calls[0].body, want)
+	}
+
+	api = &fakeTaskAPI{t: t, status: http.StatusNoContent}
+	if _, err := runTaskVerb(t, api, "set", "tsk-1", "--description", ""); err != nil {
+		t.Fatalf("task set --description \"\" failed: %v", err)
+	}
+	if !reflect.DeepEqual(api.calls[0].body, map[string]any{"description": ""}) {
+		t.Errorf("an empty --description must be sent, not dropped: %#v", api.calls[0].body)
+	}
+}
+
 func TestTaskSetJSONEmitsAckForEmpty204Body(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
 	out, err := runTaskVerb(t, api, "set", "tsk-1", "--title", "new title", "--json")
