@@ -89,6 +89,17 @@ func (a *Archiver) ArchiveBookmark(ctx context.Context, b *nodes.Bookmark) (*Arc
 		b.Excerpt = ExtractExcerpt(string(body), 500)
 	}
 
+	// The title gets the same treatment, and for a sharper reason: a bookmark
+	// is created before its page is fetched, so every create path had to invent
+	// a title, and no path ever revisited it. Every surface reaches the archiver
+	// though - so filling it here, where the HTML is already in hand, is what
+	// stops a bookmark from being permanently named after its own URL.
+	if IsPlaceholderTitle(b.Title, b.URL) {
+		if title := ExtractTitle(string(body)); title != "" {
+			b.Title = title
+		}
+	}
+
 	// Record metadata for future headless screenshotting
 	metaPath := filepath.Join(archiveDir, "meta.json")
 	meta := map[string]string{

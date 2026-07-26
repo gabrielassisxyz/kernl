@@ -42,15 +42,21 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		author := nodes.Author{Name: "api"}
-		b := nodes.Bookmark{URL: req.URL, Title: "Pending"}
+		// The URL stands in as the title until the archiver extracts the real
+		// one. It is a poor title but a true one, which a placeholder word is
+		// not: "Pending" outlived every bookmark that ever carried it, because
+		// nothing downstream could tell it apart from a title someone meant.
+		b := nodes.Bookmark{URL: req.URL, Title: req.URL}
 
 		var err error
 		id, err = nodes.CreateBookmark(ctx, tx, b, author)
 		if err != nil {
 			return err
 		}
-		// The bookmark title is "Pending" until archived, so label the companion
-		// note by its URL (the meaningful identifier at creation time).
+		// Archiving is asynchronous, so no title exists yet to name the
+		// companion note by; it takes the URL, the only identifier available at
+		// creation time. It keeps that name afterwards on purpose - the note's
+		// file stem is its wikilink address, and renaming it would break links.
 		// A bookmark has no description of its own; the excerpt the archiver
 		// fetches lives on the bookmark node, not in the note's frontmatter.
 		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.BookmarksFolder, req.URL, "", "bookmark")

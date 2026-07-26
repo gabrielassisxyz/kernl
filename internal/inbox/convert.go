@@ -357,8 +357,11 @@ func createBookmarkFromAction(ctx context.Context, tx *graph.WriteTx, action Act
 		Title: action.Title,
 		Tags:  action.Tags,
 	}
+	// No title on the capture means the archiver will extract one; until then
+	// the URL stands in, so the bookmark is never named after a placeholder
+	// word that nothing downstream knows how to replace.
 	if b.Title == "" {
-		b.Title = "Pending"
+		b.Title = b.URL
 	}
 	id, err := nodes.CreateBookmark(ctx, tx, b, author)
 	if err != nil {
