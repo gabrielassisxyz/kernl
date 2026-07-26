@@ -51,7 +51,7 @@ func companionSlug(label, fallback string) string {
 // the SAME write transaction (passed in by the caller). The markdown file is
 // written to disk afterwards, by the caller, via writeCompanionFile.
 //
-// TODO(6A): lifecycle (rename/delete) sync out of scope for now — renaming or
+// TODO(6A): lifecycle (rename/delete) sync out of scope for now - renaming or
 // deleting the entity does not yet rename/remove its companion note.
 func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, entityID, folder, label string, tags ...string) (CompanionFile, error) {
 	noteID := uuid.Must(uuid.NewV7()).String()
@@ -65,7 +65,7 @@ func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, ent
 	body := fmt.Sprintf("Notes for [[%s|%s]].\n", entityID, title)
 
 	// Tags belong in YAML frontmatter (and on the note node), not as literal
-	// "#tag" text appended to the body — the body form never reached the tag
+	// "#tag" text appended to the body - the body form never reached the tag
 	// index and read as noise in the note. Leading '#' is tolerated for callers.
 	cleanTags := make([]string, 0, len(tags))
 	for _, t := range tags {
@@ -119,7 +119,7 @@ type CompanionFile struct {
 // existing node by id rather than creating a duplicate.
 //
 // The block is MARSHALLED, not concatenated. Pasting a title in raw wrote
-// `title: AI-SEO: llms.txt` — a second colon YAML reads as a nested mapping —
+// `title: AI-SEO: llms.txt` - a second colon YAML reads as a nested mapping  -
 // and the file became unparseable the moment a title contained ":", "#" or a
 // leading "-". The marshaller quotes what needs quoting; a string builder cannot
 // know what that is.

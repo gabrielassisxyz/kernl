@@ -209,7 +209,7 @@ func TestRelatedTo_Degree1Guard(t *testing.T) {
 	ctx := context.Background()
 	g := testutil.NewInMemoryTestGraph(t)
 
-	// Common neighbor N only connects to A — deg=1 — should be skipped.
+	// Common neighbor N only connects to A - deg=1 - should be skipped.
 	// But actually for common neighbor need edges N-A and N-B, so deg(A-N) deg 1 and N-B deg 1.
 	// This means N is connected to both A and B -> degree 2, not 1.
 	// Let's create N connected only to A (not B) so no common neighbor.
@@ -241,7 +241,7 @@ func TestRelatedTo_DoubleCount(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 
 	// C is a provenance source AND a common neighbor of A and B.
-	// Edges: C→A (generated_from), C→B (generated_from), A—C (related), B—C (related)
+	// Edges: C→A (generated_from), C→B (generated_from), A - C (related), B - C (related)
 	// Wait: C as a node can have both provenance edges from C AND related edge between A-C.
 	// For Adamic-Adar, C is a common neighbor. C's degree = edges A-C, B-C = 2.
 	// For sourceOverlap, C is a source (edges C→A and C→B).

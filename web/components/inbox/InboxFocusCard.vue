@@ -135,7 +135,7 @@
         @close="daOpen = false"
       />
 
-      <!-- In focus mode the keymap is not a hint, it is the interface — so it sits
+      <!-- In focus mode the keymap is not a hint, it is the interface - so it sits
            at the foot of the card on one unbroken line, not wherever the content
            happens to end. -->
       <div class="mt-auto flex flex-wrap items-center gap-x-base gap-y-tight border-t border-border-hairline pt-base font-mono-data text-[length:var(--focus-data)] text-text-muted">
@@ -227,7 +227,7 @@ const progress = computed(() =>
 const pad = (n: number) => String(n).padStart(2, '0')
 
 // Processing removes the capture from the pile, so the card that slides into
-// this slot is the next one — the advance is the list shrinking under it. What
+// this slot is the next one - the advance is the list shrinking under it. What
 // this has to survive is running off the end.
 watch(() => props.items.length, (length) => {
   if (index.value > length - 1) index.value = Math.max(0, length - 1)
@@ -287,7 +287,7 @@ function dropNode() {
 }
 
 // The DA proposes; this is where the user's acceptance lands. It replaces the
-// whole routing — a routing is a set of nodes, not a patch — and still writes
+// whole routing - a routing is a set of nodes, not a patch - and still writes
 // nothing: ⏎ does that.
 function onDaRouting(actions: CaptureAction[]) {
   const item = current.value
@@ -436,7 +436,7 @@ const step = (delta: number) => {
 
 function onKey(e: KeyboardEvent) {
   // The palette, the DA panel and the inline editors own their keys while they
-  // are open — each has a text field of its own, and j/k/1-6 are letters there.
+  // are open - each has a text field of its own, and j/k/1-6 are letters there.
   if (palette.value || editing.value) return
   const tag = (e.target as HTMLElement | null)?.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
@@ -499,7 +499,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
    at every width instead of scaling one axis and stranding the others.
  *
  * Steps, not a fluid clamp: this is product UI, and a continuously-resizing type
- * scale makes a tool feel unstable. The measure stays near 70ch at every rung —
+ * scale makes a tool feel unstable. The measure stays near 70ch at every rung  -
  * a wider screen buys a bigger card, never a longer line.
  *
  * Viewport-based, so a window snapped to half a 4K display gets the rung that

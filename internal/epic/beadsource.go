@@ -16,18 +16,18 @@ type Epic struct {
 func LoadEpic(be backend.BackendPort, epicID, repoPath string) (*Epic, error) {
 	b, err := be.Get(epicID, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found — %w — Fix: verify the bead ID exists in the backend", epicID, err)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found - %w - Fix: verify the bead ID exists in the backend", epicID, err)
 	}
 	if b == nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found — Get returned nil — Fix: verify the bead ID exists in the backend", epicID)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found - Get returned nil - Fix: verify the bead ID exists in the backend", epicID)
 	}
 	if b.Type != "epic" {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s is type %q, expected epic — Fix: use a bead with type 'epic'", epicID, b.Type)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s is type %q, expected epic - Fix: use a bead with type 'epic'", epicID, b.Type)
 	}
 
 	children, err := be.List(&backend.BeadListFilters{Parent: epicID}, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot list children for epic %s — %w — Fix: verify the backend is reachable", epicID, err)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot list children for epic %s - %w - Fix: verify the backend is reachable", epicID, err)
 	}
 
 	nodes := make([]Node, 0, len(children))
@@ -38,12 +38,12 @@ func LoadEpic(be backend.BackendPort, epicID, repoPath string) (*Epic, error) {
 				continue
 			}
 			if d.SourceID == "" || d.TargetID == "" {
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — missing SourceID or TargetID — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID)
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect - missing SourceID or TargetID - Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID)
 			}
 			// Accept either dep-record convention. bd's `list` output puts
 			// the dependent in SourceID (issue_id) and the blocker in
 			// TargetID (depends_on_id). Earlier orchestrator code + tests
-			// flipped that — keep the loader tolerant so the bd wire format
+			// flipped that - keep the loader tolerant so the bd wire format
 			// works without bd-side changes.
 			var blocker, convention string
 			switch {
@@ -54,7 +54,7 @@ func LoadEpic(be backend.BackendPort, epicID, repoPath string) (*Epic, error) {
 				blocker = d.SourceID
 				convention = "target-is-dependent"
 			default:
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect — dep (source=%q target=%q) does not reference the child — Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID, d.SourceID, d.TargetID)
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: epic %s child %s has a dependency shape the bd adapter did not expect - dep (source=%q target=%q) does not reference the child - Fix: regenerate the bead graph via vc-convert-plan-to-beads", epicID, child.ID, d.SourceID, d.TargetID)
 			}
 			// Record which bd dep-direction convention was observed so future
 			// bd version drift between source-as-dependent (current `bd list`

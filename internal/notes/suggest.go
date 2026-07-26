@@ -8,7 +8,7 @@ import (
 // ApplySuggestHunks applies the given hunks to doc as range replacements,
 // returning the new document. Hunks are applied high-offset-first so earlier
 // replacements never invalidate later offsets. Out-of-range or overlapping
-// hunks are skipped defensively — a malformed hunk can never corrupt the file.
+// hunks are skipped defensively - a malformed hunk can never corrupt the file.
 // Because DiffBody offsets hunks past the frontmatter, applying them to the full
 // document leaves the frontmatter (and the note id) untouched.
 func ApplySuggestHunks(doc string, hunks []SuggestHunk) string {
@@ -37,7 +37,7 @@ func ApplySuggestHunks(doc string, hunks []SuggestHunk) string {
 // SuggestHunk is a suggested edit: replace the [From,To) byte range of the
 // current document with Content. This matches the editor's acceptHunk shape
 // (CodeMirror changes{from,to,insert}), so accepting a hunk is a single,
-// reversible range replacement — the user always commits, never the LLM.
+// reversible range replacement - the user always commits, never the LLM.
 type SuggestHunk struct {
 	ID      string `json:"id"`
 	From    int    `json:"from"`
@@ -69,7 +69,7 @@ func SplitFrontmatter(s string) (fm, body string) {
 // DiffBody computes suggestion hunks for a note while protecting its
 // frontmatter: it diffs only the body against proposedBody and offsets the
 // hunks so they apply to the full document. The frontmatter (and the note's
-// id) is never altered — accepting a suggestion can never break graph identity.
+// id) is never altered - accepting a suggestion can never break graph identity.
 func DiffBody(current, proposedBody string) []SuggestHunk {
 	fm, body := SplitFrontmatter(current)
 	hunks := Diff(body, proposedBody)

@@ -77,7 +77,7 @@ func TestEpicSubcommandSuggests(t *testing.T) {
 }
 
 func TestRootFlagHintRedirectsSubcommandFlags(t *testing.T) {
-	// A sub-verb flag typed at the root must not be a dead end — for the
+	// A sub-verb flag typed at the root must not be a dead end - for the
 	// EXACT spelling above all (the common case; a prior test only covered
 	// typos and masked a dead exact-match path).
 	for flag, wantOwner := range map[string]string{

@@ -307,7 +307,7 @@ func (m *SessionConnectionManager) handleExitNotification(sessionID string, conn
 			detail = detail[:200]
 		}
 		if detail != "" {
-			errorDetail = " — " + detail
+			errorDetail = " - " + detail
 		}
 		conn.mu.Unlock()
 	}

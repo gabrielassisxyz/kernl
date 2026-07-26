@@ -69,13 +69,13 @@ func runEpic(v verbContext, args []string) error {
 
 func validateEpicSubcommand(args []string) error {
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
+		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand - try: kernl epic list")
 	}
 	switch args[0] {
 	case "list", "run", "merge", "abort", "events", "sessions":
 		return nil
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s — valid: list, run, merge, abort, events, sessions. Run: kernl epic --help",
+		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s - valid: list, run, merge, abort, events, sessions. Run: kernl epic --help",
 			args[0], didYouMean(args[0], []string{"list", "run", "merge", "abort", "events", "sessions"}))
 	}
 }
@@ -85,7 +85,7 @@ func runEpicWithApp(a *app.App, configPath string, args []string, out func(strin
 		out = func(s string) { fmt.Print(s) }
 	}
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand — try: kernl epic list")
+		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand - try: kernl epic list")
 	}
 
 	switch args[0] {
@@ -98,7 +98,7 @@ func runEpicWithApp(a *app.App, configPath string, args []string, out func(strin
 	case "abort":
 		return runEpicAbort(a, args[1:], out)
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s — valid: list, run, merge, abort. Run: kernl epic --help",
+		return usagef("KERNL DISPATCH FAILURE: unknown epic subcommand %q%s - valid: list, run, merge, abort. Run: kernl epic --help",
 			args[0], didYouMean(args[0], []string{"list", "run", "merge", "abort"}))
 	}
 }
@@ -110,12 +110,12 @@ func runEpicList(a *app.App, w io.Writer, args []string) error {
 		case "--json":
 			asJSON = true
 		default:
-			return usagef("KERNL DISPATCH FAILURE: unknown epic list flag %q%s — valid: --json",
+			return usagef("KERNL DISPATCH FAILURE: unknown epic list flag %q%s - valid: --json",
 				arg, didYouMean(arg, []string{"--json"}))
 		}
 	}
 	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
 	}
 	repoPath := a.Config.Registry.Repos[0].Path
 
@@ -173,18 +173,18 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			workflowFlagSeen = true
 			workflowPath = strings.TrimPrefix(arg, "--workflow=")
 			if workflowPath == "" {
-				return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
+				return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path - run: kernl epic run --workflow <path> <epic-id>")
 			}
 		} else if arg == "--workflow" {
 			workflowFlagSeen = true
 			if i+1 < len(args) {
 				workflowPath = args[i+1]
 				if workflowPath == "" {
-					return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
+					return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path - run: kernl epic run --workflow <path> <epic-id>")
 				}
 				i++
 			} else {
-				return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
+				return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path - run: kernl epic run --workflow <path> <epic-id>")
 			}
 		} else if arg == "--autonomous" {
 			autonomous = true
@@ -193,7 +193,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		} else if strings.HasPrefix(arg, "-") {
 			// A mistyped flag must not silently become the epic ID (it used
 			// to swallow --autonomous typos and run non-autonomous).
-			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s — valid: --workflow, --autonomous, --interactive",
+			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive",
 				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive"}))
 		} else {
 			remainingArgs = append(remainingArgs, arg)
@@ -201,14 +201,14 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	}
 
 	if workflowFlagSeen && workflowPath == "" {
-		return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path — run: kernl epic run --workflow <path> <epic-id>")
+		return usagef("KERNL DISPATCH FAILURE: --workflow flag requires a path - run: kernl epic run --workflow <path> <epic-id>")
 	}
 
 	if len(remainingArgs) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: epic run requires an epic ID — run: kernl epic run <epic-id>")
+		return usagef("KERNL DISPATCH FAILURE: epic run requires an epic ID - run: kernl epic run <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
 	}
 	epicID := remainingArgs[0]
 	repoPath := a.Config.Registry.Repos[0].Path
@@ -397,12 +397,12 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	}, doneSet)
 
 	if err := ex.Run(context.Background()); err != nil {
-		out(fmt.Sprintf("epic %s blocked — fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
+		out(fmt.Sprintf("epic %s blocked - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
 
 	metric := ex.Parallelism()
-	out(fmt.Sprintf("epic %s complete — realized parallelism: %.1fx (peak %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
+	out(fmt.Sprintf("epic %s complete - realized parallelism: %.1fx (peak %d, max %d)\n", epicID, metric.Realized, metric.Peak, metric.GraphMax))
 
 	// All children reached awaiting_integration. Drive the epic bead itself
 	// through integration -> integration_review -> shipment -> awaiting_pr_review.
@@ -412,7 +412,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	}
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
 	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, out); err != nil {
-		out(fmt.Sprintf("epic %s blocked at integration — fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
+		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
 
@@ -421,19 +421,19 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 
 // confirmShape asks for an explicit go-ahead on the inferred workflow shape.
 // Enter or y confirms; anything else aborts. Crucially, EOF (no TTY, closed
-// stdin) ABORTS instead of auto-confirming — a prompt that cannot be answered
+// stdin) ABORTS instead of auto-confirming - a prompt that cannot be answered
 // must never default to yes.
 func confirmShape(in io.Reader, out func(string), shapeID string) error {
 	out(fmt.Sprintf("Proceed with shape '%s'? [Y/n] ", shapeID))
 	line, err := bufio.NewReader(in).ReadString('\n')
 	answer := strings.ToLower(strings.TrimSpace(line))
 	if err != nil && answer == "" {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: --interactive needs an answer but stdin closed before one arrived — drop --interactive to accept the inferred shape without a prompt in non-TTY contexts")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: --interactive needs an answer but stdin closed before one arrived - drop --interactive to accept the inferred shape without a prompt in non-TTY contexts")
 	}
 	if answer == "" || answer == "y" {
 		return nil
 	}
-	return fmt.Errorf("KERNL DISPATCH FAILURE: aborted at shape confirmation (answered %q) — re-run kernl epic run and answer y, or use --autonomous", answer)
+	return fmt.Errorf("KERNL DISPATCH FAILURE: aborted at shape confirmation (answered %q) - re-run kernl epic run and answer y, or use --autonomous", answer)
 }
 
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto

@@ -13,7 +13,7 @@ type Check struct {
 	OK     bool
 	Detail string
 	Fix    string
-	// Advisory checks are surfaced but never fatal — a failing advisory check
+	// Advisory checks are surfaced but never fatal - a failing advisory check
 	// does not block `serve` or fail `doctor`.
 	Advisory bool
 }

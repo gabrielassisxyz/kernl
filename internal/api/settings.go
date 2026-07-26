@@ -82,7 +82,7 @@ type readOnlySettingRow struct {
 // The update structs are pointer-per-field so a PUT is a genuine partial update:
 // nil means the client never sent the field and the stored value must survive,
 // while a non-nil zero value is a deliberate "set it to empty". Plain structs made
-// every PUT a whole-section replace — an omitted field arrived as its zero value
+// every PUT a whole-section replace - an omitted field arrived as its zero value
 // and silently overwrote what was on disk.
 //
 // The API key was already a pointer for the same reason: the UI leaves it out
@@ -341,7 +341,7 @@ func updateLLMHandler(a *app.App) http.HandlerFunc {
 		if update.Provider != nil {
 			provider = strings.TrimSpace(*update.Provider)
 			if provider != "" && !contains(llmProviders, provider) {
-				return nil, badRequest(fmt.Sprintf("unknown provider %q — pick one of %s", provider, strings.Join(llmProviders, ", ")))
+				return nil, badRequest(fmt.Sprintf("unknown provider %q - pick one of %s", provider, strings.Join(llmProviders, ", ")))
 			}
 			updates = append(updates, config.Update{Path: []string{"llm", "provider"}, Value: provider})
 		}
@@ -488,7 +488,7 @@ func updateRuntimeHandler(a *app.App) http.HandlerFunc {
 
 // serverAndOrchestratorUpdates collects the writes for the server and
 // orchestrator fields the request actually carried. Every bound here rejects the
-// zero value, so those fields can only be set to something usable — never cleared.
+// zero value, so those fields can only be set to something usable - never cleared.
 func serverAndOrchestratorUpdates(update runtimeUpdate) ([]config.Update, error) {
 	updates := []config.Update{}
 
@@ -527,7 +527,7 @@ func serverAndOrchestratorUpdates(update runtimeUpdate) ([]config.Update, error)
 }
 
 // sweepUpdates collects the writes for the sweep fields the request carried. The
-// three counters accept zero — it disables that particular guard — but the
+// three counters accept zero - it disables that particular guard - but the
 // backoff schedule cannot be emptied, since the sweeper would have no step to take.
 func sweepUpdates(update runtimeUpdate) ([]config.Update, error) {
 	updates := []config.Update{}

@@ -12,14 +12,14 @@
 #
 # Fail-closed: do NOT add path-based allowlists that exempt whole directories.
 # When a *deliberate* fake credential is ever added as a test fixture, give it
-# an obviously-fake shape and allowlist that exact regex below — never the path.
+# an obviously-fake shape and allowlist that exact regex below, never the path.
 
 title = "kernl secret-scan config"
 
 [extend]
 useDefault = true
 
-# No [allowlist] block yet — the baseline scan is clean. When a deliberate
+# No [allowlist] block yet; the baseline scan is clean. When a deliberate
 # fake fixture is introduced, add an allowlist with an explicit `regexes`
 # entry for its exact shape (gitleaks rejects an empty allowlist).
 #

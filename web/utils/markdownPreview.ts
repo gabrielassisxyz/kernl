@@ -7,7 +7,7 @@
 //
 // Wikilinks ([[...]]) are handled by ./wikilinkEditor, not here. The markdown
 // parser sees a [[target]] as a reference-style Link with no URL child, so we
-// only ever conceal links that carry an explicit URL — which leaves wikilinks
+// only ever conceal links that carry an explicit URL - which leaves wikilinks
 // untouched and avoids fighting the pill decorations for the same range.
 
 import type { EditorState } from '@codemirror/state'
@@ -38,7 +38,7 @@ export interface PreviewSpec {
 }
 
 // Line numbers (1-based) touched by any selection range. A formatting marker is
-// only concealed when its line is absent from this set — the raw-on-cursor-line
+// only concealed when its line is absent from this set - the raw-on-cursor-line
 // safety valve the brief asks for.
 export function computeActiveLines(state: EditorState): Set<number> {
   const lines = new Set<number>()

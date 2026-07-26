@@ -62,7 +62,7 @@ const toggle = (name) => {
 onMounted(async () => {
   try {
     // Tag hierarchy comes from the graph in one request (node_tags + note_paths),
-    // shaped as { tag: { files: [...] } } — no per-file frontmatter parsing.
+    // shaped as { tag: { files: [...] } } - no per-file frontmatter parsing.
     const res = await fetch('/api/notes/tags')
     if (res.ok) {
       tree.value = await res.json()

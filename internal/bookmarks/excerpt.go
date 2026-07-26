@@ -15,7 +15,7 @@ var (
 // ExtractExcerpt derives a plain-text excerpt from raw HTML. It isolates the
 // likely article region (falling back to the whole document with scripts and
 // styles removed), strips remaining tags, unescapes entities, collapses
-// whitespace, and truncates to max runes. Deterministic — no network, no LLM.
+// whitespace, and truncates to max runes. Deterministic - no network, no LLM.
 func ExtractExcerpt(rawHTML string, max int) string {
 	region := sanitizeHTML(rawHTML)
 	if content, err := Defuddle(rawHTML, excerptSelectors); err == nil && strings.TrimSpace(content) != "" {

@@ -45,7 +45,7 @@ func New(g *graph.Graph, cfg config.VaultConfig) *Service {
 //  6. If RescanIntervalSec > 0, spawns a periodic rescan goroutine.
 //
 // Start fails fast with a clear error when the vault root is missing or not a
-// directory (even though Validate already caught this — belt-and-suspenders).
+// directory (even though Validate already caught this - belt-and-suspenders).
 func (s *Service) Start(ctx context.Context) error {
 	if err := Validate(s.cfg); err != nil {
 		return fmt.Errorf("vault service start: %w", err)
@@ -149,7 +149,7 @@ func (s *Service) routeEvents(ctx context.Context) {
 				// already vanished from disk. Identity is preserved by the
 				// create/change event on the NEW path (its embedded frontmatter
 				// UUID is recognized there), so a move_candidate whose file is
-				// gone is a no-op for us — not an error. If the path unexpectedly
+				// gone is a no-op for us - not an error. If the path unexpectedly
 				// still exists, fall through to create handling.
 				if _, statErr := os.Stat(ev.Path); statErr == nil {
 					err = s.r.OnCreate(ctx, ev.Path)
@@ -160,7 +160,7 @@ func (s *Service) routeEvents(ctx context.Context) {
 			case watcher.KindChange:
 				err = s.r.OnChange(ctx, ev.Path)
 				if errors.Is(err, graph.ErrNotFound) {
-					// Node not in graph yet — this create+write was coalesced;
+					// Node not in graph yet - this create+write was coalesced;
 					// treat it as a create.
 					err = s.r.OnCreate(ctx, ev.Path)
 				}

@@ -41,7 +41,7 @@
         </UiSelect>
       </UiField>
       <!-- The DA proposes a due date only when the capture states one, and dates
-           it from the day the message was written — not from today. -->
+           it from the day the message was written - not from today. -->
       <UiField label="Due date">
         <div class="flex items-center gap-base">
           <UiInput v-model="action.dueDate" type="date" :classes="inputClasses" />
@@ -69,7 +69,7 @@
     <UiField
       v-if="action.target === 'task'"
       label="Description"
-      hint="Written to the task. The capture is carried in as context — edit freely."
+      hint="Written to the task. The capture is carried in as context - edit freely."
     >
       <UiTextarea v-model="action.body" rows="3" :classes="textareaClasses" />
     </UiField>

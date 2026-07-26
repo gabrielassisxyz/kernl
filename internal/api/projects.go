@@ -159,7 +159,7 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "missing project id")
 		return
 	}
-	// Pointer fields distinguish "absent" from "set to empty" — clearing the
+	// Pointer fields distinguish "absent" from "set to empty" - clearing the
 	// description or the tag list is a legitimate edit, dropping the title is not.
 	var req struct {
 		Title       *string   `json:"title"`
@@ -248,7 +248,7 @@ func deleteProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	// The companion note goes with the project (node + note_paths row in the
-	// same tx; the file afterwards). Tasks are NOT cascaded — they keep their
+	// same tx; the file afterwards). Tasks are NOT cascaded - they keep their
 	// projectId attr and simply render as unassigned.
 	var companionPath string
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {

@@ -245,7 +245,7 @@ func TestIngestQueueResolveRequiresAction(t *testing.T) {
 	}
 }
 
-// The shell token is 'discard' — the wire value stays "Skip", which the GUI sends.
+// The shell token is 'discard' - the wire value stays "Skip", which the GUI sends.
 func TestIngestQueueResolveDiscardSendsSkip(t *testing.T) {
 	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
 
@@ -257,7 +257,7 @@ func TestIngestQueueResolveDiscardSendsSkip(t *testing.T) {
 	}
 }
 
-// 'skip' is gone with no alias — it read as "leave it for later" while deleting.
+// 'skip' is gone with no alias - it read as "leave it for later" while deleting.
 func TestIngestQueueResolveRejectsRetiredSkipToken(t *testing.T) {
 	ts, seen := fakeIngestAPI(t, http.StatusOK, "")
 

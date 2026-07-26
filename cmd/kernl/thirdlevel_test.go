@@ -59,7 +59,7 @@ func TestCapabilitiesExposesThirdLevelCommands(t *testing.T) {
 }
 
 // Help used to descend exactly one level, so `ingest queue resolve --help`
-// answered with the queue topic — the parent's page for a question about the
+// answered with the queue topic - the parent's page for a question about the
 // child, with nothing signalling the substitution.
 func TestHelpResolvesTheFullTopicPath(t *testing.T) {
 	for _, path := range thirdLevel {

@@ -12,7 +12,7 @@ import (
 )
 
 // The end of the chain: the due date the human confirmed in the modal has to
-// reach the task node — and only the task node.
+// reach the task node - and only the task node.
 func TestProcessCaptureCarriesDueDateOntoTheTask(t *testing.T) {
 	ctx := context.Background()
 	vaultRoot := t.TempDir()

@@ -26,8 +26,8 @@ type ChatSession struct {
 	// (the discard "negative signal" in the DA-learned Keep/Edit/Discard flow).
 	DiscardedCandidates []string
 	// DraftRouting is the routing the user currently has on screen while triaging
-	// a capture, rendered for the prompt. The chat is write-then-stream — the LLM
-	// runs from the persisted session, not from the request — so a draft that
+	// a capture, rendered for the prompt. The chat is write-then-stream - the LLM
+	// runs from the persisted session, not from the request - so a draft that
 	// lives only in the browser never reaches the DA, and it would argue about a
 	// routing the user has already changed.
 	DraftRouting string

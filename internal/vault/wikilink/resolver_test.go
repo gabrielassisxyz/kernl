@@ -352,11 +352,11 @@ func TestResolveReindexClearsDangling(t *testing.T) {
 	srcID := createTestNote(t, g, ctx, "Source", "body")
 
 	r := &Resolver{}
-	// First call — creates one dangling row.
+	// First call - creates one dangling row.
 	if _, err := r.Resolve(ctx, g, srcID, "[[Unresolved]]"); err != nil {
 		t.Fatalf("first Resolve: %v", err)
 	}
-	// Second call — should delete the old row and insert a fresh one.
+	// Second call - should delete the old row and insert a fresh one.
 	if _, err := r.Resolve(ctx, g, srcID, "[[Unresolved]]"); err != nil {
 		t.Fatalf("second Resolve: %v", err)
 	}
@@ -416,7 +416,7 @@ func TestPromoteDangling_AE4(t *testing.T) {
 	dstID := createTestNote(t, g, ctx, "Roadmap", "body")
 	insertNotePath(t, g, ctx, dstID, "Roadmap.md")
 
-	// Promote — stem match.
+	// Promote - stem match.
 	promoted, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Roadmap", Kind: "stem"})
 	if err != nil {
 		t.Fatalf("PromoteDangling: %v", err)
@@ -511,7 +511,7 @@ func TestPromoteDangling_Idempotent(t *testing.T) {
 		t.Fatalf("first PromoteDangling: %v", err)
 	}
 
-	// Second call — dangling row already deleted, so nothing to promote.
+	// Second call - dangling row already deleted, so nothing to promote.
 	n, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target", Kind: "stem"})
 	if err != nil {
 		t.Fatalf("second PromoteDangling: %v", err)
@@ -548,7 +548,7 @@ func TestPromoteDangling_SelfLinkCleanedUp(t *testing.T) {
 		t.Fatalf("insert self-dangling: %v", err)
 	}
 
-	// PromoteDangling is called for the note itself — self-link should be cleared.
+	// PromoteDangling is called for the note itself - self-link should be cleared.
 	promoted, err := PromoteDangling(ctx, g, noteID, PromoteKey{Key: "Self", Kind: "stem"})
 	if err != nil {
 		t.Fatalf("PromoteDangling: %v", err)
@@ -583,7 +583,7 @@ func TestResolveIDCollisionStress(t *testing.T) {
 
 	srcID := createTestNote(t, g, ctx, "StressSource", "body")
 
-	// 50 distinct unresolved targets in one body — all go into a single transaction.
+	// 50 distinct unresolved targets in one body - all go into a single transaction.
 	var linkParts []string
 	for i := 0; i < 50; i++ {
 		linkParts = append(linkParts, fmt.Sprintf("[[StressTarget%02d]]", i))
@@ -620,7 +620,7 @@ func TestStemCollisionTiebreak(t *testing.T) {
 	dstID1 := createTestNote(t, g, ctx, "Roadmap", "first")
 	dstID2 := createTestNote(t, g, ctx, "Roadmap", "second")
 
-	// Neither has a note_paths entry — fallback to title lookup, which uses ORDER BY id ASC.
+	// Neither has a note_paths entry - fallback to title lookup, which uses ORDER BY id ASC.
 	r := &Resolver{}
 	outcomes, err := r.Resolve(ctx, g, srcID, "[[Roadmap]]")
 	if err != nil {
@@ -633,7 +633,7 @@ func TestStemCollisionTiebreak(t *testing.T) {
 		t.Fatal("expected Resolved=true (title match)")
 	}
 
-	// Determine which ID is lexicographically smaller — that's the expected winner.
+	// Determine which ID is lexicographically smaller - that's the expected winner.
 	expectedDst := dstID1
 	if dstID2 < dstID1 {
 		expectedDst = dstID2

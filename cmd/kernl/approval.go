@@ -64,7 +64,7 @@ also silences future prompts of the same shape for that session.
 Granting an approval (approve, accept, always_approve) requires --yes:
 letting an agent proceed unreviewed is the one mistake this gate exists to
 prevent. Declining does not, since it only stops work. Without --yes nothing
-is sent to the server and the command exits 2 — a refused mutation is not a
+is sent to the server and the command exits 2 - a refused mutation is not a
 success.
 
 {{flags}}
@@ -116,7 +116,7 @@ func runApprovalList(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: approval list takes no positional arguments, got %q — run: kernl approval list --help", args[0])
+		return usagef("KERNL DISPATCH FAILURE: approval list takes no positional arguments, got %q - run: kernl approval list --help", args[0])
 	}
 
 	raw, err := requestApproval(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
@@ -204,7 +204,7 @@ func checkApprovalAction(action, session string) error {
 		scope = "a terminal session (--session)"
 	}
 	if action == "" {
-		return usagef("KERNL DISPATCH FAILURE: approval resolve requires --action — valid for %s: %s. Run: kernl approval resolve --help",
+		return usagef("KERNL DISPATCH FAILURE: approval resolve requires --action - valid for %s: %s. Run: kernl approval resolve --help",
 			scope, strings.Join(valid, ", "))
 	}
 	for _, a := range valid {
@@ -212,16 +212,16 @@ func checkApprovalAction(action, session string) error {
 			return nil
 		}
 	}
-	return usagef("KERNL DISPATCH FAILURE: unknown approval action %q for %s%s — valid: %s. Run: kernl approval resolve --help",
+	return usagef("KERNL DISPATCH FAILURE: unknown approval action %q for %s%s - valid: %s. Run: kernl approval resolve --help",
 		action, scope, didYouMean(action, valid), strings.Join(valid, ", "))
 }
 
 func singleApprovalID(args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: approval resolve requires an approval ID — run: kernl approval resolve <approval-id> --action <action>. List them with: kernl approval list")
+		return "", usagef("KERNL DISPATCH FAILURE: approval resolve requires an approval ID - run: kernl approval resolve <approval-id> --action <action>. List them with: kernl approval list")
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: approval resolve takes exactly one approval ID, got %d (%s) — run: kernl approval resolve --help",
+		return "", usagef("KERNL DISPATCH FAILURE: approval resolve takes exactly one approval ID, got %d (%s) - run: kernl approval resolve --help",
 			len(args), strings.Join(args, ", "))
 	}
 	return args[0], nil

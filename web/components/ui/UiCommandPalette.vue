@@ -31,7 +31,7 @@
         </ul>
 
         <p v-else class="px-component py-base font-body text-body text-text-muted">
-          {{ allowRaw ? 'No match — ⏎ takes what you typed.' : 'No match.' }}
+          {{ allowRaw ? 'No match - ⏎ takes what you typed.' : 'No match.' }}
         </p>
 
         <div class="flex items-center gap-component border-t border-border-hairline px-component py-tight font-mono-data text-mono-data text-text-faint">
@@ -52,7 +52,7 @@ export interface PaletteOption {
 }
 
 const props = withDefaults(defineProps<{
-  /** what is being chosen — sits as a prompt to the left of the query */
+  /** what is being chosen - sits as a prompt to the left of the query */
   label: string
   options: PaletteOption[]
   placeholder?: string

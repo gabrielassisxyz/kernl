@@ -519,7 +519,7 @@ func softDeleteNote(ctx context.Context, tx *graph.WriteTx, id, stem, title stri
 		}
 	}
 
-	// Set deleted_at (keep the row — soft delete)
+	// Set deleted_at (keep the row - soft delete)
 	if _, err := tx.Exec(
 		`UPDATE nodes SET deleted_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`,
 		id,

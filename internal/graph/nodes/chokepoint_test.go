@@ -140,7 +140,7 @@ func TestEmptyTitleAllowed(t *testing.T) {
 }
 
 // TestUpdateNodeReplacesFTSContent verifies that updating a node replaces
-// the FTS index entries — old title is gone, new title is indexed.
+// the FTS index entries - old title is gone, new title is indexed.
 // Label: kernl-drf
 func TestUpdateNodeReplacesFTSContent(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
@@ -250,7 +250,7 @@ func TestDiffableNodeStoresDiff(t *testing.T) {
 		if !json.Valid([]byte(diff)) {
 			return fmt.Errorf("expected valid JSON diff, got: %s", diff)
 		}
-		// DiffableNode is wired up — verify it contains DiffBody output.
+		// DiffableNode is wired up - verify it contains DiffBody output.
 		if !strings.Contains(diff, `"old_title"`) || !strings.Contains(diff, `"new_title"`) {
 			return fmt.Errorf("expected DiffBody output in diff, got: %s", diff)
 		}
@@ -535,7 +535,7 @@ func TestDeleteNodePreservesRevisionHistory(t *testing.T) {
 		fts:  FTSFields{Title: "delete me"},
 	}
 
-	// 1. Create — writes 1 revision
+	// 1. Create - writes 1 revision
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := createNode(ctx, tx, "test", spec, Author{Name: "test"})
 		return err
@@ -544,7 +544,7 @@ func TestDeleteNodePreservesRevisionHistory(t *testing.T) {
 		t.Fatalf("createNode: %v", err)
 	}
 
-	// 2. Update — writes 1 more revision (total 2)
+	// 2. Update - writes 1 more revision (total 2)
 	updatedSpec := fakeSpec{
 		meta: Meta{ID: "node-gxp"},
 		fts:  FTSFields{Title: "updated title"},
@@ -576,7 +576,7 @@ func TestDeleteNodePreservesRevisionHistory(t *testing.T) {
 		t.Fatalf("insert edge: %v", err)
 	}
 
-	// 4. Delete — writes tombstone revision (total 3)
+	// 4. Delete - writes tombstone revision (total 3)
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		return deleteNode(ctx, tx, "node-gxp", Author{Name: "test"})
 	})

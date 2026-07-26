@@ -357,7 +357,7 @@ type noPRDriver struct{ *artifactDriver }
 func (d *noPRDriver) RunBead(ctx context.Context, in RunBeadInput) (RunBeadResult, error) {
 	bd, _ := d.be.Get(d.epicID, "")
 	if bd.State == "shipment" {
-		// exit zero but do nothing — no pr_url written
+		// exit zero but do nothing - no pr_url written
 		return RunBeadResult{FinalState: "ok", Success: true}, nil
 	}
 	return d.artifactDriver.RunBead(ctx, in)

@@ -12,7 +12,7 @@ import (
 const contractVersion = "1.0.0"
 
 // capabilitiesOutput is the self-describing contract: everything an agent
-// needs to drive the CLI without reading source — verbs, flags, env vars and
+// needs to drive the CLI without reading source - verbs, flags, env vars and
 // the exit-code dictionary. Generated from commandTable so it cannot drift
 // from dispatch or help.
 type capabilitiesOutput struct {
@@ -37,7 +37,7 @@ type capabilityCommand struct {
 
 // capabilityFlag is the wire shape of a flag. Value carries the placeholder
 // ("<n>", "<path>") and is absent for booleans, which is how a caller tells a
-// flag that takes an argument from one that does not — the single most useful
+// flag that takes an argument from one that does not - the single most useful
 // thing to know before composing an invocation, and the thing prose could
 // only imply.
 type capabilityFlag struct {
@@ -94,7 +94,7 @@ var capabilityGlobalFlags = []commandFlag{
 func runCapabilities(w io.Writer, args []string) error {
 	for _, arg := range args {
 		if arg != "--json" {
-			return usagef("KERNL DISPATCH FAILURE: unknown capabilities flag %q%s — valid: --json (output is JSON either way)",
+			return usagef("KERNL DISPATCH FAILURE: unknown capabilities flag %q%s - valid: --json (output is JSON either way)",
 				arg, didYouMean(arg, []string{"--json"}))
 		}
 	}
@@ -114,8 +114,8 @@ func runCapabilities(w io.Writer, args []string) error {
 }
 
 // capabilityFlags projects the help-side flag records onto the wire. The
-// Continuation lines are a rendering concern — where a long description wraps
-// on a terminal — so they are folded back into one description here rather
+// Continuation lines are a rendering concern - where a long description wraps
+// on a terminal - so they are folded back into one description here rather
 // than shipped as a layout artifact a caller would have to rejoin.
 func capabilityFlags(flags []commandFlag) []capabilityFlag {
 	if len(flags) == 0 {

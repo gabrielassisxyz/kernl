@@ -77,7 +77,7 @@
             <span class="material-symbols-outlined text-[32px] mb-component">memory</span>
             <p class="font-body text-body">No active claims for this topic</p>
           </div>
-          
+
           <template v-else>
             <MemoryClaimCard
               v-for="claim in claims"
@@ -123,10 +123,10 @@ import UiModal from '~/components/ui/UiModal.vue'
 import UiTextarea from '~/components/ui/UiTextarea.vue'
 
 // Memory has two halves: Telos (always-injected identity) and learned Topics
-// (relevance-retrieved claims). Identity leads — the page opens on Telos.
+// (relevance-retrieved claims). Identity leads - the page opens on Telos.
 const view = ref<'telos' | 'topics'>('telos')
 
-// Fetch topics — the API wraps the array as { topics: [...] }.
+// Fetch topics - the API wraps the array as { topics: [...] }.
 const { data: topicsData, pending: topicsPending, error: topicsError, refresh: refreshTopics } = useFetch<{ topics: string[] }>('/api/memory/topics', {
   server: false,
   default: () => ({ topics: [] })
@@ -142,7 +142,7 @@ watch(topics, (newTopics) => {
   }
 }, { immediate: true })
 
-// Fetch claims based on selected topic — the API wraps as { claims: [...] }.
+// Fetch claims based on selected topic - the API wraps as { claims: [...] }.
 const { data: claimsData, pending: claimsPending, refresh: refreshClaimsRaw, error: claimsError } = useFetch<{ claims: any[] }>('/api/memory/claims', {
   server: false,
   query: computed(() => ({ topic: selectedTopic.value })),
@@ -182,7 +182,7 @@ const handleRefute = async (id: string, reason: string) => {
     })
 
     // Refetch the topic's active claims (the refuted one drops out server-side
-    // via SynthesizeTopic's 'refutes' filter), and the topic list — a topic
+    // via SynthesizeTopic's 'refutes' filter), and the topic list - a topic
     // whose last claim was just refuted must leave the sidebar, not linger
     // showing "no active claims".
     const refutedTopic = selectedTopic.value

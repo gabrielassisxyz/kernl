@@ -82,7 +82,7 @@ func TestWatcherNonMdFileIgnored(t *testing.T) {
 	case ev := <-w.Events():
 		t.Errorf("unexpected event for non-.md file: %+v", ev)
 	case <-time.After(300 * time.Millisecond):
-		// Expected — no event.
+		// Expected - no event.
 	}
 }
 
@@ -147,7 +147,7 @@ func TestWatcherCoalescing(t *testing.T) {
 	case ev := <-w.Events():
 		t.Errorf("unexpected extra event: %+v", ev)
 	case <-time.After(300 * time.Millisecond):
-		// Expected — no extra events.
+		// Expected - no extra events.
 	}
 }
 
@@ -352,7 +352,7 @@ func TestWatcherShutdownClean(t *testing.T) {
 
 	select {
 	case <-done:
-		// Success — clean shutdown.
+		// Success - clean shutdown.
 	case <-time.After(5 * time.Second):
 		t.Fatal("watcher did not shut down cleanly within 5s")
 	}
@@ -478,7 +478,7 @@ func TestWatcherHiddenDirSkipped(t *testing.T) {
 	case ev := <-w.Events():
 		t.Errorf("unexpected event from hidden dir: %+v", ev)
 	case <-time.After(300 * time.Millisecond):
-		// Expected — no event.
+		// Expected - no event.
 	}
 }
 
@@ -524,7 +524,7 @@ func TestWatcherWatchAddErrorSurvives(t *testing.T) {
 			t.Errorf("expected working.md in path, got %s", ev.Path)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("timed out — watcher should keep working after a watch error on another dir")
+		t.Fatal("timed out - watcher should keep working after a watch error on another dir")
 	}
 }
 

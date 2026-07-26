@@ -112,7 +112,7 @@ func captureHelpOutput() string {
 }
 
 func printHelpString(out *strings.Builder) {
-	out.WriteString("kernl — multi-agent orchestration runner\n\n")
+	out.WriteString("kernl - multi-agent orchestration runner\n\n")
 	out.WriteString("Subcommands:\n")
 	out.WriteString("  serve        Start the HTTP API server\n")
 	out.WriteString("  doctor       Run system checks\n")

@@ -95,7 +95,7 @@ var workflowKnownStates = map[string]bool{
 }
 
 // defaultState returns the workflow state for this bead. It is a total
-// function — if rawStatus doesn't match any recognized state it returns it
+// function - if rawStatus doesn't match any recognized state it returns it
 // verbatim and lets the dispatcher decide whether it is routable.
 // Fail-loud for unroutable states lives in the dispatcher (see drive_bead.go
 // and ResolveAgentForBead in agent_select.go).

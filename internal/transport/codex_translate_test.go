@@ -61,7 +61,7 @@ func TestFormatCodexEvent_TurnFailed_WithMessage(t *testing.T) {
 		t.Fatal("expected non-nil result")
 	}
 	if result.IsDetail {
-		t.Error("turn.failed must NOT be detail — it's always visible")
+		t.Error("turn.failed must NOT be detail - it's always visible")
 	}
 	stripped := stripANSI(result.Text)
 	if !strings.Contains(stripped, "✗ turn failed: rate limited") {

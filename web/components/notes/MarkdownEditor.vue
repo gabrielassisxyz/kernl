@@ -259,7 +259,7 @@ const applyFrontmatterUpdate = (nextData) => {
 }
 
 watch(() => props.path, async (newPath) => {
-  // Flush the outgoing note before loading the next one — switching notes used
+  // Flush the outgoing note before loading the next one - switching notes used
   // to silently drop any edit still inside the autosave debounce window.
   await flushPendingSave()
   loadFile(newPath)
@@ -281,7 +281,7 @@ onMounted(() => {
   window.addEventListener('pagehide', onPageHide)
 })
 
-// Awaited flush for SPA navigations — unlike the unmount hook, a route guard
+// Awaited flush for SPA navigations - unlike the unmount hook, a route guard
 // can hold navigation until the save round-trip completes.
 onBeforeRouteLeave(async () => {
   await flushPendingSave()
@@ -437,7 +437,7 @@ const rejectHunk = (hunk) => {
   background-color: transparent !important;
   color: var(--color-text-primary) !important;
 }
-/* No focus ring on the editor surface — it's a page-like document, not a field. */
+/* No focus ring on the editor surface - it's a page-like document, not a field. */
 .notes-editor-cm .cm-editor.cm-focused {
   outline: none !important;
 }

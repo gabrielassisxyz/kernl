@@ -18,7 +18,7 @@ func TestRollups(t *testing.T) {
 	}
 	defer g.Close()
 
-	// Three captures created "now" — all land on the same calendar day.
+	// Three captures created "now" - all land on the same calendar day.
 	for _, body := range []string{"one", "two", "three"} {
 		if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 			_, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: body, Tags: []string{"pending"}}, nodes.Author{Name: "tester"})

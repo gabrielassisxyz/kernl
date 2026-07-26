@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Derived from inboxBatchCommand.Subs — see the note on ingestQueueSubcommands.
+// Derived from inboxBatchCommand.Subs - see the note on ingestQueueSubcommands.
 var inboxBatchSubcommands = subNames(&inboxBatchCommand)
 
 var inboxBatchCommand = commandMeta{
@@ -39,7 +39,7 @@ Run 'kernl inbox batch <subcommand> --help' for details on each.`,
 			Summary: "Split the text and enrich it with an LLM (a title, merges to consider)",
 			Usage:   "kernl inbox batch analyze [--file <path>] [--split <mode>] [--source <s>] [--title <text>] [--json]",
 			Details: `Needs an LLM provider on the server; 'preview' is the same split without one.
-Writes nothing — it only reports how the text would divide.`,
+Writes nothing - it only reports how the text would divide.`,
 		},
 		{
 			Name:    "preview",
@@ -116,7 +116,7 @@ func inboxBatch(ctx context.Context, v verbContext, c *apiClient, asJSON bool, a
 }
 
 // inboxBatchBody carries only what the API accepts: the text as read and the
-// split parameters. It never sends rawSegments or finalSegments — those are a
+// split parameters. It never sends rawSegments or finalSegments - those are a
 // reviewed split, and nothing here has reviewed anything.
 func inboxBatchBody(sub string, args []string) (map[string]string, error) {
 	flags, rest, err := takeFlags("inbox batch", args, "--file", "--split", "--source", "--title")
@@ -127,7 +127,7 @@ func inboxBatchBody(sub string, args []string) (map[string]string, error) {
 		return nil, err
 	}
 	if len(rest) > 0 {
-		return nil, usagef("KERNL DISPATCH FAILURE: inbox batch %s takes no positional arguments, got %q — pass the text with --file or on stdin. Run: kernl inbox batch --help", sub, rest[0])
+		return nil, usagef("KERNL DISPATCH FAILURE: inbox batch %s takes no positional arguments, got %q - pass the text with --file or on stdin. Run: kernl inbox batch --help", sub, rest[0])
 	}
 	text, err := readInboxBatchText(sub, flags["--file"])
 	if err != nil {
@@ -155,14 +155,14 @@ func readInboxBatchText(sub, path string) (string, error) {
 		return string(content), nil
 	}
 	if stdinIsTerminal() {
-		return "", usagef("KERNL DISPATCH FAILURE: inbox batch %s got no text and stdin is a terminal — pass --file <path> or pipe the export in. Run: kernl inbox batch --help", sub)
+		return "", usagef("KERNL DISPATCH FAILURE: inbox batch %s got no text and stdin is a terminal - pass --file <path> or pipe the export in. Run: kernl inbox batch --help", sub)
 	}
 	read, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", wrapLoud("reading the batch text from stdin", err)
 	}
 	if strings.TrimSpace(string(read)) == "" {
-		return "", usagef("KERNL DISPATCH FAILURE: inbox batch %s got no text — pass --file <path> or pipe the export on stdin. Run: kernl inbox batch --help", sub)
+		return "", usagef("KERNL DISPATCH FAILURE: inbox batch %s got no text - pass --file <path> or pipe the export on stdin. Run: kernl inbox batch --help", sub)
 	}
 	return string(read), nil
 }
@@ -204,7 +204,7 @@ func printInboxBatchResult(w io.Writer, raw json.RawMessage, route string) error
 	if err := decodeInto(raw, "POST "+route, &result); err != nil {
 		return err
 	}
-	// A batch has no title, so what it is worth leading with is its size — the
+	// A batch has no title, so what it is worth leading with is its size - the
 	// one number the caller can check. The id follows in parentheses, per the
 	// shape createdLine documents.
 	_, err := fmt.Fprintf(w, "Created batch of %d capture(s) (%s). Inspect it with: kernl inbox batch-log %s\n",

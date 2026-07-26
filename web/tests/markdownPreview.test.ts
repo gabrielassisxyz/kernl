@@ -34,7 +34,7 @@ describe('computeActiveLines', () => {
   })
 })
 
-describe('collectPreviewSpecs — concealment off the active line', () => {
+describe('collectPreviewSpecs - concealment off the active line', () => {
   it('hides bold markers and styles the content when the cursor is elsewhere', () => {
     // Two lines so the cursor (default: end, line 2) is off the bold on line 1.
     const doc = 'some **bold** text\nother line'
@@ -66,7 +66,7 @@ describe('collectPreviewSpecs — concealment off the active line', () => {
   })
 })
 
-describe('collectPreviewSpecs — links vs wikilinks', () => {
+describe('collectPreviewSpecs - links vs wikilinks', () => {
   it('conceals an inline link\'s brackets and url, styling the text', () => {
     const doc = 'see [docs](https://x.com) now\nnext'
     const s = specs(doc)
@@ -83,7 +83,7 @@ describe('collectPreviewSpecs — links vs wikilinks', () => {
   })
 })
 
-describe('collectPreviewSpecs — non-destructive', () => {
+describe('collectPreviewSpecs - non-destructive', () => {
   it('never alters the document (decorations are presentation-only)', () => {
     const doc = '# Title\n**bold** *em* `code` [x](https://x.com)'
     const state = stateFor(doc)

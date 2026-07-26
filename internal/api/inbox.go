@@ -79,7 +79,7 @@ func RegisterInboxRoutes(mux *http.ServeMux, a *app.App) {
 }
 
 // getAutoClassifyHandler reports the live auto-classify switch (for the batch
-// modal's checkbox) alongside whether an LLM is configured at all — the inbox's
+// modal's checkbox) alongside whether an LLM is configured at all - the inbox's
 // "Classify now" button disables itself when classification is impossible.
 func getAutoClassifyHandler(w http.ResponseWriter, _ *http.Request, a *app.App) {
 	writeJSON(w, map[string]bool{
@@ -104,13 +104,13 @@ func setAutoClassifyHandler(w http.ResponseWriter, r *http.Request, a *app.App) 
 }
 
 // classifyPendingHandler runs one on-demand classification pass over the
-// unclassified pending captures — the button next to the inbox list. It fails
+// unclassified pending captures - the button next to the inbox list. It fails
 // loud when no LLM is configured rather than silently doing nothing, since the
 // user explicitly asked for a classify run.
 func classifyPendingHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	if a.Config == nil || !a.Config.LLM.IsSet() {
 		writeError(w, http.StatusServiceUnavailable,
-			"KERNL DISPATCH FAILURE: cannot classify — no LLM provider configured — Fix: set llm.provider in kernl.yaml")
+			"KERNL DISPATCH FAILURE: cannot classify - no LLM provider configured - Fix: set llm.provider in kernl.yaml")
 		return
 	}
 	llm, err := chat.NewProviderFromConfig(configToLLMProviderConfig(a.Config.LLM))
@@ -176,7 +176,7 @@ type inboxItemDTO struct {
 	Title    string `json:"title"`
 	Subtitle string `json:"subtitle"`
 	// SuggestedActions is the list of nodes the DA proposes this capture becomes
-	// — a capture is routinely several things at once. Empty while unclassified.
+	// - a capture is routinely several things at once. Empty while unclassified.
 	SuggestedActions  []captureActionDTO `json:"suggestedActions"`
 	BatchID           string             `json:"batchId"`
 	BatchSource       string             `json:"batchSource"`
@@ -189,7 +189,7 @@ type inboxItemDTO struct {
 
 // captureActionDTO is the camelCase wire view of a capture action. It lives in
 // inbox/wire because the chat engine streams the same shape over SSE, and an
-// event emitted from internal/chat never passes through this package — see that
+// event emitted from internal/chat never passes through this package - see that
 // package's doc comment.
 type captureActionDTO = wire.CaptureAction
 
@@ -545,7 +545,7 @@ func convertCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 // processCaptureHandler is the structured successor to convertCaptureHandler:
 // it accepts the list of nodes the capture becomes, each with its own title,
-// project, tags and link — so one capture can land as a note *and* the task it
+// project, tags and link - so one capture can land as a note *and* the task it
 // implies, which the single {action} field cannot express.
 func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	id := r.PathValue("id")
@@ -599,8 +599,8 @@ func processCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 // logSuggestionOverride records the pair (what the DA proposed, what the user
 // actually processed) whenever they differ, for later prompt tuning. With
-// fan-out the interesting edit is the shape of the whole list — a split the DA
-// missed, a target flipped, a title rewritten — so the list is logged as one
+// fan-out the interesting edit is the shape of the whole list - a split the DA
+// missed, a target flipped, a title rewritten - so the list is logged as one
 // unit rather than field by field.
 func logSuggestionOverride(vaultRoot, captureID string, suggested, accepted []captureActionDTO) {
 	if len(suggested) == 0 {

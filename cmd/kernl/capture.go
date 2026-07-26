@@ -15,7 +15,7 @@ import (
 )
 
 func runCapture(configPath string, args []string) error {
-	// --json is only recognized as the FIRST argument — anything after that
+	// --json is only recognized as the FIRST argument - anything after that
 	// is capture text. A leading "--" is the end-of-flags sentinel: it lets
 	// flag-looking text (e.g. the literal strings "--help" or "--json") be
 	// captured on purpose.
@@ -32,7 +32,7 @@ func runCapture(configPath string, args []string) error {
 		text = strings.Join(args, " ")
 	} else {
 		if stdinIsTerminal() {
-			return usagef("KERNL DISPATCH FAILURE: capture got no text and stdin is a terminal — pass text as an argument (kernl capture \"<text>\") or pipe it in. Run: kernl capture --help")
+			return usagef("KERNL DISPATCH FAILURE: capture got no text and stdin is a terminal - pass text as an argument (kernl capture \"<text>\") or pipe it in. Run: kernl capture --help")
 		}
 		bytes, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -42,7 +42,7 @@ func runCapture(configPath string, args []string) error {
 	}
 
 	if text == "" {
-		return usagef("KERNL DISPATCH FAILURE: capture text cannot be empty — pass text as an argument or via stdin. Run: kernl capture --help")
+		return usagef("KERNL DISPATCH FAILURE: capture text cannot be empty - pass text as an argument or via stdin. Run: kernl capture --help")
 	}
 
 	cfg, err := loadCLIConfig(configPath)

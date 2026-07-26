@@ -102,7 +102,7 @@ func TestRoutingModeArmsTheToolAndThePrompt(t *testing.T) {
 // The prompt goes out as ONE system message. Sending identity, telos and the
 // triage vocabulary as three separate system turns is legal OpenAI, but several
 // providers behind an openai-compatible proxy honour only the first and drop the
-// rest — which shipped as a DA that had its identity, had never seen the capture,
+// rest - which shipped as a DA that had its identity, had never seen the capture,
 // and asked "which capture do you mean?" with nothing in the logs.
 func TestThePromptIsOneSystemMessage(t *testing.T) {
 	a := newTestApp(t)
@@ -121,7 +121,7 @@ func TestThePromptIsOneSystemMessage(t *testing.T) {
 		}
 	}
 	if len(system) != 1 {
-		t.Fatalf("expected exactly 1 system message, got %d — the tail of them is what providers drop", len(system))
+		t.Fatalf("expected exactly 1 system message, got %d - the tail of them is what providers drop", len(system))
 	}
 	// And all three layers survived the merge.
 	for _, want := range []string{"I value shipping the loop.", "ligar pro dentista", "One capture is routinely SEVERAL nodes"} {
@@ -163,7 +163,7 @@ func TestRoutingToolOnlyOfferedInScope(t *testing.T) {
 }
 
 // The whole point of the tool: it PROPOSES. The routing reaches the user as an
-// accept/reject event, and the capture's stored suggestion is left untouched —
+// accept/reject event, and the capture's stored suggestion is left untouched  -
 // writing stays the user's act.
 func TestSuggestRoutingProposesAndNeverWrites(t *testing.T) {
 	a := newTestApp(t)
@@ -189,7 +189,7 @@ func TestSuggestRoutingProposesAndNeverWrites(t *testing.T) {
 		t.Fatalf("expected 2 proposed actions, got %d", len(actions))
 	}
 
-	// The event is camelCase on the wire — the browser reads dueDate, not
+	// The event is camelCase on the wire - the browser reads dueDate, not
 	// due_date. This is the whole reason the wire shape is shared.
 	first, _ := actions[0].(map[string]any)
 	if first["dueDate"] != "2026-04-02" {
@@ -213,7 +213,7 @@ func TestSuggestRoutingProposesAndNeverWrites(t *testing.T) {
 
 // A model that keeps calling a tool must be stopped. Every tool result feeds the
 // next completion, so an unbounded loop spins forever burning tokens and never
-// answers — which is exactly what shipped: the same note edit proposed five times
+// answers - which is exactly what shipped: the same note edit proposed five times
 // over, with no text ever reaching the user.
 func TestTheAgentLoopIsBounded(t *testing.T) {
 	a := newTestApp(t)
@@ -235,8 +235,8 @@ func TestTheAgentLoopIsBounded(t *testing.T) {
 	}
 }
 
-// The tag vocabulary is closed. A tag the model coined — however well it seems
-// to fit — is dropped, and so is one that merely restates the node's own type.
+// The tag vocabulary is closed. A tag the model coined - however well it seems
+// to fit - is dropped, and so is one that merely restates the node's own type.
 func TestSuggestRoutingDropsCoinedTags(t *testing.T) {
 	a := newTestApp(t)
 	seedDAIdentity(t, a)
@@ -331,7 +331,7 @@ func TestSuggestRoutingRejectsUpdateInAFanOut(t *testing.T) {
 
 // The trap this feature exists to avoid: the chat is write-then-stream, so a
 // draft that lives only in the browser never reaches the DA. If the user retypes
-// a node and then asks about it, the DA must discuss what is on screen — not the
+// a node and then asks about it, the DA must discuss what is on screen - not the
 // routing it proposed before the edit.
 func TestTheOnScreenDraftReachesTheModel(t *testing.T) {
 	a := newTestApp(t)
@@ -349,7 +349,7 @@ func TestTheOnScreenDraftReachesTheModel(t *testing.T) {
 		t.Fatalf("save draft: %v", err)
 	}
 
-	mock, _ := runRouting(t, a, sessionID, ChatResponse{Content: "No — it is an action."})
+	mock, _ := runRouting(t, a, sessionID, ChatResponse{Content: "No - it is an action."})
 
 	system := systemBlob(mock)
 	if !strings.Contains(system, "user retyped this from task") {
@@ -360,7 +360,7 @@ func TestTheOnScreenDraftReachesTheModel(t *testing.T) {
 // One request, two tools. "Add this book to my Anti-library note and make a
 // note for the book itself" is one thought, and a model answers it with two
 // tool calls in a single assistant turn. The engine used to return inside the
-// dispatch loop, so it ran the first call and dropped the second on the floor —
+// dispatch loop, so it ran the first call and dropped the second on the floor  -
 // and since the assistant turn it fed back still ADVERTISED both calls, the
 // model read its own transcript, saw the routing it had asked for, and told the
 // user it had proposed one. The user got a diff, no routing card, and a claim
@@ -395,7 +395,7 @@ func TestEveryToolCallInATurnRuns(t *testing.T) {
 		ChatResponse{ToolCalls: []ToolCall{
 			{ID: "c1", Type: "function", Function: ToolFunction{
 				Name:      "suggest_note_edit",
-				Arguments: fmt.Sprintf(`{"node_id":%q,"new_body":"old body\n\n- The Selfish Gene — Richard Dawkins\n"}`, noteID),
+				Arguments: fmt.Sprintf(`{"node_id":%q,"new_body":"old body\n\n- The Selfish Gene - Richard Dawkins\n"}`, noteID),
 			}},
 			{ID: "c2", Type: "function", Function: ToolFunction{
 				Name:      "suggest_routing",
@@ -431,7 +431,7 @@ func TestEveryToolCallInATurnRuns(t *testing.T) {
 // reaches for "type" instead of "target", and for a bare "tag": "to-read"
 // instead of "tags": ["to-read"]. encoding/json drops an unknown key without a
 // word, so the action arrived with no target at all, the tool rejected it, and
-// the model retried — supplying the target and quietly losing the tag. What the
+// the model retried - supplying the target and quietly losing the tag. What the
 // user saw was a routing with no tags and a DA that talked about one, and every
 // rejected call cost a turn. A synonym is not worth a round trip.
 func TestSuggestRoutingAcceptsTheKeysModelsActuallySend(t *testing.T) {

@@ -18,8 +18,8 @@ import (
 // apiClient is how every GUI-parity verb reaches the backend: it calls the
 // same REST routes the web UI calls, against a running `kernl serve`.
 //
-// The alternative — importing the internal services directly, the way capture
-// and bookmark do — was rejected for this surface: it would duplicate each
+// The alternative - importing the internal services directly, the way capture
+// and bookmark do - was rejected for this surface: it would duplicate each
 // handler's validation, transaction and vault side-effects (~40 times), and it
 // cannot reach state that only exists inside the server process (the runtime
 // auto-classify flag, chat sessions, SSE streams, the ingest service). capture,
@@ -27,7 +27,7 @@ import (
 // The server address is resolved lazily, on the first request, NOT when the
 // client is built. Resolution reads kernl.yaml when no --server/KERNL_SERVER/
 // --port was given, and that read used to run before the verb validated its
-// arguments — so from a directory with no config, a malformed invocation
+// arguments - so from a directory with no config, a malformed invocation
 // (missing arg, unknown flag) failed with a config-load error at exit 1 instead
 // of its real usage error at exit 2. Deferring resolution to base() lets each
 // verb's argument validation run first; config is only touched once a request
@@ -81,20 +81,20 @@ func resolveServerURL(configPath, serverFlag string, port int, env func(string) 
 	return fmt.Sprintf("http://127.0.0.1:%d", port), nil
 }
 
-// normalizeServerURL accepts what a human types — "localhost:8080",
-// "http://box:8080/", "1.2.3.4" — and returns a scheme-qualified base with no
+// normalizeServerURL accepts what a human types - "localhost:8080",
+// "http://box:8080/", "1.2.3.4" - and returns a scheme-qualified base with no
 // trailing slash.
 func normalizeServerURL(raw string) (string, error) {
 	s := strings.TrimSpace(raw)
 	if s == "" {
-		return "", usagef("KERNL DISPATCH FAILURE: --server requires a URL — example: kernl --server http://127.0.0.1:8080 task list")
+		return "", usagef("KERNL DISPATCH FAILURE: --server requires a URL - example: kernl --server http://127.0.0.1:8080 task list")
 	}
 	if !strings.Contains(s, "://") {
 		s = "http://" + s
 	}
 	u, err := url.Parse(s)
 	if err != nil || u.Host == "" {
-		return "", usagef("KERNL DISPATCH FAILURE: --server value %q is not a valid URL — example: kernl --server http://127.0.0.1:8080 task list", raw)
+		return "", usagef("KERNL DISPATCH FAILURE: --server value %q is not a valid URL - example: kernl --server http://127.0.0.1:8080 task list", raw)
 	}
 	return strings.TrimSuffix(u.Scheme+"://"+u.Host+u.Path, "/"), nil
 }
@@ -117,7 +117,7 @@ func (v verbContext) stdout() io.Writer {
 	return v.out
 }
 
-// client builds a client but does NOT resolve the server address — that happens
+// client builds a client but does NOT resolve the server address - that happens
 // lazily in base(), after the verb has validated its arguments. It returns an
 // error for signature stability with callers that check one; today it is always
 // nil, and a genuinely missing config surfaces from the first request instead.
@@ -175,14 +175,14 @@ func (c *apiClient) request(ctx context.Context, method, path string, body any) 
 func (c *apiClient) unreachable(err error) error {
 	var opErr *net.OpError
 	if errors.As(err, &opErr) || errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot reach the kernl server at %s — Fix: start it with 'kernl serve', or point elsewhere with --server <url> / KERNL_SERVER: %w", c.baseURL, err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot reach the kernl server at %s - Fix: start it with 'kernl serve', or point elsewhere with --server <url> / KERNL_SERVER: %w", c.baseURL, err)
 	}
 	return wrapLoud(fmt.Sprintf("request to %s failed", c.baseURL), err)
 }
 
 // notFoundError marks a 404 so a verb can tell "this does not exist" apart from
 // the other 4xx answers. It wraps a usage error, so a verb that does NOT opt in
-// keeps the old behaviour: a bad id is still exit 2, which is right — asking
+// keeps the old behaviour: a bad id is still exit 2, which is right - asking
 // about a task that isn't there IS a bad invocation. Only the reads where
 // absence is a legitimate answer call getOptional.
 type notFoundError struct{ err error }
@@ -214,7 +214,7 @@ func (c *apiClient) get(ctx context.Context, path string) (json.RawMessage, erro
 	return c.request(ctx, http.MethodGet, path, nil)
 }
 
-// getOptional is for reads where the thing legitimately may not exist yet — a
+// getOptional is for reads where the thing legitimately may not exist yet - a
 // briefing that has not been generated, a prep note nobody asked for. Those
 // routes answer 404, which the default mapping turns into exit 2, telling a
 // caller it invoked the command wrong when it merely asked a question whose

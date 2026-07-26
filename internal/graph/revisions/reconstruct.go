@@ -71,7 +71,7 @@ func ReconstructBody(ctx context.Context, tx *graph.ReadTx, nodeID, targetRevID 
 		current = prev
 	}
 
-	// chain is [target, ..., snapshot] — we need to reverse to [snapshot, ..., target].
+	// chain is [target, ..., snapshot] - we need to reverse to [snapshot, ..., target].
 	reverseRevisions(chain)
 
 	// 2. Start from the snapshot and apply diffs forward.
@@ -136,7 +136,7 @@ func bodyFromSnapshot(r Revision) (string, error) {
 func applyDiff(body string, diff json.RawMessage) (string, error) {
 	var payload lineDiffPayload
 	if err := json.Unmarshal(diff, &payload); err != nil {
-		// Not a line-diff — treat as snapshot.
+		// Not a line-diff - treat as snapshot.
 		b, err := bodyFromSnapshot(Revision{Diff: diff})
 		if err != nil {
 			return "", fmt.Errorf("applyDiff: %w", err)

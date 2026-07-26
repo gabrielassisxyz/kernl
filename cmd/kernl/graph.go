@@ -55,7 +55,7 @@ Example:
 			Name:    "related",
 			Summary: "Show the nodes a node is related to",
 			Usage:   "kernl graph related <node-id> [--limit <n>] [--json]",
-			Details: `Computed relevance, not stored edges — use 'kernl graph edges' for the
+			Details: `Computed relevance, not stored edges - use 'kernl graph edges' for the
 connections as persisted.
 
 {{flags}}`,
@@ -82,7 +82,7 @@ under --json), so branch on the body/JSON, never on the exit code.
 			Name:    "edges",
 			Summary: "List every stored edge between live nodes",
 			Usage:   "kernl graph edges [--json]",
-			Details: `The edges table as persisted — the source of truth for checking that
+			Details: `The edges table as persisted - the source of truth for checking that
 connections are actually being made.
 
 {{flags}}`,
@@ -157,7 +157,7 @@ func runGraphSearch(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(rest) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: graph search requires a query — run: kernl graph search <query> [--type <node-type>]")
+		return usagef("KERNL DISPATCH FAILURE: graph search requires a query - run: kernl graph search <query> [--type <node-type>]")
 	}
 
 	query := url.Values{"q": {strings.Join(rest, " ")}}
@@ -175,7 +175,7 @@ func runGraphSearch(v verbContext, asJSON bool, args []string) error {
 		return emitJSON(v.stdout(), raw)
 	}
 	return printGraphNodes(v.stdout(), raw, "GET /api/nodes/search",
-		"No matches. Search is over title prefixes only — try a shorter prefix.")
+		"No matches. Search is over title prefixes only - try a shorter prefix.")
 }
 
 func runGraphRelated(v verbContext, asJSON bool, args []string) error {
@@ -296,7 +296,7 @@ func takeGraphLimit(args []string, verb string) (string, []string, error) {
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err != nil || n < 1 {
-		return "", nil, usagef("KERNL DISPATCH FAILURE: %s --limit must be a positive integer, got %q — run: kernl %s --help", verb, raw, verb)
+		return "", nil, usagef("KERNL DISPATCH FAILURE: %s --limit must be a positive integer, got %q - run: kernl %s --help", verb, raw, verb)
 	}
 	return strconv.Itoa(n), rest, nil
 }
@@ -306,17 +306,17 @@ func noGraphArgs(verb string, args []string) error {
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: %s takes no positional arguments, got %q — run: kernl %s --help", verb, args[0], verb)
+		return usagef("KERNL DISPATCH FAILURE: %s takes no positional arguments, got %q - run: kernl %s --help", verb, args[0], verb)
 	}
 	return nil
 }
 
 func singleGraphNodeID(verb string, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires a node ID — run: kernl %s <node-id>. Find one with: kernl graph search <query>", verb, verb)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires a node ID - run: kernl %s <node-id>. Find one with: kernl graph search <query>", verb, verb)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one node ID, got %d (%s) — run: kernl %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one node ID, got %d (%s) - run: kernl %s --help",
 			verb, len(args), strings.Join(args, ", "), verb)
 	}
 	return args[0], nil

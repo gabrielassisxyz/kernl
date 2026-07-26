@@ -16,10 +16,10 @@ func runBookmark(configPath string, args []string) error {
 	// Usage validation comes first: a wrong invocation should never need a
 	// loadable config to be diagnosed.
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bookmark requires a subcommand — valid: add, import. Run: kernl bookmark --help")
+		return usagef("KERNL DISPATCH FAILURE: bookmark requires a subcommand - valid: add, import. Run: kernl bookmark --help")
 	}
 	if args[0] != "add" && args[0] != "import" {
-		return usagef("KERNL DISPATCH FAILURE: unknown bookmark subcommand %q%s — valid: add, import. Run: kernl bookmark --help",
+		return usagef("KERNL DISPATCH FAILURE: unknown bookmark subcommand %q%s - valid: add, import. Run: kernl bookmark --help",
 			args[0], didYouMean(args[0], []string{"add", "import"}))
 	}
 
@@ -42,7 +42,7 @@ func runBookmark(configPath string, args []string) error {
 
 func runBookmarkAdd(a *app.App, args []string) error {
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bookmark add requires a URL — run: kernl bookmark add <url>")
+		return usagef("KERNL DISPATCH FAILURE: bookmark add requires a URL - run: kernl bookmark add <url>")
 	}
 	url := args[0]
 	ctx := context.Background()
@@ -85,13 +85,13 @@ func runBookmarkAdd(a *app.App, args []string) error {
 
 func runBookmarkImport(a *app.App, args []string) error {
 	if len(args) < 2 {
-		return usagef("KERNL DISPATCH FAILURE: bookmark import requires a format and a file — run: kernl bookmark import <pocket|pinboard> <file>")
+		return usagef("KERNL DISPATCH FAILURE: bookmark import requires a format and a file - run: kernl bookmark import <pocket|pinboard> <file>")
 	}
 	format := args[0]
 	filePath := args[1]
 
 	if format != "pocket" && format != "pinboard" {
-		return usagef("KERNL DISPATCH FAILURE: unknown import format %q%s — valid: pocket, pinboard",
+		return usagef("KERNL DISPATCH FAILURE: unknown import format %q%s - valid: pocket, pinboard",
 			format, didYouMean(format, []string{"pocket", "pinboard"}))
 	}
 

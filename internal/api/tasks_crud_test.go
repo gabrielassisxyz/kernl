@@ -116,14 +116,14 @@ func TestTaskTitleRoundTrip(t *testing.T) {
 	r := NewRouter(a)
 	id := createTaskViaAPI(t, r, `{"title":"Old title"}`, http.StatusCreated)
 
-	// A title-only patch must be accepted — it must NOT hit the all-nil guard.
+	// A title-only patch must be accepted - it must NOT hit the all-nil guard.
 	patchTaskViaAPI(t, r, id, `{"title":"New title"}`, http.StatusNoContent)
 	tasks := listTasksViaAPI(t, r)
 	if len(tasks) != 1 || tasks[0].Title != "New title" {
 		t.Fatalf("title = %q, want \"New title\"", tasks[0].Title)
 	}
 
-	// A blank title is rejected — dropping the title is not a legitimate edit.
+	// A blank title is rejected - dropping the title is not a legitimate edit.
 	patchTaskViaAPI(t, r, id, `{"title":"   "}`, http.StatusBadRequest)
 
 	// A retitle of a missing task is a 404.

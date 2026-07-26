@@ -125,9 +125,9 @@ func (ex *Executor) Run(ctx context.Context) error {
 				Time:   time.Now().Unix(),
 			})
 			if ex.failFast {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: %s — Fix: review failed beads and re-run", msg)
+				return fmt.Errorf("KERNL DISPATCH FAILURE: %s - Fix: review failed beads and re-run", msg)
 			}
-			return fmt.Errorf("KERNL DISPATCH FAILURE: %s — Fix: check the DAG for missing dependencies or cycles", msg)
+			return fmt.Errorf("KERNL DISPATCH FAILURE: %s - Fix: check the DAG for missing dependencies or cycles", msg)
 		}
 		ex.mu.Unlock()
 

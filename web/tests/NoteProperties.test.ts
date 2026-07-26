@@ -64,7 +64,7 @@ describe('NoteProperties', () => {
   it('hides the internal uuid, and hides id by default', () => {
     const wrapper = mountBlock({ id: 'abc123', uuid: 'zzz', title: 'Note' })
 
-    // uuid is internal — never rendered; id is hidden unless showId is set.
+    // uuid is internal - never rendered; id is hidden unless showId is set.
     expect(wrapper.text()).not.toContain('zzz')
     expect(wrapper.find('input[aria-label="id value"]').exists()).toBe(false)
   })

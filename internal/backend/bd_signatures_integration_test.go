@@ -10,13 +10,13 @@ import (
 
 // TestBdVersionMatchesExpected verifies that the bd binary on PATH reports
 // exactly expectedBdVersion. If this test fails, review every constant in
-// bd_signatures.go — a version bump may have changed the output strings that
+// bd_signatures.go - a version bump may have changed the output strings that
 // the retry and recovery logic depends on.
 func TestBdVersionMatchesExpected(t *testing.T) {
 	t.Helper()
 	bdPath, err := exec.LookPath("bd")
 	if err != nil {
-		t.Skip("bd not found on PATH — skipping integration test")
+		t.Skip("bd not found on PATH - skipping integration test")
 	}
 	t.Logf("bd binary: %s", bdPath)
 
@@ -46,7 +46,7 @@ func TestBdVersionMatchesExpected(t *testing.T) {
 // error fragment; it cannot replicate an old bd binary in CI.
 func TestNoDaemonFlagSignaturePresent(t *testing.T) {
 	if _, err := exec.LookPath("bd"); err != nil {
-		t.Skip("bd not found on PATH — skipping integration test")
+		t.Skip("bd not found on PATH - skipping integration test")
 	}
 
 	// "unknown flag: --no-daemon" is the verbatim fragment bd emits. Confirm
@@ -65,13 +65,13 @@ func TestNoDaemonFlagSignaturePresent(t *testing.T) {
 // emitting "Database out of sync with JSONL" to stderr. The orchestrator
 // catches this via isOutOfSyncError and recovers with `bd sync --import-only`.
 //
-// This test is a documentation stub — triggering the condition requires a live
+// This test is a documentation stub - triggering the condition requires a live
 // Dolt store, which is not practical in automated CI. The test will pass as
 // long as bd is on PATH (proving the binary exists) and the constant is
 // non-empty.
 func TestOutOfSyncSignatureDocumented(t *testing.T) {
 	if _, err := exec.LookPath("bd"); err != nil {
-		t.Skip("bd not found on PATH — skipping integration test")
+		t.Skip("bd not found on PATH - skipping integration test")
 	}
 	if outOfSyncSignature == "" {
 		t.Error("outOfSyncSignature constant must not be empty")
@@ -87,11 +87,11 @@ func TestOutOfSyncSignatureDocumented(t *testing.T) {
 // doltPanicStackSignature. The orchestrator catches either via
 // isEmbeddedDoltPanic and retries with BD_NO_DB=1 to bypass the Dolt engine.
 //
-// This test is a documentation stub — triggering a controlled Dolt panic is
+// This test is a documentation stub - triggering a controlled Dolt panic is
 // not practical in automated CI.
 func TestDoltPanicSignaturesDocumented(t *testing.T) {
 	if _, err := exec.LookPath("bd"); err != nil {
-		t.Skip("bd not found on PATH — skipping integration test")
+		t.Skip("bd not found on PATH - skipping integration test")
 	}
 	if doltNilPanicSignature == "" {
 		t.Error("doltNilPanicSignature constant must not be empty")

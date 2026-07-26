@@ -55,7 +55,7 @@ func mustCreateEdge(t *testing.T, g *graph.Graph, e edges.Edge) string {
 var authorTester = nodes.Author{Name: "tester"}
 
 // ---------------------------------------------------------------------------
-// TestCreateAndOutgoing — bead kernl-xbz0
+// TestCreateAndOutgoing - bead kernl-xbz0
 // ---------------------------------------------------------------------------
 
 func TestCreateAndOutgoing(t *testing.T) {
@@ -103,7 +103,7 @@ func TestCreateAndOutgoing(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestOutgoingFiltersByType — bead kernl-wyoz
+// TestOutgoingFiltersByType - bead kernl-wyoz
 // ---------------------------------------------------------------------------
 
 func TestOutgoingFiltersByType(t *testing.T) {
@@ -157,7 +157,7 @@ func TestOutgoingFiltersByType(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestEdgeToNonexistentDestFails — bead kernl-2kos
+// TestEdgeToNonexistentDestFails - bead kernl-2kos
 // ---------------------------------------------------------------------------
 
 func TestEdgeToNonexistentDestFails(t *testing.T) {
@@ -191,7 +191,7 @@ func TestEdgeToNonexistentDestFails(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestSelfEdgeAllowed — bead kernl-1ddt
+// TestSelfEdgeAllowed - bead kernl-1ddt
 // ---------------------------------------------------------------------------
 
 func TestSelfEdgeAllowed(t *testing.T) {
@@ -227,7 +227,7 @@ func TestSelfEdgeAllowed(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestDeleteSourceCascadesEdge — bead kernl-12q7
+// TestDeleteSourceCascadesEdge - bead kernl-12q7
 // ---------------------------------------------------------------------------
 
 func TestDeleteSourceCascadesEdge(t *testing.T) {
@@ -239,7 +239,7 @@ func TestDeleteSourceCascadesEdge(t *testing.T) {
 
 	mustCreateEdge(t, g, edges.Edge{ID: "edge-csc-src", Src: "src-node", Dst: "dst-node", Type: edges.EdgeTypeDependsOn})
 
-	// Delete the source node — edge should cascade-delete
+	// Delete the source node - edge should cascade-delete
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := tx.Exec(`DELETE FROM nodes WHERE id = ?`, "src-node")
 		return err
@@ -259,7 +259,7 @@ func TestDeleteSourceCascadesEdge(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestDeleteDestCascadesEdge — bead kernl-bgpr
+// TestDeleteDestCascadesEdge - bead kernl-bgpr
 // ---------------------------------------------------------------------------
 
 func TestDeleteDestCascadesEdge(t *testing.T) {
@@ -271,7 +271,7 @@ func TestDeleteDestCascadesEdge(t *testing.T) {
 
 	mustCreateEdge(t, g, edges.Edge{ID: "edge-csc-dst", Src: "src-node2", Dst: "dst-node2", Type: edges.EdgeTypeDependsOn})
 
-	// Delete the destination node — edge should cascade-delete
+	// Delete the destination node - edge should cascade-delete
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := tx.Exec(`DELETE FROM nodes WHERE id = ?`, "dst-node2")
 		return err
@@ -291,7 +291,7 @@ func TestDeleteDestCascadesEdge(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// TestCascadeOnNodeDelete — bead kernl-wpth
+// TestCascadeOnNodeDelete - bead kernl-wpth
 // ---------------------------------------------------------------------------
 
 func TestCascadeOnNodeDelete(t *testing.T) {
@@ -307,7 +307,7 @@ func TestCascadeOnNodeDelete(t *testing.T) {
 	mustCreateEdge(t, g, edges.Edge{ID: "edge-ac", Src: "node-a", Dst: "node-c", Type: edges.EdgeTypeRelated})
 	mustCreateEdge(t, g, edges.Edge{ID: "edge-bc-not-via-a", Src: "node-b", Dst: "node-c", Type: edges.EdgeTypeDependsOn})
 
-	// Delete the middle node A — edges from B→A and A→C should cascade, B→C should survive
+	// Delete the middle node A - edges from B→A and A→C should cascade, B→C should survive
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := tx.Exec(`DELETE FROM nodes WHERE id = ?`, "node-a")
 		return err

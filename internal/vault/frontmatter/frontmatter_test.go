@@ -104,7 +104,7 @@ func TestRoundTripGoldenFiles(t *testing.T) {
 		if name == "no_frontmatter_read.md" || name == "malformed_unterminated.md" {
 			continue
 		}
-		// Skip "expected" files — they pair with the base name
+		// Skip "expected" files - they pair with the base name
 		if len(name) > 8 && name[len(name)-8:] == "expected"+".md" {
 			continue
 		}

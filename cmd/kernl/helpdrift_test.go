@@ -6,7 +6,7 @@ import (
 )
 
 // R2-008: help text must not drift from code behavior. These two topics each
-// shipped a claim the code contradicts — an agent that reads the help writes
+// shipped a claim the code contradicts - an agent that reads the help writes
 // the wrong branch. The tests pin the help to the observed behavior so the
 // drift cannot silently reopen.
 
@@ -36,7 +36,7 @@ func TestGraphBriefingHelpMatchesExitZeroBehavior(t *testing.T) {
 }
 
 func TestHealthUpdateCheckHelpMatchesResponseShape(t *testing.T) {
-	// appUpdateHandler returns {"status":"unknown","checked":false,...} — never
+	// appUpdateHandler returns {"status":"unknown","checked":false,...} - never
 	// "up_to_date". The field to branch on is "checked".
 	d := subDetails(t, "health", "update-check")
 	if strings.Contains(d, "up_to_date") {

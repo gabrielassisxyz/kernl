@@ -58,7 +58,7 @@ func TestEveryCommandWithFlagsRendersThem(t *testing.T) {
 
 // TestNoHandWrittenFlagBlocksRemain guards the migration itself: a new command
 // added by copying an old one would bring back a prose block, which renders
-// fine and is invisible to `capabilities --json` — the exact defect this
+// fine and is invisible to `capabilities --json` - the exact defect this
 // change removed.
 func TestNoHandWrittenFlagBlocksRemain(t *testing.T) {
 	var walk func(table []commandMeta, prefix string)
@@ -67,7 +67,7 @@ func TestNoHandWrittenFlagBlocksRemain(t *testing.T) {
 			name := strings.TrimSpace(prefix + " " + c.Name)
 			for _, line := range strings.Split(c.Details, "\n") {
 				if strings.HasPrefix(strings.TrimSpace(line), "Flags:") {
-					t.Errorf("%q still documents flags as prose (%q) — move them to the Flags field", name, line)
+					t.Errorf("%q still documents flags as prose (%q) - move them to the Flags field", name, line)
 				}
 			}
 			walk(c.Subs, name)
@@ -96,7 +96,7 @@ func helpPaths(table []commandMeta, prefix []string) [][]string {
 // must not do is change what a reader sees. This file is the evidence: it was
 // captured from the pre-migration binary, and it has to keep matching.
 //
-// Regenerate deliberately, never reflexively — a diff here means a help page
+// Regenerate deliberately, never reflexively - a diff here means a help page
 // changed, which is either the point of your commit or a bug in it:
 //
 //	go test ./cmd/kernl/ -run TestHelpTextIsUnchanged -update-help-golden
@@ -104,7 +104,7 @@ func TestHelpTextIsUnchanged(t *testing.T) {
 	var b strings.Builder
 	// The root page first. It is rendered by printHelp rather than
 	// renderCommandHelp, and leaving it out is how the flag-block migration
-	// nearly changed it unnoticed — its global-flags block is generated too.
+	// nearly changed it unnoticed - its global-flags block is generated too.
 	b.WriteString("### kernl\n" + captureRootHelp(t) + "\n\n")
 	for _, path := range helpPaths(commandTable, nil) {
 		cmd := findCommand(commandTable, path[0])
@@ -131,7 +131,7 @@ func TestHelpTextIsUnchanged(t *testing.T) {
 
 	want, err := os.ReadFile(golden)
 	if err != nil {
-		t.Fatalf("missing help golden (%v) — capture it with UPDATE_HELP_GOLDEN=1", err)
+		t.Fatalf("missing help golden (%v) - capture it with UPDATE_HELP_GOLDEN=1", err)
 	}
 	if got == string(want) {
 		return

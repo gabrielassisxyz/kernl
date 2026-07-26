@@ -85,7 +85,7 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 	count := RecordFollowUpProgress(ctx.FollowUpAttempts, state)
 	if count > MaxFollowUpsPerState {
 		slog.Warn(fmt.Sprintf(
-			"%s follow-up cap reached for bead=%s state=%s count=%d — stopping in-iteration follow-ups",
+			"%s follow-up cap reached for bead=%s state=%s count=%d - stopping in-iteration follow-ups",
 			tag, ctx.BeadID, state, count,
 		))
 		emitFollowUpCapBanner(ctx, ctx.BeadID, state, count)
@@ -157,7 +157,7 @@ func emitLeaseDeadBanner(ctx *TakeLoopContext, state string, health LeaseHealthR
 		Type:   "stderr",
 		BeadID: ctx.BeadID,
 		Content: fmt.Sprintf(
-			"\x1b[31mKERNL DISPATCH FAILURE: refusing follow-up for bead %s — lease %s is %s (reason: %s)\x1b[0m\n",
+			"\x1b[31mKERNL DISPATCH FAILURE: refusing follow-up for bead %s - lease %s is %s (reason: %s)\x1b[0m\n",
 			ctx.BeadID, ctx.Entry.KnotsLeaseID, health.LeaseState, health.Reason,
 		),
 	})

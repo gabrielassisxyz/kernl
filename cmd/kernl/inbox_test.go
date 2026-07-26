@@ -176,7 +176,7 @@ func TestInboxReopenPostsToCapture(t *testing.T) {
 	}
 }
 
-// R2-006: reopen deletes the derived node — without --yes it must preview and
+// R2-006: reopen deletes the derived node - without --yes it must preview and
 // write nothing, like sweep / epic abort / inbox batch apply.
 func TestInboxReopenWithoutYesPreviewsAndWritesNothing(t *testing.T) {
 	ts, seen := fakeInboxAPI(t, http.StatusOK, `{"status":"ok"}`)
@@ -206,7 +206,7 @@ func TestInboxClassifyPostsOnce(t *testing.T) {
 // swallow it into a success.
 func TestInboxClassifySurfacesUnconfiguredLLM(t *testing.T) {
 	ts, _ := fakeInboxAPI(t, http.StatusServiceUnavailable,
-		`KERNL DISPATCH FAILURE: cannot classify — no LLM provider configured`)
+		`KERNL DISPATCH FAILURE: cannot classify - no LLM provider configured`)
 
 	_, err := driveInbox(t, ts, "classify")
 	if err == nil || !strings.Contains(err.Error(), "no LLM provider configured") {
@@ -328,7 +328,7 @@ func TestInboxNotFoundExitsTwo(t *testing.T) {
 
 func TestInboxPrepShowTreatsMissingPrepAsAnAnswer(t *testing.T) {
 	// 'prep --show' asks whether a briefing exists. "It does not" answers the
-	// question, so it exits 0 — the 404 underneath is not a mis-invocation.
+	// question, so it exits 0 - the 404 underneath is not a mis-invocation.
 	ts, _ := fakeInboxAPI(t, http.StatusNotFound, `no prep`)
 
 	out, err := driveInbox(t, ts, "prep", "--show", "cap-nope")

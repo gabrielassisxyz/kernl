@@ -32,7 +32,7 @@ describe('withSourceContext', () => {
 })
 
 describe('applySourceContext', () => {
-  it('touches tasks only — a note body IS the capture, a bookmark body is a URL', () => {
+  it('touches tasks only - a note body IS the capture, a bookmark body is a URL', () => {
     const actions: CaptureAction[] = [
       { target: 'task', title: 'Read the PDFs', body: 'ler pdfs' },
       { target: 'note', title: 'A reflection', body: 'só um fragmento' },

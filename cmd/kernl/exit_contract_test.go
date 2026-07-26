@@ -15,7 +15,7 @@ import (
 //
 // The verbContext points configPath at a path that does not exist and sets no
 // server/port, so any premature client resolution would fail with a config
-// error at exit 1 — which is exactly the regression this pins.
+// error at exit 1 - which is exactly the regression this pins.
 func TestUsageErrorsBeatMissingConfig(t *testing.T) {
 	const noConfig = "/nonexistent/definitely-not-here/kernl.yaml"
 
@@ -40,7 +40,7 @@ func TestUsageErrorsBeatMissingConfig(t *testing.T) {
 				t.Fatalf("expected a usage error, got nil")
 			}
 			if code := exitCode(err); code != 2 {
-				t.Errorf("want exit 2 (usage), got %d — config load masked the usage error: %v", code, err)
+				t.Errorf("want exit 2 (usage), got %d - config load masked the usage error: %v", code, err)
 			}
 			if strings.Contains(err.Error(), "reading config") {
 				t.Errorf("the config-load error leaked instead of the usage error: %v", err)

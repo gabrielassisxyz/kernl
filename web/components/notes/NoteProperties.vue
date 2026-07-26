@@ -7,7 +7,7 @@
   >
     <div v-if="parseError" class="note-properties__notice">
       <span class="material-symbols-outlined !text-[15px]" aria-hidden="true">help</span>
-      <span>Frontmatter has invalid YAML — switch to source mode to fix it.</span>
+      <span>Frontmatter has invalid YAML - switch to source mode to fix it.</span>
     </div>
 
     <template v-else>
@@ -142,7 +142,7 @@ const newKey = ref('')
 const newType = ref<PropertyType>('text')
 const addKeyInput = ref<HTMLInputElement | null>(null)
 
-// `uuid` is an internal join key with no human meaning — always hidden. `id` is
+// `uuid` is an internal join key with no human meaning - always hidden. `id` is
 // the node identity: hidden by default (toggle in editor settings), and shown
 // locked (with the lock icon) when revealed.
 const LOCKED_KEYS = new Set(['id'])
@@ -319,7 +319,7 @@ function initialValueForType(type: PropertyType): unknown {
   color: var(--color-text-dim);
 }
 
-/* Inputs read as plain text until focused — no boxy chrome at rest. */
+/* Inputs read as plain text until focused - no boxy chrome at rest. */
 .note-properties__input {
   width: 100%;
   min-width: 0;

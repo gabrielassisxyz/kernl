@@ -76,7 +76,7 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		printReport(report)
 	}
 	if report.RequiredFailed() {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: preflight checks failed — fix the issues above and retry")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: preflight checks failed - fix the issues above and retry")
 	}
 
 	cfg, err := loadCLIConfig(configPath)
@@ -130,7 +130,7 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 	}
 
 	go func() {
-		fmt.Printf("kernl serving — API http://%s\n", srv.Addr)
+		fmt.Printf("kernl serving - API http://%s\n", srv.Addr)
 		if host == "0.0.0.0" || host == "::" {
 			fmt.Printf("  reachable from the network, and the API has no authentication.\n")
 		}
@@ -149,7 +149,7 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		}
 	}
 
-	// Vault watcher lifecycle — started only when vault.root is configured.
+	// Vault watcher lifecycle - started only when vault.root is configured.
 	vault.ApplyDefaults(&cfg.Vault)
 	var vaultSvc *vault.Service
 	if cfg.Vault.Enabled() {
@@ -165,7 +165,7 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		}
 	}
 
-	// Inbox DA pre-classifier — assigns a suggested action to each pending
+	// Inbox DA pre-classifier - assigns a suggested action to each pending
 	// capture. Started only when an LLM provider is configured (same gate as the
 	// chat API), so it never spends tokens unless the user opts in.
 	if cfg.LLM.IsSet() {

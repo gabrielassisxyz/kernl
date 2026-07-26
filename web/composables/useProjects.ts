@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-// Mirrors api.projectDTO (internal/api/projects.go) — JSON is camelCase.
+// Mirrors api.projectDTO (internal/api/projects.go) - JSON is camelCase.
 export interface Project {
   id: string
   title: string

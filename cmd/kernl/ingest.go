@@ -39,7 +39,7 @@ var ingestCommand = commandMeta{
 	Usage:   "kernl ingest <paste|upload|source|trigger|queue> [args...]",
 	Details: `Ingest talks to a running 'kernl serve' and needs an LLM provider on the
 server: extraction is an LLM pass. Without one every route answers 503 and
-the CLI surfaces that verbatim — Fix: set llm.provider in kernl.yaml, then
+the CLI surfaces that verbatim - Fix: set llm.provider in kernl.yaml, then
 restart the server.
 
 Extraction runs in the background: paste, upload, source and trigger return
@@ -122,7 +122,7 @@ Run 'kernl ingest queue <subcommand> --help' for details on each.`,
 There is no default action: an omitted --action used to mean "discard", so a
 forgotten flag destroyed the review it was resolving.`,
 					Flags: []commandFlag{
-						{Name: "--action", Value: "<a>", Description: "create-page, update or discard — REQUIRED, no default.",
+						{Name: "--action", Value: "<a>", Description: "create-page, update or discard - REQUIRED, no default.",
 							Continuation: []string{"'discard' deletes the review permanently; there is no undo."}},
 						{Name: "--target-note", Value: "<id>", Description: "With --action update: the note to merge into"},
 						{Name: "--json", Description: "Emit the API response verbatim"},
@@ -132,7 +132,7 @@ forgotten flag destroyed the review it was resolving.`,
 					Name:    "merge-plan",
 					Summary: "Ask the LLM which hunks an Update would add",
 					Usage:   "kernl ingest queue merge-plan <id> [--json]",
-					Details: `Reads only — it plans the merge without applying it. An empty target means
+					Details: `Reads only - it plans the merge without applying it. An empty target means
 there is no confident note to merge into; resolve with --action create-page.`,
 				},
 			},
@@ -208,7 +208,7 @@ func ingestPasteText(fromArgs string) (string, error) {
 		return text, nil
 	}
 	if stdinIsTerminal() {
-		return "", usagef("KERNL DISPATCH FAILURE: ingest paste got no text and stdin is a terminal — pass it as an argument (kernl ingest paste \"<text>\") or pipe it in. Run: kernl ingest paste --help")
+		return "", usagef("KERNL DISPATCH FAILURE: ingest paste got no text and stdin is a terminal - pass it as an argument (kernl ingest paste \"<text>\") or pipe it in. Run: kernl ingest paste --help")
 	}
 	read, err := io.ReadAll(os.Stdin)
 	if err != nil {
@@ -216,7 +216,7 @@ func ingestPasteText(fromArgs string) (string, error) {
 	}
 	text = strings.TrimSpace(string(read))
 	if text == "" {
-		return "", usagef("KERNL DISPATCH FAILURE: ingest paste got no text — pass it as an argument or pipe it on stdin. Run: kernl ingest paste --help")
+		return "", usagef("KERNL DISPATCH FAILURE: ingest paste got no text - pass it as an argument or pipe it on stdin. Run: kernl ingest paste --help")
 	}
 	return text, nil
 }
@@ -336,7 +336,7 @@ func ingestQueueList(ctx context.Context, v verbContext, c *apiClient, asJSON bo
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: ingest queue list takes no arguments, got %q — run: kernl ingest queue list --help", args[0])
+		return usagef("KERNL DISPATCH FAILURE: ingest queue list takes no arguments, got %q - run: kernl ingest queue list --help", args[0])
 	}
 	raw, err := c.get(ctx, "/api/ingest/queue")
 	if err != nil {
@@ -352,7 +352,7 @@ func ingestQueueList(ctx context.Context, v verbContext, c *apiClient, asJSON bo
 // The route used to serialize nodes.IngestReview with no json tags, which put
 // Go field names on the wire; the struct carries camelCase tags now, and
 // TestIngestQueueJSONContract pins that. encoding/json matches case-insensitively,
-// so the old spelling kept working here and hid the drift — these tags name the
+// so the old spelling kept working here and hid the drift - these tags name the
 // contract that is actually in force.
 func printIngestQueue(v verbContext, raw json.RawMessage) error {
 	var reviews []struct {
@@ -412,13 +412,13 @@ func ingestResolveAction(raw string) (string, error) {
 	valid := []string{"create-page", "update", "discard"}
 	token := strings.TrimSpace(raw)
 	if token == "" {
-		return "", usagef("KERNL DISPATCH FAILURE: ingest queue resolve requires --action — valid: %s (discard deletes the review permanently). Run: kernl ingest queue --help",
+		return "", usagef("KERNL DISPATCH FAILURE: ingest queue resolve requires --action - valid: %s (discard deletes the review permanently). Run: kernl ingest queue --help",
 			strings.Join(valid, ", "))
 	}
 	if action, ok := ingestResolveActions[token]; ok {
 		return action, nil
 	}
-	return "", usagef("KERNL DISPATCH FAILURE: unknown --action %q%s — valid: %s. Run: kernl ingest queue --help",
+	return "", usagef("KERNL DISPATCH FAILURE: unknown --action %q%s - valid: %s. Run: kernl ingest queue --help",
 		token, didYouMean(token, valid), strings.Join(valid, ", "))
 }
 
@@ -461,10 +461,10 @@ func singleIngestArg(sub, what string, args []string) (string, error) {
 		return "", err
 	}
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: ingest %s requires %s — run: kernl ingest %s --help", sub, what, sub)
+		return "", usagef("KERNL DISPATCH FAILURE: ingest %s requires %s - run: kernl ingest %s --help", sub, what, sub)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: ingest %s takes exactly one argument, got %d (%s) — run: kernl ingest %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: ingest %s takes exactly one argument, got %d (%s) - run: kernl ingest %s --help",
 			sub, len(args), strings.Join(args, ", "), sub)
 	}
 	return args[0], nil
@@ -493,7 +493,7 @@ func emitIngestAck(v verbContext, raw json.RawMessage) error {
 }
 
 // postMultipart sends a pre-encoded multipart body, reusing the client's
-// transport and its status/exit-code mapping — apiClient.post would JSON-encode
+// transport and its status/exit-code mapping - apiClient.post would JSON-encode
 // the form and send it as a quoted string.
 func (c *apiClient) postMultipart(ctx context.Context, path, contentType string, form []byte) (json.RawMessage, error) {
 	base, err := c.base()

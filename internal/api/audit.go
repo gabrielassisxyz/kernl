@@ -66,7 +66,7 @@ func RegisterAuditRoutes(mux *http.ServeMux, a *app.App) {
 
 		if err != nil {
 			slog.Error("KERNL DISPATCH FAILURE: list audit decisions", "error", err)
-			writeError(w, http.StatusInternalServerError, fmt.Sprintf("KERNL DISPATCH FAILURE: list audit decisions — %v", err))
+			writeError(w, http.StatusInternalServerError, fmt.Sprintf("KERNL DISPATCH FAILURE: list audit decisions - %v", err))
 			return
 		}
 

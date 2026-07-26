@@ -3,14 +3,14 @@
 //
 // It exists because that shape has more than one producer. The REST layer
 // (internal/api) serves the DA's suggestions and takes the user's edits, and the
-// chat engine (internal/chat) streams a routing proposal over SSE — an event
+// chat engine (internal/chat) streams a routing proposal over SSE - an event
 // that never passes through internal/api and so cannot borrow a DTO defined
 // there. Nor can it borrow one from internal/inbox: that package already imports
 // internal/chat, and the reverse edge would be an import cycle.
 //
 // So the wire shape lives in a leaf package that depends on nothing but nodes,
-// and both producers map through the same pair of functions. The alternative —
-// a second hand-written struct in internal/chat — is how a field like dueDate
+// and both producers map through the same pair of functions. The alternative  -
+// a second hand-written struct in internal/chat - is how a field like dueDate
 // ends up correct in one surface and silently empty in the other.
 package wire
 
@@ -29,7 +29,7 @@ type CaptureAction struct {
 	ProjectDescription string   `json:"projectDescription"`
 	InitialTasks       []string `json:"initialTasks"`
 	Tags               []string `json:"tags"`
-	// DueDate is a calendar day (YYYY-MM-DD), like taskDTO's — empty when the
+	// DueDate is a calendar day (YYYY-MM-DD), like taskDTO's - empty when the
 	// action has none. On a task action only.
 	DueDate string `json:"dueDate"`
 	LinkTo  string `json:"linkTo"`

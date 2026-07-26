@@ -28,14 +28,14 @@
             {{ task.title }}
           </td>
           <td class="py-base pr-section font-mono-data text-mono-data text-text-faint whitespace-nowrap">
-            {{ projectTitles[task.projectId] || '—' }}
+            {{ projectTitles[task.projectId] || ' - ' }}
           </td>
           <td class="py-base pr-section font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ statusLabel(task) }}</td>
           <td
             class="py-base pr-section font-mono-data text-mono-data whitespace-nowrap"
             :class="late(task) ? 'text-status-failed-text' : 'text-text-faint'"
           >
-            {{ formatDueDate(task.dueDate) || '—' }}
+            {{ formatDueDate(task.dueDate) || ' - ' }}
           </td>
           <td class="py-base font-mono-data text-mono-data text-text-faint whitespace-nowrap">{{ formatTimestamp(task.updatedAt) }}</td>
         </tr>

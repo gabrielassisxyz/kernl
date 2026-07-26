@@ -17,7 +17,7 @@ import (
 // marshals them into `attrs` and chatSessionAttrs reads them back, so every
 // session already stored would come back with zeroed messages and no pending
 // permission. The wire format is a DTO in the API layer precisely so this stays
-// still — if this test fails, storage was migrated without a migration.
+// still - if this test fails, storage was migrated without a migration.
 func TestChatSessionStorageFormatIsSnakeCase(t *testing.T) {
 	ts := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 	cs := ChatSession{

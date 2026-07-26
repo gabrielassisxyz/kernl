@@ -185,7 +185,7 @@ func TestExecutorReusesWorktreePath(t *testing.T) {
 		Worktree:      wt,
 		GetWorktree:   getWT,
 		MaxConcurrent: 1,
-		// w0 is a genuine session resume — only then is the cached worktree reused.
+		// w0 is a genuine session resume - only then is the cached worktree reused.
 		SessionResumes: map[string]string{"w0": "ses-resume"},
 	})
 	if err := ex.Run(context.Background()); err != nil {
@@ -201,7 +201,7 @@ func TestExecutorReusesWorktreePath(t *testing.T) {
 
 // TestExecutorFreshDispatchRebuildsWorktree verifies that a bead WITHOUT a
 // session resume always goes through Add even if GetWorktree could return a
-// cached path — so leftover worktrees are rebuilt and dependency branches merged.
+// cached path - so leftover worktrees are rebuilt and dependency branches merged.
 func TestExecutorFreshDispatchRebuildsWorktree(t *testing.T) {
 	ep := wideEpic(t, 1)
 	wt := fakeWT()
@@ -220,7 +220,7 @@ func TestExecutorFreshDispatchRebuildsWorktree(t *testing.T) {
 		Worktree:      wt,
 		GetWorktree:   getWT,
 		MaxConcurrent: 1,
-		// No SessionResumes — w0 is a fresh dispatch.
+		// No SessionResumes - w0 is a fresh dispatch.
 	})
 	if err := ex.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)

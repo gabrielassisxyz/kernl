@@ -19,18 +19,18 @@ import (
 
 // mergedIntoLabel marks the provenance edge from a note to the capture whose
 // content was merged into it (target "update"). It is deliberately distinct from
-// "derived_from" so the inbox undo (Reopen) never deletes the pre-existing note —
+// "derived_from" so the inbox undo (Reopen) never deletes the pre-existing note  -
 // it only un-triages the capture.
 const mergedIntoLabel = "merged_into"
 
 // Action is one node a capture becomes. It is the same shape the classifier
 // proposes (nodes.CaptureAction), so a suggestion can be posted back verbatim
-// or edited first — there is no second contract to keep in sync.
+// or edited first - there is no second contract to keep in sync.
 type Action = nodes.CaptureAction
 
 // ProcessRequest carries the processing decision for a pending capture: the
 // list of nodes it becomes. A capture is routinely several things at once (a
-// note plus the task it implies), so Actions is the unit — a single-node
+// note plus the task it implies), so Actions is the unit - a single-node
 // conversion is just a one-element list.
 type ProcessRequest struct {
 	Actions []Action
@@ -83,7 +83,7 @@ func Process(ctx context.Context, g *graph.Graph, vaultRoot string, archiver *bo
 // Every action runs in ONE write transaction: a capture that fans into four
 // nodes either produces all four or none. Each created node gets a derived_from
 // edge back to the capture (provenance, and the undo path), and the nodes fanned
-// out of the same capture are related to each other — the note and the task it
+// out of the same capture are related to each other - the note and the task it
 // spawned belong together.
 //
 // A "discard" among several actions means "this fragment is noise"; the capture
@@ -133,7 +133,7 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 		// has run, so a failure anywhere rolls the whole fan-out back.
 		var createdIDs []string
 		// The note an update folded the capture into: provenance, but not a
-		// created node — undo must never delete it.
+		// created node - undo must never delete it.
 		var updatedNoteID string
 
 		for _, action := range actions {

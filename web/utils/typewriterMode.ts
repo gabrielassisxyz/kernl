@@ -17,7 +17,7 @@ export function typewriterExtension() {
       const el = node instanceof Element ? node : node.parentElement
       const line = el?.closest('.cm-line')
       // 'auto' (not 'smooth'): typewriter recentering must be instant, otherwise
-      // it lags behind fast typing and fights itself — and it respects reduced
+      // it lags behind fast typing and fights itself - and it respects reduced
       // motion by construction.
       line?.scrollIntoView({ block: 'center', behavior: 'auto' })
     })

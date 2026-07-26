@@ -132,7 +132,7 @@ func stripInlineCode(line string) string {
 	}
 
 	if inCode {
-		// Unclosed backtick — treat rest as code
+		// Unclosed backtick - treat rest as code
 		return buf.String()
 	}
 	buf.WriteString(line)

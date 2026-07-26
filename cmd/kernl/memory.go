@@ -18,8 +18,8 @@ var memoryCommand = commandMeta{
 	Details: `Talks to a running server over the REST API, so 'kernl serve' must be up
 (or point elsewhere with --server <url> / KERNL_SERVER).
 
-Memory has two halves: claims — statements the DA learned or you asserted,
-retrieved by relevance — and telos, the notes tagged 'telos' that are always
+Memory has two halves: claims - statements the DA learned or you asserted,
+retrieved by relevance - and telos, the notes tagged 'telos' that are always
 injected into the DA's context.
 
 Run 'kernl memory <subcommand> --help' for details on each.`,
@@ -169,7 +169,7 @@ func runMemoryClaims(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if !present || strings.TrimSpace(topic) == "" {
-		return usagef("KERNL DISPATCH FAILURE: memory claims requires --topic — the route has no all-topics mode. List them with: kernl memory topics")
+		return usagef("KERNL DISPATCH FAILURE: memory claims requires --topic - the route has no all-topics mode. List them with: kernl memory topics")
 	}
 
 	raw, err := requestMemory(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
@@ -209,10 +209,10 @@ func runMemoryAddClaim(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if strings.TrimSpace(subject) == "" {
-		return usagef(`KERNL DISPATCH FAILURE: memory add-claim requires --subject — run: kernl memory add-claim --subject "<topic>" "<statement>"`)
+		return usagef(`KERNL DISPATCH FAILURE: memory add-claim requires --subject - run: kernl memory add-claim --subject "<topic>" "<statement>"`)
 	}
 	if len(rest) == 0 {
-		return usagef(`KERNL DISPATCH FAILURE: memory add-claim requires a statement — run: kernl memory add-claim --subject "<topic>" "<statement>"`)
+		return usagef(`KERNL DISPATCH FAILURE: memory add-claim requires a statement - run: kernl memory add-claim --subject "<topic>" "<statement>"`)
 	}
 	// An unquoted multi-word statement is the common shell slip, and joining
 	// it is unambiguously what the caller meant.
@@ -279,17 +279,17 @@ func noMemoryArgs(verb string, args []string) error {
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: %s takes no positional arguments, got %q — run: kernl %s --help", verb, args[0], verb)
+		return usagef("KERNL DISPATCH FAILURE: %s takes no positional arguments, got %q - run: kernl %s --help", verb, args[0], verb)
 	}
 	return nil
 }
 
 func singleMemoryClaimID(verb string, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires a claim ID — run: kernl %s <claim-id>. Find one with: kernl memory claims --topic <topic>", verb, verb)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires a claim ID - run: kernl %s <claim-id>. Find one with: kernl memory claims --topic <topic>", verb, verb)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one claim ID, got %d (%s) — run: kernl %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one claim ID, got %d (%s) - run: kernl %s --help",
 			verb, len(args), strings.Join(args, ", "), verb)
 	}
 	return args[0], nil
@@ -348,7 +348,7 @@ func printMemoryTelos(w io.Writer, raw json.RawMessage) error {
 	}
 	warning := ""
 	if payload.Injection.Truncated {
-		warning = " (TRUNCATED — the DA is not seeing all of it)"
+		warning = " (TRUNCATED - the DA is not seeing all of it)"
 	}
 	fmt.Fprintf(w, "\n%d note(s), injecting %d/%d bytes%s\n",
 		len(payload.Notes), payload.Injection.Bytes, payload.Injection.CapBytes, warning)

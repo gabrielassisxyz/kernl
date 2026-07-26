@@ -6,7 +6,7 @@ import (
 )
 
 // A dangling flag value used to send every verb to root `kernl --help`, which
-// lists the verbs and none of their flags — so it could not answer the question
+// lists the verbs and none of their flags - so it could not answer the question
 // the caller had just got wrong. The hint names the owning verb now.
 func TestTakeFlagDanglingValuePointsAtTheOwningVerb(t *testing.T) {
 	_, _, _, err := takeFlag("task list", []string{"--project"}, "--project")

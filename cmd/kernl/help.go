@@ -15,7 +15,7 @@ type commandMeta struct {
 	Details string
 	Flags   []commandFlag
 	// FlagsHeading overrides the "Flags:" line above the block. `inbox batch`
-	// needs it to say the flags cover all three of its subcommands — a fact
+	// needs it to say the flags cover all three of its subcommands - a fact
 	// about scope, not decoration, which would have been lost by forcing every
 	// block to the same heading.
 	FlagsHeading string
@@ -23,14 +23,14 @@ type commandMeta struct {
 }
 
 // commandFlag is one flag, described once. The "Flags:" block of a help page is
-// RENDERED from this — it is not written by hand into Details — so `--help` and
+// RENDERED from this - it is not written by hand into Details - so `--help` and
 // `capabilities --json` cannot disagree about what a flag is or takes.
 //
 // WHY it works this way. Before this, the flags existed only as prose inside
 // Details: an agent invited to pin against the machine contract could see 22
 // verbs and none of their 125 flags, and the two descriptions could drift apart
 // silently. Putting the structured data next to the prose would have been the
-// same defect with extra steps — two sources for one fact. So the prose became
+// same defect with extra steps - two sources for one fact. So the prose became
 // the derived artifact and this became the source.
 //
 // Value is the placeholder shown after the flag ("<n>", "<path>"); empty means
@@ -62,7 +62,7 @@ A section that cannot be read says so and names why; it does not report
 zero. "Nothing pending" and "could not ask" are different answers, and
 conflating them is how a caller concludes no judgment gate is waiting.
 
-Exit code is non-zero only when NOTHING could be read — a partial report
+Exit code is non-zero only when NOTHING could be read - a partial report
 is a successful triage.
 
 {{flags}}`,
@@ -310,7 +310,7 @@ func printHelpFor(topic []string) error {
 	}
 	cmd := findCommand(commandTable, topic[0])
 	if cmd == nil {
-		return usagef("KERNL DISPATCH FAILURE: no help topic %q — valid topics: %s. Run: kernl --help",
+		return usagef("KERNL DISPATCH FAILURE: no help topic %q - valid topics: %s. Run: kernl --help",
 			topic[0], strings.Join(commandNames(), ", "))
 	}
 	qualified := "kernl " + cmd.Name
@@ -319,7 +319,7 @@ func printHelpFor(topic []string) error {
 	// would answer a question about the child with the parent's page.
 	//
 	// Extra tokens under a command WITHOUT sub-verbs are the user's own args
-	// (e.g. `kernl capture quick note --help`), not a topic path — show the
+	// (e.g. `kernl capture quick note --help`), not a topic path - show the
 	// command's help rather than erroring on the user's text.
 	for _, name := range topic[1:] {
 		if len(cmd.Subs) == 0 {
@@ -327,7 +327,7 @@ func printHelpFor(topic []string) error {
 		}
 		sub := findCommand(cmd.Subs, name)
 		if sub == nil {
-			return usagef("KERNL DISPATCH FAILURE: no help topic %q under %q — valid: %s. Run: kernl %s --help",
+			return usagef("KERNL DISPATCH FAILURE: no help topic %q under %q - valid: %s. Run: kernl %s --help",
 				name, cmd.Name, strings.Join(subNames(cmd), ", "), qualified[len("kernl "):])
 		}
 		qualified = qualified + " " + sub.Name
@@ -339,7 +339,7 @@ func printHelpFor(topic []string) error {
 
 func renderCommandHelp(qualified string, cmd *commandMeta) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s — %s\n\nUsage:\n  %s\n", qualified, cmd.Summary, cmd.Usage)
+	fmt.Fprintf(&b, "%s - %s\n\nUsage:\n  %s\n", qualified, cmd.Summary, cmd.Usage)
 	if len(cmd.Subs) > 0 {
 		b.WriteString("\nSubcommands:\n")
 		for _, s := range cmd.Subs {
@@ -354,7 +354,7 @@ func renderCommandHelp(qualified string, cmd *commandMeta) string {
 
 // flagsPlaceholder marks where in a command's Details the rendered flag block
 // goes. It is an explicit token rather than an appended section because the
-// block sits mid-page — prose above it, an Example below — and moving it would
+// block sits mid-page - prose above it, an Example below - and moving it would
 // change every help page this migration was required not to change.
 const flagsPlaceholder = "{{flags}}"
 
@@ -374,7 +374,7 @@ func expandFlagsPlaceholder(cmd *commandMeta) string {
 
 // renderFlagBlock lays the flags out the way they were laid out by hand: each
 // label padded to the width of the widest, then two spaces, then the
-// description. Deriving the column instead of eyeballing it is a side benefit —
+// description. Deriving the column instead of eyeballing it is a side benefit  -
 // adding a long flag now re-aligns its neighbours automatically.
 func renderFlagBlock(flags []commandFlag) string {
 	width := 0
@@ -435,7 +435,7 @@ var subcommandFlagOwners = map[string]string{
 	"--autonomous":        "kernl epic run --autonomous <epic-id>",
 	"--interactive":       "kernl epic run --interactive <epic-id>",
 	// --json is near-universal now (every read verb has it), so the useful hint
-	// is where it goes — after the subcommand — not a stale list of four verbs.
+	// is where it goes - after the subcommand - not a stale list of four verbs.
 	"--json": "any read verb, placed after the subcommand: e.g. kernl task list --json",
 }
 
@@ -446,7 +446,7 @@ func rootFlagHint(flag string) string {
 	// Exact sub-verb flag at the wrong scope is the most common case and
 	// must hit before any fuzzy matching (suggest() only returns dist>=1).
 	if owner, ok := subcommandFlagOwners[flag]; ok {
-		return fmt.Sprintf(" — %s belongs to a subcommand: %s", flag, owner)
+		return fmt.Sprintf(" - %s belongs to a subcommand: %s", flag, owner)
 	}
 	if hint := didYouMean(flag, globalFlagNames); hint != "" {
 		return hint
@@ -456,7 +456,7 @@ func rootFlagHint(flag string) string {
 		owners = append(owners, f)
 	}
 	if match := suggest(flag, owners); match != "" {
-		return fmt.Sprintf(" — did you mean %q? It belongs to: %s", match, subcommandFlagOwners[match])
+		return fmt.Sprintf(" - did you mean %q? It belongs to: %s", match, subcommandFlagOwners[match])
 	}
 	return ""
 }

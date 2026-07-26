@@ -13,7 +13,7 @@ import (
 // PlanCaptureMerge plans an "Update" for a pending capture: it resolves the
 // best-matching existing note and asks the LLM for the additive hunks to merge
 // the capture's body in. An empty TargetNoteID in the plan means no confident
-// target — the caller should fall back to creating a note. The accepted hunks
+// target - the caller should fall back to creating a note. The accepted hunks
 // flow back through ProcessCapture with target "update". Reuses the ingest merge
 // machinery so the inbox and the ingest queue share one merge contract.
 func PlanCaptureMerge(ctx context.Context, g *graph.Graph, llm chat.LLMClient, captureID string) (*ingest.MergePlan, error) {

@@ -100,7 +100,7 @@ const wrapperClass = computed(() => [
 ])
 const enterHint = computed(() => props.saveOnEnter ? '[ENTER] save' : '[ENTER] new line')
 
-// Capture is the whole point of opening the inbox — focus the box so the user
+// Capture is the whole point of opening the inbox - focus the box so the user
 // can type immediately instead of clicking into it first.
 onMounted(() => {
   inputEl.value?.focus()

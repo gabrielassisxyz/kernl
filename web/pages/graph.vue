@@ -195,7 +195,7 @@
 
           <div v-if="!outgoing.length && !incoming.length" class="text-body text-text-muted flex items-center gap-tight">
             <span class="material-symbols-outlined text-[18px] text-status-gate">link_off</span>
-            No connections — this node is orphaned.
+            No connections - this node is orphaned.
           </div>
         </div>
       </aside>
@@ -406,7 +406,7 @@ function runSim(w, h) {
     }
   }
 
-  // Pure physics step — advances node positions by one tick; no DOM access.
+  // Pure physics step - advances node positions by one tick; no DOM access.
   const step = () => {
     const N = simNodesRaw.length
     // charge: pairwise repulsion (O(n²); fine for personal-vault scale)
@@ -556,10 +556,10 @@ function onDrag(e) {
   const p = screenToWorld(e.clientX, e.clientY)
   dragNode.value.x = p.x
   dragNode.value.y = p.y
-  
+
   const el = nodeEls.get(dragNode.value.id)
   if (el) el.setAttribute('transform', `translate(${dragNode.value.x},${dragNode.value.y})`)
-  
+
   for (const l of simLinksRaw) {
     if (l.s.id === dragNode.value.id || l.t.id === dragNode.value.id) {
       const elL = linkEls.get(l.id)

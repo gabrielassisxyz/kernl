@@ -82,7 +82,7 @@ func TestApprovalListLeadsWithWhatIsWaiting(t *testing.T) {
 	if len(api.calls) != 1 || api.calls[0].method != http.MethodGet || api.calls[0].path != "/api/approvals" {
 		t.Fatalf("unexpected calls: %+v", api.calls)
 	}
-	// What is waiting, for what, since when — plus the command that ends it.
+	// What is waiting, for what, since when - plus the command that ends it.
 	for _, want := range []string{
 		"apr-wait", "pending", "3h ago", "Bash(rm -rf build)",
 		"bead kn-42", "session sess-7", "/tmp/repo",
@@ -157,7 +157,7 @@ func TestApprovalResolveApproveWithYesPostsAction(t *testing.T) {
 }
 
 // The backend answers 501 until the judgment-gate capture flow exists. The verb
-// must surface that as a loud, non-zero failure — never the old fabricated
+// must surface that as a loud, non-zero failure - never the old fabricated
 // "Resolved" for an id the server never saw. This is the regression guard for
 // the honest-facade fix.
 func TestApprovalResolveSurfacesNotImplemented(t *testing.T) {
@@ -168,7 +168,7 @@ func TestApprovalResolveSurfacesNotImplemented(t *testing.T) {
 		t.Fatalf("a 501 must be a non-nil error, got success with output: %q", out)
 	}
 	if exitCode(err) != 1 {
-		t.Errorf("501 is a server-side failure — want exit 1, got %d", exitCode(err))
+		t.Errorf("501 is a server-side failure - want exit 1, got %d", exitCode(err))
 	}
 	if strings.Contains(out, "Resolved") {
 		t.Errorf("must not fabricate a resolution, got: %q", out)
@@ -192,7 +192,7 @@ func TestApprovalListSurfacesNotImplemented(t *testing.T) {
 
 func TestApprovalResolveRejectNeedsNoConfirmation(t *testing.T) {
 	api := &fakeApprovalAPI{t: t, status: http.StatusOK, body: `{}`}
-	// Declining only stops work, so it is not gated — asserted so the
+	// Declining only stops work, so it is not gated - asserted so the
 	// asymmetry cannot be "tidied away" without a failing test.
 	if _, err := runApprovalVerb(t, api, "resolve", "apr-7", "--action", "reject"); err != nil {
 		t.Fatalf("approval resolve --action reject failed: %v", err)
@@ -292,7 +292,7 @@ func TestApprovalUsageErrorsExitTwoWithoutTouchingTheServer(t *testing.T) {
 }
 
 // The hint is a copy-paste command, so it has to name the route the approval
-// actually lives on — a session id alone does not make it session-scoped.
+// actually lives on - a session id alone does not make it session-scoped.
 func TestApprovalResolveHintFollowsTheAdvertisedActions(t *testing.T) {
 	gate := approvalView{ID: "apr-1", SessionID: "sess-7", SupportedActions: []string{"approve", "reject"}}
 	if hint := approvalResolveHint(gate); strings.Contains(hint, "--session") ||

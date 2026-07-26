@@ -30,7 +30,7 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 
 	// DA diff-suggest: given a note path and an instruction, ask the LLM for a
 	// revised version and return line-aligned hunks the editor surfaces for
-	// accept/reject. The user always commits — the LLM never writes directly.
+	// accept/reject. The user always commits - the LLM never writes directly.
 	// Gated on cfg.LLM.IsSet() (same as chat); 503 when no provider configured.
 	mux.HandleFunc("POST /api/notes/suggest", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -46,7 +46,7 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 		if !a.Config.LLM.IsSet() {
-			http.Error(w, "no LLM provider configured — add an llm section to kernl.yaml", http.StatusServiceUnavailable)
+			http.Error(w, "no LLM provider configured - add an llm section to kernl.yaml", http.StatusServiceUnavailable)
 			return
 		}
 
@@ -74,7 +74,7 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 		// Send only the body to the LLM and diff only the body, so frontmatter
 		// (the note's id) can never be touched by a suggestion.
 		_, body := notes.SplitFrontmatter(string(current))
-		prompt := fmt.Sprintf("You are editing the body of a markdown note. Apply the instruction and output ONLY the full revised body — no frontmatter, no commentary, no code fences.\n\nInstruction: %s\n\nNote body:\n%s", req.Instruction, body)
+		prompt := fmt.Sprintf("You are editing the body of a markdown note. Apply the instruction and output ONLY the full revised body - no frontmatter, no commentary, no code fences.\n\nInstruction: %s\n\nNote body:\n%s", req.Instruction, body)
 		resp, err := llm.Chat(r.Context(), []chat.Message{{Role: "user", Content: prompt}}, nil)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -183,7 +183,7 @@ func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
 
 		updated := notes.ApplySuggestHunks(string(current), req.Hunks)
 		if updated == string(current) {
-			// Every hunk was out of range / a no-op — surface it rather than
+			// Every hunk was out of range / a no-op - surface it rather than
 			// silently pretending success.
 			http.Error(w, "hunks did not apply to the current note (it may have changed)", http.StatusConflict)
 			return

@@ -76,7 +76,7 @@
           <div v-if="enriching || enriched" class="border border-border-hairline bg-bg-base rounded px-base py-base">
             <p class="font-mono-data text-mono-data text-text-muted">Suggested merges</p>
             <p v-if="enriching" class="mt-tight font-body text-body text-text-muted">Looking for messages that say the same thing…</p>
-            <p v-else-if="proposals.length === 0" class="mt-tight font-body text-body text-text-muted">None — every message stays its own capture.</p>
+            <p v-else-if="proposals.length === 0" class="mt-tight font-body text-body text-text-muted">None - every message stays its own capture.</p>
             <div
               v-for="(proposal, i) in proposals"
               :key="i"
@@ -145,7 +145,7 @@ interface BatchSegment {
 
 // FinalBatchSegment mirrors inbox.FinalBatchSegment (internal/inbox/batch_enrichment.go).
 // Its body is only ever a preview: the server rebuilds every body from the
-// pasted text and honors nothing here but sourceSequences — the merges the user
+// pasted text and honors nothing here but sourceSequences - the merges the user
 // accepted.
 interface FinalBatchSegment {
   body: string
@@ -204,7 +204,7 @@ const autoClassify = ref(true)
 const canSubmit = computed(() => text.value.trim().length > 0)
 
 // The captures as they will be created: one per message, plus the merges the
-// user accepted. Mirrors buildFinalSegments in internal/inbox/batch.go — the
+// user accepted. Mirrors buildFinalSegments in internal/inbox/batch.go - the
 // server rebuilds this from the same rules, and its answer is the one that counts.
 const finalSegments = computed<FinalBatchSegment[]>(() => {
   const groupOf = new Map<number, number[]>()
@@ -279,7 +279,7 @@ function applySplit(preview: BatchPreview, updateTitle: boolean) {
   enriched.value = false
 }
 
-// The modal opens on the mechanical split — reading your own messages must not
+// The modal opens on the mechanical split - reading your own messages must not
 // wait on a model. Enrichment lands afterwards, as a layer on top.
 async function openReview() {
   if (!canSubmit.value) return

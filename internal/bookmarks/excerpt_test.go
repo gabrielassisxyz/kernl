@@ -37,7 +37,7 @@ func TestExtractExcerptTruncates(t *testing.T) {
 }
 
 func TestExtractExcerptFallbackNoArticle(t *testing.T) {
-	// No article/main/etc — should still extract body text via sanitize+strip.
+	// No article/main/etc - should still extract body text via sanitize+strip.
 	html := `<div><p>Plain content here.</p></div>`
 	got := ExtractExcerpt(html, 500)
 	if !strings.Contains(got, "Plain content here.") {

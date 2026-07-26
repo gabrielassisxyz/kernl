@@ -74,7 +74,7 @@ Example:
 			Summary: "Delete a project and its companion note (requires --yes)",
 			Usage:   "kernl project delete [--json] <id> --yes",
 			Details: `Destructive and not undoable: it removes the project node AND deletes the
-companion note file from the vault. Tasks are not cascaded — they keep their
+companion note file from the vault. Tasks are not cascaded - they keep their
 projectId and render as unassigned.
 
 Without --yes nothing is deleted: the project that would go is printed and
@@ -128,7 +128,7 @@ func projectList(v verbContext, c *apiClient, asJSON bool, args []string) error 
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: project list takes no arguments, got %q — run: kernl project list [--json]", args[0])
+		return usagef("KERNL DISPATCH FAILURE: project list takes no arguments, got %q - run: kernl project list [--json]", args[0])
 	}
 
 	raw, err := c.get(context.Background(), "/api/projects")
@@ -144,7 +144,7 @@ func projectList(v verbContext, c *apiClient, asJSON bool, args []string) error 
 		return err
 	}
 	if len(projects) == 0 {
-		fmt.Fprintln(v.stdout(), "No projects yet — create one with: kernl project create <title>")
+		fmt.Fprintln(v.stdout(), "No projects yet - create one with: kernl project create <title>")
 		return nil
 	}
 	for _, p := range projects {
@@ -190,10 +190,10 @@ func projectCreate(v verbContext, c *apiClient, asJSON bool, args []string) erro
 // refusing both at once: silently preferring one would hide a typo'd flag.
 func projectCreateTitle(fields projectFields, rest []string) (string, error) {
 	if len(rest) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: project create takes one title, got %d arguments — quote it: kernl project create \"%s\"", len(rest), strings.Join(rest, " "))
+		return "", usagef("KERNL DISPATCH FAILURE: project create takes one title, got %d arguments - quote it: kernl project create \"%s\"", len(rest), strings.Join(rest, " "))
 	}
 	if len(rest) == 1 && fields.hasTitle {
-		return "", usagef("KERNL DISPATCH FAILURE: project create got a title both positionally (%q) and via --title (%q) — pass only one", rest[0], fields.title)
+		return "", usagef("KERNL DISPATCH FAILURE: project create got a title both positionally (%q) and via --title (%q) - pass only one", rest[0], fields.title)
 	}
 	if len(rest) == 1 {
 		return rest[0], nil
@@ -201,7 +201,7 @@ func projectCreateTitle(fields projectFields, rest []string) (string, error) {
 	if fields.hasTitle && strings.TrimSpace(fields.title) != "" {
 		return fields.title, nil
 	}
-	return "", usagef("KERNL DISPATCH FAILURE: project create requires a title — run: kernl project create \"My project\"")
+	return "", usagef("KERNL DISPATCH FAILURE: project create requires a title - run: kernl project create \"My project\"")
 }
 
 func projectSet(v verbContext, c *apiClient, asJSON bool, args []string) error {
@@ -219,7 +219,7 @@ func projectSet(v verbContext, c *apiClient, asJSON bool, args []string) error {
 
 	body := fields.patchBody()
 	if len(body) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: project set %s changes nothing — pass at least one of --title, --description, --status, --tags", id)
+		return usagef("KERNL DISPATCH FAILURE: project set %s changes nothing - pass at least one of --title, --description, --status, --tags", id)
 	}
 	raw, err := c.patch(context.Background(), "/api/projects/"+url.PathEscape(id), body)
 	if err != nil {
@@ -270,10 +270,10 @@ func previewProjectDelete(v verbContext, c *apiClient, asJSON bool, id string) e
 			}
 			return refusedWithoutYes("project delete")
 		}
-		fmt.Fprintf(v.stdout(), "Would delete project %s — %s, plus its companion note. Re-run with --yes.\n", p.ID, p.Title)
+		fmt.Fprintf(v.stdout(), "Would delete project %s - %s, plus its companion note. Re-run with --yes.\n", p.ID, p.Title)
 		return refusedWithoutYes("project delete")
 	}
-	return usagef("KERNL DISPATCH FAILURE: no project with id %q — list them with: kernl project list", id)
+	return usagef("KERNL DISPATCH FAILURE: no project with id %q - list them with: kernl project list", id)
 }
 
 // projectFields carries the four editable attributes with a "was it given"
@@ -339,17 +339,17 @@ func splitProjectTags(raw string) []string {
 
 func projectSingleID(verb, example string, rest []string) (string, error) {
 	if len(rest) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires a project id — run: %s", verb, example)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires a project id - run: %s", verb, example)
 	}
 	if len(rest) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes one project id, got %d: %s — run: %s", verb, len(rest), strings.Join(rest, " "), example)
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes one project id, got %d: %s - run: %s", verb, len(rest), strings.Join(rest, " "), example)
 	}
 	return rest[0], nil
 }
 
 // emitMutation reports a route that answers 204 with an empty body. There is
 // nothing to pass through, so --json gets a minimal confirmation object
-// instead of a blank line — an agent parsing stdout needs valid JSON.
+// instead of a blank line - an agent parsing stdout needs valid JSON.
 func emitProjectMutation(w io.Writer, asJSON bool, raw json.RawMessage, id, action, human string) error {
 	if !asJSON {
 		fmt.Fprintln(w, human)

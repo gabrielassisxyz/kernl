@@ -13,8 +13,8 @@ import (
 
 // runPlan shows the substrate-aware planning context for a topic: the vault
 // notes the DA planner would automatically have in scope. This is the keystone
-// seam made visible from the CLI — "you're about to plan X, here are your notes
-// on it" — no hunting, no manual paste.
+// seam made visible from the CLI - "you're about to plan X, here are your notes
+// on it" - no hunting, no manual paste.
 func runPlan(configPath string, args []string) error {
 	var asJSON bool
 	var topicWords []string
@@ -23,14 +23,14 @@ func runPlan(configPath string, args []string) error {
 		case arg == "--json":
 			asJSON = true
 		case strings.HasPrefix(arg, "-"):
-			return usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s — valid: --json",
+			return usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s - valid: --json",
 				arg, didYouMean(arg, []string{"--json"}))
 		default:
 			topicWords = append(topicWords, arg)
 		}
 	}
 	if len(topicWords) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: plan requires a topic — run: kernl plan \"caching strategy\"")
+		return usagef("KERNL DISPATCH FAILURE: plan requires a topic - run: kernl plan \"caching strategy\"")
 	}
 	seed := strings.Join(topicWords, " ")
 
@@ -58,7 +58,7 @@ func runPlan(configPath string, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("Planning context for %q — %d relevant note(s) the DA would have in scope:\n\n", seed, len(notes))
+	fmt.Printf("Planning context for %q - %d relevant note(s) the DA would have in scope:\n\n", seed, len(notes))
 	for i, n := range notes {
 		fmt.Printf("%d. %s  [%s]\n   %s\n", i+1, n.Title, n.Via, n.Snippet)
 	}

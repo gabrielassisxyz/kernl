@@ -12,8 +12,8 @@ import (
 //
 // The file contains deny/allow rules, one per line:
 //
-//	PATTERN    — deny (path.Match glob, * does not cross /)
-//	!PATTERN   — allow (exception)
+//	PATTERN    - deny (path.Match glob, * does not cross /)
+//	!PATTERN   - allow (exception)
 //
 // Lines are evaluated top to bottom; the last matching rule wins.
 // If no rule matches, or the file is missing, access is allowed.

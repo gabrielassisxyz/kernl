@@ -15,7 +15,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/notes"
 )
 
-// Applying accepted hunks writes the file and preserves the frontmatter/id —
+// Applying accepted hunks writes the file and preserves the frontmatter/id  -
 // the whole point of routing DA edits through a diff (UAT N4).
 func TestApplyHunksPreservesFrontmatter(t *testing.T) {
 	root := t.TempDir()
@@ -52,7 +52,7 @@ func TestApplyHunksPreservesFrontmatter(t *testing.T) {
 	}
 }
 
-// Rejecting (sending no hunks) must be a 400 — there is nothing to apply, and
+// Rejecting (sending no hunks) must be a 400 - there is nothing to apply, and
 // the file must be untouched.
 func TestApplyHunksRejectsEmpty(t *testing.T) {
 	root := t.TempDir()

@@ -1,4 +1,4 @@
-# Kernl — Glossary
+# Kernl Glossary
 
 > Ubiquitous Language for the Kernl orchestrator. Anchored to `orchestrator/specs/00-architecture.md` where relevant.
 
@@ -6,11 +6,11 @@
 
 The atomic unit of work in Kernl. A bead is a single task with a defined state, dependencies, and an assigned agent pool. It lives in the Dolt-backed issue tracker (`bd`) and moves through a workflow state machine (queue → active → review → terminal).
 
-**Why not "beat"?** The upstream codebase (`foolery-go`, which is Go — not TypeScript) uses "beat" as a domain term. Kernl renamed to "bead" to avoid collision with the common English word and to evoke a bead in a dependency-graph necklace: each bead is discrete but connected. The `orchestrator/specs/00-architecture.md` may retain "beat" in older sections inherited from foolery-go.
+**Why not "beat"?** The upstream codebase (`foolery-go`, which is Go, not TypeScript) uses "beat" as a domain term. Kernl renamed to "bead" to avoid collision with the common English word and to evoke a bead in a dependency-graph necklace: each bead is discrete but connected. The `orchestrator/specs/00-architecture.md` may retain "beat" in older sections inherited from foolery-go.
 
 ## epic
 
-A collection of beads organized as a directed acyclic graph (DAG). Beads within an epic declare dependencies on each other; Kernl schedules independent beads in parallel waves. Epics are the unit of human ambition — "turn this idea into an epic" is the entry point. See `orchestrator/specs/00-architecture.md` §8.3 for hierarchy and §8.4 for cycle safety.
+A collection of beads organized as a directed acyclic graph (DAG). Beads within an epic declare dependencies on each other; Kernl schedules independent beads in parallel waves. Epics are the unit of human ambition: "turn this idea into an epic" is the entry point. See `orchestrator/specs/00-architecture.md` §8.3 for hierarchy and §8.4 for cycle safety.
 
 ## take loop
 
@@ -22,7 +22,7 @@ The resolution chain that maps a bead to a concrete agent process. Given a workf
 
 ## fail-fast
 
-When any bead in a wave returns a non-success state or error, the executor immediately sets the epic to `blocked`, drains all in-flight goroutines, and returns without dispatching the next wave. Beads that depend (directly or transitively) on the failed bead are never dispatched. A separate deadlock detector catches the case where no beads are ready but work remains — that becomes `EpicFailed` instead. See `orchestrator/specs/00-architecture.md` §5.1 and the wave loop in `internal/epic/wave.go`.
+When any bead in a wave returns a non-success state or error, the executor immediately sets the epic to `blocked`, drains all in-flight goroutines, and returns without dispatching the next wave. Beads that depend (directly or transitively) on the failed bead are never dispatched. A separate deadlock detector catches the case where no beads are ready but work remains; that becomes `EpicFailed` instead. See `orchestrator/specs/00-architecture.md` §5.1 and the wave loop in `internal/epic/wave.go`.
 
 ## cross-agent review
 
@@ -42,7 +42,7 @@ Server-Sent Events stream scoped to a single epic at `GET /api/epics/{id}/events
 
 ## realized parallelism
 
-The ratio of peak concurrent agent sessions to the maximum the epic's dependency graph would allow: `peak / graphMax`. Reported on epic completion as `paralelismo realizado`. A value of `2.0x` on a DAG with max parallelism 2 means both allowed concurrent beads ran simultaneously — the scheduler achieved the theoretical maximum. A value near `1.0x` means the graph was effectively sequential despite having parallelizable branches. This is one of Kernl's key metrics from `docs/STRATEGY.md`.
+The ratio of peak concurrent agent sessions to the maximum the epic's dependency graph would allow: `peak / graphMax`. Reported on epic completion as `paralelismo realizado`. A value of `2.0x` on a DAG with max parallelism 2 means both allowed concurrent beads ran simultaneously, so the scheduler achieved the theoretical maximum. A value near `1.0x` means the graph was effectively sequential despite having parallelizable branches. This is one of Kernl's key metrics from `docs/STRATEGY.md`.
 
 ## run-state
 
@@ -58,4 +58,4 @@ A set of beads within an epic that have no remaining unsatisfied dependencies an
 
 ## knots (dormant)
 
-A lease system that records which agent is working on which bead, with canonical metadata (agent name, type, provider). Single-bead sessions create a Knots lease on spawn and release it on completion. Scene (parent-with-children) sessions do not create leases. Marked **dormant** — the implementation is deferred but the concept is reserved in the domain model. See `orchestrator/specs/00-architecture.md` §5.4.
+A lease system that records which agent is working on which bead, with canonical metadata (agent name, type, provider). Single-bead sessions create a Knots lease on spawn and release it on completion. Scene (parent-with-children) sessions do not create leases. Marked **dormant**; the implementation is deferred but the concept is reserved in the domain model. See `orchestrator/specs/00-architecture.md` §5.4.

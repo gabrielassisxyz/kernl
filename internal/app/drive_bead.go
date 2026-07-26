@@ -310,7 +310,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 	}
 
 	return RunBeadResult{FinalState: lastResult.FinalState, Success: false},
-		fmt.Errorf("KERNL DISPATCH FAILURE: bead %s exceeded max stages (%d) — Fix: check workflow for cycles", deps.BeadID, maxStages)
+		fmt.Errorf("KERNL DISPATCH FAILURE: bead %s exceeded max stages (%d) - Fix: check workflow for cycles", deps.BeadID, maxStages)
 }
 
 func buildStageComment(state, agentID, sessionID, artifactPath, commitSHA string, duration time.Duration) string {
@@ -395,7 +395,7 @@ func injectOpencodeConfigEnv(env map[string]string, repoPath string) map[string]
 
 // appendOpencodeStageFlags adds the per-stage flags opencode needs to
 // (a) work in the correct directory, (b) carry a recognizable session title
-// in the agent UI, and (c) actually receive the prompt — mirroring the
+// in the agent UI, and (c) actually receive the prompt - mirroring the
 // shape used by scripts/swarm/swarm_parallel.py:cmd().
 //
 // Idempotent: if a flag is already present (e.g. user configured --dir in
@@ -419,7 +419,7 @@ func appendOpencodeStageFlags(args []string, beadID, worktree, sessionID, prompt
 	if !hasFlag("--title") {
 		out = append(out, "--title", "kernl:"+beadID)
 	}
-	// Positional prompt goes LAST — opencode treats trailing positionals
+	// Positional prompt goes LAST - opencode treats trailing positionals
 	// as the message.
 	out = append(out, prompt)
 	return out

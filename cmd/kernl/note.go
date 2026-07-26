@@ -44,7 +44,7 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 
 {{flags}}`,
 			Flags: []commandFlag{
-				{Name: "--json", Description: `Emit {"path","content"} instead — the route itself returns`,
+				{Name: "--json", Description: `Emit {"path","content"} instead - the route itself returns`,
 					Continuation: []string{"text/plain, so there is no server JSON to pass through"}},
 			},
 		},
@@ -95,7 +95,7 @@ deleted and exits 0.
 			Usage:   "kernl note suggest <path> --instruction <text> [--json]",
 			Details: `Returns line-aligned hunks to review; nothing is written until they are
 fed back through 'kernl note apply-hunks'. Needs an llm section in
-kernl.yaml — without one the server answers 503.
+kernl.yaml - without one the server answers 503.
 
 {{flags}}`,
 			Flags: []commandFlag{
@@ -107,8 +107,8 @@ kernl.yaml — without one the server answers 503.
 			Name:    "apply-hunks",
 			Summary: "Apply hunks from 'note suggest' to a note",
 			Usage:   "kernl note apply-hunks <path> [--hunks <local-path>] [--json]",
-			Details: `Reads a JSON array of hunks — either the "hunks" array of a suggest
-response, or the whole response object — from --hunks or stdin, and
+			Details: `Reads a JSON array of hunks - either the "hunks" array of a suggest
+response, or the whole response object - from --hunks or stdin, and
 applies exactly those. Pass only the hunks that were reviewed.
 
 {{flags}}
@@ -163,10 +163,10 @@ func notePathArg(sub string, args []string) (string, error) {
 		return "", err
 	}
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: note %s requires a vault-relative note path — example: kernl note %s projects/kernl.md", sub, sub)
+		return "", usagef("KERNL DISPATCH FAILURE: note %s requires a vault-relative note path - example: kernl note %s projects/kernl.md", sub, sub)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: note %s takes exactly one path, got %d (%s) — quote paths containing spaces", sub, len(args), strings.Join(args, ", "))
+		return "", usagef("KERNL DISPATCH FAILURE: note %s takes exactly one path, got %d (%s) - quote paths containing spaces", sub, len(args), strings.Join(args, ", "))
 	}
 	return args[0], nil
 }
@@ -180,7 +180,7 @@ func rejectNoteArgs(sub string, args []string) error {
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: note %s takes no arguments, got %q — run: kernl note %s --help", sub, args[0], sub)
+		return usagef("KERNL DISPATCH FAILURE: note %s takes no arguments, got %q - run: kernl note %s --help", sub, args[0], sub)
 	}
 	return nil
 }
@@ -255,7 +255,7 @@ func runNoteRead(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, 
 	}
 	if asJSON {
 		// This route returns text/plain, so there is no server JSON to pass
-		// through — the CLI builds the envelope rather than emitting a
+		// through - the CLI builds the envelope rather than emitting a
 		// bare blob that no --json consumer could parse.
 		return json.NewEncoder(out).Encode(map[string]string{"path": path, "content": string(raw)})
 	}
@@ -289,11 +289,11 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 }
 
 // readNoteBody takes the payload from a local file, or from stdin when the
-// flag was omitted — the same "arg or stdin" shape `kernl capture` uses.
+// flag was omitted - the same "arg or stdin" shape `kernl capture` uses.
 func readNoteBody(sub, flag, source string, hasSource bool) ([]byte, error) {
 	if hasSource {
 		if strings.TrimSpace(source) == "" {
-			return nil, usagef("KERNL DISPATCH FAILURE: note %s %s requires a readable local file path — example: kernl note %s <path> %s ./body.md", sub, flag, sub, flag)
+			return nil, usagef("KERNL DISPATCH FAILURE: note %s %s requires a readable local file path - example: kernl note %s <path> %s ./body.md", sub, flag, sub, flag)
 		}
 		body, err := os.ReadFile(source)
 		if err != nil {
@@ -302,14 +302,14 @@ func readNoteBody(sub, flag, source string, hasSource bool) ([]byte, error) {
 		return body, nil
 	}
 	if stdinIsTerminal() {
-		return nil, usagef("KERNL DISPATCH FAILURE: note %s reads its body from stdin, but stdin is a terminal — pipe content in (echo ... | kernl note %s <path>) or pass %s <local-path>", sub, sub, flag)
+		return nil, usagef("KERNL DISPATCH FAILURE: note %s reads its body from stdin, but stdin is a terminal - pipe content in (echo ... | kernl note %s <path>) or pass %s <local-path>", sub, sub, flag)
 	}
 	body, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return nil, wrapLoud("reading the note body from stdin", err)
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, usagef("KERNL DISPATCH FAILURE: note %s got an empty body — pipe content on stdin or pass %s <local-path>", sub, flag)
+		return nil, usagef("KERNL DISPATCH FAILURE: note %s got an empty body - pipe content on stdin or pass %s <local-path>", sub, flag)
 	}
 	return body, nil
 }
@@ -382,7 +382,7 @@ func runNoteSuggest(ctx context.Context, c *apiClient, out io.Writer, asJSON boo
 		return err
 	}
 	if !hasInstruction || strings.TrimSpace(instruction) == "" {
-		return usagef("KERNL DISPATCH FAILURE: note suggest requires --instruction <text> — example: kernl note suggest %s --instruction \"tighten the intro\"", path)
+		return usagef("KERNL DISPATCH FAILURE: note suggest requires --instruction <text> - example: kernl note suggest %s --instruction \"tighten the intro\"", path)
 	}
 	raw, err := c.post(ctx, "/api/notes/suggest", map[string]string{"path": path, "instruction": instruction})
 	if err != nil {
@@ -464,7 +464,7 @@ func parseHunks(body []byte) ([]json.RawMessage, error) {
 
 func requireHunks(hunks []json.RawMessage) ([]json.RawMessage, error) {
 	if len(hunks) == 0 {
-		return nil, usagef("KERNL DISPATCH FAILURE: no hunks to apply — pass the hunks you accepted from 'kernl note suggest <path> --instruction <text> --json'")
+		return nil, usagef("KERNL DISPATCH FAILURE: no hunks to apply - pass the hunks you accepted from 'kernl note suggest <path> --instruction <text> --json'")
 	}
 	return hunks, nil
 }
@@ -479,7 +479,7 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 // postRaw sends a body the server wants verbatim (a note is markdown, not
-// JSON), reusing the client's transport and its status/exit-code mapping —
+// JSON), reusing the client's transport and its status/exit-code mapping  -
 // apiClient.post would JSON-encode the markdown and write a quoted string.
 func (c *apiClient) postRaw(ctx context.Context, path, contentType string, body []byte) (json.RawMessage, error) {
 	base, err := c.base()

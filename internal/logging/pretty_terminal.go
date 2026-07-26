@@ -72,7 +72,7 @@ func (h *prettyTerminalHandler) Handle(_ context.Context, r slog.Record) error {
 }
 
 // formatDiagnostic renders a warning or an error as one readable line, with its
-// attributes trailing — "ERROR server error: listen tcp :8080: address already in use".
+// attributes trailing - "ERROR server error: listen tcp :8080: address already in use".
 func (h *prettyTerminalHandler) formatDiagnostic(r slog.Record) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s", r.Level, r.Message)
@@ -180,9 +180,9 @@ func firstNonEmpty(vals ...string) string {
 	return "?"
 }
 
-// ANSI color helpers — no-op if stdout is not a tty.
+// ANSI color helpers - no-op if stdout is not a tty.
 // Precedence: NO_COLOR / TERM=dumb / CI always win (agents and CI logs must
-// never receive ANSI codes — https://no-color.org), then FORCE_COLOR forces
+// never receive ANSI codes - https://no-color.org), then FORCE_COLOR forces
 // color on, then TTY detection decides.
 var colorEnabled = detectColorEnabled(os.Getenv, func() bool {
 	stat, _ := os.Stdout.Stat()

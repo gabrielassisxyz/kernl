@@ -302,12 +302,12 @@ type BackendDispatchError struct {
 
 func (e *BackendDispatchError) Error() string {
 	banner := fmt.Sprintf(
-		"KERNL DISPATCH FAILURE: %s %s — method=%s repoPath=%s",
+		"KERNL DISPATCH FAILURE: %s %s - method=%s repoPath=%s",
 		e.Kind, e.Reason, e.Method, e.RepoPath,
 	)
 	if e.RepoPath == "" {
 		banner = fmt.Sprintf(
-			"KERNL DISPATCH FAILURE: %s %s — method=%s repoPath=(empty)",
+			"KERNL DISPATCH FAILURE: %s %s - method=%s repoPath=(empty)",
 			e.Kind, e.Reason, e.Method,
 		)
 	}

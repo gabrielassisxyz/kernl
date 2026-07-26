@@ -326,7 +326,7 @@ func (h *e2eHarness) readDiskFile(relPath string) []byte {
 }
 
 // ---------------------------------------------------------------------------
-// AE1 — UUID injection: injected on disk, other frontmatter bytes unchanged
+// AE1 - UUID injection: injected on disk, other frontmatter bytes unchanged
 // ---------------------------------------------------------------------------
 
 func TestE2E_AE1_UUIDInjection(t *testing.T) {
@@ -381,11 +381,11 @@ func TestE2E_AE1_UUIDInjection(t *testing.T) {
 		t.Errorf("AE1: body missing after UUID injection; got:\n%s", afterStr)
 	}
 
-	t.Logf("result: AE1 PASS — UUID %q injected, other frontmatter bytes unchanged", injectedUUID)
+	t.Logf("result: AE1 PASS - UUID %q injected, other frontmatter bytes unchanged", injectedUUID)
 }
 
 // ---------------------------------------------------------------------------
-// AE2 — Move preserves identity: inbound links intact, no content revision
+// AE2 - Move preserves identity: inbound links intact, no content revision
 // ---------------------------------------------------------------------------
 
 func TestE2E_AE2_MovedNotePreservesIdentity(t *testing.T) {
@@ -478,11 +478,11 @@ func TestE2E_AE2_MovedNotePreservesIdentity(t *testing.T) {
 		t.Errorf("AE2: expected revision count unchanged after move; before=%d after=%d (used git mv: %v)", revsBefore, revsAfter, usedGitMV)
 	}
 
-	t.Logf("result: AE2 PASS — move preserved identity; inbound links=%d; git mv used: %v", len(incomingLinksToEdges(t, h.g, "ae2-target")), usedGitMV)
+	t.Logf("result: AE2 PASS - move preserved identity; inbound links=%d; git mv used: %v", len(incomingLinksToEdges(t, h.g, "ae2-target")), usedGitMV)
 }
 
 // ---------------------------------------------------------------------------
-// AE3 — Dangling links: [[Roadmap]] with no target → dangling row, no phantom
+// AE3 - Dangling links: [[Roadmap]] with no target → dangling row, no phantom
 // ---------------------------------------------------------------------------
 
 func TestE2E_AE3_DanglingLinkNoPhantomNode(t *testing.T) {
@@ -514,15 +514,15 @@ func TestE2E_AE3_DanglingLinkNoPhantomNode(t *testing.T) {
 		t.Fatalf("check phantom node: %v", err)
 	}
 	if phantomExists {
-		t.Error("AE3: phantom 'Roadmap' node was created — should not exist")
+		t.Error("AE3: phantom 'Roadmap' node was created - should not exist")
 	}
 
 	dCount := countDanglingByTarget(t, h.g, "Roadmap")
-	t.Logf("result: AE3 PASS — dangling_links rows for 'Roadmap': %d; no phantom node created", dCount)
+	t.Logf("result: AE3 PASS - dangling_links rows for 'Roadmap': %d; no phantom node created", dCount)
 }
 
 // ---------------------------------------------------------------------------
-// AE4 — Dangling link promotion: create Roadmap.md → edge auto-promoted
+// AE4 - Dangling link promotion: create Roadmap.md → edge auto-promoted
 // ---------------------------------------------------------------------------
 
 func TestE2E_AE4_DanglingLinkPromotion(t *testing.T) {
@@ -541,7 +541,7 @@ func TestE2E_AE4_DanglingLinkPromotion(t *testing.T) {
 	})
 	t.Logf("step: ae4-src live with dangling [[Roadmap]] link")
 
-	// Step 2: create Roadmap.md — the dangling link should be promoted.
+	// Step 2: create Roadmap.md - the dangling link should be promoted.
 	const roadmapPath = "notes/Roadmap.md"
 	const roadmapContent = "---\nid: ae4-roadmap\ntitle: Roadmap\n---\n\nThe roadmap.\n"
 	h.writeFile(roadmapPath, roadmapContent)
@@ -575,11 +575,11 @@ func TestE2E_AE4_DanglingLinkPromotion(t *testing.T) {
 		t.Errorf("AE4: expected links_to edge from ae4-src to ae4-roadmap; edges: %+v", inbound)
 	}
 
-	t.Logf("result: AE4 PASS — dangling link promoted to real links_to edge")
+	t.Logf("result: AE4 PASS - dangling link promoted to real links_to edge")
 }
 
 // ---------------------------------------------------------------------------
-// AE5 — Tombstone after delete: node tombstoned, inbound links degrade,
+// AE5 - Tombstone after delete: node tombstoned, inbound links degrade,
 //        revision history retrievable
 // ---------------------------------------------------------------------------
 
@@ -672,11 +672,11 @@ func TestE2E_AE5_DeleteTombstoneAndHistory(t *testing.T) {
 		t.Error("AE5: no revision history for tombstoned node")
 	}
 
-	t.Logf("result: AE5 PASS — tombstoned, hidden from ListNotes, inbound links degraded, history=%d revisions", len(revsAfter))
+	t.Logf("result: AE5 PASS - tombstoned, hidden from ListNotes, inbound links degraded, history=%d revisions", len(revsAfter))
 }
 
 // ---------------------------------------------------------------------------
-// AE6 — DA attribution: vault-llm/ note with author:DA → attributed to agent:da
+// AE6 - DA attribution: vault-llm/ note with author:DA → attributed to agent:da
 // ---------------------------------------------------------------------------
 
 func TestE2E_AE6_DAAttribution(t *testing.T) {
@@ -719,7 +719,7 @@ func TestE2E_AE6_DAAttribution(t *testing.T) {
 		t.Errorf("AE6: first revision author = %q, want %q", firstRev.Author, "agent:da")
 	}
 
-	t.Logf("result: AE6 PASS — note.Author=%q, first revision author=%q", n.Author, firstRev.Author)
+	t.Logf("result: AE6 PASS - note.Author=%q, first revision author=%q", n.Author, firstRev.Author)
 }
 
 // ---------------------------------------------------------------------------
@@ -764,7 +764,7 @@ func TestE2E_RebuildFromVault(t *testing.T) {
 			return nodeExistsByID(t, g1, id)
 		})
 	}
-	t.Logf("step: phase 1 — 3 notes written and confirmed in graph")
+	t.Logf("step: phase 1 - 3 notes written and confirmed in graph")
 
 	// Capture revision count before wipe.
 	revsBeforeWipe := countAllRevisions(t, g1)
@@ -824,7 +824,7 @@ func TestE2E_RebuildFromVault(t *testing.T) {
 	}
 	t.Logf("step: all 3 notes FTS-findable in fresh graph")
 
-	// Assert: revision history is absent by design (R17 — only current state rebuilt).
+	// Assert: revision history is absent by design (R17 - only current state rebuilt).
 	// ColdStart creates exactly 1 revision per note (the "create" revision).
 	// There should NOT be more than N revisions (one per note from ColdStart).
 	revsAfterRebuild := countAllRevisions(t, g2)
@@ -835,7 +835,7 @@ func TestE2E_RebuildFromVault(t *testing.T) {
 		t.Errorf("RebuildFromVault: expected ≤3 revisions after rebuild (one per note), got %d", revsAfterRebuild)
 	}
 
-	t.Logf("result: RebuildFromVault PASS — 3 notes reconstructed, FTS-indexed, revisions=%d (history absent by design)", revsAfterRebuild)
+	t.Logf("result: RebuildFromVault PASS - 3 notes reconstructed, FTS-indexed, revisions=%d (history absent by design)", revsAfterRebuild)
 }
 
 // ---------------------------------------------------------------------------
@@ -878,7 +878,7 @@ func TestE2E_IdempotentRestart(t *testing.T) {
 			return nodeExistsByID(t, g1, id)
 		})
 	}
-	t.Logf("step: phase 1 — 2 notes written and confirmed")
+	t.Logf("step: phase 1 - 2 notes written and confirmed")
 
 	// Stop and reopen (no disk changes in between).
 	cancel1()
@@ -890,7 +890,7 @@ func TestE2E_IdempotentRestart(t *testing.T) {
 	g2 := openGraph(t, dbPath)
 	liveNotesBefore := countLiveNotes(t, g2)
 	revsBefore := countAllRevisions(t, g2)
-	t.Logf("step: before restart — live notes: %d, revisions: %d", liveNotesBefore, revsBefore)
+	t.Logf("step: before restart - live notes: %d, revisions: %d", liveNotesBefore, revsBefore)
 	_ = g2.Close()
 
 	// Phase 2: restart against unchanged vault.
@@ -909,7 +909,7 @@ func TestE2E_IdempotentRestart(t *testing.T) {
 
 	liveNotesAfter := countLiveNotes(t, g3)
 	revsAfter := countAllRevisions(t, g3)
-	t.Logf("step: after restart — live notes: %d, revisions: %d", liveNotesAfter, revsAfter)
+	t.Logf("step: after restart - live notes: %d, revisions: %d", liveNotesAfter, revsAfter)
 
 	if liveNotesAfter != liveNotesBefore {
 		t.Errorf("IdempotentRestart: live note count changed; before=%d after=%d", liveNotesBefore, liveNotesAfter)
@@ -918,7 +918,7 @@ func TestE2E_IdempotentRestart(t *testing.T) {
 		t.Errorf("IdempotentRestart: revision count changed (mutations during no-op restart); before=%d after=%d", revsBefore, revsAfter)
 	}
 
-	t.Logf("result: IdempotentRestart PASS — live notes=%d (unchanged), revisions=%d (unchanged)", liveNotesAfter, revsAfter)
+	t.Logf("result: IdempotentRestart PASS - live notes=%d (unchanged), revisions=%d (unchanged)", liveNotesAfter, revsAfter)
 }
 
 // ---------------------------------------------------------------------------
@@ -954,13 +954,13 @@ func TestE2E_BurstWrite(t *testing.T) {
 		t.Errorf("BurstWrite: expected at least %d live notes, got %d", noteCount, live)
 	}
 
-	// Assert: no inflated revisions — each note should have exactly 1 revision (create).
+	// Assert: no inflated revisions - each note should have exactly 1 revision (create).
 	for _, id := range ids {
 		revCount := countRevisions(t, h.g, id)
 		if revCount != 1 {
-			t.Errorf("BurstWrite: note %q has %d revisions (want 1 — no coalesce inflation)", id, revCount)
+			t.Errorf("BurstWrite: note %q has %d revisions (want 1 - no coalesce inflation)", id, revCount)
 		}
 	}
 
-	t.Logf("result: BurstWrite PASS — %d notes live, each with exactly 1 revision", noteCount)
+	t.Logf("result: BurstWrite PASS - %d notes live, each with exactly 1 revision", noteCount)
 }

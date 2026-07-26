@@ -40,7 +40,7 @@ defineEmits(['select'])
 const files = ref([])
 const loading = ref(true)
 // path → node type, from the graph. The badge shows what a note IS (note,
-// project, …), not where it happens to live — UI-created notes land at the
+// project, …), not where it happens to live - UI-created notes land at the
 // vault root and used to show no badge at all.
 const nodeByPath = ref({})
 

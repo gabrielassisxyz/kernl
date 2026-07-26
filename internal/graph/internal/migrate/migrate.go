@@ -168,7 +168,7 @@ func (r *Runner) applyUp(ctx context.Context, current int, migrations []Migratio
 			continue
 		}
 
-		// Mark dirty first — committed outside the migration transaction so
+		// Mark dirty first - committed outside the migration transaction so
 		// a failed migration leaves the dirty flag intact.
 		if _, err := r.db.ExecContext(ctx, `INSERT INTO schema_migrations(version, dirty) VALUES (?, 1) ON CONFLICT(version) DO UPDATE SET dirty=1`, m.Version); err != nil {
 			return fmt.Errorf("migrate: mark dirty for version %d: %w", m.Version, err)

@@ -92,7 +92,7 @@ func TestSpec11_05_EdgeCreateAndCascade(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 6. Verify no panic on edge queries after deletion (implicit — reaching here passes).
+	// 6. Verify no panic on edge queries after deletion (implicit - reaching here passes).
 }
 
 func openTempGraph(t *testing.T) *graph.Graph {
@@ -173,7 +173,7 @@ func TestSpec11_02_UpdateBeadProducesOneRevision(t *testing.T) {
 		t.Fatal("expected non-empty ID from CreateCapture")
 	}
 
-	// Count revisions after create — expect exactly 1.
+	// Count revisions after create - expect exactly 1.
 	var initialRevs []revisions.Revision
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var listErr error
@@ -199,7 +199,7 @@ func TestSpec11_02_UpdateBeadProducesOneRevision(t *testing.T) {
 		t.Fatalf("UpdateCapture: %v", err)
 	}
 
-	// Count revisions after update — expect exactly 2.
+	// Count revisions after update - expect exactly 2.
 	var afterRevs []revisions.Revision
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var listErr error
@@ -459,7 +459,7 @@ func TestSpec11_04_NoteBodyFTSReplacedOnUpdate(t *testing.T) {
 		t.Fatalf("CreateCapture: %v", err)
 	}
 
-	// Search for "old" — should find it
+	// Search for "old" - should find it
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		hits, err := search.Search(ctx, tx, "old")
 		if err != nil {
@@ -488,7 +488,7 @@ func TestSpec11_04_NoteBodyFTSReplacedOnUpdate(t *testing.T) {
 		t.Fatalf("UpdateCapture: %v", err)
 	}
 
-	// Search for "old" — should yield 0 hits
+	// Search for "old" - should yield 0 hits
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		hits, err := search.Search(ctx, tx, "old")
 		if err != nil {
@@ -503,7 +503,7 @@ func TestSpec11_04_NoteBodyFTSReplacedOnUpdate(t *testing.T) {
 		t.Fatalf("Search for 'old' after update: %v", err)
 	}
 
-	// Search for "new" — should yield 1 hit with correct ID
+	// Search for "new" - should yield 1 hit with correct ID
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		hits, err := search.Search(ctx, tx, "new")
 		if err != nil {

@@ -24,7 +24,7 @@ package backend
 //
 //	lockWaitTimeoutSig:
 //	  Emitted by the orchestrator itself (bdcli.go) when a repo-lock wait
-//	  exceeds the configured limit — not by bd directly.
+//	  exceeds the configured limit - not by bd directly.
 //
 //	commandTimeoutSig:
 //	  Emitted by the orchestrator itself (bdcli.go) when a bd invocation
@@ -36,7 +36,7 @@ package backend
 const (
 	// expectedBdVersion is the bd release this binary was validated against.
 	// If the installed version differs, the orchestrator logs a warning with
-	// marker KERNL BD VERSION DRIFT. Execution continues — this is advisory.
+	// marker KERNL BD VERSION DRIFT. Execution continues - this is advisory.
 	expectedBdVersion = "1.0.4"
 
 	outOfSyncSignature      = "Database out of sync with JSONL"

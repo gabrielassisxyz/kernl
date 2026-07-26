@@ -60,7 +60,7 @@ func TestEpicProfile_LifecycleShape(t *testing.T) {
 		t.Errorf("ready_for_integration runtime = %+v; want claimable into integration", rt)
 	}
 
-	// awaiting_pr_review is a human/terminal handoff — not agent-claimable.
+	// awaiting_pr_review is a human/terminal handoff - not agent-claimable.
 	rtEnd := DeriveWorkflowRuntimeState(wf, "awaiting_pr_review")
 	if rtEnd.IsAgentClaimable {
 		t.Errorf("awaiting_pr_review should not be agent-claimable: %+v", rtEnd)

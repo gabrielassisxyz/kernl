@@ -39,7 +39,7 @@ func TestApplyDefaults_ExplicitValues(t *testing.T) {
 }
 
 func TestValidate_EmptyRoot_Disabled(t *testing.T) {
-	// Empty root is disabled — not an error.
+	// Empty root is disabled - not an error.
 	v := config.VaultConfig{}
 	if err := vault.Validate(v); err != nil {
 		t.Errorf("Validate(empty root) = %v, want nil", err)
@@ -184,7 +184,7 @@ func TestServiceStartStop_NoLeak(t *testing.T) {
 	case <-done:
 		// ok
 	case <-time.After(5 * time.Second):
-		t.Fatal("Stop() did not return within 5s — possible goroutine leak")
+		t.Fatal("Stop() did not return within 5s - possible goroutine leak")
 	}
 }
 
@@ -238,5 +238,5 @@ func TestServiceStartStop_CreateFileReconciled(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("note not reconciled within 5s — event routing or watcher may be broken")
+	t.Fatal("note not reconciled within 5s - event routing or watcher may be broken")
 }

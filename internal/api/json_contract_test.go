@@ -17,7 +17,7 @@ import (
 // assertJSONKeys guards the REST camelCase contract: a node struct reaching the
 // wire without json tags silently exports Go field names, which no frontend
 // contract can rely on. Asserting on the raw keys is the only check that
-// survives — decoding into the struct passes either way.
+// survives - decoding into the struct passes either way.
 func assertJSONKeys(t *testing.T, obj map[string]json.RawMessage, want, reject []string) {
 	t.Helper()
 	for _, k := range want {

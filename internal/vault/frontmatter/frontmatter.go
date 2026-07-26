@@ -26,7 +26,7 @@ type Frontmatter struct {
 // Parse extracts frontmatter values from raw bytes.
 // It looks for a YAML block delimited by leading "---\n" and closing "\n---\n" or "\n---"
 // at end of file. If no frontmatter block is found, an empty Frontmatter is returned
-// with no error — callers should treat absent frontmatter as a valid state.
+// with no error - callers should treat absent frontmatter as a valid state.
 func Parse(raw []byte) (*Frontmatter, error) {
 	block, err := extractBlock(raw)
 	if err != nil {

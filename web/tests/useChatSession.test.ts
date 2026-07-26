@@ -147,7 +147,7 @@ describe('useChatSession', () => {
     mockFetch.mockClear();
     mockFetch.mockResolvedValue({ json: () => Promise.resolve({ id: 'sess-7' }) });
     await sendMessage('Again');
-    // A new session must be created — sessionId was dropped.
+    // A new session must be created - sessionId was dropped.
     expect(mockFetch).toHaveBeenCalledWith('/api/chat/sessions', { method: 'POST' });
   });
 

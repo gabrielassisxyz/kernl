@@ -40,7 +40,7 @@ func TestSchemaLockedSurfacesFromOpen(t *testing.T) {
 	f.Close()
 	t.Cleanup(func() { removeFile(f.Name()) })
 
-	// First open — apply schema, then mark dirty.
+	// First open - apply schema, then mark dirty.
 	g1, err := graph.Open(context.Background(), graph.Config{Path: f.Name()})
 	if err != nil {
 		t.Fatalf("first open: %v", err)
@@ -59,7 +59,7 @@ func TestSchemaLockedSurfacesFromOpen(t *testing.T) {
 		t.Fatalf("close g1: %v", err)
 	}
 
-	// Re-open — should translate migrate.ErrDirty to graph.ErrSchemaLocked.
+	// Re-open - should translate migrate.ErrDirty to graph.ErrSchemaLocked.
 	_, err = graph.Open(context.Background(), graph.Config{Path: f.Name()})
 	if err == nil {
 		t.Fatal("expected error on second open, got nil")

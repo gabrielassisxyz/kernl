@@ -85,7 +85,7 @@ func TestDiffHunkIsLineAligned(t *testing.T) {
 		t.Fatalf("expected 1 hunk, got %d", len(hunks))
 	}
 	// From should sit at the start of the "bravo" line (offset 6), To just past
-	// its newline (offset 12) — a whole-line replacement.
+	// its newline (offset 12) - a whole-line replacement.
 	if hunks[0].From != 6 || hunks[0].To != 12 {
 		t.Errorf("expected line-aligned [6,12), got [%d,%d) content=%q", hunks[0].From, hunks[0].To, hunks[0].Content)
 	}

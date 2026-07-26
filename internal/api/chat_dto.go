@@ -13,7 +13,7 @@ import (
 // json tags at all (so it emits Go field names), and the nested structs it
 // holds carry snake_case tags that are the storage format, not the API's. The
 // message and permission shapes come from internal/chat, which owns the same
-// contract for its SSE events — see the note in internal/chat/wire.go.
+// contract for its SSE events - see the note in internal/chat/wire.go.
 type chatSessionDTO struct {
 	ID                  string                      `json:"id"`
 	CreatedAt           time.Time                   `json:"createdAt"`

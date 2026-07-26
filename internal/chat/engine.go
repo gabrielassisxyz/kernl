@@ -43,7 +43,7 @@ type ChatEngine struct {
 	permissionChecker PermissionChecker
 	app               *app.App
 
-	// capture is set when the session is scoped to one — the engine is then in
+	// capture is set when the session is scoped to one - the engine is then in
 	// routing mode: it gains the suggest_routing tool and the triage prompt. An
 	// engine is per-request, so this and the project list it needs are resolved
 	// once per run rather than threaded through the recursive tool loop.
@@ -55,7 +55,7 @@ type ChatEngine struct {
 }
 
 // NewChatEngine creates a new chat engine for a session.
-// Returns an error if pc is nil — a PermissionChecker must always be provided.
+// Returns an error if pc is nil - a PermissionChecker must always be provided.
 func NewChatEngine(app *app.App, sessionID string, w ChatEventWriter, llm LLMClient, pc PermissionChecker) (*ChatEngine, error) {
 	if pc == nil {
 		return nil, errors.New("permissionChecker is required")
@@ -96,7 +96,7 @@ func (e *ChatEngine) RunSession(ctx context.Context) error {
 	}
 
 	// Telos: the user's standing identity/goals, always folded into context.
-	// A load failure is non-fatal — Telos supplements the prompt, it must not
+	// A load failure is non-fatal - Telos supplements the prompt, it must not
 	// break the chat.
 	telos, err := planning.LoadTelos(ctx, e.app.Graph)
 	if err != nil {
@@ -172,7 +172,7 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 
 	// The assistant's own tool-call turn goes into the transcript BEFORE its
 	// results. Skipping it left the model looking at a tool result with nothing
-	// claiming the call — so it re-issued the same call, forever.
+	// claiming the call - so it re-issued the same call, forever.
 	messages = append(messages, Message{
 		Role:      "assistant",
 		Content:   resp.Content,
@@ -180,7 +180,7 @@ func (e *ChatEngine) runAgentLoop(ctx context.Context, cs *nodes.ChatSession, me
 	})
 
 	// EVERY call in the turn runs, and every call is answered. Returning after the
-	// first one ran it and dropped the rest — while the assistant turn just fed
+	// first one ran it and dropped the rest - while the assistant turn just fed
 	// back still advertised them, so the model read its own transcript, saw a call
 	// it had made, and told the user about work that had never happened. "Add this
 	// to my Anti-library and make a note for the book" is one thought, and a model
@@ -290,8 +290,8 @@ func (e *ChatEngine) runToolCall(ctx context.Context, cs *nodes.ChatSession, tc 
 			return "", false, true, nil
 		}
 
-		// The outcome feeds back so the model can close with a short confirmation
-		// — and so a rejected edit can be corrected instead of killing the turn.
+		// The outcome feeds back so the model can close with a short confirmation,
+		// and so a rejected edit can be corrected instead of killing the turn.
 		result := e.presentNoteEdit(ctx, args.NodeID, args.NewBody)
 		return fmt.Sprintf("suggest_note_edit(%s) = %s", args.NodeID, result), true, false, nil
 
@@ -317,7 +317,7 @@ func (e *ChatEngine) runToolCall(ctx context.Context, cs *nodes.ChatSession, tc 
 
 // presentNoteEdit reads the note's file, diffs the proposed body against it, and
 // emits a `diff` event the chat surface renders as an accept/reject card. It
-// never writes — applying an accepted hunk is a separate, user-initiated call
+// never writes - applying an accepted hunk is a separate, user-initiated call
 // (POST /api/notes/apply-hunks). Returns a short status for the LLM's next turn.
 func (e *ChatEngine) presentNoteEdit(ctx context.Context, nodeID, newBody string) string {
 	root := e.app.Config.Vault.Root
@@ -348,7 +348,7 @@ func (e *ChatEngine) presentNoteEdit(ctx context.Context, nodeID, newBody string
 		slog.Warn("emit diff event", "error", err)
 		return "failed to present the edit"
 	}
-	return "edit presented to the user for accept/reject; it is not applied yet. This edit is done — do not propose it again."
+	return "edit presented to the user for accept/reject; it is not applied yet. This edit is done - do not propose it again."
 }
 
 func (e *ChatEngine) emitDiffEvent(nodeID, notePath string, hunks []notes.SuggestHunk) error {
@@ -364,13 +364,13 @@ func (e *ChatEngine) emitDiffEvent(nodeID, notePath string, hunks []notes.Sugges
 // conversation.
 //
 // The system content is stacked, not replaced: the DA's identity, then the
-// user's standing telos, then — when a capture is in scope — the triage
+// user's standing telos, then - when a capture is in scope - the triage
 // vocabulary. But it is stacked into a SINGLE message on purpose. Sending three
 // separate system turns is legal OpenAI, and every provider behind an
 // openai-compatible proxy treats it differently: several honour only the first
 // and silently drop the rest. That failed as a routing chat where the DA had its
 // identity but had never seen the capture, and answered "which capture do you
-// mean?" — with nothing in the logs, because the prompt WAS built and sent.
+// mean?" - with nothing in the logs, because the prompt WAS built and sent.
 func (e *ChatEngine) buildMessages(cs *nodes.ChatSession, di *nodes.DAIdentity, telos string) []Message {
 	var system []string
 	if di != nil && di.SystemPrompt != "" {
@@ -442,10 +442,10 @@ func (e *ChatEngine) emitPermissionRequiredEvent(pp *nodes.PendingPermissionStat
 }
 
 // learnedExtractorPrompt instructs a cheap second pass to surface a single
-// durable memory worth remembering — not transient/transactional chatter.
+// durable memory worth remembering - not transient/transactional chatter.
 const learnedExtractorPrompt = `You extract durable memories for a personal knowledge assistant.
 Given the latest exchange, decide whether the USER expressed a lasting personal
-preference, fact, or standing goal worth remembering across future sessions —
+preference, fact, or standing goal worth remembering across future sessions  -
 not a one-off or transactional request.
 Respond ONLY with a JSON object, no prose, no code fences:
 {"durable": true|false, "subject": "<2-4 word topic>", "statement": "<the memory in third person, one sentence>"}
@@ -536,7 +536,7 @@ func (e *ChatEngine) proposeLearnedCandidate(ctx context.Context, sessionID stri
 	}
 
 	// Try to emit state to the current stream. If the user sent a new message,
-	// this stream is likely closed, but that's fine—the new stream will pick it up from the DB.
+	// this stream is likely closed, but that's fine - the new stream will pick it up from the DB.
 	_ = e.app.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
 		latest, err := nodes.GetChatSession(context.Background(), tx, sessionID)
 		if err == nil {
@@ -624,7 +624,7 @@ func readNodeTool() Tool {
 func searchNotesTool() Tool {
 	return Tool{
 		Name:        "search_notes",
-		Description: "Search the user's notes and graph by topic or keywords; returns the most relevant notes (id, title, snippet). Call this to find what the user has written before answering — do not ask the user for a node ID.",
+		Description: "Search the user's notes and graph by topic or keywords; returns the most relevant notes (id, title, snippet). Call this to find what the user has written before answering - do not ask the user for a node ID.",
 		Parameters: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -638,7 +638,7 @@ func searchNotesTool() Tool {
 func suggestNoteEditTool() Tool {
 	return Tool{
 		Name:        "suggest_note_edit",
-		Description: "Propose an edit to an existing note. Provide the note's id (from search_notes) and the FULL revised body of the note. The change is NOT applied — it is shown to the user as a diff they accept or reject. Use this instead of pasting text for the user to copy when they ask you to change a note.",
+		Description: "Propose an edit to an existing note. Provide the note's id (from search_notes) and the FULL revised body of the note. The change is NOT applied - it is shown to the user as a diff they accept or reject. Use this instead of pasting text for the user to copy when they ask you to change a note.",
 		Parameters: json.RawMessage(`{
 			"type": "object",
 			"properties": {

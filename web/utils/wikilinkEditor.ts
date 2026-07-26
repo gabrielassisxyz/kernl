@@ -109,7 +109,7 @@ export type WikilinkResolver = (target: string) => boolean
 // Build decorations for the visible ranges. Mark decorations (not a replace
 // widget) keep every character editable. Brackets are concealed unless the
 // selection touches the link (keyboard parity with mouse hover, which reveals
-// via CSS) — mirrors how markdownPreview reveals raw markers on the active line.
+// via CSS) - mirrors how markdownPreview reveals raw markers on the active line.
 function buildWikilinkDeco(view: EditorView, isResolved?: WikilinkResolver): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
   const sel = view.state.selection.main
@@ -132,7 +132,7 @@ function buildWikilinkDeco(view: EditorView, isResolved?: WikilinkResolver): Dec
       if (unresolved) pillClass += ' cm-wl-unresolved'
 
       // Whole-link wrapper (hover target + click navigation via data-wl-target),
-      // then the "[[uuid|" prefix, the alias, and the closing "]]" — in document
+      // then the "[[uuid|" prefix, the alias, and the closing "]]" - in document
       // order, as RangeSetBuilder requires.
       builder.add(from, to, Decoration.mark({ class: pillClass, attributes: { 'data-wl-target': target } }))
 
@@ -207,7 +207,7 @@ export const wikilinkTheme = EditorView.theme({
   '.cm-wl-pill:hover .cm-wl-alias': {
     filter: 'brightness(1.2) saturate(1.2)',
   },
-  // "[[", trailing "]]", and any "uuid|" — concealed until hover OR until the
+  // "[[", trailing "]]", and any "uuid|" - concealed until hover OR until the
   // keyboard selection touches the link (cm-wl-pill--active).
   '.cm-wl-bracket': {
     display: 'none',

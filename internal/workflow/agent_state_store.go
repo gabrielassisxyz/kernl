@@ -11,7 +11,7 @@ import (
 )
 
 // AgentRuntime is the high-frequency runtime state of an agent attached to a bead.
-// Spec §4.4 — kept out of bd.description (D1=C) to avoid lost-update under concurrent writes.
+// Spec §4.4 - kept out of bd.description (D1=C) to avoid lost-update under concurrent writes.
 type AgentRuntime struct {
 	AgentState      AgentState `json:"agent_state,omitempty"`
 	AgentSessionID  string     `json:"agent_session_id,omitempty"`
@@ -61,7 +61,7 @@ func (s *AgentStateStore) Load(id string) (AgentRuntime, error) {
 	}
 	var v AgentRuntime
 	if err := json.Unmarshal(data, &v); err != nil {
-		log.Printf("WARN agent_state_store: corrupted JSON for %s: %v — recovering with defaults", id, err)
+		log.Printf("WARN agent_state_store: corrupted JSON for %s: %v - recovering with defaults", id, err)
 		return AgentRuntime{}, nil
 	}
 	return v, nil

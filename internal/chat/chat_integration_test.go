@@ -114,7 +114,7 @@ func newMockLLMClient(responses ...ChatResponse) *mockLLMClient {
 }
 
 // contentThenErrLLMClient returns a fixed first response, then errors on every
-// subsequent call — used to prove the learned extractor's failure is swallowed.
+// subsequent call - used to prove the learned extractor's failure is swallowed.
 type contentThenErrLLMClient struct {
 	mu    sync.Mutex
 	first ChatResponse
@@ -349,7 +349,7 @@ func TestChatPermissionBlockAndResume(t *testing.T) {
 				},
 			}},
 		},
-		ChatResponse{Content: "I cannot read that — it is private."},
+		ChatResponse{Content: "I cannot read that - it is private."},
 	)
 
 	permChecker := NewGraphPermissionChecker(a)
@@ -380,7 +380,7 @@ func TestChatPermissionBlockAndResume(t *testing.T) {
 		t.Errorf("Status = %q, want pending", cs.PendingPermission.Status)
 	}
 
-	// ── Phase 2: simulate approval — clear pending and resume ──
+	// ── Phase 2: simulate approval - clear pending and resume ──
 	cs.PendingPermission = nil
 	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		return nodes.SaveChatSession(ctx, tx, cs, nodes.Author{Name: "kernl"})
@@ -544,7 +544,7 @@ func TestChatPermissionDenyAndContinue(t *testing.T) {
 		t.Fatalf("expected permission_required, got: %s", rec.buf.String())
 	}
 
-	// Simulate user DENY — clear pending and resume.
+	// Simulate user DENY - clear pending and resume.
 	cs := getSession(t, a, sessionID)
 	cs.PendingPermission = nil
 	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
@@ -618,7 +618,7 @@ func TestLearnedCandidateEmittedForDurableTurn(t *testing.T) {
 
 	// First response = the chat reply; second = the extractor's JSON verdict.
 	mock := newMockLLMClient(
-		ChatResponse{Content: "Got it — Google Meet it is."},
+		ChatResponse{Content: "Got it - Google Meet it is."},
 		ChatResponse{Content: `{"durable":true,"subject":"tools","statement":"Prefers Google Meet over Zoom."}`},
 	)
 	rec := &eventRecorder{}
@@ -744,7 +744,7 @@ func TestLearnedExtractionFailureDoesNotBreakChat(t *testing.T) {
 	sessionID := createSession(t, a)
 	appendUserMessage(t, a, sessionID, "I prefer dark mode everywhere.", "")
 
-	// Reply succeeds; the extractor call errors — the chat must still complete.
+	// Reply succeeds; the extractor call errors - the chat must still complete.
 	client := &contentThenErrLLMClient{first: ChatResponse{Content: "Dark mode set."}}
 	rec := &eventRecorder{}
 	engine, err := NewChatEngine(a, sessionID, rec, client, alwaysAllow{})
@@ -797,7 +797,7 @@ func TestChatSSEReconnectRestoresPendingPermission(t *testing.T) {
 		}}},
 	)
 
-	// First connection — blocks on permission.
+	// First connection - blocks on permission.
 	rec1 := &eventRecorder{}
 	engine1, err := NewChatEngine(a, sessionID, rec1, mock, NewGraphPermissionChecker(a))
 	if err != nil {
@@ -809,7 +809,7 @@ func TestChatSSEReconnectRestoresPendingPermission(t *testing.T) {
 		t.Fatal("expected permission_required on first connection")
 	}
 
-	// Second connection — should re-emit state + permission_required.
+	// Second connection - should re-emit state + permission_required.
 	rec2 := &eventRecorder{}
 	engine2, err := NewChatEngine(a, sessionID, rec2, mock, NewGraphPermissionChecker(a))
 	if err != nil {
@@ -872,7 +872,7 @@ func TestChatSuggestNoteEditEmitsDiff(t *testing.T) {
 	if !rec.hasEventType("diff") {
 		t.Fatal("expected a diff event from suggest_note_edit")
 	}
-	// The file must be UNCHANGED — the tool only proposes.
+	// The file must be UNCHANGED - the tool only proposes.
 	after, _ := os.ReadFile(filepath.Join(a.Config.Vault.Root, rel))
 	if string(after) != file {
 		t.Errorf("suggest_note_edit must not write the file; got:\n%s", after)

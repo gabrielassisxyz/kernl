@@ -12,7 +12,7 @@ func TestNeighborsAtDepthChain(t *testing.T) {
 	ctx := context.Background()
 	g := testutil.NewInMemoryTestGraph(t)
 
-	// Chain: A — B — C — D
+	// Chain: A - B - C - D
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := tx.Exec(`
 			INSERT INTO nodes(id, type, title) VALUES ('A','test','A'),('B','test','B'),('C','test','C'),('D','test','D');
@@ -133,7 +133,7 @@ func TestNeighborsAtDepthCycle(t *testing.T) {
 	ctx := context.Background()
 	g := testutil.NewInMemoryTestGraph(t)
 
-	// Triangle A—B—C—A
+	// Triangle A - B - C - A
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := tx.Exec(`
 			INSERT INTO nodes(id, type, title) VALUES ('A','test','A'),('B','test','B'),('C','test','C');

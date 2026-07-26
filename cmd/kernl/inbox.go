@@ -18,7 +18,7 @@ var inboxCommand = commandMeta{
 web inbox uses. 'kernl capture' is the offline path: it writes the graph
 directly and needs no server.
 
-A capture's body is never rewritten here — the CLI sends only what a capture
+A capture's body is never rewritten here - the CLI sends only what a capture
 becomes (target, title, tags); the body travels untouched from the capture.
 
 Run 'kernl inbox <subcommand> --help' for details on each.`,
@@ -75,7 +75,7 @@ title, tags, a project and a due date.`,
 			Summary: "Undo a process: delete the derived node, requeue the capture",
 			Usage:   "kernl inbox reopen <capture-id> --yes [--json]",
 			Details: `Destructive: deletes the capture's derived node and requeues it. Requires
---yes. Without it nothing is written — the capture that would be reopened is
+--yes. Without it nothing is written - the capture that would be reopened is
 printed and the command exits 0.
 
 {{flags}}`,
@@ -88,7 +88,7 @@ printed and the command exits 0.
 			Name:    "classify",
 			Summary: "Run one LLM classification pass over the unclassified pending captures",
 			Usage:   "kernl inbox classify [--json]",
-			Details: `Fails loud when no LLM provider is configured — Fix: set llm.provider in
+			Details: `Fails loud when no LLM provider is configured - Fix: set llm.provider in
 kernl.yaml, then restart the server.`,
 		},
 		{
@@ -106,7 +106,7 @@ default when the server restarts.`,
 			Details: `Bare 'prep' is get-or-create: it returns the capture's existing prep note,
 and only generates one when there is none. Generation costs one LLM call, so
 the first prep of a given capture is the only invocation that spends anything
-— every later one is a read, and re-running is free and idempotent.
+ -  every later one is a read, and re-running is free and idempotent.
 
 '--show' is get-if-exists: it never generates. On an already-prepped capture
 the two forms are identical.
@@ -117,7 +117,7 @@ Generating needs an LLM provider; --show does not.`,
 			Flags: []commandFlag{
 				{Name: "--show", Description: "Read the existing prep note instead of generating one. When none",
 					Continuation: []string{
-						`exists this prints "no prep yet" and exits 0 — absence is an`,
+						`exists this prints "no prep yet" and exits 0 - absence is an`,
 						"answer, not a bad invocation",
 					}},
 			},
@@ -207,10 +207,10 @@ func requireID(sub string, args []string) (string, error) {
 		return "", err
 	}
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: inbox %s requires a capture id — run: kernl inbox %s --help", sub, sub)
+		return "", usagef("KERNL DISPATCH FAILURE: inbox %s requires a capture id - run: kernl inbox %s --help", sub, sub)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: inbox %s takes exactly one capture id, got %d — run: kernl inbox %s --help", sub, len(args), sub)
+		return "", usagef("KERNL DISPATCH FAILURE: inbox %s takes exactly one capture id, got %d - run: kernl inbox %s --help", sub, len(args), sub)
 	}
 	return args[0], nil
 }
@@ -221,7 +221,7 @@ func inboxList(ctx context.Context, v verbContext, c *apiClient, asJSON bool, ar
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: inbox list takes no arguments, got %q — run: kernl inbox list --help", args[0])
+		return usagef("KERNL DISPATCH FAILURE: inbox list takes no arguments, got %q - run: kernl inbox list --help", args[0])
 	}
 	route := "/api/inbox/pending"
 	if processed {
@@ -254,7 +254,7 @@ func inboxAddText(v verbContext, text string, asJSON bool) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		if stdinIsTerminal() {
-			return usagef("KERNL DISPATCH FAILURE: inbox add got no text and stdin is a terminal — pass text as an argument or pipe it in. Run: kernl inbox add --help")
+			return usagef("KERNL DISPATCH FAILURE: inbox add got no text and stdin is a terminal - pass text as an argument or pipe it in. Run: kernl inbox add --help")
 		}
 		read, err := io.ReadAll(os.Stdin)
 		if err != nil {
@@ -263,7 +263,7 @@ func inboxAddText(v verbContext, text string, asJSON bool) error {
 		text = strings.TrimSpace(string(read))
 	}
 	if text == "" {
-		return usagef("KERNL DISPATCH FAILURE: capture text cannot be empty — pass text as an argument or via stdin. Run: kernl inbox add --help")
+		return usagef("KERNL DISPATCH FAILURE: capture text cannot be empty - pass text as an argument or via stdin. Run: kernl inbox add --help")
 	}
 	client, err := v.client()
 	if err != nil {
@@ -297,7 +297,7 @@ func inboxProcess(ctx context.Context, v verbContext, c *apiClient, asJSON bool,
 		return err
 	}
 	if strings.TrimSpace(flags["--target"]) == "" {
-		return usagef("KERNL DISPATCH FAILURE: inbox process requires --target — valid: note, task, project, bookmark, update, discard. Run: kernl inbox process --help")
+		return usagef("KERNL DISPATCH FAILURE: inbox process requires --target - valid: note, task, project, bookmark, update, discard. Run: kernl inbox process --help")
 	}
 	body := map[string]any{"actions": []any{buildCaptureAction(flags)}}
 	if target := flags["--target-note"]; target != "" {
@@ -344,7 +344,7 @@ func inboxConvert(ctx context.Context, v verbContext, c *apiClient, asJSON bool,
 		return err
 	}
 	if len(args) != 2 {
-		return usagef("KERNL DISPATCH FAILURE: inbox convert requires <capture-id> <action> — valid actions: note, task, project, bookmark, discard. Run: kernl inbox convert --help")
+		return usagef("KERNL DISPATCH FAILURE: inbox convert requires <capture-id> <action> - valid actions: note, task, project, bookmark, discard. Run: kernl inbox convert --help")
 	}
 	id, action := args[0], args[1]
 	raw, err := c.post(ctx, "/api/inbox/"+url.PathEscape(id)+"/convert", map[string]string{"action": action})
@@ -406,7 +406,7 @@ func inboxClassify(ctx context.Context, v verbContext, c *apiClient, asJSON bool
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: inbox classify takes no arguments, got %q — run: kernl inbox classify --help", args[0])
+		return usagef("KERNL DISPATCH FAILURE: inbox classify takes no arguments, got %q - run: kernl inbox classify --help", args[0])
 	}
 	raw, err := c.post(ctx, "/api/inbox/classify", nil)
 	if err != nil {
@@ -449,7 +449,7 @@ func autoClassifyRequest(ctx context.Context, c *apiClient, args []string) (json
 		return c.get(ctx, "/api/inbox/auto-classify")
 	}
 	if len(args) > 1 {
-		return nil, usagef("KERNL DISPATCH FAILURE: inbox auto-classify takes at most one argument — valid: on, off. Run: kernl inbox auto-classify --help")
+		return nil, usagef("KERNL DISPATCH FAILURE: inbox auto-classify takes at most one argument - valid: on, off. Run: kernl inbox auto-classify --help")
 	}
 	switch args[0] {
 	case "on":
@@ -457,7 +457,7 @@ func autoClassifyRequest(ctx context.Context, c *apiClient, args []string) (json
 	case "off":
 		return c.put(ctx, "/api/inbox/auto-classify", map[string]bool{"enabled": false})
 	}
-	return nil, usagef("KERNL DISPATCH FAILURE: unknown auto-classify value %q%s — valid: on, off. Run: kernl inbox auto-classify --help",
+	return nil, usagef("KERNL DISPATCH FAILURE: unknown auto-classify value %q%s - valid: on, off. Run: kernl inbox auto-classify --help",
 		args[0], didYouMean(args[0], []string{"on", "off"}))
 }
 
@@ -476,7 +476,7 @@ func inboxPrep(ctx context.Context, v verbContext, c *apiClient, asJSON bool, ar
 	}
 	route := "/api/inbox/" + url.PathEscape(id) + "/prep"
 	// --show must stay a pure read: generating a briefing costs an LLM call.
-	// It also treats "no prep yet" as an answer rather than a mis-invocation —
+	// It also treats "no prep yet" as an answer rather than a mis-invocation  -
 	// the route says 404, but asking whether a briefing exists and learning it
 	// does not is exactly what --show is for.
 	var raw json.RawMessage
@@ -519,7 +519,7 @@ func inboxRollups(ctx context.Context, v verbContext, c *apiClient, asJSON bool,
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: inbox rollups takes no arguments, got %q — run: kernl inbox rollups --help", args[0])
+		return usagef("KERNL DISPATCH FAILURE: inbox rollups takes no arguments, got %q - run: kernl inbox rollups --help", args[0])
 	}
 	raw, err := c.get(ctx, "/api/inbox/rollups")
 	if err != nil {
@@ -550,7 +550,7 @@ func inboxBatchLog(ctx context.Context, v verbContext, c *apiClient, asJSON bool
 		return err
 	}
 	if len(args) != 1 {
-		return usagef("KERNL DISPATCH FAILURE: inbox batch-log requires exactly one batch id — run: kernl inbox batch-log --help")
+		return usagef("KERNL DISPATCH FAILURE: inbox batch-log requires exactly one batch id - run: kernl inbox batch-log --help")
 	}
 	raw, err := c.get(ctx, "/api/inbox/batch-log?batchId="+url.QueryEscape(args[0]))
 	if err != nil {

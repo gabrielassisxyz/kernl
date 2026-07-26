@@ -111,8 +111,8 @@ func TestMemoryTopicsEmptyTeachesNextStep(t *testing.T) {
 
 func TestMemoryClaimsSendsTopicAsAnEscapedQuery(t *testing.T) {
 	// The route emits camelCase (TestMemoryClaimsJSONContract pins it server
-	// side). Decoding the wrong spelling fails silently — zero-valued fields
-	// print as blank columns, never as an error — so the listing is asserted
+	// side). Decoding the wrong spelling fails silently - zero-valued fields
+	// print as blank columns, never as an error - so the listing is asserted
 	// against a body in the shape the server actually sends.
 	body := `{"claims":[{"id":"c1","statement":"deploy from tags","subject":"deploys","source":"user","confidence":0.9}]}`
 	fake := newFakeMemoryAPI(t, http.StatusOK, body)

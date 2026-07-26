@@ -190,7 +190,7 @@ func buildPrepPrompt(c *nodes.Capture, notes []planning.ContextNote, bookmarks [
 	if project != nil {
 		fmt.Fprintf(&b, "Related project: %s", project.Title)
 		if project.Description != "" {
-			fmt.Fprintf(&b, " — %s", project.Description)
+			fmt.Fprintf(&b, " - %s", project.Description)
 		}
 		b.WriteString("\n")
 		if len(tasks) > 0 {

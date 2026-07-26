@@ -230,7 +230,7 @@ kernl health
 | `ingest` | paste, upload, source, trigger, queue list/resolve/merge-plan |
 | `settings`, `health` | get/set, server health and update check |
 
-They need the server up, and say so when it is not. Point them elsewhere with `--server <url>` or `KERNL_SERVER`; the default is the port in `kernl.yaml`. `capture`, `bookmark add|import` and `plan` are the exception — they write the graph directly and work with no server running.
+They need the server up, and say so when it is not. Point them elsewhere with `--server <url>` or `KERNL_SERVER`; the default is the port in `kernl.yaml`. `capture`, `bookmark add|import` and `plan` are the exception: they write the graph directly and work with no server running.
 
 Every subcommand takes `--json`, and destructive ones require `--yes`: without it they print what would happen and exit `0` without contacting the server.
 

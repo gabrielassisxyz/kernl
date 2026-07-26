@@ -39,7 +39,7 @@ type App struct {
 	// autoClassify is the live switch the background inbox classifier reads each
 	// tick. It is session-only (a UI toggle, not persisted) and resets to the
 	// config default on restart, so it needs its own guarded state rather than
-	// riding on Config — the loop and the HTTP handlers race on it otherwise.
+	// riding on Config - the loop and the HTTP handlers race on it otherwise.
 	autoClassifyMu sync.RWMutex
 	autoClassify   bool
 }
@@ -62,7 +62,7 @@ func (a *App) SetAutoClassify(enabled bool) {
 
 func NewApp(cfg *config.Config) (*App, error) {
 	if len(cfg.Registry.Repos) == 0 {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered in config registry — at least one repo path is required — Fix: add a repo to registry.repos in kernl.yaml")
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered in config registry - at least one repo path is required - Fix: add a repo to registry.repos in kernl.yaml")
 	}
 
 	repoPath := cfg.Registry.Repos[0].Path
@@ -92,7 +92,7 @@ func NewApp(cfg *config.Config) (*App, error) {
 		}
 		graphDBPath = filepath.Join(home, ".kernl")
 	}
-	// Ensure the directory exists before SQLite tries to open the file there —
+	// Ensure the directory exists before SQLite tries to open the file there  -
 	// otherwise the open fails with an opaque "unable to open database file"
 	// (e.g. a fresh container/data volume where ~/.kernl does not exist yet).
 	if err := os.MkdirAll(graphDBPath, 0o755); err != nil {
@@ -127,7 +127,7 @@ func execSpawnFunc(ctx context.Context, cmd string, args []string, cwd string, e
 	}
 	if len(env) > 0 {
 		// Layer caller overrides ON TOP of the inherited environment so
-		// PATH / HOME / etc. survive — otherwise an agent with just
+		// PATH / HOME / etc. survive - otherwise an agent with just
 		// OPENCODE_CONFIG=... and nothing else can't find /usr/bin/git,
 		// the bd binary, or the user's home dir.
 		c.Env = append(os.Environ(), env...)

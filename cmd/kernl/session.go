@@ -53,7 +53,7 @@ Example:
 			Summary: "Show the prompt text each preset would send",
 			Usage:   "kernl session nudge-prompts <session-id> [--json]",
 			Details: `Prints the templates already substituted for this session's bead and repo,
-so you can read what 'session nudge' would send before sending it — or copy
+so you can read what 'session nudge' would send before sending it - or copy
 one, edit it, and pass it back with --prompt.
 
 {{flags}}`,
@@ -166,7 +166,7 @@ func sessionNudgeBody(verb string, args []string) (map[string]any, []string, err
 	}
 	if promptGiven {
 		if strings.TrimSpace(prompt) == "" {
-			return nil, nil, usagef("KERNL DISPATCH FAILURE: --prompt needs text to send — omit it to use the preset's template. Run: kernl session nudge --help")
+			return nil, nil, usagef("KERNL DISPATCH FAILURE: --prompt needs text to send - omit it to use the preset's template. Run: kernl session nudge --help")
 		}
 		body["prompt"] = prompt
 	}
@@ -179,16 +179,16 @@ func checkNudgePreset(preset string) error {
 			return nil
 		}
 	}
-	return usagef("KERNL DISPATCH FAILURE: unknown nudge preset %q%s — valid: %s. Run: kernl session nudge --help",
+	return usagef("KERNL DISPATCH FAILURE: unknown nudge preset %q%s - valid: %s. Run: kernl session nudge --help",
 		preset, didYouMean(preset, sessionNudgePresets), strings.Join(sessionNudgePresets, ", "))
 }
 
 func singleSessionID(verb string, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires a session ID — run: kernl %s <session-id>. Find one with: kernl epic sessions <epic-id>", verb, verb)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires a session ID - run: kernl %s <session-id>. Find one with: kernl epic sessions <epic-id>", verb, verb)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one session ID, got %d (%s) — run: kernl %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one session ID, got %d (%s) - run: kernl %s --help",
 			verb, len(args), strings.Join(args, ", "), verb)
 	}
 	return args[0], nil

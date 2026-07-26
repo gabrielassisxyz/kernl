@@ -53,7 +53,7 @@ func TestProjectAndTaskAreGraphNodes(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	// Both must land in the generic nodes table with the right types — i.e. they
+	// Both must land in the generic nodes table with the right types - i.e. they
 	// are real graph nodes, not beads.
 	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var typ string
@@ -234,7 +234,7 @@ func TestProjectAndTaskCarryTags(t *testing.T) {
 		t.Fatalf("read: %v", err)
 	}
 
-	// A status update must not disturb the tags — it writes attrs, not node_tags.
+	// A status update must not disturb the tags - it writes attrs, not node_tags.
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		return nodes.SetTaskStatus(ctx, tx, taskID, nodes.TaskStatusDone, author)
 	}); err != nil {

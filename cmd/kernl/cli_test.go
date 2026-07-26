@@ -52,7 +52,7 @@ func TestDispatchHelpPrintsSubcommands(t *testing.T) {
 }
 
 func TestDispatchEpicAndBeadReturnError(t *testing.T) {
-	// epic and bead are not yet implemented — they should return an error
+	// epic and bead are not yet implemented - they should return an error
 	for _, cmd := range []string{"epic", "bead"} {
 		err := Dispatch([]string{cmd})
 		if err == nil {

@@ -37,8 +37,8 @@ func TestCapabilitiesCoversEveryDispatchableVerb(t *testing.T) {
 }
 
 // R2-003: the machine contract must expose the two most load-bearing surfaces
-// for the parity verbs — --server and KERNL_SERVER, the only way to run them
-// without a local kernl.yaml — and carry each command's flag documentation
+// for the parity verbs - --server and KERNL_SERVER, the only way to run them
+// without a local kernl.yaml - and carry each command's flag documentation
 // (Details), not leave it human-only in --help.
 func TestCapabilitiesExposesServerAndFlagDetails(t *testing.T) {
 	var buf bytes.Buffer

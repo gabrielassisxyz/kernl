@@ -149,7 +149,7 @@ func TestRequestSendsJSONBody(t *testing.T) {
 	}
 }
 
-// A GET must not carry a body or a JSON content type — some handlers branch on
+// A GET must not carry a body or a JSON content type - some handlers branch on
 // it, and an empty body is the difference between a read and a malformed write.
 func TestGetSendsNoBody(t *testing.T) {
 	var hadType bool

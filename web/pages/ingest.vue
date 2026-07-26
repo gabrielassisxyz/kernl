@@ -14,7 +14,7 @@
             @keydown="onPasteKeydown"
             rows="3"
             autofocus
-            placeholder="Paste text to ingest — meeting notes, an article, a decision…"
+            placeholder="Paste text to ingest - meeting notes, an article, a decision…"
             class="w-full bg-transparent border-none text-text-primary font-mono-data text-mono-data focus:ring-0 resize-none p-0 placeholder:text-text-faint leading-relaxed outline-none"
           ></textarea>
           <span v-show="!pasteText" class="blinking-cursor absolute top-[18px] left-[32px] pointer-events-none font-mono-data text-mono-data h-[14px]">_</span>
@@ -42,15 +42,15 @@
 
     <div class="flex flex-col">
       <IngestItem
-        v-for="(item, index) in items" 
-        :key="item.id" 
-        :item="item" 
+        v-for="(item, index) in items"
+        :key="item.id"
+        :item="item"
         :isSelected="selectedIndex === index"
         @select="selectedIndex = index"
         @action="(action) => handleAction(item.id, action)"
       />
     </div>
-    
+
     <UiEmptyState
       v-if="!pending && items.length === 0"
       icon="queue"
@@ -143,7 +143,7 @@ const is503 = (error: unknown): boolean => {
 const describeIntakeError = (error: unknown): string =>
   is503(error)
     ? 'Ingest requires an LLM provider to be configured.'
-    : 'Something went wrong — please try again.'
+    : 'Something went wrong - please try again.'
 
 const onPasteKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -281,7 +281,7 @@ const onMergeReject = (hunk: MergeHunk) => {
   if (merge.value.hunks.length === 0) finalizeMerge()
 }
 
-// finalizeMerge applies the accepted hunks. Accepting none is valid — the
+// finalizeMerge applies the accepted hunks. Accepting none is valid - the
 // backend leaves the target unchanged but still connects it and resolves.
 const finalizeMerge = async () => {
   if (!merge.value) return
@@ -333,7 +333,7 @@ const handleKeydown = (e: KeyboardEvent) => {
     }
     return
   }
-  
+
   if (e.key === 'ArrowDown') {
     e.preventDefault()
     selectedIndex.value = (selectedIndex.value + 1) % items.value.length

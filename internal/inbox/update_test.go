@@ -90,7 +90,7 @@ func TestProcessCaptureUpdate(t *testing.T) {
 		t.Fatalf("DoRead: %v", err)
 	}
 
-	// Undo must NOT delete the pre-existing note — only re-pend the capture.
+	// Undo must NOT delete the pre-existing note - only re-pend the capture.
 	if err := inbox.Reopen(ctx, g, vault, captureID); err != nil {
 		t.Fatalf("Reopen: %v", err)
 	}

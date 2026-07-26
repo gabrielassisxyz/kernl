@@ -90,7 +90,7 @@ func TestInboxBatchApplyWithoutYesJSONSaysNotApplied(t *testing.T) {
 		t.Fatalf("--json output must parse, got %q (%v)", out, err)
 	}
 	if got["applied"] != false || got["wouldApply"] != true {
-		t.Errorf("unconfirmed apply must report applied:false, wouldApply:true — got %v", got)
+		t.Errorf("unconfirmed apply must report applied:false, wouldApply:true - got %v", got)
 	}
 }
 

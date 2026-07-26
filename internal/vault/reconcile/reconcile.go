@@ -85,7 +85,7 @@ func lookupByUUIDInTx(tx interface {
 // of the identical (uuid, path, hash) triple is a no-op (idempotent).
 //
 // This operation touches ONLY note_paths. It never writes nodes, edges, or
-// revisions — those are the responsibility of higher-level reconciler logic.
+// revisions - those are the responsibility of higher-level reconciler logic.
 func Upsert(ctx context.Context, g *graph.Graph, uuid, path, contentHash string) error {
 	return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		return upsertInTx(tx, uuid, path, contentHash)
@@ -221,14 +221,14 @@ type Reconciler struct {
 	vaultRoot string // absolute path to the vault root for relative path resolution
 	resolver  *wikilink.Resolver
 
-	// move/delete window — injectable for deterministic testing
+	// move/delete window - injectable for deterministic testing
 	window time.Duration
 	now    func() time.Time
 
 	pendingMu      sync.Mutex
 	pendingDeletes map[string]*pendingDelete // keyed by nodeID
 
-	// counters — updated atomically
+	// counters - updated atomically
 	eventsProcessed  atomic.Int64
 	notesCreated     atomic.Int64
 	danglingPromoted atomic.Int64
@@ -279,7 +279,7 @@ func (r *Reconciler) Stats() Stats {
 //
 // It resolves the path to a UUID via the path cache, records a PENDING delete
 // (using the injected clock), and forgets the path from the cache. It does NOT
-// tombstone the node yet — that happens in FlushExpired after the window elapses.
+// tombstone the node yet - that happens in FlushExpired after the window elapses.
 // If the path is unknown (no cache entry), the call is a no-op.
 func (r *Reconciler) OnDelete(ctx context.Context, absPath string) error {
 	relPath := r.relPath(absPath)
@@ -294,7 +294,7 @@ func (r *Reconciler) OnDelete(ctx context.Context, absPath string) error {
 			return fmt.Errorf("lookup path %q: %w", relPath, err)
 		}
 		if !found {
-			return nil // unknown path — no-op
+			return nil // unknown path - no-op
 		}
 		nodeID = nodeUUID // node id == frontmatter uuid
 
@@ -326,11 +326,11 @@ func (r *Reconciler) OnDelete(ctx context.Context, absPath string) error {
 	}
 
 	if nodeID == "" {
-		// No live note found for this path — nothing to do
+		// No live note found for this path - nothing to do
 		return nil
 	}
 
-	// Forget path from cache (synchronous — outside the window logic)
+	// Forget path from cache (synchronous - outside the window logic)
 	if err := forgetPath(ctx, r.g, relPath); err != nil {
 		return fmt.Errorf("reconcile OnDelete %q: forget: %w", absPath, err)
 	}
@@ -451,7 +451,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 				}
 				r.notesRevived.Add(1)
 			}
-			// If not tombstoned, just update the path cache — the node is live
+			// If not tombstoned, just update the path cache - the node is live
 
 			// Update note's title/body if the frontmatter changed
 			if err := nodes.UpdateNote(ctx, tx, nodes.Note{
@@ -514,7 +514,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 		}
 
 		if wasTombstoned {
-			// Revive after expiry — the pending window already fired
+			// Revive after expiry - the pending window already fired
 			var promoted int
 			stem := stemFromPath(absPath)
 			err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
@@ -745,11 +745,11 @@ func resolveTitle(fm *frontmatter.Frontmatter, absPath string) string {
 // WriteNoteBody rewrites the body of a note's vault markdown file in place,
 // preserving its frontmatter, so the file (the source of truth) reflects an
 // in-graph body change. Callers that mutate a note's body directly via
-// nodes.UpdateNote (e.g. ingest/inbox merges) MUST also call this — otherwise
+// nodes.UpdateNote (e.g. ingest/inbox merges) MUST also call this - otherwise
 // the file diverges and the merge is clobbered the next time the file is
 // reconciled (OnChange re-derives the node body from the stale file).
 //
-// It returns written=false (no error) when the file cannot be located — no
+// It returns written=false (no error) when the file cannot be located - no
 // vault root, or no path cached and no frontmatter id match. The caller's
 // node-level update still stands; only the file mirror is skipped.
 func WriteNoteBody(ctx context.Context, g *graph.Graph, vaultRoot, noteID, newBody string) (written bool, err error) {
