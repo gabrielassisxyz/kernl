@@ -47,7 +47,8 @@ Example:
 				{Name: "--title", Value: "<t>", Description: "The title, as an alternative to the positional form"},
 				{Name: "--project", Value: "<id>", Description: "Attach the task to a project (creates the part_of edge)"},
 				{Name: "--status", Value: "<status>", Description: "Initial status (server default when omitted)"},
-				{Name: "--description", Value: "<text>", Description: "Long-form body"},
+				{Name: "--description", Value: "<text>", Description: "A sentence or two of context, mirrored into the companion note's frontmatter",
+					Continuation: []string{"(the long-form material goes in the note's body)"}},
 				{Name: "--tags", Value: "<a,b,c>", Description: "Comma-separated tags"},
 				{Name: "--due", Value: "<YYYY-MM-DD>", Description: "Due date, a calendar day (no time, no timezone)"},
 				{Name: "--json", Description: `Emit {"id"} on stdout`},
@@ -56,14 +57,21 @@ Example:
 		{
 			Name:    "set",
 			Summary: "Change fields of an existing task",
-			Usage:   "kernl task set <task-id> [--title <text>] [--status <status>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]",
+			Usage:   "kernl task set <task-id> [--title <text>] [--description <text>] [--status <status>] [--tags <a,b>] [--due <YYYY-MM-DD>] [--json]",
 			Details: `At least one field is required. Only the flags you pass are touched;
 passing an empty value clears the field: --tags "" removes every tag and
 --due "" removes the due date.
 
+--description also rewrites the description in the frontmatter of the task's
+companion note. That frontmatter belongs to kernl and is regenerated on every
+sync, so edit the description here rather than in the file - a change typed
+into the frontmatter is overwritten without warning. The body of the note,
+below the frontmatter, is yours and is never touched.
+
 {{flags}}`,
 			Flags: []commandFlag{
-				{Name: "--title", Value: "<text>", Description: "New title (cannot be empty)"},
+				{Name: "--title", Value: "<text>", Description: "New title (cannot be empty). Does not rename the companion note"},
+				{Name: "--description", Value: "<text>", Description: `Replace the description; "" clears it`},
 				{Name: "--status", Value: "<status>", Description: "New status (cannot be empty)"},
 				{Name: "--tags", Value: "<a,b,c>", Description: `Replace the tag set; "" clears it`},
 				{Name: "--due", Value: "<YYYY-MM-DD>", Description: `Replace the due date; "" clears it`},
@@ -177,7 +185,7 @@ func runTaskSet(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(body) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: task set needs at least one field to change - valid: --title, --status, --tags, --due. Run: kernl task set --help")
+		return usagef("KERNL DISPATCH FAILURE: task set needs at least one field to change - valid: --title, --description, --status, --tags, --due. Run: kernl task set --help")
 	}
 
 	raw, err := requestTask(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
@@ -316,6 +324,7 @@ func taskPatchBody(verb string, args []string) (map[string]any, []string, error)
 	rest := args
 	for _, f := range []struct{ flag, field string }{
 		{"--title", "title"},
+		{"--description", "description"},
 		{"--status", "status"},
 		{"--due", "dueDate"},
 	} {

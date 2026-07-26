@@ -137,7 +137,10 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err != nil {
 			return err
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.ProjectsFolder, title, "project")
+		// No description in the frontmatter: only a task's is kept in sync on
+		// edit, and a value written once and never updated is a lie the file
+		// tells every time the project changes.
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.ProjectsFolder, title, "", "project")
 		return err
 	})
 	if err != nil {

@@ -133,7 +133,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.TasksFolder, title, "task")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.TasksFolder, title, req.Description, "task")
 		return err
 	})
 	if err != nil {
@@ -160,17 +160,18 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	// key leaves the task's tags alone, while `"tags": []` clears them. Same for
 	// dueDate - `"dueDate": ""` is how a due date is removed.
 	var req struct {
-		Title   *string   `json:"title"`
-		Status  *string   `json:"status"`
-		Tags    *[]string `json:"tags"`
-		DueDate *string   `json:"dueDate"`
+		Title       *string   `json:"title"`
+		Description *string   `json:"description"`
+		Status      *string   `json:"status"`
+		Tags        *[]string `json:"tags"`
+		DueDate     *string   `json:"dueDate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Title == nil && req.Status == nil && req.Tags == nil && req.DueDate == nil {
-		writeError(w, http.StatusBadRequest, "nothing to update: provide title, status, tags or dueDate")
+	if req.Title == nil && req.Description == nil && req.Status == nil && req.Tags == nil && req.DueDate == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, status, tags or dueDate")
 		return
 	}
 	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
@@ -192,9 +193,23 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
+	var companion CompanionFile
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		if req.Title != nil {
+			// The companion note keeps its file name. After duplicate titles
+			// became legal the path stopped being a function of the title, so a
+			// rename would have to guess which file belongs to this task instead
+			// of asking the describes edge.
 			if err := nodes.SetTaskTitle(ctx, tx, id, strings.TrimSpace(*req.Title), author); err != nil {
+				return err
+			}
+		}
+		if req.Description != nil {
+			if err := nodes.SetTaskDescription(ctx, tx, id, *req.Description, author); err != nil {
+				return err
+			}
+			var err error
+			if companion, err = SyncCompanionDescription(ctx, tx, a, id, *req.Description); err != nil {
 				return err
 			}
 		}
@@ -219,6 +234,12 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update task: "+err.Error())
+		return
+	}
+	// After the commit, mirroring the create path: the hash the transaction
+	// recorded describes these bytes, so the file is written last.
+	if err := WriteCompanionFile(a, companion); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update companion note: "+err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

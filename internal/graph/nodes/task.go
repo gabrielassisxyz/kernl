@@ -191,9 +191,8 @@ func SetTaskStatus(ctx context.Context, tx *graph.WriteTx, id, status string, au
 }
 
 // SetTaskTitle updates a task's title in place, leaving its other fields alone.
-// Mirrors UpdateProjectMeta but scoped to a task and to the title only - a task
-// has no separately-editable description surface today. Returns ErrNotFound when
-// the task does not exist.
+// Mirrors UpdateProjectMeta but scoped to the title; the description has its own
+// setter below. Returns ErrNotFound when the task does not exist.
 func SetTaskTitle(ctx context.Context, tx *graph.WriteTx, id, title string, author Author) error {
 	if !author.Valid() {
 		return graph.ErrAuthorRequired
@@ -214,6 +213,20 @@ func SetTaskTitle(ctx context.Context, tx *graph.WriteTx, id, title string, auth
 		return graph.ErrNotFound
 	}
 	return nil
+}
+
+// SetTaskDescription replaces a task's description, leaving its other fields
+// alone. Unlike SetTaskTitle this cannot be a json_set on attrs: the description
+// IS the task's FTS body, so a direct UPDATE would leave the search index
+// answering with the old text. Going through the chokepoint reindexes it and
+// records the revision.
+func SetTaskDescription(ctx context.Context, tx *graph.WriteTx, id, description string, author Author) error {
+	t, err := loadTaskForWrite(tx, id)
+	if err != nil {
+		return err
+	}
+	t.Description = description
+	return updateNode(ctx, tx, *t, author)
 }
 
 // SetTaskTags replaces the tag set on a task, leaving its other fields alone.
