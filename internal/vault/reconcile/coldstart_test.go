@@ -166,7 +166,7 @@ func TestColdStart_FileMovedWhileOff_NoDiffRevision(t *testing.T) {
 	// Remove the old folder to make it clean.
 	_ = os.Remove(filepath.Join(vault, "folder-a"))
 
-	// Create a new Reconciler (simulates fresh boot — no in-memory state).
+	// Create a new Reconciler (simulates fresh boot - no in-memory state).
 	rec2 := reconcile.New(g, vault)
 	if err := rec2.ColdStart(ctx); err != nil {
 		t.Fatalf("ColdStart: %v", err)
@@ -376,7 +376,7 @@ func TestColdStart_RebuildFromVault(t *testing.T) {
 	}
 
 	// History is absent by design (R17): exactly one creation revision per note.
-	// (OnCreate records the creation revision — that is the current state.)
+	// (OnCreate records the creation revision - that is the current state.)
 	for _, id := range []string{"rb-uuid-1", "rb-uuid-2", "rb-uuid-3"} {
 		if n := countRevisions(t, g, id); n < 1 {
 			t.Errorf("uuid %q: expected at least 1 revision after rebuild, got %d", id, n)
@@ -403,7 +403,7 @@ func TestColdStart_Idempotent(t *testing.T) {
 	nodesAfterFirst := countAllNodes(t, g)
 	revsAfterFirst := countAllRevisions(t, g)
 
-	// Second boot (fresh Reconciler — no in-memory state).
+	// Second boot (fresh Reconciler - no in-memory state).
 	rec2 := reconcile.New(g, vault)
 	if err := rec2.ColdStart(ctx); err != nil {
 		t.Fatalf("ColdStart #2: %v", err)
@@ -428,7 +428,7 @@ func TestColdStart_UUIDInjectedOnce_NotReinjected(t *testing.T) {
 	ctx := context.Background()
 	g, vault, rec := newColdStartHarness(t)
 
-	// File has no UUID — will be injected on first ColdStart.
+	// File has no UUID - will be injected on first ColdStart.
 	path := filepath.Join(vault, "no-id.md")
 	writeFile(t, path, "---\ntitle: No ID\n---\n\nSome content.\n")
 
@@ -463,7 +463,7 @@ func TestColdStart_UUIDInjectedOnce_NotReinjected(t *testing.T) {
 		t.Fatalf("ReadFile after second boot: %v", err)
 	}
 	if string(raw1) != string(raw2) {
-		t.Error("file bytes changed on second boot — UUID was re-injected")
+		t.Error("file bytes changed on second boot - UUID was re-injected")
 	}
 
 	// No new revision must have been recorded.

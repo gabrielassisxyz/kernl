@@ -53,7 +53,7 @@ func TestListReturnsAllRevisions(t *testing.T) {
 		_, _ = wtx.Exec(`UPDATE nodes SET title = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?`, "Third Title", nodeID)
 		insertRevision(t, wtx, rev3ID, nodeID, &rev2ID, `{"title":"Third Title","attrs":"{}","tags":[]}`, "agent:test")
 
-		// Tombstone revision (delete marker) — node left intact so node_id FK is not SET NULL
+		// Tombstone revision (delete marker) - node left intact so node_id FK is not SET NULL
 		insertRevision(t, wtx, rev4ID, nodeID, &rev3ID, `{"title":"Third Title","attrs":"{}","tags":[]}`, "agent:test")
 		return nil
 	})

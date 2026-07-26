@@ -19,7 +19,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
 			// Only list subjects that still have at least one ACTIVE claim.
 			// A subject whose every claim was refuted would otherwise linger in
-			// the sidebar and render an empty "no active claims" panel — the
+			// the sidebar and render an empty "no active claims" panel - the
 			// GET /claims path already filters refuted claims, so the two views
 			// must agree.
 			rows, err := tx.Query(`
@@ -88,7 +88,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 		json.NewEncoder(w).Encode(map[string]any{"claims": claims})
 	})
 
-	// Telos: the human-authored half of Memory — notes tagged `telos` that are
+	// Telos: the human-authored half of Memory - notes tagged `telos` that are
 	// ALWAYS injected into the DA's context (vs. claims, which are retrieved by
 	// relevance). The endpoint returns the notes plus the live injection
 	// footprint so the surface can show the user exactly what the DA always sees.
@@ -152,7 +152,7 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 	})
 
 	// Manual, user-authored claims. The DA-learned Keep flow is not the only way
-	// a rule should enter memory — the user can assert one directly, and it is
+	// a rule should enter memory - the user can assert one directly, and it is
 	// tagged with user provenance so the card can distinguish it from DA claims.
 	mux.HandleFunc("POST /api/memory/claims", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

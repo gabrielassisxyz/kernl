@@ -14,7 +14,7 @@ type LLMClient interface {
 //
 // ToolCalls and ToolCallID carry the tool-use half of the protocol. Without them
 // a tool result was appended as a bare `role: "tool"` message with no assistant
-// turn in front of it claiming the call — so the model never saw that IT had
+// turn in front of it claiming the call - so the model never saw that IT had
 // already run the tool, and called it again on the next pass. That is what a
 // "the DA thinks, finishes, and says nothing" loop is made of.
 type Message struct {
@@ -27,12 +27,12 @@ type Message struct {
 	// These tags are deliberately snake_case: this struct is the
 	// OpenAI-compatible request body sent to the model provider, an EXTERNAL
 	// contract we do not own. kernl's own API is camelCase, so a sweep that
-	// renames wire keys will be tempted to "fix" these — renaming them breaks
+	// renames wire keys will be tempted to "fix" these - renaming them breaks
 	// the conversation with the provider instead.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
-// ChatResponse is the LLM response — either content text or tool calls.
+// ChatResponse is the LLM response - either content text or tool calls.
 type ChatResponse struct {
 	Content   string     `json:"content"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`

@@ -8,14 +8,14 @@
 // The `import.meta.dev` guard is what keeps this out of production builds: Vite
 // statically evaluates it to `false` in a production build, so the dynamic
 // import below is dropped entirely and the dependency never enters the bundle.
-// That is also why live-tweaks belongs in devDependencies — nothing in a
+// That is also why live-tweaks belongs in devDependencies - nothing in a
 // shipped build references it.
 //
 // The panel reads `LiveTweaksConfig` once at mount, so it must be assigned
 // BEFORE the import. The allowlist is not optional here: daisyUI floods `:root`
 // with hundreds of its own custom properties, many sharing kernl's `--color-*`
 // naming, which would bury the tokens that actually belong to the app. Entries
-// come from .live-tweaks/design-tokens.md — regenerate both together by
+// come from .live-tweaks/design-tokens.md - regenerate both together by
 // rerunning `/tweaks`, or the panel silently drops tokens the app has since
 // added.
 //

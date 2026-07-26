@@ -134,7 +134,7 @@ var builtinProfiles = []profileConfig{
 		// worker is the per-child profile inside an epic: it does the bead's
 		// own work and STOPS at awaiting_integration, handing the branch to the
 		// epic-level integration stage. It deliberately does NOT own integration
-		// or shipment — those belong to the epic profile. The orchestrator
+		// or shipment - those belong to the epic profile. The orchestrator
 		// applies this profile to epic children automatically (epic run).
 		ID:                       "worker",
 		DisplayName:              "Worker",

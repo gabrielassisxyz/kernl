@@ -1,4 +1,4 @@
-# goreleaser config — https://goreleaser.com
+# goreleaser config: https://goreleaser.com
 #
 # Driven by .github/workflows/release.yml on a `v*` tag. Produces
 # cross-compiled archives + checksums and a GitHub Release.
@@ -22,7 +22,7 @@ builds:
     main: ./cmd/kernl
     binary: kernl
     env:
-      # modernc.org/sqlite is pure Go — no cgo, so cross-compilation is clean.
+      # modernc.org/sqlite is pure Go; no cgo, so cross-compilation is clean.
       - CGO_ENABLED=0
     goos:
       - linux

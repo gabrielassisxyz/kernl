@@ -67,7 +67,7 @@ func (f *fakeBeadBackend) Update(id string, input backend.UpdateBeadInput, _ str
 	defer f.mu.Unlock()
 	b, ok := f.beads[id]
 	if !ok {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found — Fix: verify bead ID", id)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found - Fix: verify bead ID", id)
 	}
 	if input.State != "" {
 		b.State = input.State

@@ -242,7 +242,7 @@ func TestProjectDeleteWithoutYesPreviewsAndDeletesNothing(t *testing.T) {
 }
 
 // R2-010: an id with URL-significant characters must be percent-escaped into
-// the request path, not concatenated raw — otherwise a '/' or '?' in the id
+// the request path, not concatenated raw - otherwise a '/' or '?' in the id
 // rewrites the endpoint the CLI hits (task delete already escapes; project
 // delete/set regressed).
 func TestProjectDeleteEscapesTheIDInThePath(t *testing.T) {

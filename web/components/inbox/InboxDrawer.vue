@@ -15,7 +15,7 @@
     </div>
 
     <!-- One line per node, its description under it. Type, title and description
-         are editable here; anything deeper — refiling, adding a node — is the editor. -->
+         are editable here; anything deeper - refiling, adding a node - is the editor. -->
     <ul class="flex flex-col">
       <li v-for="(node, i) in nodes" :key="i" class="flex items-center gap-base py-tight min-w-0">
         <!-- The type chip is centred against the whole node, title and
@@ -176,7 +176,7 @@ function setTarget(index: number, target: Target) {
 }
 
 // The menu is a real dropdown, so it has to close on a click that lands anywhere
-// else — including another node's row, which has no handler of its own.
+// else - including another node's row, which has no handler of its own.
 function onPointerDown(e: PointerEvent) {
   if (picker.value === null) return
   const el = e.target as HTMLElement | null
@@ -229,7 +229,7 @@ function nodeTitle(node: CaptureAction): string {
   return props.item.title
 }
 
-// The fragment this node owns — not the composed description. The capture it
+// The fragment this node owns - not the composed description. The capture it
 // gets appended to is right above; printing it again four times is noise.
 function description(node: CaptureAction): string {
   const body = (node.body || '').trim()

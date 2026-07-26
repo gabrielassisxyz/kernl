@@ -33,17 +33,17 @@ func ApplyDefaults(v *config.VaultConfig) {
 //   - Non-empty Root that exists but is not a directory → error.
 func Validate(v config.VaultConfig) error {
 	if v.Root == "" {
-		return nil // disabled — not an error
+		return nil // disabled - not an error
 	}
 	info, err := os.Stat(v.Root)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("vault.root %q does not exist — create the directory or leave vault.root empty to disable watching", v.Root)
+			return fmt.Errorf("vault.root %q does not exist - create the directory or leave vault.root empty to disable watching", v.Root)
 		}
 		return fmt.Errorf("vault.root %q: %w", v.Root, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("vault.root %q exists but is not a directory — set vault.root to a directory path", v.Root)
+		return fmt.Errorf("vault.root %q exists but is not a directory - set vault.root to a directory path", v.Root)
 	}
 	return nil
 }

@@ -21,7 +21,7 @@ describe('ProjectCard', () => {
   it('shows an em dash and an empty bar when there are no tasks', () => {
     const w = mount(ProjectCard, { props: { project: project() } })
     expect(w.text()).toContain('0/0 tasks')
-    expect(w.text()).toContain('—')
+    expect(w.text()).toContain(' - ')
     expect(w.html()).toContain('width: 0%')
   })
 

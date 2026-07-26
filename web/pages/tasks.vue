@@ -209,7 +209,7 @@ function reload() {
 // query) and only resolves the real location a tick after onMounted, so the
 // setup-time init above misses the filter on a hard reload of /tasks/?project=X.
 // Watching the query catches that late resolution (and any in-app change), so
-// setProjectFilter only has to navigate — this watch does the reload.
+// setProjectFilter only has to navigate - this watch does the reload.
 watch(
   () => route.query.project,
   (id) => {

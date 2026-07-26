@@ -15,14 +15,14 @@ import (
 // epic bead through integration -> integration_review -> shipment, ending at
 // awaiting_pr_review. Use it to recover a blocked epic after fixing the cause,
 // or to (re)trigger integration once every child is at awaiting_integration.
-// It does not run the children — `kernl epic run` does that and then invokes
+// It does not run the children - `kernl epic run` does that and then invokes
 // the same epic drive automatically.
 func runEpicMerge(a *app.App, args []string, out func(string)) error {
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: epic merge requires an epic ID — run: kernl epic merge <epic-id>")
+		return usagef("KERNL DISPATCH FAILURE: epic merge requires an epic ID - run: kernl epic merge <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
 	}
 	epicID := args[0]
 	repoPath := a.Config.Registry.Repos[0].Path

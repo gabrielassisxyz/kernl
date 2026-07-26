@@ -12,7 +12,7 @@ import (
 // dispatch.SelectFromPoolWithID (weighted random over settings.pools[pool]),
 // and returns a RunBeadInput populated with the spawn command + args + env.
 //
-// BeadID and RepoPath are left empty — the caller fills them in per-bead.
+// BeadID and RepoPath are left empty - the caller fills them in per-bead.
 //
 // If the selected agent has a non-empty Model field, a trailing
 // "--model <model>" arg is appended so opencode (and most other agent CLIs)
@@ -26,7 +26,7 @@ func ResolveAgentForPool(cfg *config.Config, pool string) (RunBeadInput, error) 
 	}
 	poolCfg, ok := cfg.Settings.Pools[pool]
 	if !ok {
-		return RunBeadInput{}, fmt.Errorf("KERNL DISPATCH FAILURE: pool %q not declared in settings.pools — Fix: add settings.pools.%s with at least one agent entry", pool, pool)
+		return RunBeadInput{}, fmt.Errorf("KERNL DISPATCH FAILURE: pool %q not declared in settings.pools - Fix: add settings.pools.%s with at least one agent entry", pool, pool)
 	}
 
 	agentID, agentCfg, err := dispatch.SelectFromPoolWithID(poolCfg, cfg.Settings.Agents)
@@ -70,7 +70,7 @@ func ResolveAgentForBead(cfg *config.Config, be backend.BackendPort, beadID, rep
 	poolKey := dispatch.DerivePoolKey(&wf, bead.State)
 	if poolKey == "" {
 		return RunBeadInput{}, fmt.Errorf(
-			"KERNL DISPATCH FAILURE: DerivePoolKey returned empty for bead %s in state %q (workflow %q) — "+
+			"KERNL DISPATCH FAILURE: DerivePoolKey returned empty for bead %s in state %q (workflow %q) - "+
 				"Fix: add a pool mapping for state %q under workflows.%s.queueActions in kernl.yaml, "+
 				"or ensure the workflow definition lists %q as an active state",
 			beadID, bead.State, wf.ID, bead.State, wf.ID, bead.State,

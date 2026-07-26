@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 
-// Mirrors api.taskDTO (internal/api/tasks.go) — JSON is camelCase.
+// Mirrors api.taskDTO (internal/api/tasks.go) - JSON is camelCase.
 export interface Task {
   id: string
   title: string

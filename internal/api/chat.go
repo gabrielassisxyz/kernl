@@ -38,7 +38,7 @@ func createChatSessionHandler(a *app.App) http.HandlerFunc {
 
 		// Substrate-aware planning: when the session is opened with a seed, pull
 		// the relevant vault notes and seed the conversation with them as system
-		// context, so the DA plans WITH the user's notes already in scope — the
+		// context, so the DA plans WITH the user's notes already in scope - the
 		// keystone seam, no manual hunting/pasting.
 		var body struct {
 			Seed string `json:"seed"`
@@ -324,7 +324,7 @@ func chatEventsHandler(a *app.App) http.HandlerFunc {
 		// The engine leaves a goroutine behind (the learned-candidate proposal),
 		// and it outlives this handler. Once we return, the ResponseWriter is
 		// spent: writing to it is undefined and flushing it dereferences a nil
-		// buffer — in a detached goroutine that panic takes the whole server down.
+		// buffer - in a detached goroutine that panic takes the whole server down.
 		defer writer.close()
 
 		engine, err := chat.NewChatEngine(a, id, writer, llmClient, chat.NewGraphPermissionChecker(a))
@@ -375,7 +375,7 @@ func listNodesHandler(a *app.App) http.HandlerFunc {
 //
 // It goes inert when the handler that owns the ResponseWriter returns. The
 // engine spawns a background goroutine that emits a state event when it is done
-// extracting a memory, and that goroutine regularly outlives the stream — the
+// extracting a memory, and that goroutine regularly outlives the stream - the
 // code even said so, and assumed a late write was harmless. It is not: flushing
 // a finished response panics on a nil buffer, and a panic in a goroutine nobody
 // recovers kills the process. The event is not lost: the next stream reads the

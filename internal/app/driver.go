@@ -34,7 +34,7 @@ type DriverDeps struct {
 // Command is the agent CLI binary (e.g. "opencode"). Args are passed after it.
 // Env is exported into the spawned process if non-empty.
 // AgentName is the logical name of the agent (the key in settings.agents,
-// e.g. "deepseek-v4-pro-high") and is used for the session ID and logs —
+// e.g. "deepseek-v4-pro-high") and is used for the session ID and logs  -
 // distinct from the binary, which is the same `opencode` for every agent
 // when going through litellm.
 type RunBeadInput struct {
@@ -88,7 +88,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", input.BeadID, input.RepoPath, err)
 	}
 	if input.Command == "" {
-		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: RunBeadInput.Command empty for bead %s — Fix: resolve an agent from settings.pools before calling RunBead", input.BeadID)
+		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: RunBeadInput.Command empty for bead %s - Fix: resolve an agent from settings.pools before calling RunBead", input.BeadID)
 	}
 
 	dialect := adapter.ResolveDialect(input.Command)
@@ -277,9 +277,9 @@ type stageLog struct {
 	w    io.Writer
 }
 
-// discardLog is the fallback used when we cannot open a real log file —
+// discardLog is the fallback used when we cannot open a real log file  -
 // the agent still runs, we just lose forensic data for this stage.
-var discardLog = stageLog{path: "(discarded — log open failed)", w: io.Discard}
+var discardLog = stageLog{path: "(discarded - log open failed)", w: io.Discard}
 
 // openStageLogs opens per-bead per-agent stdout/stderr log files under
 // ~/.kernl/logs/<bead>/<timestamp>-<agent>.{stdout,stderr}.log. Always

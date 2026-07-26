@@ -54,10 +54,10 @@ func ensureBdVersion(t *testing.T) {
 		t.Fatalf("bd --version returned unrecognized output: %s", string(out))
 	}
 	if !semver.IsValid("v" + v) {
-		t.Fatalf("bd version %q is not valid semver — run: go install github.com/gastownhall/beads@v%s", v, minBdVersion)
+		t.Fatalf("bd version %q is not valid semver - run: go install github.com/gastownhall/beads@v%s", v, minBdVersion)
 	}
 	if semver.Compare("v"+v, "v"+minBdVersion) < 0 {
-		t.Fatalf("bd version %s < required %s — run: go install github.com/gastownhall/beads@v%s", v, minBdVersion, minBdVersion)
+		t.Fatalf("bd version %s < required %s - run: go install github.com/gastownhall/beads@v%s", v, minBdVersion, minBdVersion)
 	}
 }
 

@@ -22,7 +22,7 @@ type derivedNode struct {
 
 // Reopen reverses a Process: it removes every node the capture became and
 // returns the capture to the pending queue. This backs the inbox undo. A capture
-// that fanned out into four nodes gives back four — the walk covers every
+// that fanned out into four nodes gives back four - the walk covers every
 // derived_from edge, not just the first (a note merged into via merged_into is
 // pre-existing and is deliberately left alone). For a note, its vault markdown
 // is removed too (looked up via note_paths, with a scan fallback for the brief

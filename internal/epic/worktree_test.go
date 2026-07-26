@@ -80,7 +80,7 @@ func TestEnsureEpicBranchCreatesWhenAbsent(t *testing.T) {
 		t.Error("never listed feat/e1")
 	}
 	if !foundCreate {
-		t.Error("never created feat/e1 from master — it should have been absent on first list call")
+		t.Error("never created feat/e1 from master - it should have been absent on first list call")
 	}
 }
 
@@ -101,7 +101,7 @@ func TestEnsureEpicBranchIsIdempotent(t *testing.T) {
 	}
 	for _, call := range fr.calls {
 		if call[0] == "branch" && call[1] == "feat/e1" && call[2] == "master" {
-			t.Error("second call should not recreate feat/e1 — branch already exists in fake")
+			t.Error("second call should not recreate feat/e1 - branch already exists in fake")
 		}
 	}
 }
@@ -209,7 +209,7 @@ func TestAddMergesDependencyBranches(t *testing.T) {
 func TestAddSkipsMissingDependencyBranch(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
-	// dep-2 never produced a branch (branch map empty) — nothing to merge.
+	// dep-2 never produced a branch (branch map empty) - nothing to merge.
 	wm := NewWorktreeManager(root, root, fr.run, nil)
 
 	if _, err := wm.Add("e1", "child-e", []string{"dep-2"}); err != nil {

@@ -347,7 +347,7 @@ func TestBookmarkHighlightsRoundtrip(t *testing.T) {
 // into the nodes.attrs column, so those tags ARE the storage format, not a wire
 // format. Renaming created_at to createdAt to satisfy the REST camelCase
 // contract would make every already-stored highlight read back with a zero
-// timestamp — a silent data loss with no migration. The API converts through a
+// timestamp - a silent data loss with no migration. The API converts through a
 // DTO instead; this test is what makes that rename fail loudly.
 func TestBookmarkHighlightStorageFormat(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)

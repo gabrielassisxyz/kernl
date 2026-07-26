@@ -23,7 +23,7 @@ type taskDTO struct {
 	Status      string   `json:"status"`
 	ProjectID   string   `json:"projectId"`
 	Tags        []string `json:"tags"`
-	// DueDate is a calendar day (YYYY-MM-DD), empty when the task has none —
+	// DueDate is a calendar day (YYYY-MM-DD), empty when the task has none  -
 	// deliberately not an RFC3339 timestamp like the two below: a due date
 	// rendered through a timezone is a due date that shows up a day early.
 	DueDate   string    `json:"dueDate"`
@@ -157,7 +157,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 	// Pointer fields distinguish "absent" from "set to empty": an omitted tags
 	// key leaves the task's tags alone, while `"tags": []` clears them. Same for
-	// dueDate — `"dueDate": ""` is how a due date is removed.
+	// dueDate - `"dueDate": ""` is how a due date is removed.
 	var req struct {
 		Title   *string   `json:"title"`
 		Status  *string   `json:"status"`
@@ -232,7 +232,7 @@ func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	// The companion note goes with the task (node + note_paths row in the same
-	// tx; the file afterwards). A task has no children to cascade — unlike a
+	// tx; the file afterwards). A task has no children to cascade - unlike a
 	// project, nothing points at it that we own.
 	var companionPath string
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {

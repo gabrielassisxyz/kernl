@@ -179,7 +179,7 @@ func TestProcessTaskUnderProject(t *testing.T) {
 }
 
 // TestProcessTaskUnfiled verifies a task with no project lands unfiled (no
-// part_of edge, empty ProjectID) — the "unprocessed tasks" bucket.
+// part_of edge, empty ProjectID) - the "unprocessed tasks" bucket.
 func TestProcessTaskUnfiled(t *testing.T) {
 	ctx := context.Background()
 	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})

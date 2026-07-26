@@ -52,7 +52,7 @@ func resolveInTx(ctx context.Context, tx *graph.WriteTx, srcNodeID, body string)
 	links := Parse(body)
 
 	// Re-indexing rebuilds this source's complete outgoing link state, so clear
-	// its stale rows first — both resolved links_to edges and unresolved dangling
+	// its stale rows first - both resolved links_to edges and unresolved dangling
 	// links. This runs before the empty-body early return so that removing every
 	// wikilink from a note also clears its old edges/dangling rows, and it makes
 	// re-indexing idempotent (a repeated change does not duplicate edges).
@@ -113,7 +113,7 @@ func resolveInTx(ctx context.Context, tx *graph.WriteTx, srcNodeID, body string)
 		}
 
 		if dstNodeID != "" && dstNodeID != srcNodeID {
-			// Resolved — create edge
+			// Resolved - create edge
 			attrsJSON := buildLinkAttrs(link.Target, resolvedBy, false)
 			edgeID, err := edges.Create(ctx, tx, edges.Edge{
 				Src:   srcNodeID,
@@ -131,14 +131,14 @@ func resolveInTx(ctx context.Context, tx *graph.WriteTx, srcNodeID, body string)
 				ResolvedBy: resolvedBy,
 			})
 		} else if dstNodeID == srcNodeID {
-			// Self-link — resolved but no edge created
+			// Self-link - resolved but no edge created
 			outcomes = append(outcomes, ResolveOutcome{
 				Link:       link,
 				Resolved:   true,
 				ResolvedBy: resolvedBy,
 			})
 		} else {
-			// Unresolved — store as dangling
+			// Unresolved - store as dangling
 			targetKind := string(kind)
 			if targetKind == "" {
 				targetKind = "stem"
@@ -170,7 +170,7 @@ type PromoteKey struct {
 // PromoteDangling scans dangling_links for rows matching the given keys and
 // promotes each match to a real edge, then deletes the dangling row.
 // The keys should be derived from the new note's filename stem and title.
-// Returns the count of promoted edges. Idempotent — calling twice produces
+// Returns the count of promoted edges. Idempotent - calling twice produces
 // no duplicate edges.
 func PromoteDangling(ctx context.Context, g *graph.Graph, noteID string, keys ...PromoteKey) (int, error) {
 	if len(keys) == 0 {
@@ -228,7 +228,7 @@ func promoteDanglingInTx(ctx context.Context, tx *graph.WriteTx, noteID string, 
 
 		for _, dr := range matches {
 			if dr.srcNodeID == noteID {
-				// Self-link — just delete the dangling row, no edge
+				// Self-link - just delete the dangling row, no edge
 				if _, err := tx.Exec(`DELETE FROM dangling_links WHERE id = ?`, dr.id); err != nil {
 					return promoted, fmt.Errorf("PromoteDangling: delete self-dangling: %w", err)
 				}

@@ -65,7 +65,7 @@ var (
 // Nudge re-spawns the agent for sessionID with a manual follow-up prompt,
 // resuming the captured opencode conversation via `-s <ses_xxx>` so the
 // agent keeps full conversation context. Returns immediately after kicking
-// off a background goroutine — events stream back through the existing SCM
+// off a background goroutine - events stream back through the existing SCM
 // SSE pipe so the web log panel updates live.
 //
 // Refuses to start a second run while one is in flight (ErrNudgeRunning).
@@ -158,7 +158,7 @@ Do not start unrelated work. Do not redo work that is already on disk. Just clos
 			repoPath, beadID, repoPath, beadID,
 		)
 	case NudgePresetGeneric, "":
-		return fmt.Sprintf(`Your previous turn was interrupted before completion (likely an upstream API error, timeout, or rate-limit cut you off mid-task). Resume from where you left off — do NOT restart from scratch.
+		return fmt.Sprintf(`Your previous turn was interrupted before completion (likely an upstream API error, timeout, or rate-limit cut you off mid-task). Resume from where you left off - do NOT restart from scratch.
 
 1. Run: bd -C %s show %s
    See the bead's current state and the most recent status transition.
@@ -167,7 +167,7 @@ Do not start unrelated work. Do not redo work that is already on disk. Just clos
 4. Continue the work that was in progress. Do NOT start anything new and do NOT redo work that is already complete.
 5. When the stage is genuinely done, run the required bd update --status <next> command and exit. If you are truly blocked, run bd -C %s update %s --status blocked and document the block.
 
-Be defensive — your previous turn ended unexpectedly, so verify state on disk before acting on memory.`,
+Be defensive - your previous turn ended unexpectedly, so verify state on disk before acting on memory.`,
 			repoPath, beadID, repoPath, beadID,
 		)
 	}

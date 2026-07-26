@@ -23,7 +23,7 @@
     </ul>
 
     <!-- The proposal: the nodes the DA thinks this capture should become.
-         Accepting only replaces what is on screen — the capture is still written
+         Accepting only replaces what is on screen - the capture is still written
          by the user, when they process it. -->
     <div v-if="routing" class="flex flex-col gap-tight rounded border border-da-accent/40 bg-surface p-base">
       <p v-if="routing.rationale" class="font-body text-body text-text-muted">{{ routing.rationale }}</p>
@@ -45,7 +45,7 @@
       <!-- "Accept" promised a write this button does not do. It updates the nodes
            on screen; processing the capture is still a separate, deliberate act. -->
       <div class="flex items-center gap-base pt-tight font-mono-data text-mono-data">
-        <span class="text-text-dim truncate">Updates the nodes above — nothing is written yet.</span>
+        <span class="text-text-dim truncate">Updates the nodes above - nothing is written yet.</span>
         <div class="ml-auto shrink-0 flex items-center gap-base">
           <button
             class="px-base py-0.5 rounded border border-border-hairline text-text-muted hover:text-text-primary transition-colors cursor-pointer"
@@ -59,7 +59,7 @@
       </div>
     </div>
 
-    <!-- An edit to a note that ALREADY EXISTS — "add this book to Anti-library".
+    <!-- An edit to a note that ALREADY EXISTS - "add this book to Anti-library".
          It is not one of the nodes the capture becomes (an update merges hunk by
          hunk and cannot ride along with a fan-out), so it is its own proposal,
          and it is the one thing here that writes to the vault the moment you say
@@ -126,7 +126,7 @@ import {
 } from '~/utils/inboxTargets'
 
 const props = defineProps<{
-  /** the capture under discussion — it scopes the DA's session */
+  /** the capture under discussion - it scopes the DA's session */
   captureId: string
   /** the routing currently on screen, so the DA argues with THIS, not its own first guess */
   draft: CaptureAction[]
@@ -156,7 +156,7 @@ const writing = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
 
 // The DA's other proposal: an edit to a note that already exists. It arrives on
-// its own event because it is not a node the capture becomes — "add this book to
+// its own event because it is not a node the capture becomes - "add this book to
 // Anti-library" touches a note that was already there.
 const noteEdit = computed(() => diffSuggestion.value)
 
@@ -183,7 +183,7 @@ async function writeNoteEdit() {
 }
 
 const routing = computed(() => {
-  // A routing proposed for a different capture is stale — the panel is mounted
+  // A routing proposed for a different capture is stale - the panel is mounted
   // per capture, but the session is not.
   const r = routingSuggestion.value
   return r && r.captureId === props.captureId ? r : null

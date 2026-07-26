@@ -15,7 +15,7 @@ const (
 	OutcomePRAlreadyExists Outcome = "pr_already_exists"
 )
 
-// All returns the full enum — used by the merger prompt template to render the literal list.
+// All returns the full enum - used by the merger prompt template to render the literal list.
 func All() []Outcome {
 	return []Outcome{
 		OutcomeSuccess,

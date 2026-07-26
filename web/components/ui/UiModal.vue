@@ -75,7 +75,7 @@ onMounted(() => {
   if (props.open && dialogRef.value) {
     dialogRef.value.showModal()
   }
-  
+
   // Remove native escape listener if closeOnEsc is false
   dialogRef.value?.addEventListener('cancel', (e) => {
     if (!props.closeOnEsc) e.preventDefault()
@@ -92,7 +92,7 @@ function onBackdropClick(event: MouseEvent) {
 
 <style scoped>
 /* A closed <dialog> must not render. The `flex` utility on the element sets
-   display:flex, which overrides the UA `dialog:not([open]){display:none}` rule —
+   display:flex, which overrides the UA `dialog:not([open]){display:none}` rule  -
    leaving a closed, opacity:0 modal in the layout where it silently intercepts
    clicks. Re-assert display:none for the closed state (scoped selector wins over
    the utility class) so only an open modal occupies space. */

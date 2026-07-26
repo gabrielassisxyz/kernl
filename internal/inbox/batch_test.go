@@ -65,7 +65,7 @@ func TestPreviewBatchParsesWhatsAppTimeFirstMessages(t *testing.T) {
 
 // The capture body is the primary source: whatever the author typed, byte for
 // byte. A multi-paragraph message must survive the parser with its paragraph
-// breaks — the reflowed one-paragraph version is a different document.
+// breaks - the reflowed one-paragraph version is a different document.
 func TestPreviewBatchKeepsMessageParagraphsVerbatim(t *testing.T) {
 	message := "falar \"trablhar 1h por dia\" é facil, mas tenho dificuldade de internalizar.\n\nou me falta entender o que estou construindo, sei la\n\npreciso de uma forma de visualizar esse progresso"
 	raw := "4/1/26, 16:34 - Alex Rivera: " + message + "\n4/1/26, 19:46 - Alex Rivera: next message"
@@ -183,7 +183,7 @@ func TestAnalyzeBatchRespectsOverrides(t *testing.T) {
 	}
 }
 
-// flakyLLM answers differently every call — the real failure mode: the same
+// flakyLLM answers differently every call - the real failure mode: the same
 // fixture through the same merge prompt gave 25 captures on one run and 20 on
 // the next, and five messages were merged away by nobody's decision.
 type flakyLLM struct {
@@ -234,7 +234,7 @@ func TestAnalyzeBatchProposesTheSameCaptureCountEveryRun(t *testing.T) {
 }
 
 // The capture body is the message as it was written. Not even a caller posting
-// its own bodies can change that — only the merge grouping survives the trip.
+// its own bodies can change that - only the merge grouping survives the trip.
 func TestCreateBatchIgnoresBodiesSuppliedByTheClient(t *testing.T) {
 	ctx := context.Background()
 	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
@@ -299,7 +299,7 @@ func TestCreateBatchAppliesOnlyAcceptedMerges(t *testing.T) {
 }
 
 // A body that is not literally in the pasted text cannot have come from the
-// parser, so it is a rewrite — and the request fails rather than writing it.
+// parser, so it is a rewrite - and the request fails rather than writing it.
 func TestCreateBatchRejectsSegmentsThatAreNotSourceText(t *testing.T) {
 	ctx := context.Background()
 	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})

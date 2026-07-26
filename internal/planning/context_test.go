@@ -149,7 +149,7 @@ func TestLoadTelos_InjectsTaggedNotes(t *testing.T) {
 
 	seedTaggedNote(t, g, "Who I am", "I am a solo builder optimizing for leverage.", []string{"telos"})
 	seedTaggedNote(t, g, "My goals", "Ship the magic loop end-to-end this quarter.", []string{"telos", "da"})
-	seedNote(t, g, "Caching strategy", "We use an LRU cache.") // untagged — must not appear
+	seedNote(t, g, "Caching strategy", "We use an LRU cache.") // untagged - must not appear
 
 	block, err := planning.LoadTelos(ctx, g)
 	if err != nil {

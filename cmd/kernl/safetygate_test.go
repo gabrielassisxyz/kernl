@@ -16,7 +16,7 @@ import (
 func requireRefusedWithoutYes(t *testing.T, err error, verb string) {
 	t.Helper()
 	if err == nil {
-		t.Fatalf("%s without --yes must not exit 0 — an agent branching on $? reads that as done", verb)
+		t.Fatalf("%s without --yes must not exit 0 - an agent branching on $? reads that as done", verb)
 	}
 	if got := exitCode(err); got != 2 {
 		t.Fatalf("%s without --yes must exit 2, got %d (%v)", verb, got, err)
@@ -32,7 +32,7 @@ func requireRefusedWithoutYes(t *testing.T, err error, verb string) {
 
 // TestEveryYesGateRefusesTheSameWay is the drift guard. The gates live in seven
 // files; without one test naming them together, the next one added copies
-// whichever neighbour it was pasted from and the contract splits again — which
+// whichever neighbour it was pasted from and the contract splits again - which
 // is exactly how `epic abort` ended up refusing at exit 2 while the other seven
 // refused at exit 0.
 func TestEveryYesGateRefusesTheSameWay(t *testing.T) {

@@ -42,7 +42,7 @@ func TestParseDueDate(t *testing.T) {
 	}
 }
 
-// A due date lands in the generic attrs blob — no migration — and must survive
+// A due date lands in the generic attrs blob - no migration - and must survive
 // the round trip through both readers.
 func TestTaskDueDateRoundTrip(t *testing.T) {
 	ctx := context.Background()

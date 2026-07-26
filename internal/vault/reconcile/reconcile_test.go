@@ -324,7 +324,7 @@ func TestHashBytes(t *testing.T) {
 
 // TestUUIDIsTheKey verifies that when two paths collide (same path, different
 // UUIDs), the UUID keying means the later write wins on the path UNIQUE
-// constraint — the UUID-keyed design resolves such races deterministically.
+// constraint - the UUID-keyed design resolves such races deterministically.
 func TestUUIDIsTheKey(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
@@ -337,7 +337,7 @@ func TestUUIDIsTheKey(t *testing.T) {
 	}
 
 	// Second writer attempts the same path with a different UUID. The UNIQUE
-	// constraint on path means this MUST fail — the path is already owned by
+	// constraint on path means this MUST fail - the path is already owned by
 	// uuid-first. The caller (U7/U11) is responsible for conflict resolution;
 	// the cache layer surfaces the error.
 	err := reconcile.Upsert(ctx, g, "uuid-second", sharedPath, "h2")
@@ -655,11 +655,11 @@ func TestOnCreate_DanglingPromotedOnArrival(t *testing.T) {
 }
 
 // TestOnCreate_RollbackOnFailure verifies that an injected failure inside the
-// DoWrite rolls back the entire event — no orphan node/FTS row and no path-cache
+// DoWrite rolls back the entire event - no orphan node/FTS row and no path-cache
 // entry survive.
 // Strategy: write a file with a UUID that is the same as an existing node, so
 // the second CreateNote inside the single transaction fails with a UNIQUE
-// constraint — simulating mid-tx failure.
+// constraint - simulating mid-tx failure.
 func TestOnCreate_RollbackOnFailure(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
@@ -760,7 +760,7 @@ func TestOnCreate_UUIDInjectedOnDisk(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U11 — Delete semantics: move window, soft-delete, revive (AE5 / R18+R19)
+// U11 - Delete semantics: move window, soft-delete, revive (AE5 / R18+R19)
 // ---------------------------------------------------------------------------
 
 // advancedClock is an injectable clock for testing window expiry.
@@ -948,14 +948,14 @@ func TestR19_DeleteThenCreateWithSameUUID_TreatedAsMove(t *testing.T) {
 		t.Fatalf("OnDelete: %v", err)
 	}
 
-	// Create at new path with SAME UUID — within window (clock not advanced)
+	// Create at new path with SAME UUID - within window (clock not advanced)
 	pathB := filepath.Join(vault, "folder-b", "move-note.md")
 	writeFile(t, pathB, "---\nid: move-uuid-1\ntitle: Move Note\n---\n\nOriginal body.\n")
 	if err := rec.OnCreate(ctx, pathB); err != nil {
 		t.Fatalf("OnCreate new path: %v", err)
 	}
 
-	// Advance clock and flush — nothing should be tombstoned
+	// Advance clock and flush - nothing should be tombstoned
 	clk.Advance(2 * time.Second)
 	tombstoned, err := rec.FlushExpired(ctx)
 	if err != nil {
@@ -1120,9 +1120,9 @@ func TestMoveByContentHash_NoUUID(t *testing.T) {
 	}
 
 	// Create at a new path with the SAME content but WITHOUT a UUID in frontmatter
-	// (simulating a copy without frontmatter — hash tiebreak)
+	// (simulating a copy without frontmatter - hash tiebreak)
 	pathNew := filepath.Join(vault, "hash-note-moved.md")
-	// Write the original content (same hash) — this has a UUID so it will match by UUID not hash.
+	// Write the original content (same hash) - this has a UUID so it will match by UUID not hash.
 	// To test the hash path specifically, we write content without an id field first,
 	// then OnCreate will inject a new UUID, but the content hash changes.
 	// Instead write identical content (same UUID) to exercise both paths at once.
@@ -1131,7 +1131,7 @@ func TestMoveByContentHash_NoUUID(t *testing.T) {
 		t.Fatalf("OnCreate new path: %v", err)
 	}
 
-	// Advance clock and flush — nothing should be tombstoned
+	// Advance clock and flush - nothing should be tombstoned
 	clk.Advance(2 * time.Second)
 	tombstoned, err := rec.FlushExpired(ctx)
 	if err != nil {

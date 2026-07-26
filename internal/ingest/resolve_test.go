@@ -85,7 +85,7 @@ func TestResolveReviewSkip(t *testing.T) {
 	}
 }
 
-// An empty action used to fall through to Skip and delete the review — so a
+// An empty action used to fall through to Skip and delete the review - so a
 // resolution that forgot the field destroyed what it was resolving.
 func TestResolveReviewEmptyActionRefusesAndKeepsReview(t *testing.T) {
 	ctx := context.Background()
@@ -246,7 +246,7 @@ func TestResolveReviewUpdateRejectAllUnchanged(t *testing.T) {
 	}
 }
 
-// Create Page connects the new note to its source node — it is not orphaned.
+// Create Page connects the new note to its source node - it is not orphaned.
 func TestResolveReviewCreatePageConnectsSource(t *testing.T) {
 	ctx := context.Background()
 	g := openGraph(t)

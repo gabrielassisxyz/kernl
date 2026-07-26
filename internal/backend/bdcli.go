@@ -124,7 +124,7 @@ func NewBdCliBackend(repoPath string) *BdCliBackend {
 
 // checkBdVersion probes `bd --version` once and warns if the detected version
 // differs from expectedBdVersion. Uses sync.Once so the probe only fires on
-// construction. A probe failure is non-fatal — the orchestrator must not crash
+// construction. A probe failure is non-fatal - the orchestrator must not crash
 // over a version check that may simply mean bd is not on PATH yet.
 func (b *BdCliBackend) checkBdVersion() {
 	b.versionOnce.Do(func() {
@@ -975,7 +975,7 @@ func bdResultToError(result *ExecResult) error {
 
 // bd show returns {"..."} (single object)  OR  [{...}] (array with single element)
 // bd list returns [{...}, {...}, ...] (array with multiple elements)
-// parseNDJSONBytes normalizes all to a single valid JSON document — object, array, or encoded-raw.
+// parseNDJSONBytes normalizes all to a single valid JSON document - object, array, or encoded-raw.
 func parseNDJSONBytes(data []byte) (json.RawMessage, error) {
 	if len(data) == 0 {
 		return data, nil

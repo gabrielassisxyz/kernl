@@ -79,7 +79,7 @@ func TestServeDispatchesAutoTick(t *testing.T) {
 
 func TestResolveBindHostDefaultsToLoopback(t *testing.T) {
 	// The API has no authentication, so the default must never be an address
-	// other machines can reach — an unconfigured kernl is a private kernl.
+	// other machines can reach - an unconfigured kernl is a private kernl.
 	tests := []struct {
 		name       string
 		configured string

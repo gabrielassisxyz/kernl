@@ -11,7 +11,7 @@ import (
 )
 
 // beadAPISubcommandNames is the half of `bead` the REST API serves. `run` is
-// absent on purpose — it drives a local agent and is handled in bead.go — but
+// absent on purpose - it drives a local agent and is handled in bead.go - but
 // every diagnostic below suggests against the full beadSubcommands set, so a
 // user who typos `run` is still pointed at it.
 var beadAPISubcommandNames = []string{"list", "get", "create", "set", "close", "mark-terminal", "rollback", "refine-scope"}
@@ -72,8 +72,8 @@ Without --yes the close is described and nothing is sent.
 		Name:    "mark-terminal",
 		Summary: "Force a bead into a terminal state, skipping its workflow",
 		Usage:   "kernl bead mark-terminal <bead-id> --state <state> [--reason <text>] --yes [--json]",
-		Details: `Requires --yes: this abandons every workflow stage the bead had left —
-review, integration, shipment — without running them. Use it to correct a
+		Details: `Requires --yes: this abandons every workflow stage the bead had left  -
+review, integration, shipment - without running them. Use it to correct a
 bead the orchestrator cannot finish, not to advance one.
 --state is required; --reason is appended to the bead's notes.`,
 	},
@@ -85,7 +85,7 @@ bead the orchestrator cannot finish, not to advance one.
 state, and re-running those stages re-spawns agents.
 --state is required; --reason records why the correction was needed.
 
-The bd backend does not implement rewind — against a bd-backed server this
+The bd backend does not implement rewind - against a bd-backed server this
 route fails loud. The verb exists for backends that do.`,
 	},
 	{
@@ -113,14 +113,14 @@ type beadView struct {
 
 func runBeadAPI(v verbContext, args []string) error {
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand — valid: %s. Run: kernl bead --help",
+		return usagef("KERNL DISPATCH FAILURE: bead requires a subcommand - valid: %s. Run: kernl bead --help",
 			strings.Join(beadSubcommands, ", "))
 	}
 	sub, rest, err := requireSub("bead", args, beadAPISubcommandNames)
 	if err != nil {
 		// Suggest against the full set: `kernl bead rn` must find `run`, which
 		// this file does not serve.
-		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s — valid: %s. Run: kernl bead --help",
+		return usagef("KERNL DISPATCH FAILURE: unknown bead subcommand %q%s - valid: %s. Run: kernl bead --help",
 			args[0], didYouMean(args[0], beadSubcommands), strings.Join(beadSubcommands, ", "))
 	}
 	asJSON, rest := parseBoolFlag(rest, "--json")
@@ -149,7 +149,7 @@ func runBeadList(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: bead list takes no arguments, got %q — GET /api/beads has no filters; pipe --json through jq instead", args[0])
+		return usagef("KERNL DISPATCH FAILURE: bead list takes no arguments, got %q - GET /api/beads has no filters; pipe --json through jq instead", args[0])
 	}
 	raw, err := beadAPICall(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
 		return c.get(ctx, "/api/beads")
@@ -192,7 +192,7 @@ func runBeadCreate(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(rest) == 0 {
-		return usagef(`KERNL DISPATCH FAILURE: bead create requires a title — run: kernl bead create "<title>" [--parent <epic-id>]`)
+		return usagef(`KERNL DISPATCH FAILURE: bead create requires a title - run: kernl bead create "<title>" [--parent <epic-id>]`)
 	}
 	// Unquoted multi-word titles are the common shell slip, and the title is
 	// echoed back on success, so joining is safe and is what was meant.
@@ -228,7 +228,7 @@ func runBeadSet(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(body) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bead set needs at least one field to change — run: kernl bead set --help")
+		return usagef("KERNL DISPATCH FAILURE: bead set needs at least one field to change - run: kernl bead set --help")
 	}
 	raw, err := beadAPICall(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
 		return c.patch(ctx, "/api/beads/"+url.PathEscape(id), body)
@@ -301,7 +301,7 @@ func runBeadTerminal(v verbContext, asJSON bool, args []string, sub string) erro
 		return err
 	}
 	if state == "" {
-		return usagef("KERNL DISPATCH FAILURE: bead %s requires a target state — run: kernl bead %s %s --state <state> --yes", sub, sub, id)
+		return usagef("KERNL DISPATCH FAILURE: bead %s requires a target state - run: kernl bead %s %s --state <state> --yes", sub, sub, id)
 	}
 	if !confirmed {
 		fmt.Fprintf(v.stdout(), "Would %s bead %s to state %q%s, %s. Re-run with --yes to confirm.\n",
@@ -339,7 +339,7 @@ func runBeadRefineScope(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(body) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bead refine-scope needs at least one of --description, --notes, --acceptance — run: kernl bead refine-scope --help")
+		return usagef("KERNL DISPATCH FAILURE: bead refine-scope needs at least one of --description, --notes, --acceptance - run: kernl bead refine-scope --help")
 	}
 	raw, err := beadAPICall(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
 		return c.post(ctx, "/api/beads/"+url.PathEscape(id)+"/refine-scope", body)
@@ -423,7 +423,7 @@ func beadFieldBody(verb string, args []string, fields []beadFlagField) (map[stri
 		case beadFieldInt:
 			n, convErr := strconv.Atoi(strings.TrimSpace(value))
 			if convErr != nil {
-				return nil, nil, usagef("KERNL DISPATCH FAILURE: %s requires an integer, got %q — example: %s 2", f.flag, value, f.flag)
+				return nil, nil, usagef("KERNL DISPATCH FAILURE: %s requires an integer, got %q - example: %s 2", f.flag, value, f.flag)
 			}
 			body[f.field] = n
 		default:
@@ -447,10 +447,10 @@ func splitBeadLabels(raw string) []string {
 
 func singleBeadID(verb string, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires a bead ID — run: kernl %s <bead-id>. List them with: kernl bead list", verb, verb)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires a bead ID - run: kernl %s <bead-id>. List them with: kernl bead list", verb, verb)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one bead ID, got %d (%s) — run: kernl %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one bead ID, got %d (%s) - run: kernl %s --help",
 			verb, len(args), strings.Join(args, ", "), verb)
 	}
 	return args[0], nil

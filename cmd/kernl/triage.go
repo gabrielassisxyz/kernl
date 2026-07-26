@@ -12,8 +12,8 @@ import (
 
 // triage answers "what should I do now" in one round-trip.
 //
-// WHY this verb exists. Everything it reports was already reachable — inbox
-// list, task list, ingest queue list, bead list, health all answer --json — but
+// WHY this verb exists. Everything it reports was already reachable - inbox
+// list, task list, ingest queue list, bead list, health all answer --json - but
 // only as five separate calls whose results the caller then had to correlate.
 // An agent asking the opening question of every session paid five round-trips
 // and a join to get an answer the tool could assemble itself. Before this,
@@ -29,11 +29,11 @@ import (
 // dies because one route is down is worse than no mega-command: the caller
 // loses the four slices that were fine. Each slice reports its own
 // availability instead, and the exit code reflects only whether ANY slice
-// answered — see triageReport.exitCode.
+// answered - see triageReport.exitCode.
 
 // triageSlice is one answerable question. Available slices carry items and a
 // count; unavailable ones carry why, and the distinction is explicit rather
-// than inferred from an empty list — "nothing pending" and "could not ask"
+// than inferred from an empty list - "nothing pending" and "could not ask"
 // must never look alike to a caller branching on the count.
 type triageSlice struct {
 	Available bool         `json:"available"`
@@ -76,7 +76,7 @@ func runTriage(v verbContext, args []string) error {
 		return err
 	}
 	if len(rest) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: triage takes no arguments, got %q — run: kernl triage --help", rest[0])
+		return usagef("KERNL DISPATCH FAILURE: triage takes no arguments, got %q - run: kernl triage --help", rest[0])
 	}
 
 	c, err := v.client()
@@ -85,7 +85,7 @@ func runTriage(v verbContext, args []string) error {
 	}
 	// Resolve the address ONCE, before fanning out. The client resolves it
 	// lazily on first use, so without this a single unresolvable server is
-	// discovered independently by all six readers and reported six times — one
+	// discovered independently by all six readers and reported six times - one
 	// cause wearing six costumes, which buries the fact that they share one.
 	// It is also the wrong diagnosis per section: the sections are fine.
 	if _, err := c.base(); err != nil {
@@ -115,7 +115,7 @@ func runTriage(v verbContext, args []string) error {
 // triageUnreachable explains a failure to even locate the server.
 //
 // WHY it names --server first. The generic config error says "run kernl from
-// the directory containing kernl.yaml, or pass --config <path>" — advice that
+// the directory containing kernl.yaml, or pass --config <path>" - advice that
 // is useless here, because a triage run from an arbitrary directory has no
 // kernl.yaml to point at and does not need one: it needs an address. A fix hint
 // that omits the fix that works is worse than no hint, since it reads as
@@ -125,14 +125,15 @@ func triageUnreachable(err error) error {
 	// clauses in one message, the first of them wrong, is worse than one.
 	cause := triageReason(err)
 	if fix := strings.Index(cause, "Fix:"); fix >= 0 {
-		cause = strings.TrimRight(strings.TrimSpace(cause[:fix]), " —")
+		cause = strings.TrimSpace(cause[:fix])
+		cause = strings.TrimSpace(strings.TrimSuffix(cause, "-"))
 	}
-	return usagef("KERNL DISPATCH FAILURE: triage cannot tell where the server is — %s\n"+
+	return usagef("KERNL DISPATCH FAILURE: triage cannot tell where the server is - %s\n"+
 		"Fix: pass --server <url> (e.g. --server http://127.0.0.1:8080), set KERNL_SERVER, "+
 		"or run from a directory that has a kernl.yaml", cause)
 }
 
-// exitCode reports failure only when NOTHING could be read — which means the
+// exitCode reports failure only when NOTHING could be read - which means the
 // server is unreachable, not that one route is unhappy. A partial report is a
 // successful triage: the caller got real answers plus a named gap.
 func (r triageReport) exitCode() error {
@@ -142,7 +143,7 @@ func (r triageReport) exitCode() error {
 			return nil
 		}
 	}
-	return fmt.Errorf("KERNL DISPATCH FAILURE: triage could read nothing — is `kernl serve` running? Fix: start it, or point at another instance with --server <url>")
+	return fmt.Errorf("KERNL DISPATCH FAILURE: triage could read nothing - is `kernl serve` running? Fix: start it, or point at another instance with --server <url>")
 }
 
 func collectTriage(ctx context.Context, c *apiClient) triageReport {
@@ -175,7 +176,7 @@ func triageCaptures(ctx context.Context, c *apiClient) triageSlice {
 	// Fields mirror inboxItemDTO (internal/api/inbox.go): the route serves a
 	// derived title, falling back to the raw subtitle for a capture the
 	// classifier has not titled yet. A capture with neither is still worth
-	// counting — the id alone tells the caller something is queued.
+	// counting - the id alone tells the caller something is queued.
 	var rows []struct {
 		ID       string `json:"id"`
 		Title    string `json:"title"`
@@ -207,7 +208,7 @@ func triageIngest(ctx context.Context, c *apiClient) triageSlice {
 		slice.Reason = triageReason(err)
 		return slice
 	}
-	// Fields mirror nodes.IngestReview — the tags are the contract in force,
+	// Fields mirror nodes.IngestReview - the tags are the contract in force,
 	// and encoding/json's case-insensitive matching is exactly what let an
 	// earlier spelling drift here unnoticed.
 	var rows []struct {
@@ -364,7 +365,7 @@ func triageHealthCheck(ctx context.Context, c *apiClient) triageHealth {
 //
 // The cut keeps the "Fix:" clause when there is one. Truncating a list is good
 // manners; truncating an error removes the reason it was printed, and the half
-// that gets cut is always the actionable half — the remedy comes last. So the
+// that gets cut is always the actionable half - the remedy comes last. So the
 // remedy is preferred over the diagnosis when both will not fit, and the full
 // text stays one command away, which is what the slice's Command field is for.
 func triageReason(err error) string {
@@ -411,7 +412,7 @@ func printTriage(w io.Writer, r triageReport) error {
 	if r.Health.Available {
 		fmt.Fprintf(&b, "\nserver: %s\n", r.Health.Status)
 	} else {
-		fmt.Fprintf(&b, "\nserver: unavailable — %s\n", r.Health.Reason)
+		fmt.Fprintf(&b, "\nserver: unavailable - %s\n", r.Health.Reason)
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
@@ -419,7 +420,7 @@ func printTriage(w io.Writer, r triageReport) error {
 
 func writeTriageSlice(b *strings.Builder, label string, s triageSlice) {
 	if !s.Available {
-		fmt.Fprintf(b, "%s: unavailable — %s\n\n", label, s.Reason)
+		fmt.Fprintf(b, "%s: unavailable - %s\n\n", label, s.Reason)
 		return
 	}
 	if s.Count == 0 {

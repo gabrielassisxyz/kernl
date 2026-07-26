@@ -20,7 +20,7 @@ type epicAPIRequest struct {
 
 // fakeEpicAPI stands in for a running `kernl serve`. The events route is an SSE
 // stream, so the fake writes its frames and then holds the connection open the
-// way the real hub does — that is exactly the condition the drain must survive.
+// way the real hub does - that is exactly the condition the drain must survive.
 type fakeEpicAPI struct {
 	server *httptest.Server
 	calls  []epicAPIRequest

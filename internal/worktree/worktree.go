@@ -27,7 +27,7 @@ func New(d Deps) *Manager {
 func (m *Manager) Add(epicID, beadID string) (string, error) {
 	path := m.Path(epicID, beadID)
 	if _, err := os.Stat(path); err == nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s already exists — a previous run left it. Fix: kernl worktree clean (post-MVP) or rm -rf manually. Next: re-run kernl epic run %s", path, epicID)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s already exists - a previous run left it. Fix: kernl worktree clean (post-MVP) or rm -rf manually. Next: re-run kernl epic run %s", path, epicID)
 	}
 
 	if _, err := m.deps.Run(m.deps.Root, "worktree", "add", path, "-b", "kernl/"+beadID); err != nil {

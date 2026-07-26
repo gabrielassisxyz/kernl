@@ -33,7 +33,7 @@ type BatchEnrichmentInput struct {
 // of several raw messages the user chose to merge.
 //
 // Body is never LLM output. It is built from the raw segments named by
-// SourceSequences (see buildFinalSegments) — the model may propose how the
+// SourceSequences (see buildFinalSegments) - the model may propose how the
 // messages group, never what they say.
 type FinalBatchSegment struct {
 	Body            string `json:"body"`
@@ -171,7 +171,7 @@ func buildSemanticSplitPrompt(input BatchEnrichmentInput) string {
 	fmt.Fprintf(&b, "Text:\n%s\n\n", input.RawSegments[0].Body)
 	fmt.Fprintf(&b, "Instructions:\n")
 	fmt.Fprintf(&b, "- Divide the text into logical segments (one idea, task, or note per segment).\n")
-	fmt.Fprintf(&b, "- COPY each segment out of the text character for character. Do not rewrite, summarize, fix typos, or translate — an edited segment is rejected and the split is thrown away.\n")
+	fmt.Fprintf(&b, "- COPY each segment out of the text character for character. Do not rewrite, summarize, fix typos, or translate - an edited segment is rejected and the split is thrown away.\n")
 	fmt.Fprintf(&b, "- Preserve ordering.\n")
 	fmt.Fprintf(&b, "- Respond with ONLY a JSON object: {\"segments\":[{\"body\":\"...\"}]}\n")
 	return b.String()

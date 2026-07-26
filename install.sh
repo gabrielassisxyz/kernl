@@ -7,7 +7,7 @@
 # installs the `kernl` binary into ~/.local/bin (override with KERNL_BIN_DIR).
 # Pin a version with KERNL_VERSION=v0.1.0.
 #
-# Windows is not a release target — run kernl via Docker there
+# Windows is not a release target; run kernl via Docker there
 # (see the Dockerfile / compose.yaml in the repo).
 set -euo pipefail
 umask 022

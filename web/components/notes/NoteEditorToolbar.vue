@@ -20,7 +20,7 @@
       class="save-chip"
       :class="`save-chip--${saveState}`"
       role="status"
-      :title="saveState === 'dirty' ? 'Unsaved changes — autosaves shortly, Ctrl+S to save now' : undefined"
+      :title="saveState === 'dirty' ? 'Unsaved changes - autosaves shortly, Ctrl+S to save now' : undefined"
     >
       <span class="save-chip__dot" aria-hidden="true"></span>
       {{ SAVE_LABELS[saveState] }}

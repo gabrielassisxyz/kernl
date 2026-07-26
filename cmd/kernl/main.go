@@ -112,14 +112,14 @@ func parseStringFlag(args []string, long, short string) (value string, rest []st
 		switch {
 		case a == long || (short != "" && a == short):
 			if i+1 >= len(args) {
-				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl --help", a)
+				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value - run: kernl --help", a)
 			}
 			value = args[i+1]
 			i++
 		case strings.HasPrefix(a, long+"="):
 			value = strings.TrimPrefix(a, long+"=")
 			if value == "" {
-				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl --help", long)
+				return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a value - run: kernl --help", long)
 			}
 		default:
 			rest = append(rest, a)
@@ -139,13 +139,13 @@ func parsePort(args []string) (int, []string, error) {
 	}
 	port, err := strconv.Atoi(raw)
 	if err != nil {
-		return 0, nil, usagef("KERNL DISPATCH FAILURE: --port needs an integer, got %q — example: kernl --port 8080 serve", raw)
+		return 0, nil, usagef("KERNL DISPATCH FAILURE: --port needs an integer, got %q - example: kernl --port 8080 serve", raw)
 	}
 	return port, rest, nil
 }
 
 // splitAtSentinel splits args at the first literal "--": global parsing only
-// sees the head; the tail passes through verbatim (the "--" is kept — capture
+// sees the head; the tail passes through verbatim (the "--" is kept - capture
 // strips it to allow flag-looking literal text; other verbs treat their args
 // normally).
 func splitAtSentinel(args []string) (head, tail []string) {
@@ -282,7 +282,7 @@ func Dispatch(args []string) error {
 				args[0], rootFlagHint(args[0]))
 		}
 		if target, aliased := verbAliasHints[args[0]]; aliased {
-			return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q — try: %s", args[0], target)
+			return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q - try: %s", args[0], target)
 		}
 		return usagef("KERNL DISPATCH FAILURE: unknown subcommand %q%s. Run: kernl --help",
 			args[0], didYouMean(args[0], append(commandNames(), "help")))
@@ -298,7 +298,7 @@ var globalFlagNames = []string{
 
 func printHelp() error {
 	var b strings.Builder
-	b.WriteString(`kernl — multi-agent orchestration runner
+	b.WriteString(`kernl - multi-agent orchestration runner
 
 Usage:
   kernl [--config <path>] [--port <port>] <subcommand> [args...]
@@ -335,7 +335,7 @@ func printVersion(w io.Writer, args []string) error {
 		case "--json":
 			asJSON = true
 		default:
-			return usagef("KERNL DISPATCH FAILURE: unknown version flag %q%s — valid: --json",
+			return usagef("KERNL DISPATCH FAILURE: unknown version flag %q%s - valid: --json",
 				arg, didYouMean(arg, []string{"--json"}))
 		}
 	}

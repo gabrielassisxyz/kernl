@@ -35,7 +35,7 @@ func TestAppUpdateDoesNotClaimUpToDate(t *testing.T) {
 		t.Errorf("expected status %q, got %q", "unknown", body.Status)
 	}
 	if body.Checked {
-		t.Errorf("expected checked=false — nothing contacts a release feed")
+		t.Errorf("expected checked=false - nothing contacts a release feed")
 	}
 	if body.Detail == "" {
 		t.Errorf("expected a detail string explaining why the state is unknown")

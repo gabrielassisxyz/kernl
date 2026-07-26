@@ -2,7 +2,7 @@
 //
 // We ship only the glyphs the app actually uses (a ~41 KB woff2) instead of the
 // full ~3 MB variable font. To add an icon: append its name to ICONS (keep the
-// list sorted — the Google Fonts API requires alphabetical icon_names), then run
+// list sorted - the Google Fonts API requires alphabetical icon_names), then run
 //   node tools/material-symbols-subset.mjs
 // which refetches public/fonts/material-symbols-outlined.woff2 and prints the
 // updated header to paste into assets/css/fonts.css.

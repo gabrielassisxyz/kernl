@@ -40,7 +40,7 @@ func PlanMerge(ctx context.Context, g *graph.Graph, llm chat.LLMClient, reviewID
 
 // PlanMergeFor resolves the best note to merge payload into (excluding
 // sourceNodeID) and asks the LLM for the additive hunks. An empty TargetNoteID
-// in the returned plan means no confident target — the caller should fall back
+// in the returned plan means no confident target - the caller should fall back
 // to creating a page/note. Shared by the ingest queue and the inbox.
 func PlanMergeFor(ctx context.Context, g *graph.Graph, llm chat.LLMClient, payload, sourceNodeID string) (*MergePlan, error) {
 	targetID, err := ResolveMergeTargetFor(ctx, g, payload, sourceNodeID)

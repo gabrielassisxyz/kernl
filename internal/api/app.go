@@ -12,7 +12,7 @@ func RegisterAppRoutes(mux *http.ServeMux) {
 // appUpdateHandler is a PLACEHOLDER: kernl checks no release feed, so it
 // reports "unknown" rather than an answer it never computed. It previously
 // returned "up_to_date" unconditionally, which is the one failure mode that
-// actually costs the user something — a false all-clear can talk someone out of
+// actually costs the user something - a false all-clear can talk someone out of
 // a security update.
 //
 // Implementing this for real needs product decisions that have not been made:
@@ -21,7 +21,7 @@ func RegisterAppRoutes(mux *http.ServeMux) {
 // result is cached so the UI does not hit the network on every poll. It also
 // needs the build's own version, which today lives in package main
 // (cmd/kernl.Version, set by goreleaser ldflags) and is not plumbed into the
-// API layer — hence no "currentVersion" field here yet.
+// API layer - hence no "currentVersion" field here yet.
 func appUpdateHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	// checked=false is the field a client should branch on: it separates "we

@@ -100,7 +100,7 @@ func TestCORSAlwaysVariesOnOrigin(t *testing.T) {
 	}
 }
 
-// The SSE routes carry live agent output and terminal streams — the most
+// The SSE routes carry live agent output and terminal streams - the most
 // valuable thing on this unauthenticated API. A handler that sets its own
 // wildcard would override the middleware's policy for exactly those routes.
 func TestSSERoutesDoNotGrantForeignOrigins(t *testing.T) {

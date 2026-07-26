@@ -39,7 +39,7 @@ export interface DiffSuggestion {
 }
 
 // A routing the DA proposed via the suggest_routing tool: what the capture
-// should become. Like a diff, it is a PROPOSAL — accepting it only replaces the
+// should become. Like a diff, it is a PROPOSAL - accepting it only replaces the
 // draft in the editor, and the user still processes the capture themselves.
 export interface RoutingSuggestion {
   captureId: string;

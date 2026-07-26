@@ -116,7 +116,7 @@ func TestLoadEpicAcceptsBdNativeDepConvention(t *testing.T) {
 		{ID: "e", Type: "epic"},
 		{ID: "c1", ParentID: "e"},
 		{ID: "c2", ParentID: "e", Dependencies: []backend.BeadDependency{
-			// SourceID = the child (dependent), TargetID = the blocker —
+			// SourceID = the child (dependent), TargetID = the blocker  -
 			// exactly what `bd list --json` returns for a c2 that depends on c1.
 			{SourceID: "c2", TargetID: "c1", Type: "blocks"},
 		}},
@@ -127,6 +127,6 @@ func TestLoadEpicAcceptsBdNativeDepConvention(t *testing.T) {
 	}
 	ready := ep.DAG.ReadySet(map[string]bool{})
 	if !sameSet(ready, []string{"c1"}) {
-		t.Errorf("ready = %v, want [c1] — c2 should be blocked by c1", ready)
+		t.Errorf("ready = %v, want [c1] - c2 should be blocked by c1", ready)
 	}
 }

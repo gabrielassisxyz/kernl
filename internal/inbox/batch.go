@@ -41,7 +41,7 @@ type BatchInput struct {
 	// against RawText: a body that is not verbatim source text is rejected.
 	RawSegments []BatchSegment
 	// FinalSegments carries the capture candidates the client approved. Only
-	// their SourceSequences are honored — which raw messages the user chose to
+	// their SourceSequences are honored - which raw messages the user chose to
 	// merge. The bodies are rebuilt from RawSegments, never taken from the
 	// request, so no caller (and no model behind one) can rewrite the source.
 	FinalSegments []FinalBatchSegment
@@ -96,7 +96,7 @@ func AnalyzeBatch(input BatchInput) (*BatchAnalysis, error) {
 // captures it proposes are exactly the messages the deterministic parser found:
 // the LLM contributes a context title and a list of merges it would suggest,
 // and nothing else. Two runs of the same paste therefore always propose the
-// same number of captures, whatever the model answered — the whole point, after
+// same number of captures, whatever the model answered - the whole point, after
 // one run of the same fixture produced 25 captures and the next produced 20.
 func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClient) (*BatchAnalysis, error) {
 	rawSegments, err := previewBatchInternal(input)
@@ -112,7 +112,7 @@ func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClie
 	enricher := NewBatchEnricher(llm)
 
 	// The semantic separator is the one case where the model decides the cut
-	// points — there is nothing else to split on. It hands back slices of the
+	// points - there is nothing else to split on. It hands back slices of the
 	// source, which SplitSemantic verifies are verbatim before we adopt them.
 	status := EnrichmentNone
 	if separator == BatchSplitSemantic {
@@ -163,7 +163,7 @@ func AnalyzeBatchWithLLM(ctx context.Context, input BatchInput, llm chat.LLMClie
 // human accepted; every raw segment not named in one stays its own capture.
 //
 // A merged body is its source messages joined, in order, with a blank line
-// between them — nothing is summarized away, and the merge stays legible as the
+// between them - nothing is summarized away, and the merge stays legible as the
 // several messages it was.
 func buildFinalSegments(raw []BatchSegment, mergeGroups [][]int) []FinalBatchSegment {
 	bySeq := make(map[int]BatchSegment, len(raw))
@@ -287,7 +287,7 @@ func viewSegmentsFromFinal(finalSegments []FinalBatchSegment) []BatchSegment {
 	return out
 }
 
-// BatchPreview is the mechanical split — what the parser found, with no LLM in
+// BatchPreview is the mechanical split - what the parser found, with no LLM in
 // the path. The review modal opens on this, so the user is reading their own
 // messages while enrichment is still thinking.
 type BatchPreview struct {
@@ -353,9 +353,9 @@ func CreateBatch(ctx context.Context, g *graph.Graph, input BatchInput) (*BatchC
 // When the client posts back candidates it reviewed, only its merge decisions
 // are taken; the bodies are rebuilt from the source text. So the captures that
 // land in the graph are the messages that were pasted, grouped the way the human
-// asked — never a body a model (or a hand-written request) supplied.
+// asked - never a body a model (or a hand-written request) supplied.
 //
-// With nothing reviewed — the CLI, a test — the batch is created from the
+// With nothing reviewed - the CLI, a test - the batch is created from the
 // deterministic split, unmerged.
 func resolveBatchAnalysisForCreate(ctx context.Context, input BatchInput, llm chat.LLMClient) (*BatchAnalysis, error) {
 	if len(input.FinalSegments) == 0 {

@@ -31,7 +31,7 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		var err error
 		// Reuse a cached worktree ONLY for a genuine session resume. A fresh
 		// dispatch must always go through Add, which cleans any leftover
-		// worktree and merges in dependency branches — reusing a stale worktree
+		// worktree and merges in dependency branches - reusing a stale worktree
 		// here would silently skip that merge and leave a dependent child
 		// without its dependency's committed code.
 		if sid != "" && ex.deps.GetWorktree != nil {
@@ -72,12 +72,12 @@ func (ex *Executor) processWave(ctx context.Context, ready []string) error {
 		if r.err != nil {
 			ex.handleBeadFailure(r)
 			ex.drainRemaining(ch, launched, collected)
-			return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s in epic %s returned error — %w", r.beadID, ex.deps.Epic.ID, r.err)
+			return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s in epic %s returned error - %w", r.beadID, ex.deps.Epic.ID, r.err)
 		}
 		if !r.result.Success {
 			ex.handleBeadFailure(r)
 			ex.drainRemaining(ch, launched, collected)
-			return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s in epic %s failed — final state %q", r.beadID, ex.deps.Epic.ID, r.result.FinalState)
+			return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s in epic %s failed - final state %q", r.beadID, ex.deps.Epic.ID, r.result.FinalState)
 		}
 
 		ex.mu.Lock()

@@ -82,7 +82,7 @@ func (s *Sweeper) Tick() error {
 
 func (s *Sweeper) processEpic(e Epic) {
 	if e.PRURL == "" {
-		log.Printf("WARN sweep: epic %s in awaiting_pr_review without pr_url — skipping", e.ID)
+		log.Printf("WARN sweep: epic %s in awaiting_pr_review without pr_url - skipping", e.ID)
 		return
 	}
 	s.mu.Lock()

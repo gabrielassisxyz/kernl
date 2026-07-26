@@ -47,7 +47,7 @@ var classifierInterval = 2 * time.Second
 
 // Run listens for pending captures and classifies them in a background loop.
 // enabled is consulted every tick so the live auto-classify switch can pause the
-// loop without tearing it down — a client-only toggle cannot stop a server-side
+// loop without tearing it down - a client-only toggle cannot stop a server-side
 // goroutine, so the gate has to be read here.
 func (c *Classifier) Run(ctx context.Context, enabled func() bool) {
 	ticker := time.NewTicker(classifierInterval)
@@ -194,8 +194,8 @@ func (c *Classifier) saveSuggestion(ctx context.Context, cap *nodes.Capture, act
 }
 
 // classify asks the LLM what a capture should become. The answer is a LIST:
-// a capture is routinely several things — a reflection that also implies a next
-// step, a "tomorrow:" message that is four tasks — and collapsing that into one
+// a capture is routinely several things - a reflection that also implies a next
+// step, a "tomorrow:" message that is four tasks - and collapsing that into one
 // node is where information was being lost.
 func (c *Classifier) classify(ctx context.Context, capture *nodes.Capture, projects []*nodes.Project) ([]nodes.CaptureAction, error) {
 	text := capture.Body
@@ -218,7 +218,7 @@ func (c *Classifier) classify(ctx context.Context, capture *nodes.Capture, proje
 %s
 Projects:
 %s
-Related notes already in the knowledge base (match the capture against these — if one names a project, prefer that project_id):
+Related notes already in the knowledge base (match the capture against these - if one names a project, prefer that project_id):
 %s
 %s
 Respond with ONLY a JSON object, no prose:
@@ -236,7 +236,7 @@ Capture:
 	return parseActions(resp.Content, projects), nil
 }
 
-// captureReferenceTime is the moment a capture was WRITTEN — the only sane
+// captureReferenceTime is the moment a capture was WRITTEN - the only sane
 // origin for a relative deadline. The WhatsApp header timestamp wins when there
 // is one, because a paste of a months-old export is created in the graph today:
 // "amanhã" in a message from April 1st is April 2nd, not tomorrow.
@@ -277,7 +277,7 @@ func parseBatchTimestamp(raw string) (time.Time, bool) {
 // arithmetic and never to reach for the real today.
 func dateAnchorBlock(refs []time.Time) string {
 	var b strings.Builder
-	b.WriteString("Date anchors. A relative deadline is resolved against the day the CAPTURE was written — NEVER against the real current date, which is irrelevant here (this inbox is months behind). Copy the date from the line for that capture:\n")
+	b.WriteString("Date anchors. A relative deadline is resolved against the day the CAPTURE was written - NEVER against the real current date, which is irrelevant here (this inbox is months behind). Copy the date from the line for that capture:\n")
 	seen := map[string]bool{}
 	for _, ref := range refs {
 		line := dateAnchorLine(ref)
@@ -360,7 +360,7 @@ The captures came from one paste/import. They may be fragments of a single proje
 
 %s
 
-When one sequence describes a project and LATER SEQUENCES list tasks for it, put those later task titles in the project's initial_tasks and mark those support sequences as "discard" unless they should also remain standalone. This is about grouping ACROSS sequences — a list of items inside a SINGLE sequence still splits into one action per item, by the rules above.
+When one sequence describes a project and LATER SEQUENCES list tasks for it, put those later task titles in the project's initial_tasks and mark those support sequences as "discard" unless they should also remain standalone. This is about grouping ACROSS sequences - a list of items inside a SINGLE sequence still splits into one action per item, by the rules above.
 
 Projects:
 %s
@@ -438,7 +438,7 @@ type rawAction struct {
 func parseActions(raw string, projects []*nodes.Project) []nodes.CaptureAction {
 	obj := extractJSONObject(raw)
 	if obj == "" {
-		// No JSON — fall back to keyword sniffing on the raw text.
+		// No JSON - fall back to keyword sniffing on the raw text.
 		return []nodes.CaptureAction{{Target: fallbackTarget(raw)}}
 	}
 	var parsed struct {
@@ -576,7 +576,7 @@ func cleanInitialTasks(tasks []string, max int) []string {
 
 // cleanTags normalizes the model's tags and drops anything off the closed
 // vocabulary. The prompt says "never coin a tag"; an LLM still occasionally does,
-// and a coined tag is worse than no tag — it fragments the vocabulary silently
+// and a coined tag is worse than no tag - it fragments the vocabulary silently
 // and filters nothing ("capture" on a capture-derived note).
 func cleanTags(tags []string) []string {
 	out := make([]string, 0, len(tags))

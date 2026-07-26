@@ -2,16 +2,16 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineNuxtConfig({
   css: [
-    // IBM Plex Sans — weights actually used: 400 (body), 500 (medium), 600 (semibold/headline), 700 (bold)
+    // IBM Plex Sans - weights actually used: 400 (body), 500 (medium), 600 (semibold/headline), 700 (bold)
     '@fontsource/ibm-plex-sans/400.css',
     '@fontsource/ibm-plex-sans/500.css',
     '@fontsource/ibm-plex-sans/600.css',
     '@fontsource/ibm-plex-sans/700.css',
-    // IBM Plex Mono — weights actually used: 400, 500 (mono-data), 600
+    // IBM Plex Mono - weights actually used: 400, 500 (mono-data), 600
     '@fontsource/ibm-plex-mono/400.css',
     '@fontsource/ibm-plex-mono/500.css',
     '@fontsource/ibm-plex-mono/600.css',
-    // Material Symbols Outlined — self-hosted subset (46 icons); @font-face + class rule
+    // Material Symbols Outlined - self-hosted subset (46 icons); @font-face + class rule
     '~/assets/css/fonts.css',
     '~/assets/css/tailwind.css',
     '~/assets/css/settings.css',
@@ -21,7 +21,7 @@ export default defineNuxtConfig({
       tailwindcss(),
     ],
     build: {
-      // The notes editor pulls in CodeMirror + the lezer markdown grammar — a
+      // The notes editor pulls in CodeMirror + the lezer markdown grammar - a
       // single cohesive ~620 KB chunk. It's lazy-loaded (the editor mounts only
       // when a note is opened, via defineAsyncComponent in pages/notes.vue), so
       // it never weighs on first paint of any route. Splitting it further would

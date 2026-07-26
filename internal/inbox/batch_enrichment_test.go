@@ -117,8 +117,8 @@ func TestEnricherDropsUnusableMergeProposals(t *testing.T) {
 	}
 }
 
-// Overlapping proposals cannot be accepted or rejected independently — the
-// message in both would be duplicated or dropped depending on click order — so
+// Overlapping proposals cannot be accepted or rejected independently - the
+// message in both would be duplicated or dropped depending on click order - so
 // the first claim on a message wins and the rest of that proposal is discarded.
 func TestEnricherDropsOverlappingMergeProposals(t *testing.T) {
 	llm := &batchTestLLM{content: `{

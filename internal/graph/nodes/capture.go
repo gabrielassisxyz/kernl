@@ -12,8 +12,8 @@ import (
 )
 
 // CaptureAction is one node a capture should become. A capture is frequently
-// more than one thing — a reflection that also implies a next step is a note
-// *and* a task; a "tomorrow:" list is four tasks — so both the classifier's
+// more than one thing - a reflection that also implies a next step is a note
+// *and* a task; a "tomorrow:" list is four tasks - so both the classifier's
 // suggestion and the processing decision are a list of these, never a single
 // target.
 type CaptureAction struct {
@@ -23,7 +23,7 @@ type CaptureAction struct {
 	// Title is what makes a fanned-out action reviewable at a glance; empty
 	// falls back to the capture's own title.
 	Title string `json:"title"`
-	// Body defaults to the capture body when empty — set it when one action
+	// Body defaults to the capture body when empty - set it when one action
 	// only owns a fragment of a composite capture.
 	Body string `json:"body"`
 	// ProjectID files a task under an existing project (task only).

@@ -30,8 +30,8 @@ func triageServer(t *testing.T, routes map[string]string) *httptest.Server {
 	return ts
 }
 
-// The fixtures below are deliberately spelled the way the SERVER spells them —
-// inboxItemDTO and nodes.IngestReview — not the way triage happens to read them.
+// The fixtures below are deliberately spelled the way the SERVER spells them  -
+// inboxItemDTO and nodes.IngestReview - not the way triage happens to read them.
 // encoding/json matches field names case-insensitively and silently ignores
 // what it cannot place, so a decoder that names the wrong field does not fail:
 // it returns a zero value. The first cut of this command guessed `body` and
@@ -97,7 +97,7 @@ func TestTriageReportsEverySliceInOneCall(t *testing.T) {
 	if got.Health.Status != "ok" {
 		t.Errorf("health slice wrong: %+v", got.Health)
 	}
-	// Every slice names the command that shows the rest — the whole point of a
+	// Every slice names the command that shows the rest - the whole point of a
 	// mega-command is that its output tells you where to go next.
 	for name, cmd := range map[string]string{
 		"captures": got.Captures.Command, "ingest": got.Ingest.Command,
@@ -112,7 +112,7 @@ func TestTriageReportsEverySliceInOneCall(t *testing.T) {
 
 // The finding this whole command waited on: approvals answers 501 today, and
 // rendering that as "0 pending" would tell the human that no judgment gate is
-// waiting on them — the one thing triage must never get wrong.
+// waiting on them - the one thing triage must never get wrong.
 func TestTriageNeverReportsAnUnreadableSliceAsZero(t *testing.T) {
 	routes := fullTriageRoutes()
 	delete(routes, "/api/approvals") // now answers 500, standing in for the 501
@@ -179,7 +179,7 @@ func TestTriageFailsOnlyWhenNothingAnswers(t *testing.T) {
 	}
 }
 
-// A fresh agent ran `kernl triage` from a directory with no kernl.yaml — the
+// A fresh agent ran `kernl triage` from a directory with no kernl.yaml - the
 // natural first move, since triage is the first verb in the help and says it
 // reports what needs attention. It got six identical "run kernl from the
 // directory containing kernl.yaml, or pass --config <path>" lines: one cause
@@ -211,10 +211,10 @@ func TestTriageWithNoServerAddressFailsOnceAndNamesTheFlagThatWorks(t *testing.T
 
 // Truncating a list is good manners; truncating an error removes the reason it
 // was printed. The remedy comes last in these messages, so a naive cut always
-// takes the actionable half — and mid-word, leaving "--config <path-to-ker…".
+// takes the actionable half - and mid-word, leaving "--config <path-to-ker…".
 func TestTriageReasonKeepsTheRemedyAndCutsOnWords(t *testing.T) {
 	long := "KERNL DISPATCH FAILURE: " + strings.Repeat("diagnosis words that go on and on ", 12) +
-		"— Fix: pass --server <url> or set KERNL_SERVER"
+		" -  Fix: pass --server <url> or set KERNL_SERVER"
 	got := triageReason(errors.New(long))
 
 	if !strings.Contains(got, "--server <url>") {

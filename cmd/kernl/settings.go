@@ -18,7 +18,7 @@ var settingsCommand = commandMeta{
 running ('kernl serve'), or point elsewhere with --server <url> (env:
 KERNL_SERVER).
 
-Every write lands in the kernl.yaml the server was started with — nothing
+Every write lands in the kernl.yaml the server was started with - nothing
 is applied to the process that is already running. Fields you change stay
 listed under "restart pending" until the server is restarted.
 
@@ -30,7 +30,7 @@ Run 'kernl settings <subcommand> --help' for details on each.`,
 			Usage:   "kernl settings get [--json]",
 			Details: `Reads the config file back from disk, so it shows what is persisted, not
 what the running process holds. The LLM API key is never returned by the
-server — only whether one is set.
+server - only whether one is set.
 
 {{flags}}`,
 			Flags: []commandFlag{
@@ -149,7 +149,7 @@ func settingsGet(v verbContext, c *apiClient, asJSON bool, args []string) error 
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: settings get takes no arguments, got %q — run: kernl settings get [--json]", args[0])
+		return usagef("KERNL DISPATCH FAILURE: settings get takes no arguments, got %q - run: kernl settings get [--json]", args[0])
 	}
 
 	raw, err := c.get(context.Background(), "/api/settings")
@@ -280,7 +280,7 @@ func mergeInboxSection(current settingsInboxSection, args []string) (any, error)
 	if hasAutoPrep {
 		parsed, convErr := strconv.ParseBool(strings.TrimSpace(raw))
 		if convErr != nil {
-			return nil, usagef("KERNL DISPATCH FAILURE: --auto-prep takes true or false, got %q — run: kernl settings set inbox --auto-prep true", raw)
+			return nil, usagef("KERNL DISPATCH FAILURE: --auto-prep takes true or false, got %q - run: kernl settings set inbox --auto-prep true", raw)
 		}
 		body.AutoPrep = parsed
 	}
@@ -365,7 +365,7 @@ func applyIntFlags(args *[]string, targets []intFlagTarget) (bool, error) {
 		}
 		value, convErr := strconv.Atoi(strings.TrimSpace(raw))
 		if convErr != nil {
-			return false, usagef("KERNL DISPATCH FAILURE: %s takes a whole number, got %q — run: kernl settings set --help", t.flag, raw)
+			return false, usagef("KERNL DISPATCH FAILURE: %s takes a whole number, got %q - run: kernl settings set --help", t.flag, raw)
 		}
 		*t.target, changed = value, true
 	}
@@ -381,12 +381,12 @@ func parseBackoffMinutes(raw string) ([]int, error) {
 		}
 		value, err := strconv.Atoi(trimmed)
 		if err != nil {
-			return nil, usagef("KERNL DISPATCH FAILURE: --sweep-backoff-minutes takes comma-separated whole minutes, got %q — example: --sweep-backoff-minutes 5,15,60", raw)
+			return nil, usagef("KERNL DISPATCH FAILURE: --sweep-backoff-minutes takes comma-separated whole minutes, got %q - example: --sweep-backoff-minutes 5,15,60", raw)
 		}
 		steps = append(steps, value)
 	}
 	if len(steps) == 0 {
-		return nil, usagef("KERNL DISPATCH FAILURE: --sweep-backoff-minutes needs at least one step — example: --sweep-backoff-minutes 5,15,60")
+		return nil, usagef("KERNL DISPATCH FAILURE: --sweep-backoff-minutes needs at least one step - example: --sweep-backoff-minutes 5,15,60")
 	}
 	return steps, nil
 }
@@ -398,17 +398,17 @@ func finishSettingsFlags(section string, changed bool, rest []string) error {
 		return err
 	}
 	if len(rest) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: settings set %s takes no positional arguments, got %q — run: kernl settings set --help", section, rest[0])
+		return usagef("KERNL DISPATCH FAILURE: settings set %s takes no positional arguments, got %q - run: kernl settings set --help", section, rest[0])
 	}
 	if !changed {
-		return usagef("KERNL DISPATCH FAILURE: settings set %s changes nothing — pass at least one field flag. Run: kernl settings set --help", section)
+		return usagef("KERNL DISPATCH FAILURE: settings set %s changes nothing - pass at least one field flag. Run: kernl settings set --help", section)
 	}
 	return nil
 }
 
 func printSettingsHeader(w io.Writer, snap settingsSnapshot) {
 	if !snap.Writable || snap.ConfigPath == "" {
-		fmt.Fprintln(w, "Config file: none — this server was started without one, so settings cannot be saved")
+		fmt.Fprintln(w, "Config file: none - this server was started without one, so settings cannot be saved")
 		return
 	}
 	fmt.Fprintf(w, "Config file: %s\n", snap.ConfigPath)
@@ -420,7 +420,7 @@ func printSaveNotice(w io.Writer, snap settingsSnapshot) {
 		fmt.Fprintln(w, "Saved file and running server agree.")
 		return
 	}
-	fmt.Fprintf(w, "Saved to the config file but NOT active yet — restart 'kernl serve' to apply: %s\n",
+	fmt.Fprintf(w, "Saved to the config file but NOT active yet - restart 'kernl serve' to apply: %s\n",
 		strings.Join(snap.RestartPending, ", "))
 }
 
@@ -450,7 +450,7 @@ func orUnset(value string) string {
 	return value
 }
 
-// keyState is the only thing ever printed about the credential — the key value
+// keyState is the only thing ever printed about the credential - the key value
 // itself must not reach stdout, a log, or a screenshot.
 func keyState(set bool) string {
 	if set {

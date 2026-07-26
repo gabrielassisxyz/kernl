@@ -53,7 +53,7 @@ func Add(ctx context.Context, tx *graph.WriteTx, nodeID string, tag string, auth
 // Remove removes a tag from a node. Returns graph.ErrAuthorRequired if author
 // is invalid, graph.ErrNotFound if the node_tags row did not exist (either the
 // node or tag does not exist, or the tag was not assigned to the node). If the
-// tag becomes orphaned — no other node_tags reference it — it is removed from
+// tag becomes orphaned - no other node_tags reference it - it is removed from
 // the tags table.
 func Remove(ctx context.Context, tx *graph.WriteTx, nodeID string, tag string, author Author) error {
 	if !author.Valid() {

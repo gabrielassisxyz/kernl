@@ -72,7 +72,7 @@ const cancelEdit = () => {
   draftSubject.value = ''
 }
 
-// Edit is Keep with a modified subject/statement — same write path, edited text.
+// Edit is Keep with a modified subject/statement - same write path, edited text.
 const saveEdit = () => {
   const next = draft.value.trim()
   const nextSubject = draftSubject.value.trim()

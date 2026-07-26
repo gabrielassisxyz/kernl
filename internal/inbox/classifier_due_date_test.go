@@ -88,7 +88,7 @@ func TestDateAnchorsResolveRelativeWordsAgainstTheCapture(t *testing.T) {
 	}
 }
 
-// The prompt is ours, not the model's, so asserting on it is fair game — and it
+// The prompt is ours, not the model's, so asserting on it is fair game - and it
 // is where the reference date either reaches the model or does not.
 func TestClassifyPromptCarriesTheCaptureDateNotToday(t *testing.T) {
 	ctx := context.Background()
@@ -182,7 +182,7 @@ func TestNormalizeActionsKeepsDueDateOnTasksOnly(t *testing.T) {
 	if got[2].DueDate != nil {
 		t.Errorf("no deadline stated must stay nil: %v", got[2].DueDate)
 	}
-	// An unreadable date is dropped rather than guessed at — the action survives.
+	// An unreadable date is dropped rather than guessed at - the action survives.
 	if got[3].DueDate != nil {
 		t.Errorf("an unparseable due date must be dropped: %v", got[3].DueDate)
 	}

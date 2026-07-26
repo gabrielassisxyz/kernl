@@ -125,7 +125,7 @@ func TestTaskCreateAcceptsTitleFlag(t *testing.T) {
 	}
 }
 
-// Silently preferring one over the other would hide a typo'd flag — the same
+// Silently preferring one over the other would hide a typo'd flag - the same
 // reason project create refuses the pair.
 func TestTaskCreateRejectsTitleFlagAndPositionalTogether(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusCreated, body: `{"id":"tsk-9"}`}
@@ -208,7 +208,7 @@ func TestTaskDeleteWithoutYesIssuesNoRequest(t *testing.T) {
 }
 
 // R2-007: the preview path must honour --json (it used to print prose, so
-// `task delete X --json | jq` broke — note/project delete both emit JSON here).
+// `task delete X --json | jq` broke - note/project delete both emit JSON here).
 func TestTaskDeletePreviewHonoursJSON(t *testing.T) {
 	api := &fakeTaskAPI{t: t, status: http.StatusNoContent}
 	out, err := runTaskVerb(t, api, "delete", "tsk-1", "--json")

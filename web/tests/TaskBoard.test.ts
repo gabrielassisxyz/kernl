@@ -41,7 +41,8 @@ describe('TaskBoard', () => {
 
   it('shows an em dash placeholder for an empty column', () => {
     const w = mount(TaskBoard, { props: { tasks: [task('only', 'todo')], projectTitles } })
-    const dashes = w.findAll('section').filter((s) => s.text().includes('—'))
+    const emDash = String.fromCharCode(0x2014)
+    const dashes = w.findAll('section').filter((s) => s.text().includes(emDash))
     expect(dashes.length).toBe(2)
   })
 

@@ -11,8 +11,8 @@ import (
 
 // stdinIsTerminal reports whether stdin is an interactive terminal (a char
 // device) rather than a pipe, redirect or file. A blocking io.ReadAll on a
-// terminal with no input hangs forever with no prompt — the worst trap for an
-// agent that forgot to pipe input — so the stdin-reading verbs check this and
+// terminal with no input hangs forever with no prompt - the worst trap for an
+// agent that forgot to pipe input - so the stdin-reading verbs check this and
 // fail fast with a usage error. It is a package var so a test can force the
 // terminal branch without allocating a pty.
 var stdinIsTerminal = func() bool {
@@ -25,11 +25,11 @@ var stdinIsTerminal = func() bool {
 
 // emitJSON writes an API response through untouched. The REST layer already
 // speaks camelCase, so passing the server's own body along keeps the CLI's
-// --json contract identical to the API's — no second mapping to drift.
+// --json contract identical to the API's - no second mapping to drift.
 func emitJSON(w io.Writer, raw json.RawMessage) error {
 	var pretty bytes.Buffer
 	if err := json.Indent(&pretty, raw, "", "  "); err != nil {
-		// Not JSON (an empty 204 body, say) — pass the bytes through as-is.
+		// Not JSON (an empty 204 body, say) - pass the bytes through as-is.
 		_, err := fmt.Fprintln(w, strings.TrimSpace(string(raw)))
 		return err
 	}
@@ -40,7 +40,7 @@ func emitJSON(w io.Writer, raw json.RawMessage) error {
 // createdLine renders one creation confirmation: what you named first and in
 // quotes, the id last and in parentheses.
 //
-// WHY this shape. Graph node ids are bare UUIDv7 — no readable prefix, nothing a
+// WHY this shape. Graph node ids are bare UUIDv7 - no readable prefix, nothing a
 // caller can check against what they typed. Leading with the id therefore opens
 // every confirmation with the one field carrying no information. The quotes are
 // load-bearing rather than decorative: several of these verbs join unquoted
@@ -80,7 +80,7 @@ func takeFlag(verb string, args []string, name string) (value string, present bo
 		switch {
 		case a == name:
 			if i+1 >= len(args) {
-				return "", false, nil, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl %s --help", name, verb)
+				return "", false, nil, usagef("KERNL DISPATCH FAILURE: %s requires a value - run: kernl %s --help", name, verb)
 			}
 			value, present = args[i+1], true
 			i++
@@ -99,7 +99,7 @@ func takeFlag(verb string, args []string, name string) (value string, present bo
 func rejectUnknownFlags(verb string, args []string) error {
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") && a != "-" {
-			return usagef("KERNL DISPATCH FAILURE: unknown flag %q for %s — run: kernl %s --help", a, verb, verb)
+			return usagef("KERNL DISPATCH FAILURE: unknown flag %q for %s - run: kernl %s --help", a, verb, verb)
 		}
 	}
 	return nil
@@ -108,7 +108,7 @@ func rejectUnknownFlags(verb string, args []string) error {
 // requireSub validates a subcommand against the closed set a verb accepts.
 func requireSub(verb string, args []string, valid []string) (string, []string, error) {
 	if len(args) == 0 {
-		return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a subcommand — valid: %s. Run: kernl %s --help",
+		return "", nil, usagef("KERNL DISPATCH FAILURE: %s requires a subcommand - valid: %s. Run: kernl %s --help",
 			verb, strings.Join(valid, ", "), verb)
 	}
 	for _, v := range valid {
@@ -116,6 +116,6 @@ func requireSub(verb string, args []string, valid []string) (string, []string, e
 			return args[0], args[1:], nil
 		}
 	}
-	return "", nil, usagef("KERNL DISPATCH FAILURE: unknown %s subcommand %q%s — valid: %s. Run: kernl %s --help",
+	return "", nil, usagef("KERNL DISPATCH FAILURE: unknown %s subcommand %q%s - valid: %s. Run: kernl %s --help",
 		verb, args[0], didYouMean(args[0], valid), strings.Join(valid, ", "), verb)
 }

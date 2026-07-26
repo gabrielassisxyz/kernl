@@ -1,7 +1,7 @@
 // Package planning builds substrate-aware planning context: given a seed
 // (the topic the user is about to brainstorm or plan), it pulls the relevant
 // notes from the vault so they can be injected into the DA planner's context.
-// This is Kernl's keystone seam — notes feed the planner automatically instead
+// This is Kernl's keystone seam - notes feed the planner automatically instead
 // of being hunted down and pasted by hand.
 package planning
 
@@ -64,15 +64,15 @@ const snippetLen = 240
 // BuildContext returns the notes most relevant to seed, newest signal first.
 // It fuses two signals: full-text content match against the seed (topical) and,
 // when seed is itself a node id, structural relatedness (links/tags/sources).
-// Content match is what makes a fresh topic surface the right notes — structural
+// Content match is what makes a fresh topic surface the right notes - structural
 // relevance alone cannot, since a new topic shares no edges yet.
 //
-// Notes the DA authored (origin "da" — its own briefings) are never returned.
+// Notes the DA authored (origin "da" - its own briefings) are never returned.
 // They are derivatives of the user's captures, and feeding them back as "what
 // the user knows" closes a loop the knowledge base does not survive: the inbox
 // classifier began proposing that captures be merged into "Briefing:" notes the
 // DA had generated from those very captures. The exclusion lives here, at the
-// one seam where a note is retrieved as knowledge, rather than at each caller —
+// one seam where a note is retrieved as knowledge, rather than at each caller  -
 // the rule is a property of the note, not of who is asking.
 func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
 	if limit <= 0 {
@@ -161,7 +161,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 		}
 
 		// 3. Memory signal: surface active (non-refuted) claims matching the
-		// seed's salient terms. Claims supplement notes — they get their own
+		// seed's salient terms. Claims supplement notes - they get their own
 		// capped budget so they cannot crowd out the topical/structural notes.
 		claims, err := matchClaims(ctx, tx, seed)
 		if err != nil {

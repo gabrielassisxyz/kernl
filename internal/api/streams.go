@@ -68,7 +68,7 @@ func serveNudge(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 
 	var body nudgeRequest
-	// Body is optional — empty body means "use default generic preset".
+	// Body is optional - empty body means "use default generic preset".
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 	}

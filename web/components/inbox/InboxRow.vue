@@ -61,14 +61,14 @@
            routinely several nodes, so each one gets its own legible line. -->
       <div v-if="!proposals" class="flex items-center gap-base py-tight">
         <!-- The spinner is a promise that a proposal is coming. Only show it when
-             one actually is — background classification runs only with the switch
+             one actually is - background classification runs only with the switch
              on and an LLM configured. Otherwise the capture just rests unclassified,
              and a forever-spinner would be a lie. -->
         <template v-if="classifying">
           <span class="material-symbols-outlined !text-body text-text-faint animate-spin motion-reduce:animate-none">progress_activity</span>
-          <span class="font-body text-body text-text-muted">Reading the capture — the DA's proposal will appear here.</span>
+          <span class="font-body text-body text-text-muted">Reading the capture - the DA's proposal will appear here.</span>
         </template>
-        <span v-else class="font-body text-body text-text-faint">Not classified — edit it, or use “Classify now”.</span>
+        <span v-else class="font-body text-body text-text-faint">Not classified - edit it, or use “Classify now”.</span>
       </div>
 
       <ul v-else class="flex flex-col">
@@ -140,7 +140,7 @@ export interface Proposal {
 
 const props = withDefaults(defineProps<{
   item: InboxItemData
-  /** the DA's proposal, one line per node — null while still classifying */
+  /** the DA's proposal, one line per node - null while still classifying */
   proposals: Proposal[] | null
   /** whether background classification is actually going to run: gates the
    *  "reading the capture" spinner so it never spins on captures nothing will
@@ -173,7 +173,7 @@ const batchTime = computed(() => {
 
 // The source line is the capture flattened to one line: a multi-line "amanhã:"
 // list reads as its first items, not as a lone word with everything hidden. The
-// list markers go — they are structure the single line no longer has.
+// list markers go - they are structure the single line no longer has.
 const sourceLine = computed(() => {
   const body = (props.item.subtitle || props.item.title || '').trim()
   return body

@@ -120,7 +120,7 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(rest) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: task list takes no positional arguments, got %q — run: kernl task list --help", rest[0])
+		return usagef("KERNL DISPATCH FAILURE: task list takes no positional arguments, got %q - run: kernl task list --help", rest[0])
 	}
 
 	path := "/api/tasks"
@@ -177,7 +177,7 @@ func runTaskSet(v verbContext, asJSON bool, args []string) error {
 		return err
 	}
 	if len(body) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: task set needs at least one field to change — valid: --title, --status, --tags, --due. Run: kernl task set --help")
+		return usagef("KERNL DISPATCH FAILURE: task set needs at least one field to change - valid: --title, --status, --tags, --due. Run: kernl task set --help")
 	}
 
 	raw, err := requestTask(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
@@ -282,28 +282,28 @@ func taskCreateBody(verb string, args []string) (map[string]any, error) {
 }
 
 // taskCreateTitle resolves the title from --title or the positional args,
-// refusing both at once the way project create does — silently preferring one
+// refusing both at once the way project create does - silently preferring one
 // would hide a typo'd flag.
 //
 // Unquoted multi-word titles are the common shell slip, and joining them is what
 // the caller meant, so the join stays as interactive forgiveness. It is safe to
 // keep now that --title gives an unambiguous alternative and the joined title is
-// echoed back on success; before that the join's only stated safety net —
-// "the title is echoed back anyway" — did not exist, since the verb printed the
+// echoed back on success; before that the join's only stated safety net  -
+// "the title is echoed back anyway" - did not exist, since the verb printed the
 // id alone.
 func taskCreateTitle(title string, hasTitle bool, rest []string) (string, error) {
 	if hasTitle && len(rest) > 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: task create got a title both positionally (%q) and via --title (%q) — pass only one",
+		return "", usagef("KERNL DISPATCH FAILURE: task create got a title both positionally (%q) and via --title (%q) - pass only one",
 			strings.Join(rest, " "), title)
 	}
 	if hasTitle {
 		if strings.TrimSpace(title) == "" {
-			return "", usagef(`KERNL DISPATCH FAILURE: task create got an empty --title — run: kernl task create --title "<title>"`)
+			return "", usagef(`KERNL DISPATCH FAILURE: task create got an empty --title - run: kernl task create --title "<title>"`)
 		}
 		return title, nil
 	}
 	if len(rest) == 0 {
-		return "", usagef(`KERNL DISPATCH FAILURE: task create requires a title — run: kernl task create "<title>" [--project <id>]`)
+		return "", usagef(`KERNL DISPATCH FAILURE: task create requires a title - run: kernl task create "<title>" [--project <id>]`)
 	}
 	return strings.Join(rest, " "), nil
 }
@@ -353,10 +353,10 @@ func splitTaskTags(raw string) []string {
 
 func singleTaskID(verb string, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires a task ID — run: kernl %s <task-id>. List them with: kernl task list", verb, verb)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires a task ID - run: kernl %s <task-id>. List them with: kernl task list", verb, verb)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one task ID, got %d (%s) — run: kernl %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one task ID, got %d (%s) - run: kernl %s --help",
 			verb, len(args), strings.Join(args, ", "), verb)
 	}
 	return args[0], nil

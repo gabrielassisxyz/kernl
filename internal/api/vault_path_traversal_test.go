@@ -35,7 +35,7 @@ func traversalVault(t *testing.T) (root, outside, outsideBody string) {
 
 // traversalPaths are the client-supplied paths every vault-facing route must
 // refuse. The %2f entries matter because net/http percent-decodes the query
-// before the handler ever sees it — the guard must run on the decoded value.
+// before the handler ever sees it - the guard must run on the decoded value.
 func traversalPaths(outside string) map[string]string {
 	return map[string]string{
 		"relative escape":  "../secret.txt",
@@ -57,7 +57,7 @@ func jsonTraversalPaths(outside string) map[string]string {
 }
 
 // A rejection must say the path is out of bounds without echoing the resolved
-// absolute path or the vault root — that would hand an attacker the layout of
+// absolute path or the vault root - that would hand an attacker the layout of
 // the filesystem they are trying to map.
 func assertNoPathLeak(t *testing.T, body, root string) {
 	t.Helper()

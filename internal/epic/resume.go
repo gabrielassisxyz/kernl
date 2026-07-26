@@ -59,7 +59,7 @@ type ResumeFilterProvider interface {
 	// IsHumanGate returns true when the bead is at a state that
 	// requires human action (implementation_review as human gate,
 	// awaiting_integration, etc.). Such beads are treated as "done"
-	// from the executor's perspective — the human must unblock them.
+	// from the executor's perspective - the human must unblock them.
 	IsHumanGate(bead *backend.Bead) bool
 }
 

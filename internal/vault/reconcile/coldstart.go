@@ -24,7 +24,7 @@ import (
 //   - Known UUID at a new path → move: path cache updated; OnChange if hash also changed.
 //
 // After the walk, disappeared entries (UUIDs in note_paths with no matching
-// on-disk file) are soft-deleted immediately (no move window — the watcher is
+// on-disk file) are soft-deleted immediately (no move window - the watcher is
 // not running yet).
 //
 // Idempotency: calling ColdStart twice with no intervening disk changes is a
@@ -57,7 +57,7 @@ func (r *Reconciler) ColdStart(ctx context.Context) error {
 
 	walkErr := filepath.WalkDir(r.vaultRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			// Permission errors etc. — skip, do not abort.
+			// Permission errors etc. - skip, do not abort.
 			return nil
 		}
 		// Skip dotfiles and dotdirs (mirrors watcher U6 filter).
@@ -75,7 +75,7 @@ func (r *Reconciler) ColdStart(ctx context.Context) error {
 		}
 
 		// A single malformed or conflicting file must never abort cold-start and
-		// take down the whole server — log it and keep walking.
+		// take down the whole server - log it and keep walking.
 		if rerr := r.reconcileFile(ctx, path, byUUID, byHash, seenUUIDs, hashTakenBy); rerr != nil {
 			slog.Warn("coldstart: reconcile file failed; skipping", "path", path, "error", rerr)
 		}
@@ -163,7 +163,7 @@ func (r *Reconciler) reconcileFile(
 			return nil
 		}
 
-		// UUID present but not in cache — node may be tombstoned or truly new.
+		// UUID present but not in cache - node may be tombstoned or truly new.
 		// Check graph for a tombstoned node with this UUID.
 		var tombstoned bool
 		checkErr := r.g.DoRead(ctx, func(tx *graph.ReadTx) error {
@@ -175,9 +175,9 @@ func (r *Reconciler) reconcileFile(
 			return fmt.Errorf("tombstone check %q: %w", fm.ID, checkErr)
 		}
 		if !tombstoned {
-			// Genuinely new — fall through to create below.
+			// Genuinely new - fall through to create below.
 		} else {
-			// Tombstoned node returning — let OnCreate handle revival.
+			// Tombstoned node returning - let OnCreate handle revival.
 			seenUUIDs[fm.ID] = struct{}{}
 			slog.Debug("coldstart: revive (tombstoned)", "path", absPath, "uuid", fm.ID)
 			if err := r.OnCreate(ctx, absPath); err != nil {
@@ -189,7 +189,7 @@ func (r *Reconciler) reconcileFile(
 
 	// Case B: UUID absent OR UUID not in cache and not tombstoned.
 	// Before treating as a fresh create, check if the content hash matches a
-	// cached entry whose UUID has not been seen yet — that is a move.
+	// cached entry whose UUID has not been seen yet - that is a move.
 	if movedFromUUID, ok := byHash[diskHash]; ok {
 		if _, alreadySeen := seenUUIDs[movedFromUUID]; !alreadySeen {
 			oldEntry := byUUID[movedFromUUID]
@@ -197,7 +197,7 @@ func (r *Reconciler) reconcileFile(
 			// Mark hash as taken by this UUID so phase-3 skips tombstone.
 			hashTakenBy[diskHash] = movedFromUUID
 			slog.Debug("coldstart: move (hash match)", "path", absPath, "uuid", movedFromUUID)
-			sameHash := true // by definition — hash matched
+			sameHash := true // by definition - hash matched
 			if err := r.applyMove(ctx, oldEntry, absPath, relPath, diskHash, raw, sameHash); err != nil {
 				return fmt.Errorf("move (hash) uuid=%q: %w", movedFromUUID, err)
 			}
@@ -233,7 +233,7 @@ func (r *Reconciler) applyMove(
 	ctx context.Context,
 	old cachedPathEntry,
 	absPath, newRelPath, diskHash string,
-	_ []byte, // raw — not used here but kept for signature clarity
+	_ []byte, // raw - not used here but kept for signature clarity
 	sameHash bool,
 ) error {
 	// Update path cache: forget old path, upsert new path.
@@ -253,7 +253,7 @@ func (r *Reconciler) applyMove(
 	)
 
 	if !sameHash {
-		// Body also changed — record a diff revision via OnChange.
+		// Body also changed - record a diff revision via OnChange.
 		// OnChange reads the file fresh and re-hashes, so no duplication.
 		if err := r.OnChange(ctx, absPath); err != nil {
 			return fmt.Errorf("applyMove OnChange: %w", err)
@@ -277,7 +277,7 @@ func (r *Reconciler) softDeleteCached(ctx context.Context, e cachedPathEntry) er
 		).Scan(&title)
 	})
 	if err != nil {
-		// Node doesn't exist or already tombstoned — nothing to do.
+		// Node doesn't exist or already tombstoned - nothing to do.
 		return nil
 	}
 

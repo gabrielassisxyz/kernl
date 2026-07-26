@@ -32,7 +32,7 @@ fi
 
 # The Go packages embed web/.output/public (see web/embed.go), so a stale build
 # here is silently baked into the binary: the UI you test is not the UI you
-# wrote. Rebuild when the output is missing OR older than any web/ source —
+# wrote. Rebuild when the output is missing OR older than any web/ source  -
 # checking only for existence lets an old build pass as ok forever.
 section "web assets (embed prerequisite)"
 built=web/.output/public/index.html
@@ -47,7 +47,7 @@ elif command -v npm >/dev/null 2>&1; then
 else
     mkdir -p web/.output/public
     printf '<!doctype html><title>Kernl</title>' > web/.output/public/index.html
-    skip "npm not found — wrote a placeholder so the embed compiles"
+    skip "npm not found - wrote a placeholder so the embed compiles"
 fi
 
 section "gofmt"
@@ -72,11 +72,11 @@ fi
 section "go test (unit)"
 go test ./... && ok || bad
 
-section "go test (integration contracts) — advisory, manual-only (see AGENTS.md §4)"
+section "go test (integration contracts) - advisory, manual-only (see AGENTS.md §4)"
 # Not part of the hard gate: needs a real bd. Full e2e tests are split behind
 # extra tags: `bde2e` for bd fixture workflows and `realagent` for real agents.
 if command -v bd >/dev/null 2>&1; then
-    go test -tags=integration ./... || skip "integration failures above (advisory — real bd contract drift)"
+    go test -tags=integration ./... || skip "integration failures above (advisory - real bd contract drift)"
 else
     skip "bd not installed: go install github.com/gastownhall/beads@v1.0.4"
 fi

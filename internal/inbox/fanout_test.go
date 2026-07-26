@@ -55,7 +55,7 @@ func derivedOf(t *testing.T, g *graph.Graph, captureID string) map[string]string
 }
 
 // The structural change: one capture becomes several nodes. A reflection that
-// also implies a next step is a note AND a task — both derived from the capture,
+// also implies a next step is a note AND a task - both derived from the capture,
 // and related to each other.
 func TestProcessCaptureFansOutIntoSeveralNodes(t *testing.T) {
 	ctx := context.Background()
@@ -103,7 +103,7 @@ func TestProcessCaptureFansOutIntoSeveralNodes(t *testing.T) {
 			t.Errorf("expected a related edge between the nodes fanned out of one capture")
 		}
 
-		// Each action kept its own title and body — not the capture's.
+		// Each action kept its own title and body - not the capture's.
 		tasks, err := nodes.ListTasks(ctx, tx, "")
 		if err != nil {
 			return err
@@ -189,7 +189,7 @@ func TestProcessCaptureFanOutIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// Undo takes back everything the capture became — all four nodes, not the first.
+// Undo takes back everything the capture became - all four nodes, not the first.
 func TestReopenRemovesEveryDerivedNode(t *testing.T) {
 	ctx := context.Background()
 	g := openInboxGraph(t)
@@ -251,7 +251,7 @@ func TestReopenRemovesEveryDerivedNode(t *testing.T) {
 	}
 }
 
-// A discard among several actions means "this fragment is noise" — the capture
+// A discard among several actions means "this fragment is noise" - the capture
 // is still triaged, because it did produce a node.
 func TestProcessCaptureDiscardsOneFragmentNotTheCapture(t *testing.T) {
 	ctx := context.Background()
@@ -286,7 +286,7 @@ func TestProcessCaptureDiscardsOneFragmentNotTheCapture(t *testing.T) {
 }
 
 // An update is reviewed hunk by hunk against one note, so it cannot be one leg
-// of a fan-out — the request is rejected rather than silently dropping content.
+// of a fan-out - the request is rejected rather than silently dropping content.
 func TestProcessCaptureRejectsUpdateAlongsideOtherActions(t *testing.T) {
 	ctx := context.Background()
 	g := openInboxGraph(t)

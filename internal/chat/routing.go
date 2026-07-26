@@ -15,7 +15,7 @@ import (
 
 // Routing mode: the DA discussing where a capture should go.
 //
-// It is the same agent, the same session and the same tools — it only gains one
+// It is the same agent, the same session and the same tools - it only gains one
 // tool and one system message when the conversation is scoped to a capture. And
 // like suggest_note_edit, the tool PROPOSES: it emits an event the user accepts
 // or rejects, and the accepted routing still has to be processed by hand. The
@@ -27,15 +27,15 @@ import (
 func routingSystemPrompt(captureBody, draft, projects string) string {
 	// The instruction that matters goes FIRST and stays short. This prompt used to
 	// open with 3.4k characters of classifier vocabulary, and the models answered
-	// in prose instead of calling the tool about two times in three — the same
+	// in prose instead of calling the tool about two times in three - the same
 	// models called it 3/3 with a short prompt. Everything below earns its length.
 	var b strings.Builder
 	b.WriteString(`You are helping the user triage ONE capture from their inbox: what it should become in their graph.
 
 TO CHANGE ANYTHING, CALL A TOOL. Talking about a change does not make it.
 
-- suggest_routing — the nodes this capture becomes. Pass the COMPLETE set every time (the unchanged ones too): it replaces the whole proposal. A title, body, tag, project or due date the user asks for exists only once it is in this call.
-- suggest_note_edit — a note that ALREADY EXISTS ("add this book to my Anti-library note"). Find it with search_notes, pass its full revised body. This is not a node the capture becomes.
+- suggest_routing - the nodes this capture becomes. Pass the COMPLETE set every time (the unchanged ones too): it replaces the whole proposal. A title, body, tag, project or due date the user asks for exists only once it is in this call.
+- suggest_note_edit - a note that ALREADY EXISTS ("add this book to my Anti-library note"). Find it with search_notes, pass its full revised body. This is not a node the capture becomes.
 
 A request that needs both gets both calls, in the same reply. Never say you added, created or proposed anything unless the tool call is in that same reply.
 
@@ -53,7 +53,7 @@ The capture, verbatim:
 		b.WriteString("\n")
 	}
 	if strings.TrimSpace(projects) != "" {
-		b.WriteString("\nThe user's existing projects (id — title):\n")
+		b.WriteString("\nThe user's existing projects (id - title):\n")
 		b.WriteString(projects)
 		b.WriteString("\n")
 	}
@@ -62,18 +62,18 @@ The capture, verbatim:
 	b.WriteString(wire.TargetGlossary)
 	b.WriteString(`
 
-Tags come from a closed list — ` + wire.TagVocabulary + ` — and nothing else; none is a fine answer. A due date only when the capture itself states one.
+Tags come from a closed list - ` + wire.TagVocabulary + ` - and nothing else; none is a fine answer. A due date only when the capture itself states one.
 
 When the user is DECIDED (an instruction, a correction stated as fact: "make it a note too", "split this in two"), call the tool right away, then say in one line what you proposed. When they are UNSURE (hedged, asking: "I think this might also be a note", "why a task?"), answer them first and call the tool once you agree.
 
-Never rewrite the capture body — it is the user's own words. Nothing you propose is saved: the user accepts it and processes the capture themselves.`)
+Never rewrite the capture body - it is the user's own words. Nothing you propose is saved: the user accepts it and processes the capture themselves.`)
 	return b.String()
 }
 
 func suggestRoutingTool() Tool {
 	return Tool{
 		Name:        "suggest_routing",
-		Description: "Propose what the capture under discussion should become: the complete list of nodes, replacing the current proposal. The routing is NOT applied — it is shown to the user as an accept/reject card, and they still process the capture themselves. Call this instead of describing a routing in prose when you and the user have agreed on one.",
+		Description: "Propose what the capture under discussion should become: the complete list of nodes, replacing the current proposal. The routing is NOT applied - it is shown to the user as an accept/reject card, and they still process the capture themselves. Call this instead of describing a routing in prose when you and the user have agreed on one.",
 		Parameters: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -117,7 +117,7 @@ type routingArgs struct {
 // the schema asks for. Models routinely answered with "type" instead of
 // "target", and with a bare "tag": "to-read" instead of "tags": ["to-read"].
 // encoding/json drops an unknown key without a word, so the action arrived with
-// no target, the tool rejected it, and the model retried — and its correction
+// no target, the tool rejected it, and the model retried - and its correction
 // supplied the target while quietly dropping the tag. The user saw a routing
 // with no tags and a reply that talked about one, and every rejected call cost a
 // turn. Be liberal in what you accept from a model: a synonym is not an error
@@ -184,7 +184,7 @@ func (e *ChatEngine) presentRouting(ctx context.Context, captureID string, args 
 			ProjectDescription: a.ProjectDescription,
 			InitialTasks:       a.InitialTasks,
 			// The vocabulary is closed. A tag the model coined anyway is dropped
-			// rather than proposed — the same backstop the classifier applies.
+			// rather than proposed - the same backstop the classifier applies.
 			Tags:    a.tags(),
 			DueDate: a.DueDate,
 		})
@@ -205,7 +205,7 @@ func (e *ChatEngine) presentRouting(ctx context.Context, captureID string, args 
 		slog.Warn("emit routing event", "error", err)
 		return "failed to present the routing"
 	}
-	return fmt.Sprintf("routing presented to the user for accept/reject (%d node(s)); it is NOT applied — they still process the capture themselves. This routing is done — do not propose it again.", len(actions))
+	return fmt.Sprintf("routing presented to the user for accept/reject (%d node(s)); it is NOT applied - they still process the capture themselves. This routing is done - do not propose it again.", len(actions))
 }
 
 func (e *ChatEngine) emitRoutingEvent(captureID, rationale string, actions []wire.CaptureAction) error {
@@ -217,7 +217,7 @@ func (e *ChatEngine) emitRoutingEvent(captureID, rationale string, actions []wir
 	})
 }
 
-// projectList renders the user's projects as "id — title" lines. The DA needs
+// projectList renders the user's projects as "id - title" lines. The DA needs
 // the ids to file a task under an existing project; without them it can only
 // ever propose new ones.
 func (e *ChatEngine) projectList(ctx context.Context) string {
@@ -237,7 +237,7 @@ func (e *ChatEngine) projectList(ctx context.Context) string {
 
 	var b strings.Builder
 	for _, p := range projects {
-		fmt.Fprintf(&b, "- %s — %s\n", p.ID, p.Title)
+		fmt.Fprintf(&b, "- %s - %s\n", p.ID, p.Title)
 	}
 	return b.String()
 }
@@ -258,7 +258,7 @@ func (e *ChatEngine) capturedScope(ctx context.Context, cs *nodes.ChatSession) *
 		return nil
 	})
 	if errors.Is(err, graph.ErrNotFound) {
-		// The scope is some other node kind (a note, a project) — the normal case
+		// The scope is some other node kind (a note, a project) - the normal case
 		// for a general chat, not an error.
 		return nil
 	}

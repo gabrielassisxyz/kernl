@@ -118,7 +118,7 @@ const daOpen = ref(false)
 const draftActions = computed<CaptureAction[]>(() => draft.value.map(fromDraft))
 
 // The DA proposes; this is where the user's acceptance lands. It replaces the
-// whole draft — a routing is a set of nodes, not a patch — and still writes
+// whole draft - a routing is a set of nodes, not a patch - and still writes
 // nothing: Process does that.
 function onDaRouting(actions: CaptureAction[]) {
   draft.value = actions.map(a => toDraft(a, captureBody.value, provenance.value))

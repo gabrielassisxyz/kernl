@@ -27,7 +27,7 @@ func InjectID(raw []byte, uuid string) ([]byte, error) {
 		return nil, fmt.Errorf("frontmatter: cannot inject into malformed YAML: %w", err)
 	}
 	if fm.ID != "" {
-		// Already has an id — idempotent no-op
+		// Already has an id - idempotent no-op
 		return bytes.Clone(raw), nil
 	}
 
@@ -41,7 +41,7 @@ func InjectID(raw []byte, uuid string) ([]byte, error) {
 
 	// Check if frontmatter block exists
 	if len(content) < 4 || content[0] != '-' || content[1] != '-' || content[2] != '-' {
-		// No frontmatter block — prepend minimal block
+		// No frontmatter block - prepend minimal block
 		return prependBlock(bom, content, uuid), nil
 
 	}
@@ -52,7 +52,7 @@ func InjectID(raw []byte, uuid string) ([]byte, error) {
 		lineEnd++
 	}
 	if lineEnd >= len(content) || content[lineEnd] != '\n' {
-		// "---" not followed by newline — treat as no block
+		// "---" not followed by newline - treat as no block
 		return prependBlock(bom, content, uuid), nil
 	}
 

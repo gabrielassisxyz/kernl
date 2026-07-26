@@ -129,7 +129,7 @@ func TestNoteWriteSendsFileBodyVerbatim(t *testing.T) {
 	if req.method != http.MethodPost || req.path != "/api/vault/file" {
 		t.Fatalf("wrong call: %+v", req)
 	}
-	// The markdown must arrive raw — JSON-encoding it would write a quoted
+	// The markdown must arrive raw - JSON-encoding it would write a quoted
 	// string into the vault.
 	if req.body != "# Draft\n" {
 		t.Fatalf("body must be verbatim markdown, got %q", req.body)

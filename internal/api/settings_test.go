@@ -192,10 +192,10 @@ func TestUpdateLLMLeavesOmittedFieldsAlone(t *testing.T) {
 		t.Errorf("model = %q, want kimi-k2.8", saved.LLM.Model)
 	}
 	if saved.LLM.Provider != "openai" {
-		t.Errorf("provider = %q, want openai — an omitted field must not be blanked", saved.LLM.Provider)
+		t.Errorf("provider = %q, want openai - an omitted field must not be blanked", saved.LLM.Provider)
 	}
 	if saved.LLM.Endpoint != "http://localhost:4000" {
-		t.Errorf("endpoint = %q, want it untouched — an omitted field must not be blanked", saved.LLM.Endpoint)
+		t.Errorf("endpoint = %q, want it untouched - an omitted field must not be blanked", saved.LLM.Endpoint)
 	}
 	if saved.LLM.APIKey != "sk-not-a-real-key" {
 		t.Errorf("api key = %q, want the stored credential to survive", saved.LLM.APIKey)
@@ -226,7 +226,7 @@ func TestUpdateLLMRejectsClearingTheModelOfAConfiguredProvider(t *testing.T) {
 
 	recorder := putSettings(t, updateLLMHandler(a), "/api/settings/llm", `{"model":""}`)
 	if recorder.Code != http.StatusBadRequest {
-		t.Fatalf("PUT = %d, want 400 — the stored provider still needs a model", recorder.Code)
+		t.Fatalf("PUT = %d, want 400 - the stored provider still needs a model", recorder.Code)
 	}
 }
 
@@ -243,13 +243,13 @@ func TestUpdateVaultLeavesOmittedFieldsAlone(t *testing.T) {
 		t.Errorf("coalesceWindowMs = %d, want 50", saved.Vault.CoalesceWindowMs)
 	}
 	if saved.Vault.Root != "/tmp/kernl-vault-fixture" {
-		t.Errorf("vault root = %q, want it untouched — blanking it detaches the whole substrate", saved.Vault.Root)
+		t.Errorf("vault root = %q, want it untouched - blanking it detaches the whole substrate", saved.Vault.Root)
 	}
 	if saved.Vault.MoveWindowMs != 900 {
-		t.Errorf("moveWindowMs = %d, want 900 — an omitted field must not be blanked", saved.Vault.MoveWindowMs)
+		t.Errorf("moveWindowMs = %d, want 900 - an omitted field must not be blanked", saved.Vault.MoveWindowMs)
 	}
 	if saved.Vault.RescanIntervalSec != 30 {
-		t.Errorf("rescanIntervalSec = %d, want 30 — an omitted field must not be blanked", saved.Vault.RescanIntervalSec)
+		t.Errorf("rescanIntervalSec = %d, want 30 - an omitted field must not be blanked", saved.Vault.RescanIntervalSec)
 	}
 }
 
@@ -265,10 +265,10 @@ func TestUpdateInboxLeavesOmittedFieldsAlone(t *testing.T) {
 
 	saved := reloadSettings(t, path)
 	if saved.Inbox.AutoPrep {
-		t.Error("autoPrep = true, want false — an explicit false must be applied")
+		t.Error("autoPrep = true, want false - an explicit false must be applied")
 	}
 	if saved.Inbox.DASubdir != "DA" {
-		t.Errorf("daSubdir = %q, want DA — an omitted field must not be blanked", saved.Inbox.DASubdir)
+		t.Errorf("daSubdir = %q, want DA - an omitted field must not be blanked", saved.Inbox.DASubdir)
 	}
 }
 
@@ -285,7 +285,7 @@ func TestUpdateInboxSubdirKeepsTheAutoPrepSwitch(t *testing.T) {
 		t.Errorf("daSubdir = %q, want Briefs", saved.Inbox.DASubdir)
 	}
 	if !saved.Inbox.AutoPrep {
-		t.Error("autoPrep = false, want true — an omitted bool must not be flipped off")
+		t.Error("autoPrep = false, want true - an omitted bool must not be flipped off")
 	}
 }
 
@@ -302,7 +302,7 @@ func TestUpdateRuntimeLeavesOmittedFieldsAlone(t *testing.T) {
 		t.Errorf("server port = %d, want 9090", saved.Server.Port)
 	}
 	if saved.Orchestrator.MaxConcurrentBeads != 4 {
-		t.Errorf("maxConcurrentBeads = %d, want 4 — an omitted field must not be zeroed", saved.Orchestrator.MaxConcurrentBeads)
+		t.Errorf("maxConcurrentBeads = %d, want 4 - an omitted field must not be zeroed", saved.Orchestrator.MaxConcurrentBeads)
 	}
 	if saved.Orchestrator.WorktreeRoot != "/tmp/worktrees" {
 		t.Errorf("worktreeRoot = %q, want it untouched", saved.Orchestrator.WorktreeRoot)
@@ -311,17 +311,17 @@ func TestUpdateRuntimeLeavesOmittedFieldsAlone(t *testing.T) {
 		t.Errorf("runStatePath = %q, want it untouched", saved.Orchestrator.RunStatePath)
 	}
 	if saved.Sweep.AutoIntervalSeconds != 120 {
-		t.Errorf("sweep interval = %d, want 120 — an omitted field must not be zeroed", saved.Sweep.AutoIntervalSeconds)
+		t.Errorf("sweep interval = %d, want 120 - an omitted field must not be zeroed", saved.Sweep.AutoIntervalSeconds)
 	}
 	if saved.Sweep.PRStaleWarnDays != 5 {
-		t.Errorf("prStaleWarnDays = %d, want 5 — an omitted field must not be zeroed", saved.Sweep.PRStaleWarnDays)
+		t.Errorf("prStaleWarnDays = %d, want 5 - an omitted field must not be zeroed", saved.Sweep.PRStaleWarnDays)
 	}
 	if len(saved.Sweep.BackoffMinutes) != 2 {
 		t.Errorf("backoffMinutes = %v, want the stored schedule to survive", saved.Sweep.BackoffMinutes)
 	}
 }
 
-// Zero disables the periodic rescan, so a present-but-zero field is applied —
+// Zero disables the periodic rescan, so a present-but-zero field is applied  -
 // that is the case a pointer request field exists to distinguish from absent.
 func TestUpdateVaultAppliesAnExplicitZero(t *testing.T) {
 	a, path := settingsApp(t)
@@ -333,17 +333,17 @@ func TestUpdateVaultAppliesAnExplicitZero(t *testing.T) {
 
 	saved := reloadSettings(t, path)
 	if saved.Vault.RescanIntervalSec != 0 {
-		t.Errorf("rescanIntervalSec = %d, want 0 — an explicit zero must be applied", saved.Vault.RescanIntervalSec)
+		t.Errorf("rescanIntervalSec = %d, want 0 - an explicit zero must be applied", saved.Vault.RescanIntervalSec)
 	}
 	if saved.Vault.MoveWindowMs != 900 {
-		t.Errorf("moveWindowMs = %d, want 900 — an omitted field must not be blanked", saved.Vault.MoveWindowMs)
+		t.Errorf("moveWindowMs = %d, want 900 - an omitted field must not be blanked", saved.Vault.MoveWindowMs)
 	}
 }
 
 // The runtime ints cannot round-trip a zero, and that limit lives in the config
 // layer, not here: config.Load backfills a default for every zero-valued
-// orchestrator and sweep number. The API writes the zero the client asked for —
-// this test pins that — but Load hands the process the default right back, so
+// orchestrator and sweep number. The API writes the zero the client asked for  -
+// this test pins that - but Load hands the process the default right back, so
 // zero is effectively "unset" for these fields. Making one of them genuinely
 // zeroable means turning it into a pointer in config.Config, which is a wider
 // change than this partial-update fix.
@@ -368,7 +368,7 @@ func TestUpdateRuntimeWritesZeroButConfigLoadBackfillsIt(t *testing.T) {
 		t.Errorf("stageRetryAttempts = %d, want the config-layer default of 2", saved.Orchestrator.StageRetryAttempts)
 	}
 	if saved.Server.Port != 8080 {
-		t.Errorf("server port = %d, want 8080 — an omitted field must not be zeroed", saved.Server.Port)
+		t.Errorf("server port = %d, want 8080 - an omitted field must not be zeroed", saved.Server.Port)
 	}
 }
 
@@ -448,7 +448,7 @@ func TestBootDefaultsAreNotReportedAsPendingChanges(t *testing.T) {
 	a, _ := settingsApp(t)
 
 	if pending := getSettings(t, a).RestartPending; len(pending) != 0 {
-		t.Errorf("restartPending = %v, want none — nothing was written", pending)
+		t.Errorf("restartPending = %v, want none - nothing was written", pending)
 	}
 }
 
@@ -467,7 +467,7 @@ func TestSavedChangeIsReportedAsRestartPending(t *testing.T) {
 
 	pending := getSettings(t, a).RestartPending
 	if len(pending) != 1 || pending[0] != "llm.model" {
-		t.Errorf("restartPending = %v, want [llm.model] — the running process still holds the old value", pending)
+		t.Errorf("restartPending = %v, want [llm.model] - the running process still holds the old value", pending)
 	}
 }
 

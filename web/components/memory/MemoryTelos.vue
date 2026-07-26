@@ -22,7 +22,7 @@
       v-else-if="notes.length === 0"
       icon="explore"
       title="Your Telos is empty"
-      body="Telos is what your DA always knows about you — your identity, values, and long-term goals. It's injected into every conversation, not retrieved when relevant. Write one note and the DA carries it everywhere."
+      body="Telos is what your DA always knows about you - your identity, values, and long-term goals. It's injected into every conversation, not retrieved when relevant. Write one note and the DA carries it everywhere."
       action-label="New Telos note"
       @action="newTelos"
     />
@@ -33,7 +33,7 @@
       <div class="flex flex-wrap items-center justify-between gap-component">
         <div class="flex items-center gap-base text-text-muted">
           <span class="telos-live-dot" aria-hidden="true"></span>
-          <span class="font-body text-body">Always in context — injected into every DA turn.</span>
+          <span class="font-body text-body">Always in context - injected into every DA turn.</span>
           <span class="font-mono-data text-mono-data text-text-faint">{{ footprint }}</span>
         </div>
         <UiButton variant="secondary" size="sm" icon="add" @click="newTelos">New Telos note</UiButton>
@@ -46,7 +46,7 @@
       >
         <span class="material-symbols-outlined !text-[18px] text-status-gate mt-px" aria-hidden="true">warning</span>
         <p class="font-body text-body text-text-primary">
-          Telos exceeds the {{ capKb }} KB injection cap — only the first part reaches the DA.
+          Telos exceeds the {{ capKb }} KB injection cap - only the first part reaches the DA.
           Trim or split your Telos notes so nothing important is cut.
         </p>
       </div>
@@ -121,7 +121,7 @@ const newTelos = () => navigateTo('/notes?new=telos')
 </script>
 
 <style scoped>
-/* Live indicator for the always-on injection — the DESIGN "Status Glow" vocab,
+/* Live indicator for the always-on injection - the DESIGN "Status Glow" vocab,
    reserved for live/connected dots, not decoration. */
 .telos-live-dot {
   width: 7px;

@@ -46,7 +46,7 @@ const props = withDefaults(defineProps<{
 // Size the glyph via inline style, not a `!text-[Npx]` utility. The base
 // `.material-symbols-outlined` sets font-size:24px, and Tailwind's important
 // utilities live in a cascade layer where `!important` beats any unlayered
-// `!important` override — so an external consumer can't shrink the icon by
+// `!important` override - so an external consumer can't shrink the icon by
 // fighting the class. An inline font-size wins outright without `!important`.
 const iconStyle = computed(() => ({ fontSize: `${props.iconSize}px` }))
 

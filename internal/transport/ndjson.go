@@ -19,7 +19,7 @@ type ParsedLine struct {
 // EOF, and respects context cancellation at every line boundary.
 //
 // Invalid JSON in any line (including a trailing partial) surfaces as
-// a ParsedLine with Err set — never silently swallowed.
+// a ParsedLine with Err set - never silently swallowed.
 //
 // Usage: for line := range ParseNDJSON(ctx, resp.Body) { ... }
 func ParseNDJSON(ctx context.Context, reader io.Reader) <-chan ParsedLine {

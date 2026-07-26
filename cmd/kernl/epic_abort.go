@@ -22,20 +22,20 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 			dryRun = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return usagef("KERNL DISPATCH FAILURE: unknown epic abort flag %q%s — valid: --yes, --dry-run",
+				return usagef("KERNL DISPATCH FAILURE: unknown epic abort flag %q%s - valid: --yes, --dry-run",
 					arg, didYouMean(arg, []string{"--yes", "--dry-run"}))
 			}
 			if epicID != "" {
-				return usagef("KERNL DISPATCH FAILURE: epic abort takes exactly one epic ID, got %q and %q — abort one epic at a time", epicID, arg)
+				return usagef("KERNL DISPATCH FAILURE: epic abort takes exactly one epic ID, got %q and %q - abort one epic at a time", epicID, arg)
 			}
 			epicID = arg
 		}
 	}
 	if epicID == "" {
-		return usagef("KERNL DISPATCH FAILURE: epic abort requires an epic ID — run: kernl epic abort <epic-id>")
+		return usagef("KERNL DISPATCH FAILURE: epic abort requires an epic ID - run: kernl epic abort <epic-id>")
 	}
 	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered — Fix: add a repo to registry.repos in kernl.yaml")
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
 	}
 	repoPath := a.Config.Registry.Repos[0].Path
 
@@ -52,20 +52,20 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 		return nil
 	}
 	if !yes {
-		return usagef("KERNL DISPATCH FAILURE: epic abort is destructive — it closes epic %s and %d child bead(s), removes worktrees and purges agent state. Re-run with --yes to proceed, or --dry-run to preview", epicID, len(ep.Children))
+		return usagef("KERNL DISPATCH FAILURE: epic abort is destructive - it closes epic %s and %d child bead(s), removes worktrees and purges agent state. Re-run with --yes to proceed, or --dry-run to preview", epicID, len(ep.Children))
 	}
 
 	for _, child := range ep.Children {
 		_, cerr := a.Backend.Close(child.ID, "aborted", repoPath)
 		if cerr != nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot close child %s — %w — Fix: verify backend is reachable and bead is not already terminal", child.ID, cerr)
+			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot close child %s - %w - Fix: verify backend is reachable and bead is not already terminal", child.ID, cerr)
 		}
 		out(fmt.Sprintf("bead %s → closed (aborted)\n", child.ID))
 	}
 
 	_, eerr := a.Backend.Close(epicID, "aborted", repoPath)
 	if eerr != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot close epic %s — %w — Fix: verify backend is reachable and epic is not already terminal", epicID, eerr)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot close epic %s - %w - Fix: verify backend is reachable and epic is not already terminal", epicID, eerr)
 	}
 	out(fmt.Sprintf("epic %s → closed (aborted)\n", epicID))
 

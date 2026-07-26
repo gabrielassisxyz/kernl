@@ -65,7 +65,7 @@ func suggest(input string, candidates []string) string {
 // close enough.
 func didYouMean(input string, candidates []string) string {
 	if s := suggest(input, candidates); s != "" {
-		return fmt.Sprintf(" — did you mean %q?", s)
+		return fmt.Sprintf(" - did you mean %q?", s)
 	}
 	return ""
 }

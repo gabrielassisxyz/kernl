@@ -1,5 +1,5 @@
 <template>
-  <aside 
+  <aside
     class="z-modal flex flex-col overflow-hidden border-border-hairline bg-surface transition-all duration-200 ease-out flex-shrink-0 fixed lg:static top-0 right-0 bottom-[26px] lg:bottom-auto lg:h-full max-w-[calc(100vw-60px)]"
     :class="isOpen
       ? 'translate-x-0 opacity-100 w-[400px] border-l'
@@ -22,7 +22,7 @@
         <p class="font-headline text-headline text-text-primary">{{ daGreeting }}</p>
         <p class="font-body text-text-faint text-body mt-1">Ask me about anything in your graph.</p>
       </div>
-      
+
       <div class="flex flex-col gap-section w-full">
         <div v-for="(msg, idx) in messages" :key="idx" class="flex flex-col gap-base">
           <template v-if="msg.role === 'assistant'">
@@ -51,7 +51,7 @@
           </template>
         </div>
       </div>
-      
+
       <div v-if="isStreaming" class="flex flex-col gap-base">
         <div class="flex items-center gap-2">
           <span class="font-label-caps text-label-caps text-primary">Kernl DA</span>
@@ -87,7 +87,7 @@
         :detail="error"
       />
     </div>
-    
+
     <div class="p-base border-t border-border-hairline bg-background">
       <div class="relative flex items-end bg-surface-overlay border border-border-hairline rounded focus-within:border-primary transition-colors p-2 gap-2">
         <textarea
@@ -173,7 +173,7 @@ const startNewConversation = () => {
   animation: blink 1s step-end infinite;
 }
 
-/* Prose styling for rendered DA markdown (:deep — v-html content has no scope attr). */
+/* Prose styling for rendered DA markdown (:deep - v-html content has no scope attr). */
 .da-prose :deep(p),
 .da-prose :deep(ul),
 .da-prose :deep(ol),

@@ -83,7 +83,7 @@ func listBookmarksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	var list []*nodes.Bookmark
 
 	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
-		// Include archived bookmarks — archiving is success, not removal; the
+		// Include archived bookmarks - archiving is success, not removal; the
 		// reader should show them (default filter would hide archived ones).
 		filter := nodes.BookmarkFilter{IncludeArchived: true}
 		if tags := r.URL.Query().Get("tags"); tags != "" {

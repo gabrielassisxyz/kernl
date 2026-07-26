@@ -28,7 +28,7 @@ func runSweep(configPath string, args []string) error {
 	// --yes. A bare `kernl sweep` previews as dry-run and says how to apply.
 	dryRun := flags.dryRun || !flags.yes
 	if !flags.dryRun && !flags.yes {
-		fmt.Fprintln(os.Stderr, "sweep: dry-run (no epics will be closed) — add --yes to close merged epics, or --dry-run to silence this notice")
+		fmt.Fprintln(os.Stderr, "sweep: dry-run (no epics will be closed) - add --yes to close merged epics, or --dry-run to silence this notice")
 	}
 
 	b := backend.NewBdCliBackend(repoPath)
@@ -45,7 +45,7 @@ func runSweep(configPath string, args []string) error {
 	s := sweep.New(adapter, ghAdapter, cfg)
 	if err := s.Tick(); err != nil {
 		if strings.Contains(err.Error(), "no beads project") {
-			return wrapLoud("sweep", fmt.Errorf("%w — Fix: run from a repo with a .beads project, or pass --repo <path>", err))
+			return wrapLoud("sweep", fmt.Errorf("%w - Fix: run from a repo with a .beads project, or pass --repo <path>", err))
 		}
 		return wrapLoud("sweep", err)
 	}
@@ -97,7 +97,7 @@ func parseSweepFlags(args []string) (sweepFlags, error) {
 			for _, s := range strings.Split(v, ",") {
 				n, err := strconv.Atoi(strings.TrimSpace(s))
 				if err != nil {
-					return f, usagef("KERNL DISPATCH FAILURE: --backoff-minutes needs comma-separated integers, got %q — example: --backoff-minutes 5,15,60", v)
+					return f, usagef("KERNL DISPATCH FAILURE: --backoff-minutes needs comma-separated integers, got %q - example: --backoff-minutes 5,15,60", v)
 				}
 				f.backoffMinutes = append(f.backoffMinutes, n)
 			}
@@ -108,7 +108,7 @@ func parseSweepFlags(args []string) (sweepFlags, error) {
 			}
 			f.staleWarnDays, i = v, next
 		default:
-			return f, usagef("KERNL DISPATCH FAILURE: unknown sweep flag %q%s — valid: %s",
+			return f, usagef("KERNL DISPATCH FAILURE: unknown sweep flag %q%s - valid: %s",
 				args[i], didYouMean(args[i], sweepFlagNames), strings.Join(sweepFlagNames, ", "))
 		}
 	}
@@ -117,7 +117,7 @@ func parseSweepFlags(args []string) (sweepFlags, error) {
 
 func sweepFlagValue(args []string, i int) (string, int, error) {
 	if i+1 >= len(args) {
-		return "", i, usagef("KERNL DISPATCH FAILURE: %s requires a value — run: kernl sweep --help", args[i])
+		return "", i, usagef("KERNL DISPATCH FAILURE: %s requires a value - run: kernl sweep --help", args[i])
 	}
 	return args[i+1], i + 1, nil
 }

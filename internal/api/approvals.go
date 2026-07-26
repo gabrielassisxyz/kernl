@@ -8,7 +8,7 @@ import (
 // The approval subsystem is scaffolding that was never wired end-to-end: the
 // types exist (approvals.ApprovalRegistry, terminal.PendingApprovalRecord), the
 // execution helper exists (terminal.PerformApprovalAction), and the agent
-// adapters can be configured with an MCP approval bridge — but nothing in the
+// adapters can be configured with an MCP approval bridge - but nothing in the
 // runtime populates any registry. NewApprovalRegistry, RecordPendingApproval,
 // SetApprovalResponder and the *WithBridge arg builders have no runtime caller,
 // so no live agent permission prompt ever becomes a record these routes could
@@ -18,7 +18,7 @@ import (
 // was actively harmful: POST /api/approvals/{id}/actions reported success for an
 // id that never existed (the CLI's `approval resolve apr-999` printed "Resolved"
 // at exit 0), and GET /api/approvals reported "nothing pending" when the truth
-// is "this cannot report anything". A caller — human or agent — could not tell a
+// is "this cannot report anything". A caller - human or agent - could not tell a
 // working-but-idle gate from an unbuilt one.
 //
 // Until the capture flow is built (tracked as a future project in BACKLOG.md,
@@ -28,7 +28,7 @@ import (
 // When the feature lands, replace these with real handlers wired to app.App's
 // terminal manager / approval registry.
 
-const approvalsNotImplemented = "approvals are not implemented yet: no judgment-gate capture flow is wired, so there is nothing to list and no action can be applied — tracked as a future project in BACKLOG.md"
+const approvalsNotImplemented = "approvals are not implemented yet: no judgment-gate capture flow is wired, so there is nothing to list and no action can be applied - tracked as a future project in BACKLOG.md"
 
 func RegisterApprovalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/approvals", approvalNotImplementedHandler)

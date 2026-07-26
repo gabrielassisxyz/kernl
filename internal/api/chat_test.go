@@ -320,7 +320,7 @@ func TestLearnedEditPersistsModifiedStatement(t *testing.T) {
 	r := NewRouter(a)
 	sessionID := createTestSession(t, r)
 
-	// Edit is Keep with a corrected statement — the modified text must win.
+	// Edit is Keep with a corrected statement - the modified text must win.
 	w := postLearned(t, r, sessionID, `{"action":"keep","subject":"tools","statement":"Prefers Google Meet for all video calls."}`)
 	if w.Code != 200 {
 		t.Fatalf("keep(edited): expected 200, got %d: %s", w.Code, w.Body.String())

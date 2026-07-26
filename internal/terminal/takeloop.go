@@ -264,7 +264,7 @@ func EnforceQueueTerminalInvariant(ctx *TakeLoopContext, backendPort backend.Bac
 	wf := orchestration.ResolveWorkflowForBead(current, ctx.WorkflowsByID, ctx.FallbackWorkflow)
 
 	if IsIsQueueOrTerminalWithWorkflow(current.State, wf) {
-		slog.Info(fmt.Sprintf("%s bead=%s state=%s — invariant satisfied", tag, ctx.BeadID, current.State))
+		slog.Info(fmt.Sprintf("%s bead=%s state=%s - invariant satisfied", tag, ctx.BeadID, current.State))
 		return true, nil
 	}
 
@@ -280,7 +280,7 @@ func IsIsQueueOrTerminalWithWorkflow(state string, wf *backend.WorkflowDescripto
 }
 
 func RollbackInvariantViolation(ctx *TakeLoopContext, current *backend.Bead, wf *backend.WorkflowDescriptor, tag string, backendPort backend.BackendPort) (bool, error) {
-	slog.Warn(fmt.Sprintf("%s [WARN] bead=%s state=%s — VIOLATION: action state on exit", tag, ctx.BeadID, current.State))
+	slog.Warn(fmt.Sprintf("%s [WARN] bead=%s state=%s - VIOLATION: action state on exit", tag, ctx.BeadID, current.State))
 
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stdout",
@@ -291,7 +291,7 @@ func RollbackInvariantViolation(ctx *TakeLoopContext, current *backend.Bead, wf 
 
 	rollbackState := orchestration.WorkflowQueueStateForState(wf, current.State)
 	if rollbackState == "" {
-		slog.Error(fmt.Sprintf("%s cannot resolve queue state for \"%s\" — skipping rollback", tag, current.State))
+		slog.Error(fmt.Sprintf("%s cannot resolve queue state for \"%s\" - skipping rollback", tag, current.State))
 		return false, nil
 	}
 
@@ -324,11 +324,11 @@ func RollbackInvariantViolation(ctx *TakeLoopContext, current *backend.Bead, wf 
 	}
 	refreshedWf := orchestration.ResolveWorkflowForBead(refreshed, ctx.WorkflowsByID, ctx.FallbackWorkflow)
 	if IsIsQueueOrTerminalWithWorkflow(refreshed.State, refreshedWf) {
-		slog.Info(fmt.Sprintf("%s bead=%s state=%s — invariant satisfied after rollback", tag, ctx.BeadID, refreshed.State))
+		slog.Info(fmt.Sprintf("%s bead=%s state=%s - invariant satisfied after rollback", tag, ctx.BeadID, refreshed.State))
 		return true, nil
 	}
 
-	slog.Error(fmt.Sprintf("%s bead=%s state=%s — STILL VIOLATED after rollback", tag, ctx.BeadID, refreshed.State))
+	slog.Error(fmt.Sprintf("%s bead=%s state=%s - STILL VIOLATED after rollback", tag, ctx.BeadID, refreshed.State))
 	return false, fmt.Errorf("bead %s still in action state %s after rollback", ctx.BeadID, refreshed.State)
 }
 
@@ -427,7 +427,7 @@ func CheckAlternativeAgent(ctx *TakeLoopContext, iterationAgentID string, resolv
 
 func HandleErrorExit(ctx *TakeLoopContext, record OutcomeRecord, code int, iterationAgentID string, postExitState string, wf *backend.WorkflowDescriptor, backendPort backend.BackendPort) error {
 	tag := fmt.Sprintf("[terminal-manager] [%s] [take-loop]", ctx.ID)
-	slog.Info(fmt.Sprintf("%s non-zero exit code=%d — attempting rollback and retry", tag, code))
+	slog.Info(fmt.Sprintf("%s non-zero exit code=%d - attempting rollback and retry", tag, code))
 
 	queueType := record.ClaimedStep
 	if queueType == "" {
@@ -459,7 +459,7 @@ func HandleErrorExit(ctx *TakeLoopContext, record OutcomeRecord, code int, itera
 			slog.Info(fmt.Sprintf("%s STOP: no agentId for error retry exclusion", tag))
 		}
 	} else {
-		slog.Info(fmt.Sprintf("%s alternative agent available — would retry with exclusion of agent=%s", tag, iterationAgentID))
+		slog.Info(fmt.Sprintf("%s alternative agent available - would retry with exclusion of agent=%s", tag, iterationAgentID))
 		slog.Info(fmt.Sprintf("%s STOP: retry spawning not yet wired (buildNextTakePrompt pending)", tag))
 	}
 
@@ -515,7 +515,7 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 
 	phase := orchestration.WorkflowStatePhase(wf, current.State)
 	if phase != orchestration.PhaseActive {
-		slog.Info(fmt.Sprintf("%s bead=%s state=%s is not active phase — no step-failure rollback needed", tag, ctx.BeadID, current.State))
+		slog.Info(fmt.Sprintf("%s bead=%s state=%s is not active phase - no step-failure rollback needed", tag, ctx.BeadID, current.State))
 		return nil, nil
 	}
 
@@ -527,23 +527,23 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 
 	ownerKind := wf.StateOwners[current.State]
 	if ownerKind != backend.ActionOwnerAgent {
-		slog.Info(fmt.Sprintf("%s state=%s owner=%s is not agent-owned — no step-failure rollback", tag, current.State, ownerKind))
+		slog.Info(fmt.Sprintf("%s state=%s owner=%s is not agent-owned - no step-failure rollback", tag, current.State, ownerKind))
 		return nil, nil
 	}
 
 	rollbackState := orchestration.WorkflowQueueStateForState(wf, current.State)
 	if rollbackState == "" {
-		slog.Error(fmt.Sprintf("%s cannot resolve queue state for %s — cannot rollback", tag, current.State))
+		slog.Error(fmt.Sprintf("%s cannot resolve queue state for %s - cannot rollback", tag, current.State))
 		ctx.PushEvent(session.TerminalEvent{
 			Type:    "stderr",
 			BeadID:  ctx.BeadID,
-			Content: fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: cannot resolve queue state for \"%s\" — cannot rollback step failure\x1b[0m\n", current.State),
+			Content: fmt.Sprintf("\x1b[31mKERNL DISPATCH FAILURE: cannot resolve queue state for \"%s\" - cannot rollback step failure\x1b[0m\n", current.State),
 			Time:    time.Now().UnixMilli(),
 		})
 		return nil, fmt.Errorf("cannot resolve queue state for %s", current.State)
 	}
 
-	reason := fmt.Sprintf("take-loop: rolled back from %s to %s — agent left bead in action state", current.State, rollbackState)
+	reason := fmt.Sprintf("take-loop: rolled back from %s to %s - agent left bead in action state", current.State, rollbackState)
 
 	ctx.PushEvent(session.TerminalEvent{
 		Type:    "stdout",
@@ -572,7 +572,7 @@ func RollbackStepFailure(ctx *TakeLoopContext, backendPort backend.BackendPort, 
 
 	refreshedWf := orchestration.ResolveWorkflowForBead(refreshed, ctx.WorkflowsByID, ctx.FallbackWorkflow)
 	if !IsIsQueueOrTerminalWithWorkflow(refreshed.State, refreshedWf) {
-		slog.Error(fmt.Sprintf("%s bead=%s state=%s — STILL in action state after step-failure rollback", tag, ctx.BeadID, refreshed.State))
+		slog.Error(fmt.Sprintf("%s bead=%s state=%s - STILL in action state after step-failure rollback", tag, ctx.BeadID, refreshed.State))
 		return nil, fmt.Errorf("bead %s still in action state %s after step-failure rollback", ctx.BeadID, refreshed.State)
 	}
 

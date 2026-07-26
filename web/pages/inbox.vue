@@ -20,7 +20,7 @@
           ? 'border-border-hairline text-text-faint cursor-not-allowed'
           : 'border-border-hairline text-text-muted hover:text-text-primary hover:border-border-default cursor-pointer'"
         :disabled="!llmConfigured || classifying"
-        :title="llmConfigured ? 'Classify the unprocessed captures now' : 'No LLM is configured — set llm.provider in kernl.yaml'"
+        :title="llmConfigured ? 'Classify the unprocessed captures now' : 'No LLM is configured - set llm.provider in kernl.yaml'"
         @click="classifyNow"
       >
         <span class="material-symbols-outlined !text-body leading-none" aria-hidden="true">auto_awesome</span>
@@ -68,7 +68,7 @@
 
   <section v-if="tab === 'unprocessed'" class="flex-1 overflow-y-auto relative">
     <!-- One capture at a time, hands on the keyboard. Same pile, same order, same
-         write path — only the unit of attention changes. -->
+         write path - only the unit of attention changes. -->
     <InboxFocusCard
       v-if="focus"
       :items="orderedItems"
@@ -306,14 +306,14 @@ interface ProcessedNode {
 interface ProcessedRow {
   captureId: string
   title: string
-  /** every node the capture became — a fan-out is several, not one */
+  /** every node the capture became - a fan-out is several, not one */
   became: ProcessedNode[]
   discarded: boolean
   at: string
 }
 
 interface ProcessPayload {
-  /** the nodes this capture becomes — one capture is routinely several things */
+  /** the nodes this capture becomes - one capture is routinely several things */
   actions: CaptureAction[]
   targetNoteId?: string
   acceptedHunks?: { id: string; content: string }[]
@@ -353,7 +353,7 @@ const selected = reactive(new Set<string>())
 const busy = ref(false)
 /** the one capture whose drawer is open: reading a capture is a focused act */
 const openId = ref<string | null>(null)
-/** triage one capture at a time, keyboard only — a mode, never the default */
+/** triage one capture at a time, keyboard only - a mode, never the default */
 const focus = ref(false)
 const modalItem = ref<InboxItemData | null>(null)
 
@@ -396,7 +396,7 @@ function proposalTitle(action: CaptureAction, item: InboxItemData): string {
   return item.title
 }
 
-// A task with no project is just a task — "Unprocessed" is the bucket it lands
+// A task with no project is just a task - "Unprocessed" is the bucket it lands
 // in, not a fact worth spending a line on.
 function proposalProject(action: CaptureAction): string {
   if (action.target === 'task') {
@@ -512,12 +512,12 @@ async function acceptSelected() {
     return selected.has(i.id) && actions.length > 0 && !isUpdateOnly(actions)
   })
   for (const i of targets) await accept(i, true)
-  showToast(`Processed ${targets.length} — U to undo last`)
+  showToast(`Processed ${targets.length} - U to undo last`)
 }
 async function discardSelected() {
   const targets = items.value.filter(i => selected.has(i.id))
   for (const i of targets) await discard(i, true)
-  showToast(`Discarded ${targets.length} — U to undo last`)
+  showToast(`Discarded ${targets.length} - U to undo last`)
 }
 
 function openModal(item: InboxItemData) {
@@ -574,7 +574,7 @@ async function startCaptureMerge(item: InboxItemData) {
         await postProcess(item.id, { actions: [{ target: 'note', title: item.title }] })
         undoStack.value.push(item.id)
         await refreshProcessed()
-        showToast(`No matching note — saved as a note: ${item.title}`)
+        showToast(`No matching note - saved as a note: ${item.title}`)
       } finally { busy.value = false }
       return
     }
@@ -603,7 +603,7 @@ function onMergeReject(hunk: MergeHunk) {
   if (merge.value.hunks.length === 0) finalizeMerge()
 }
 
-// finalizeMerge applies the accepted hunks. Accepting none is valid — the note
+// finalizeMerge applies the accepted hunks. Accepting none is valid - the note
 // is left unchanged but the capture is still triaged into it.
 async function finalizeMerge() {
   if (!merge.value) return
@@ -702,7 +702,7 @@ function onKey(e: KeyboardEvent) {
 }
 
 // ---- classification state ----
-// A capture with no proposal is "unclassified" — but that is NOT the same as
+// A capture with no proposal is "unclassified" - but that is NOT the same as
 // "being classified right now". Background classification only happens when the
 // switch is on AND an LLM is configured; otherwise an unclassified capture just
 // rests. Conflating the two showed a forever-spinner (and polled forever) on
@@ -780,7 +780,7 @@ onUnmounted(() => {
 
 <style scoped>
 /* The drawer belongs to the row it opens from: it slides out of the head rather
-   than appearing beside it. Transform + opacity only — the height change is the
+   than appearing beside it. Transform + opacity only - the height change is the
    layout doing its job, not an animation. */
 .drawer-enter-active,
 .drawer-leave-active {

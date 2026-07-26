@@ -10,7 +10,7 @@ import (
 // metadata as dispatch/help/capabilities so it never goes stale by hand.
 func runRobotDocs(w io.Writer, args []string) error {
 	if len(args) > 0 && args[0] != "guide" {
-		return usagef("KERNL DISPATCH FAILURE: unknown robot-docs topic %q%s — valid: guide",
+		return usagef("KERNL DISPATCH FAILURE: unknown robot-docs topic %q%s - valid: guide",
 			args[0], didYouMean(args[0], []string{"guide"}))
 	}
 	fmt.Fprintln(w, renderRobotGuide())
@@ -19,7 +19,7 @@ func runRobotDocs(w io.Writer, args []string) error {
 
 func renderRobotGuide() string {
 	var b strings.Builder
-	b.WriteString(`# kernl — agent handbook
+	b.WriteString(`# kernl - agent handbook
 
 Read the machine contract first: kernl capabilities --json
 (verbs, flags, env vars, exit codes, contractVersion).
@@ -34,7 +34,7 @@ Read the machine contract first: kernl capabilities --json
 - Destructive verbs are gated, and a refused one EXITS 2 while printing the
   preview: task/note/project delete, inbox reopen, inbox batch apply,
   bead close, bead mark-terminal, bead rollback, approval resolve, epic abort.
-  Never read exit 0 from one of these as "it happened" — re-run with --yes.
+  Never read exit 0 from one of these as "it happened" - re-run with --yes.
 - 'sweep' is the deliberate exception and exits 0: its default mode is a
   read-only scan announced on stderr, not a mutation you asked for and lost.
 

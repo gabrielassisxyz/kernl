@@ -16,7 +16,7 @@ func runDoctor(configPath string, args []string) error {
 		case "--json":
 			asJSON = true
 		default:
-			return usagef("KERNL DISPATCH FAILURE: unknown doctor flag %q%s — valid: --json",
+			return usagef("KERNL DISPATCH FAILURE: unknown doctor flag %q%s - valid: --json",
 				arg, didYouMean(arg, []string{"--json"}))
 		}
 	}
@@ -37,7 +37,7 @@ func runDoctor(configPath string, args []string) error {
 	}
 
 	if report.RequiredFailed() {
-		err := fmt.Errorf("KERNL DISPATCH FAILURE: one or more preflight checks failed — run: kernl doctor for details")
+		err := fmt.Errorf("KERNL DISPATCH FAILURE: one or more preflight checks failed - run: kernl doctor for details")
 		if asJSON {
 			// The report was already written to stdout as JSON above; signal the
 			// failure through the exit code only, so main does not also print an
@@ -91,9 +91,9 @@ func printReport(r *preflight.Report) {
 		case c.OK:
 			fmt.Printf("✓ %s\n", c.Name)
 		case c.Advisory:
-			fmt.Printf("⚠ %s — %s (advisory)\n", c.Name, c.Detail)
+			fmt.Printf("⚠ %s - %s (advisory)\n", c.Name, c.Detail)
 		default:
-			fmt.Printf("✗ %s — %s\n", c.Name, c.Detail)
+			fmt.Printf("✗ %s - %s\n", c.Name, c.Detail)
 		}
 		if !c.OK && c.Fix != "" {
 			fmt.Printf("  Fix: %s\n", c.Fix)

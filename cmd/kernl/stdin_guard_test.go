@@ -6,11 +6,11 @@ import (
 )
 
 // R2-005: reading a note body / paste text from stdin when stdin is a terminal
-// used to block forever on io.ReadAll with no prompt — the worst agent trap in
+// used to block forever on io.ReadAll with no prompt - the worst agent trap in
 // the CLI. The guard turns that deadlock into a fast exit-2 usage error. The
 // stdinIsTerminal seam is overridden so the terminal branch is exercised without
 // a pty; if the guard regressed, the real io.ReadAll would hang and the test
-// would time out rather than fail — which is itself the signal.
+// would time out rather than fail - which is itself the signal.
 func withTerminalStdin(t *testing.T) {
 	t.Helper()
 	orig := stdinIsTerminal

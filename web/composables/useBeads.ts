@@ -1,6 +1,6 @@
 import { ref, computed } from 'vue'
 
-// Mirrors backend.Bead (internal/backend/port.go) — JSON is already camelCase.
+// Mirrors backend.Bead (internal/backend/port.go) - JSON is already camelCase.
 export interface Bead {
   id: string
   type: string

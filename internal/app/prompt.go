@@ -17,7 +17,7 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState string, stages map[st
 	contract, hasContract := stages[currentState]
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Bead %s — %s\n\n", bead.ID, bead.Title)
+	fmt.Fprintf(&b, "# Bead %s - %s\n\n", bead.ID, bead.Title)
 
 	renderRole(&b, hasContract, contract)
 	renderInputs(&b, hasContract, contract, bead.ID)
@@ -36,8 +36,8 @@ func BuildBeadStagePrompt(bead *backend.Bead, currentState string, stages map[st
 	if bead.Type != "" {
 		fmt.Fprintf(&b, "- Type: `%s`\n", bead.Type)
 	}
-	fmt.Fprintf(&b, "- Worktree (this IS your current working directory — reference files by paths relative to it, e.g. `cmd/kernl/epic.go`; do not retype the absolute path): `%s`\n", worktree)
-	fmt.Fprintf(&b, "- Canonical bd repo (read-only, lives outside your worktree — never cd or write here): `%s`\n", repoPath)
+	fmt.Fprintf(&b, "- Worktree (this IS your current working directory - reference files by paths relative to it, e.g. `cmd/kernl/epic.go`; do not retype the absolute path): `%s`\n", worktree)
+	fmt.Fprintf(&b, "- Canonical bd repo (read-only, lives outside your worktree - never cd or write here): `%s`\n", repoPath)
 
 	return b.String()
 }
@@ -63,7 +63,7 @@ func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageCo
 		resolved := strings.ReplaceAll(inp, "<bead_id>", beadID)
 		fmt.Fprintf(b, "- %s\n", resolved)
 	}
-	b.WriteString("\nSome inputs may not exist this run — e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. NEVER search for a missing input outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
+	b.WriteString("\nSome inputs may not exist this run - e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. NEVER search for a missing input outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
 }
 
 func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID string) {
@@ -101,9 +101,9 @@ func renderForbidden(b *strings.Builder, hasContract bool, contract backend.Stag
 
 func renderOperatingRules(b *strings.Builder) {
 	b.WriteString("## Operating rules\n\n")
-	b.WriteString("1. Your cwd IS this bead's worktree. Reference files by paths relative to cwd (e.g. `cmd/kernl/epic.go`), not absolute paths — hand-retyping the absolute worktree path (and dropping a hidden segment like `.kernl`) is the #1 cause of auto-rejected `external_directory` errors. Edit ONLY files inside this worktree; do not touch unrelated packages.\n")
-	b.WriteString("2. Scratch files (rg output, inventory lists, anything intermediate): write them INSIDE the worktree (e.g. `./_scratch/<name>`) — NEVER `/tmp/*`. The orchestrator allow-lists `/tmp/**` for reads but several observed bails came from agents trying to write outside the worktree.\n")
-	b.WriteString("3. Follow `AGENTS.md`: files < 500 lines, funcs 4–40 lines, fail-loud marker `KERNL DISPATCH FAILURE: <problem> — <cause> — Fix: <action>`.\n")
+	b.WriteString("1. Your cwd IS this bead's worktree. Reference files by paths relative to cwd (e.g. `cmd/kernl/epic.go`), not absolute paths - hand-retyping the absolute worktree path (and dropping a hidden segment like `.kernl`) is the #1 cause of auto-rejected `external_directory` errors. Edit ONLY files inside this worktree; do not touch unrelated packages.\n")
+	b.WriteString("2. Scratch files (rg output, inventory lists, anything intermediate): write them INSIDE the worktree (e.g. `./_scratch/<name>`) - NEVER `/tmp/*`. The orchestrator allow-lists `/tmp/**` for reads but several observed bails came from agents trying to write outside the worktree.\n")
+	b.WriteString("3. Follow `AGENTS.md`: files < 500 lines, funcs 4–40 lines, fail-loud marker `KERNL DISPATCH FAILURE: <problem> - <cause> - Fix: <action>`.\n")
 	b.WriteString("4. Tests must be hermetic (`*_test.go`) using fakes/stubs. No real network, no real disk outside `t.TempDir()`.\n")
 	b.WriteString("5. The Go module lives at `orchestrator/go.mod`. Before declaring done, run:\n")
 	b.WriteString("   ```bash\n")
@@ -115,7 +115,7 @@ func renderOperatingRules(b *strings.Builder) {
 	b.WriteString("   git add -A && git commit -m \"<conventional message>\"\n")
 	b.WriteString("   ```\n")
 	b.WriteString("7. DO NOT push. DO NOT switch branches. DO NOT touch `master`.\n\n")
-	b.WriteString("If a tool call is auto-rejected (e.g. 'permission requested: external_directory'), STOP and switch to an in-worktree path immediately — do NOT keep retrying the rejected path; the rejection means opencode will not allow it this session.\n\n")
+	b.WriteString("If a tool call is auto-rejected (e.g. 'permission requested: external_directory'), STOP and switch to an in-worktree path immediately - do NOT keep retrying the rejected path; the rejection means opencode will not allow it this session.\n\n")
 	b.WriteString("If you cannot proceed because of a missing dependency, fail loud with a descriptive error and stop. Do not invent stubs.\n\n")
 }
 

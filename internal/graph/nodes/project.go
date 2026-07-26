@@ -101,7 +101,7 @@ func ListProjects(ctx context.Context, tx *graph.ReadTx) ([]*Project, error) {
 		return nil, err
 	}
 
-	// Hydrate tags after the cursor is closed — selectTagsForNode issues its own
+	// Hydrate tags after the cursor is closed - selectTagsForNode issues its own
 	// query on the same transaction.
 	for _, p := range out {
 		if p.Tags, err = selectTagsForNode(tx, p.ID); err != nil {
@@ -163,7 +163,7 @@ func UpdateProjectMeta(ctx context.Context, tx *graph.WriteTx, id, title, descri
 // alone. The project is read back and re-written through the shared chokepoint
 // so tag reconciliation, the FTS index and the revision history all stay
 // consistent. Callers that want to clear every tag pass an empty slice; callers
-// that do not mean to touch tags must not call this at all — the update path
+// that do not mean to touch tags must not call this at all - the update path
 // reconciles against the tags it is handed, so a nil slice removes them all.
 func SetProjectTags(ctx context.Context, tx *graph.WriteTx, id string, tags []string, author Author) error {
 	var title, attrsRaw, createdAt, updatedAt sql.NullString
@@ -187,7 +187,7 @@ func SetProjectTags(ctx context.Context, tx *graph.WriteTx, id string, tags []st
 
 // DeleteProject removes a project node, preserving history via the shared
 // delete chokepoint. Tasks that referenced it keep their projectId attr and
-// simply render as unassigned — deletion does not cascade.
+// simply render as unassigned - deletion does not cascade.
 func DeleteProject(ctx context.Context, tx *graph.WriteTx, id string, author Author) error {
 	// Type check first so the generic chokepoint can't delete a non-project.
 	var one int

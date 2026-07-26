@@ -12,8 +12,8 @@ import (
 )
 
 // ProcessedItem is a capture that has left the pending queue, paired with every
-// node it became. A capture routinely fans out into several nodes — a note and
-// the task it implies, a list that was four tasks — and showing only the first
+// node it became. A capture routinely fans out into several nodes - a note and
+// the task it implies, a list that was four tasks - and showing only the first
 // of them reads as data loss.
 type ProcessedItem struct {
 	CaptureID string          `json:"captureId"`
@@ -77,7 +77,7 @@ func ListProcessed(ctx context.Context, g *graph.Graph) ([]ProcessedItem, error)
 					e.Src,
 				).Scan(&typ, &title, &projectID)
 				if err != nil {
-					continue // derived node gone (e.g. undone) — skip the link
+					continue // derived node gone (e.g. undone) - skip the link
 				}
 				node := ProcessedNode{ID: e.Src, Type: typ, Title: title}
 				if e.Label == mergedIntoLabel {

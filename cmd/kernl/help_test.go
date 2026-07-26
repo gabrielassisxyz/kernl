@@ -6,7 +6,7 @@ import (
 )
 
 // stubAllVerbs replaces every verb fn with one that fails the test if called.
-// Help interception must fire BEFORE any verb dispatch — a help request that
+// Help interception must fire BEFORE any verb dispatch - a help request that
 // reaches a verb fn is the exact bug class this guards against (capture once
 // stored "--help" as a note; sweep ran a live tick).
 func stubAllVerbs(t *testing.T) {

@@ -140,7 +140,7 @@ const emit = defineEmits<{
 
 // --- Title rename ---
 // A textarea, not an <input>: a long title has to wrap and show in full while
-// editing, exactly as the rendered <h2> does — a single-line input would hide
+// editing, exactly as the rendered <h2> does - a single-line input would hide
 // the tail behind a horizontal scroll. Enter still commits (titles are one
 // line semantically); the textarea only buys the wrapping.
 const editingTitle = ref(false)
@@ -172,7 +172,7 @@ function commitTitle() {
   editingTitle.value = false
   const next = titleDraft.value.trim()
   // A blank title is not a legitimate edit (mirrors the API guard); an unchanged
-  // one is a no-op — either way, don't fire a pointless PATCH.
+  // one is a no-op - either way, don't fire a pointless PATCH.
   if (next && next !== props.task.title) emit('set-title', props.task.id, next)
 }
 

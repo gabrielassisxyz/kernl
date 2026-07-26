@@ -14,7 +14,7 @@ func (panicFlusher) Flush() { panic("flushed a response the handler already fini
 
 // The engine's learned-candidate goroutine outlives the SSE handler and emits a
 // state event when it is done. Once the handler returns, the ResponseWriter is
-// spent — and a panic in a goroutine nobody recovers kills the process, not just
+// spent - and a panic in a goroutine nobody recovers kills the process, not just
 // the request. So a late write must be dropped, not attempted.
 func TestSSEWriterGoesInertAfterTheHandlerReturns(t *testing.T) {
 	rec := httptest.NewRecorder()

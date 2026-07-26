@@ -25,7 +25,7 @@ type Task struct {
 	ProjectID   string // empty when the task is not assigned to a project
 	Tags        []string
 	// DueDate is the day the task is due, nil when it has none. A due date is a
-	// calendar day, not an instant — it is stored and carried as midnight UTC so
+	// calendar day, not an instant - it is stored and carried as midnight UTC so
 	// it cannot slide across midnight when read back in another timezone.
 	DueDate *time.Time
 }
@@ -68,7 +68,7 @@ func FormatDueDate(due *time.Time) string {
 
 func (t Task) Meta() *Meta { return &Meta{ID: t.ID, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt} }
 
-// NodeAttrs serializes the task into the generic attrs blob — which is why a new
+// NodeAttrs serializes the task into the generic attrs blob - which is why a new
 // field like dueDate needs no schema migration. The key is omitted entirely when
 // there is no due date, so "unset" and "empty" cannot drift apart.
 func (t Task) NodeAttrs() []byte {
@@ -156,7 +156,7 @@ func ListTasks(ctx context.Context, tx *graph.ReadTx, projectID string) ([]*Task
 		return nil, err
 	}
 
-	// Hydrate tags after the cursor is closed — selectTagsForNode issues its own
+	// Hydrate tags after the cursor is closed - selectTagsForNode issues its own
 	// query on the same transaction.
 	for _, t := range out {
 		if t.Tags, err = selectTagsForNode(tx, t.ID); err != nil {
@@ -191,7 +191,7 @@ func SetTaskStatus(ctx context.Context, tx *graph.WriteTx, id, status string, au
 }
 
 // SetTaskTitle updates a task's title in place, leaving its other fields alone.
-// Mirrors UpdateProjectMeta but scoped to a task and to the title only — a task
+// Mirrors UpdateProjectMeta but scoped to a task and to the title only - a task
 // has no separately-editable description surface today. Returns ErrNotFound when
 // the task does not exist.
 func SetTaskTitle(ctx context.Context, tx *graph.WriteTx, id, title string, author Author) error {
@@ -220,7 +220,7 @@ func SetTaskTitle(ctx context.Context, tx *graph.WriteTx, id, title string, auth
 // The task is read back and re-written through the shared chokepoint so tag
 // reconciliation, the FTS index and the revision history all stay consistent.
 // Callers that want to clear every tag pass an empty slice; callers that do not
-// mean to touch tags must not call this at all — the update path reconciles
+// mean to touch tags must not call this at all - the update path reconciles
 // against the tags it is handed, so a nil slice removes them all.
 func SetTaskTags(ctx context.Context, tx *graph.WriteTx, id string, tags []string, author Author) error {
 	t, err := loadTaskForWrite(tx, id)

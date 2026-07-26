@@ -22,7 +22,7 @@ var epicAPISubcommands = []commandMeta{
 		Usage:   "kernl epic events <epic-id> [--follow] [--limit <n>] [--timeout <dur>] [--json]",
 		Details: `The route is an SSE stream, not a paged list: it replays the hub's buffer
 for the epic and then stays open. So by default this drains the replay
-buffer and exits once the stream falls quiet — what a script wants — and
+buffer and exits once the stream falls quiet - what a script wants - and
 --follow keeps it open instead, like 'tail -f'.
 
 {{flags}}`,
@@ -30,7 +30,7 @@ buffer and exits once the stream falls quiet — what a script wants — and
 			{Name: "--follow", Description: "Keep streaming as events arrive (exit with Ctrl-C)"},
 			{Name: "--limit", Value: "<n>", Description: "Stop after n events"},
 			{Name: "--timeout", Value: "<dur>", Description: "Give up after a duration (e.g. 30s, 2m)"},
-			{Name: "--json", Description: "One compact JSON event per line (NDJSON — a stream has",
+			{Name: "--json", Description: "One compact JSON event per line (NDJSON - a stream has",
 				Continuation: []string{"no last element to close an array with)"}},
 		},
 	},
@@ -39,7 +39,7 @@ buffer and exits once the stream falls quiet — what a script wants — and
 		Summary: "List the agent sessions the server has open",
 		Usage:   "kernl epic sessions <epic-id> [--json]",
 		Details: `The epic id is required by the route but the server answers with every
-active session in the process, not only that epic's — the session manager
+active session in the process, not only that epic's - the session manager
 does not index by epic.
 
   --json  Emit the API's session array verbatim`,
@@ -69,7 +69,7 @@ type epicSessionView struct {
 
 func runEpicAPI(v verbContext, args []string) error {
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand — run: kernl epic --help")
+		return usagef("KERNL DISPATCH FAILURE: epic requires a subcommand - run: kernl epic --help")
 	}
 	asJSON, rest := parseBoolFlag(args[1:], "--json")
 	if args[0] == "sessions" {
@@ -136,7 +136,7 @@ func parseEpicEventsOptions(verb string, args []string) (epicEventsOptions, []st
 	if present {
 		n, convErr := strconv.Atoi(strings.TrimSpace(limit))
 		if convErr != nil || n <= 0 {
-			return opts, nil, usagef("KERNL DISPATCH FAILURE: --limit requires a positive integer, got %q — example: --limit 20", limit)
+			return opts, nil, usagef("KERNL DISPATCH FAILURE: --limit requires a positive integer, got %q - example: --limit 20", limit)
 		}
 		opts.limit = n
 	}
@@ -148,7 +148,7 @@ func parseEpicEventsOptions(verb string, args []string) (epicEventsOptions, []st
 	if present {
 		d, convErr := time.ParseDuration(strings.TrimSpace(timeout))
 		if convErr != nil || d <= 0 {
-			return opts, nil, usagef("KERNL DISPATCH FAILURE: --timeout requires a positive duration, got %q — example: --timeout 30s", timeout)
+			return opts, nil, usagef("KERNL DISPATCH FAILURE: --timeout requires a positive duration, got %q - example: --timeout 30s", timeout)
 		}
 		opts.timeout = d
 	}
@@ -254,7 +254,7 @@ func epicEventsSummary(v verbContext, asJSON bool, seen int) error {
 	if asJSON || seen > 0 {
 		return nil
 	}
-	fmt.Fprintln(v.stdout(), "No events for this epic. It may not have run yet — start it with: kernl epic run <epic-id>")
+	fmt.Fprintln(v.stdout(), "No events for this epic. It may not have run yet - start it with: kernl epic run <epic-id>")
 	return nil
 }
 
@@ -327,10 +327,10 @@ func epicAPICall(v verbContext, call func(context.Context, *apiClient) (json.Raw
 
 func singleEpicID(verb string, args []string) (string, error) {
 	if len(args) == 0 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s requires an epic ID — run: kernl %s <epic-id>. List them with: kernl epic list", verb, verb)
+		return "", usagef("KERNL DISPATCH FAILURE: %s requires an epic ID - run: kernl %s <epic-id>. List them with: kernl epic list", verb, verb)
 	}
 	if len(args) > 1 {
-		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one epic ID, got %d (%s) — run: kernl %s --help",
+		return "", usagef("KERNL DISPATCH FAILURE: %s takes exactly one epic ID, got %d (%s) - run: kernl %s --help",
 			verb, len(args), strings.Join(args, ", "), verb)
 	}
 	return args[0], nil

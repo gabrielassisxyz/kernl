@@ -100,7 +100,7 @@ func (g *Graph) DoRead(ctx context.Context, fn func(*ReadTx) error) error {
 	if err := fn(&ReadTx{tx: tx}); err != nil {
 		return err
 	}
-	return tx.Rollback() // Always rollback reads — they never commit
+	return tx.Rollback() // Always rollback reads - they never commit
 }
 
 func (g *Graph) DoWrite(ctx context.Context, fn func(*WriteTx) error) error {

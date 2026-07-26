@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const writableConfig = `# kernl.yaml — test fixture
+const writableConfig = `# kernl.yaml - test fixture
 settings:
   agents:
     opencode:
@@ -50,7 +50,7 @@ func TestApplyPreservesCommentsAndUnknownFields(t *testing.T) {
 	}
 	got := string(raw)
 
-	if !strings.Contains(got, "# kernl.yaml — test fixture") {
+	if !strings.Contains(got, "# kernl.yaml - test fixture") {
 		t.Error("head comment was dropped")
 	}
 	if !strings.Contains(got, "# The LLM powers chat, ingest, and note AI features.") {

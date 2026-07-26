@@ -22,12 +22,12 @@ type Store struct {
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: open sqlite: %w — cause: %v — Fix: verify path is writable", err, err)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: open sqlite: %w - cause: %v - Fix: verify path is writable", err, err)
 	}
 
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: enable WAL mode: %w — cause: %v — Fix: check SQLite library compatibility", err, err)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: enable WAL mode: %w - cause: %v - Fix: check SQLite library compatibility", err, err)
 	}
 
 	schema := `
@@ -49,7 +49,7 @@ func Open(path string) (*Store, error) {
 	`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: create schema: %w — cause: %v — Fix: verify SQLite DDL compatibility", err, err)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: create schema: %w - cause: %v - Fix: verify SQLite DDL compatibility", err, err)
 	}
 
 	return &Store{db: db}, nil
@@ -65,7 +65,7 @@ func (s *Store) SetWorktree(epicID, beadID, path string) error {
 		epicID, beadID, path,
 	)
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: SetWorktree(%s, %s): %w — cause: write to SQLite failed — Fix: check disk space and permissions", epicID, beadID, err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: SetWorktree(%s, %s): %w - cause: write to SQLite failed - Fix: check disk space and permissions", epicID, beadID, err)
 	}
 	return nil
 }

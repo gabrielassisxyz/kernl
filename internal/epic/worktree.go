@@ -25,18 +25,18 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 	branchName := "feat/" + epicID
 
 	if m.gitRun == nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: gitRun not wired — EnsureEpicBranch cannot operate without a git executor — Fix: wire a git executor via NewWorktreeManager")
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: gitRun not wired - EnsureEpicBranch cannot operate without a git executor - Fix: wire a git executor via NewWorktreeManager")
 	}
 
 	output, err := m.gitRun(m.repoPath, "branch", "--list", branchName)
 	if err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: checking epic branch %s — %w — Fix: verify the repo exists at %s", branchName, err, m.repoPath)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: checking epic branch %s - %w - Fix: verify the repo exists at %s", branchName, err, m.repoPath)
 	}
 	branchExists := strings.TrimSpace(output) != ""
 
 	if !branchExists {
 		if _, err := m.gitRun(m.repoPath, "branch", branchName, "master"); err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating epic branch %s from master — %w — Fix: verify master exists in the repo at %s", branchName, err, m.repoPath)
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating epic branch %s from master - %w - Fix: verify master exists in the repo at %s", branchName, err, m.repoPath)
 		}
 	}
 
@@ -44,7 +44,7 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 		if err := m.updateDesc(epicID, func(oldDesc string) string {
 			return workflow.SetEpicBranch(oldDesc, branchName)
 		}); err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: storing epic branch %s in epic %s description — %w — Fix: verify the backend is reachable", branchName, epicID, err)
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: storing epic branch %s in epic %s description - %w - Fix: verify the backend is reachable", branchName, epicID, err)
 		}
 	}
 
@@ -53,7 +53,7 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 
 // AddEpicWorktree creates (or recovers) a worktree checked out to the epic's
 // own branch feat/<epicID>, where the integration and shipment agents run.
-// Unlike Add, it does NOT create a new branch — it checks out the EXISTING
+// Unlike Add, it does NOT create a new branch - it checks out the EXISTING
 // epic branch so the child merges and the PR push land on feat/<epicID>.
 // Call EnsureEpicBranch first so the branch exists.
 func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
@@ -70,7 +70,7 @@ func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
 			_, _ = m.gitRun(m.repoPath, "worktree", "remove", "--force", path)
 		}
 		if err := os.RemoveAll(path); err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: epic worktree path %s exists and auto-clean failed — %w — Fix: remove the directory manually", path, err)
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: epic worktree path %s exists and auto-clean failed - %w - Fix: remove the directory manually", path, err)
 		}
 	}
 
@@ -84,7 +84,7 @@ func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
 	_, _ = m.gitRun(m.repoPath, "worktree", "prune")
 
 	if _, err := m.gitRun(m.repoPath, "worktree", "add", path, epicBranch); err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for epic branch %s — %w — Fix: ensure %s exists (EnsureEpicBranch) and is not already checked out elsewhere", epicBranch, err, epicBranch)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for epic branch %s - %w - Fix: ensure %s exists (EnsureEpicBranch) and is not already checked out elsewhere", epicBranch, err, epicBranch)
 	}
 
 	return path, nil
@@ -101,7 +101,7 @@ func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
 func (m *WorktreeManager) CleanupEpic(epicID string, childIDs []string) error {
 	epicDir := filepath.Join(m.root, epicID)
 	if err := os.RemoveAll(epicDir); err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot remove worktree directory %s for epic %s: %w — Fix: verify permissions", epicDir, epicID, err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot remove worktree directory %s for epic %s: %w - Fix: verify permissions", epicDir, epicID, err)
 	}
 
 	if m.gitRun == nil {
@@ -132,12 +132,12 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 
 	if _, err := os.Stat(path); err == nil {
 		// Auto-recover from a leftover worktree from a previous failed run.
-		// Loud warning, not loud error — the user previously had to manually
+		// Loud warning, not loud error - the user previously had to manually
 		// `rm -rf ~/.kernl/worktrees/<epic>` between every failed epic run.
 		slog.Warn("worktree leftover detected, auto-cleaning",
 			"path", path, "epic", epicID, "bead", beadID)
 		if err := m.removeLeftover(path, beadID); err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s exists and auto-clean failed — %w — Fix: remove the directory manually", path, err)
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s exists and auto-clean failed - %w - Fix: remove the directory manually", path, err)
 		}
 	}
 
@@ -148,7 +148,7 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 		return path, nil
 	}
 
-	// Always prune stale worktree registrations before adding — covers the
+	// Always prune stale worktree registrations before adding - covers the
 	// case where the dir was rm -rf'd externally so git's bookkeeping in
 	// .git/worktrees/<name>/ still claims the path is registered. Without
 	// this, `git worktree add` fails with "missing but already registered".
@@ -165,7 +165,7 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 	}
 
 	if _, err := m.gitRun(m.repoPath, "worktree", "add", path, "-b", "kernl/"+beadID, baseBranch); err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for bead %s based on %s — %w — Fix: verify the repo at %s is clean and the branch %s exists", beadID, baseBranch, err, m.repoPath, baseBranch)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for bead %s based on %s - %w - Fix: verify the repo at %s is clean and the branch %s exists", beadID, baseBranch, err, m.repoPath, baseBranch)
 	}
 
 	if err := m.mergeDependencyBranches(path, beadID, baseBranch, depBeadIDs); err != nil {
@@ -178,7 +178,7 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 // mergeDependencyBranches merges each dependency's branch (kernl/<dep>) into the
 // freshly-created worktree at path so the dependent child sees its deps' work.
 // A dep branch that does not exist (hermetic test, or a dep that produced no
-// commits) is skipped. A merge conflict aborts the merge and fails loud — the
+// commits) is skipped. A merge conflict aborts the merge and fails loud - the
 // dependent cannot start from an inconsistent tree.
 func (m *WorktreeManager) mergeDependencyBranches(path, beadID, baseBranch string, depBeadIDs []string) error {
 	for _, dep := range depBeadIDs {
@@ -189,7 +189,7 @@ func (m *WorktreeManager) mergeDependencyBranches(path, beadID, baseBranch strin
 		}
 		if _, err := m.gitRun(path, "merge", "--no-edit", depBranch); err != nil {
 			_, _ = m.gitRun(path, "merge", "--abort")
-			return fmt.Errorf("KERNL DISPATCH FAILURE: merging dependency branch %s into bead %s — %w — Fix: %s conflicts with %s; reconcile them or split the beads so they do not edit the same lines", depBranch, beadID, err, depBranch, baseBranch)
+			return fmt.Errorf("KERNL DISPATCH FAILURE: merging dependency branch %s into bead %s - %w - Fix: %s conflicts with %s; reconcile them or split the beads so they do not edit the same lines", depBranch, beadID, err, depBranch, baseBranch)
 		}
 	}
 	return nil
@@ -201,7 +201,7 @@ func (m *WorktreeManager) mergeDependencyBranches(path, beadID, baseBranch strin
 // (hermetic tests, or paths that were never registered with git).
 func (m *WorktreeManager) removeLeftover(path, beadID string) error {
 	if m.gitRun != nil {
-		// Best effort — ignore exit codes since the path may have been removed
+		// Best effort - ignore exit codes since the path may have been removed
 		// from git's index already.
 		_, _ = m.gitRun(m.repoPath, "worktree", "remove", "--force", path)
 		_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+beadID)

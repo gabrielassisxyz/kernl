@@ -17,7 +17,7 @@ type graphEdge struct {
 
 // RegisterEdgeRoutes exposes the raw stored edges so the graph view can render
 // the actual connections between nodes. Unlike /api/nodes/{id}/related (a
-// computed relevance heuristic), this returns the edges table as persisted —
+// computed relevance heuristic), this returns the edges table as persisted  -
 // the source of truth for validating that connections are being made correctly.
 func RegisterEdgeRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/edges", func(w http.ResponseWriter, r *http.Request) {

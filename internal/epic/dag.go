@@ -31,7 +31,7 @@ func NewDAG(nodes []Node) (*DAG, error) {
 	for _, n := range nodes {
 		for _, dep := range n.DependsOn {
 			if _, ok := d.nodes[dep]; !ok {
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: dependency cycle in epic — bead %s depends on unknown bead %s — Fix: correct the dependency graph in the plan and re-convert", n.ID, dep)
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: dependency cycle in epic - bead %s depends on unknown bead %s - Fix: correct the dependency graph in the plan and re-convert", n.ID, dep)
 			}
 			d.adjacency[dep] = append(d.adjacency[dep], n.ID)
 			d.inDegree[n.ID]++
@@ -51,7 +51,7 @@ func NewDAG(nodes []Node) (*DAG, error) {
 		for id := range inCycle {
 			ids = append(ids, id)
 		}
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: dependency cycle in epic — beads %v — Fix: correct the dependency graph in the plan and re-convert", ids)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: dependency cycle in epic - beads %v - Fix: correct the dependency graph in the plan and re-convert", ids)
 	}
 	return d, nil
 }

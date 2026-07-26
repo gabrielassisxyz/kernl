@@ -23,7 +23,7 @@ import (
 var ErrActionNotImplemented = errors.New("ingest action not implemented")
 
 // ErrActionRequired is returned when a resolution arrives with no action. It used
-// to be treated as "Skip", which deletes the review — so a request that simply
+// to be treated as "Skip", which deletes the review - so a request that simply
 // forgot the field destroyed the thing it was resolving. Destroying data is never
 // what an omitted field should mean.
 var ErrActionRequired = errors.New("ingest resolution requires an action: Create Page, Update or Skip")
@@ -44,7 +44,7 @@ type MergeHunk struct {
 
 // UpdateInput carries the human-reviewed result of an Update merge: the target
 // note to merge into and the hunks the user accepted. It is nil for non-Update
-// actions. For Update it may be nil or partial — the target is then re-resolved
+// actions. For Update it may be nil or partial - the target is then re-resolved
 // from the review payload, and a missing target falls back to Create Page.
 type UpdateInput struct {
 	TargetNoteID  string      `json:"targetNoteId"`
@@ -173,7 +173,7 @@ func updatePage(ctx context.Context, g *graph.Graph, vaultRoot string, review *n
 	}
 
 	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		// Rejecting every hunk leaves the body identical — skip the no-op write,
+		// Rejecting every hunk leaves the body identical - skip the no-op write,
 		// but still connect the note and resolve the review.
 		if newBody != target.Body {
 			updated := *target

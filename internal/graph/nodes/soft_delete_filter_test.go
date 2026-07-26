@@ -9,7 +9,7 @@ import (
 )
 
 // Captures and bookmarks are only ever hard-deleted today, so nothing sets
-// deleted_at on them — but their listers were the only ones not filtering it,
+// deleted_at on them - but their listers were the only ones not filtering it,
 // which means the day anything tombstones one it silently reappears in the
 // inbox (and undo looks broken). These tests tombstone a row directly and pin
 // the filter, matching every other node lister.

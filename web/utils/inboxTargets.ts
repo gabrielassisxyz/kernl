@@ -25,7 +25,7 @@ export const TARGET_META: Record<Target, TargetMeta> = {
 
 // normalizeTarget maps a raw suggestedAction onto a clean Target. The classifier
 // now emits clean names, but captures classified before the Phase 1 rework still
-// carry the legacy "convert_to_*" form — strip it so old rows render correctly.
+// carry the legacy "convert_to_*" form - strip it so old rows render correctly.
 export function normalizeTarget(raw: string | undefined | null): Target | null {
   if (!raw) return null
   const s = raw.startsWith('convert_to_') ? raw.slice('convert_to_'.length) : raw
@@ -67,7 +67,7 @@ export function normalizeActions(raw: RawCaptureAction[] | undefined | null): Ca
   return out
 }
 
-// An update merges into an existing note, reviewed hunk by hunk — the backend
+// An update merges into an existing note, reviewed hunk by hunk - the backend
 // rejects it alongside any other action.
 export const isUpdateOnly = (actions: CaptureAction[]): boolean =>
   actions.length === 1 && actions[0].target === 'update'
@@ -79,9 +79,9 @@ export const hasConflictingUpdate = (actions: CaptureAction[]): boolean =>
 
 // The DA gives a fanned-out task only the fragment it owns ("plainenglish
 // PDFs"). Read three weeks later that fragment means nothing, so the capture it
-// came from is carried in verbatim underneath it. The capture is never rewritten
-// — it is quoted whole, below a rule, and the user can edit the result before it
-// is written.
+// came from is carried in verbatim underneath it. The capture is never rewritten;
+// it is quoted whole, below a rule, and the user can edit the result before it is
+// written.
 const SOURCE_RULE = '---'
 
 export function withSourceContext(body: string, captureBody: string, provenance = ''): string {
@@ -97,7 +97,7 @@ export function withSourceContext(body: string, captureBody: string, provenance 
   return `${fragment}\n\n${header}\n${source}`
 }
 
-/** "WHATSAPP · 4/1/26 21:08" — where a capture came from, for the source block. */
+/** "WHATSAPP · 4/1/26 21:08" - where a capture came from, for the source block. */
 export function captureProvenance(source?: string, timestamp?: string): string {
   return [source, timestamp].map(s => (s || '').trim()).filter(Boolean).join(' · ')
 }

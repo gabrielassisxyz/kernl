@@ -12,7 +12,7 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run generate
 
-# 2. Compile the static Go binary (CGO off — modernc.org/sqlite is pure Go).
+# 2. Compile the static Go binary (CGO off; modernc.org/sqlite is pure Go).
 FROM golang:1.26-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./

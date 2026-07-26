@@ -2,7 +2,7 @@ import { reactive, computed, watch } from 'vue'
 
 // Per-user notes-editor preferences. These used to be hardcoded in the editor /
 // preview modules; surfacing them here lets the toolbar settings popover drive
-// them and persists the choice in localStorage (frontend-only — there's no
+// them and persists the choice in localStorage (frontend-only - there's no
 // server-side notion of editor chrome). A single shared reactive object backs
 // every editor instance and the popover so they stay in lockstep.
 
@@ -81,7 +81,7 @@ function startPersisting() {
       try {
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value))
       } catch {
-        // Ignore quota/availability errors — settings just won't persist.
+        // Ignore quota/availability errors - settings just won't persist.
       }
     },
     { deep: true },

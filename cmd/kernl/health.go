@@ -18,7 +18,7 @@ has open. Plain 'kernl health' does the check; the subcommand below is the
 GUI's update banner.
 
 When no server answers, the error names the address that was tried and how
-to start one — that failure is the useful answer, not a crash.
+to start one - that failure is the useful answer, not a crash.
 
 {{flags}}
 
@@ -32,7 +32,7 @@ Run 'kernl health update-check' for the app-update check.`,
 			Summary: "Ask the server whether a newer kernl is available",
 			Usage:   "kernl health update-check [--json]",
 			Details: `Calls the same endpoint the GUI's update banner uses. That endpoint does
-not contact any release feed yet — it answers {"status":"unknown","checked":false}.
+not contact any release feed yet - it answers {"status":"unknown","checked":false}.
 Branch on "checked": false means "nobody looked", not "you are current".
 
 {{flags}}`,
@@ -121,7 +121,7 @@ func requireNoHealthArgs(verb, example string, args []string) error {
 		return err
 	}
 	if len(args) > 0 {
-		return usagef("KERNL DISPATCH FAILURE: %s takes no arguments, got %q — run: %s", verb, args[0], example)
+		return usagef("KERNL DISPATCH FAILURE: %s takes no arguments, got %q - run: %s", verb, args[0], example)
 	}
 	return nil
 }
@@ -135,5 +135,5 @@ func healthVaultLabel(status healthStatusView) string {
 	if root := strings.TrimSpace(status.VaultRoot); root != "" {
 		return root
 	}
-	return "(none configured — set one with: kernl settings set vault --root <dir>)"
+	return "(none configured - set one with: kernl settings set vault --root <dir>)"
 }

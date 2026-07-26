@@ -81,7 +81,7 @@ func TestShortestPathPicksShortest(t *testing.T) {
 	ctx := context.Background()
 	g := testutil.NewInMemoryTestGraph(t)
 
-	// A—B—D (len 2), A—C—D (len 2), A—X—Y—D (len 3)
+	// A - B - D (len 2), A - C - D (len 2), A - X - Y - D (len 3)
 	// Shortest should be length 2.
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		_, err := tx.Exec(`

@@ -142,7 +142,7 @@ func TestGraphPermissionCheckerDigitalNodeSkipsGlobal(t *testing.T) {
 		Graph:  testutil.NewInMemoryTestGraph(t),
 		Config: &config.Config{Vault: config.VaultConfig{Root: vaultDir}},
 	}
-	// Write a policy that would deny everything — the node has no path, so it's skipped.
+	// Write a policy that would deny everything - the node has no path, so it's skipped.
 	writePolicyFile(t, vaultDir, "*.md")
 
 	// Create a note with NO vault file path (digital-only, e.g. a chat message).

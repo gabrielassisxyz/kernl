@@ -37,7 +37,7 @@
           {{ project.doneCount }}/{{ project.taskCount }} tasks
         </span>
         <span class="font-mono-data text-mono-data tracking-tight" :class="percentTone">
-          {{ project.taskCount > 0 ? pct + '%' : '—' }}
+          {{ project.taskCount > 0 ? pct + '%' : ' - ' }}
         </span>
       </div>
       <div class="h-[3px] w-full rounded-full bg-surface-container-high overflow-hidden">

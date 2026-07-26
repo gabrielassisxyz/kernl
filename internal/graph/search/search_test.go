@@ -203,7 +203,7 @@ func TestFTSSpecialCharsInBody(t *testing.T) {
 }
 
 // TestFTSPortugueseDiacritics verifies that FTS5 with unicode61
-// handles Portuguese diacritics — searching for "coracao" finds
+// handles Portuguese diacritics - searching for "coracao" finds
 // "coração" (bead kernl-atzm).
 func TestFTSPortugueseDiacritics(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
@@ -339,7 +339,7 @@ func TestSearchExcludesTombstoned_NonNoteUnaffected(t *testing.T) {
 }
 
 // TestSearchWithPrefixMatchesPartialToken verifies that WithPrefix turns the
-// last query token into a prefix match, so "lin" matches "Linktree" — the
+// last query token into a prefix match, so "lin" matches "Linktree" - the
 // behaviour autocomplete-as-you-type depends on.
 func TestSearchWithPrefixMatchesPartialToken(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)

@@ -10,7 +10,7 @@ import (
 // A companion file is written by kernl and read back by kernl's own reconciler,
 // so the two have to agree. They did not: the frontmatter was concatenated by
 // hand, and a title carrying a colon ("AI-SEO: llms.txt + JSON-LD") produced
-// `title: AI-SEO: llms.txt + JSON-LD` — which YAML reads as a nested mapping.
+// `title: AI-SEO: llms.txt + JSON-LD` - which YAML reads as a nested mapping.
 // Those files failed to parse on every cold start, forever.
 func TestCompanionFrontmatterSurvivesAwkwardTitles(t *testing.T) {
 	awkward := map[string]string{
@@ -46,7 +46,7 @@ func TestCompanionFrontmatterSurvivesAwkwardTitles(t *testing.T) {
 	}
 }
 
-// A note with no tags must not write an empty "tags:" key — that reads back as a
+// A note with no tags must not write an empty "tags:" key - that reads back as a
 // nil list and is noise in a file the user opens in Obsidian.
 func TestCompanionFrontmatterOmitsEmptyTags(t *testing.T) {
 	raw := string(renderCompanionMarkdown("019f-abc", "Plain", "Body.\n", nil))
