@@ -327,12 +327,13 @@ Flags:
 kernl bookmark - Manage bookmarks
 
 Usage:
-  kernl bookmark <add|import|retitle> [args...]
+  kernl bookmark <add|import|retitle|rm> [args...]
 
 Subcommands:
   add            Add a bookmark by URL (archives the page HTML)
   import         Bulk-import bookmarks from an export file
   retitle        Change a bookmark's title
+  rm             Delete a bookmark
 
 ### kernl bookmark add
 kernl bookmark add - Add a bookmark by URL (archives the page HTML)
@@ -362,6 +363,16 @@ Usage:
 
 Repairs bookmarks whose title was never extracted, including the
 ones stored as their own URL. Does not re-fetch the page.
+
+### kernl bookmark rm
+kernl bookmark rm - Delete a bookmark
+
+Usage:
+  kernl bookmark rm <id>
+
+Deletes the bookmark and any generated companion note that describes it.
+The companion markdown file is removed with the graph node so the vault
+watcher cannot adopt or revive an orphaned note on the next pass.
 
 ### kernl capture
 kernl capture - Capture a quick note/idea into the inbox (text arg or stdin)

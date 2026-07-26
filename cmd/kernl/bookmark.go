@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
@@ -16,13 +17,14 @@ func runBookmark(configPath string, args []string) error {
 	// Usage validation comes first: a wrong invocation should never need a
 	// loadable config to be diagnosed.
 	if len(args) == 0 {
-		return usagef("KERNL DISPATCH FAILURE: bookmark requires a subcommand - valid: add, import, retitle. Run: kernl bookmark --help")
+		return usagef("KERNL DISPATCH FAILURE: bookmark requires a subcommand - valid: add, import, retitle, rm. Run: kernl bookmark --help")
 	}
+	valid := []string{"add", "import", "retitle", "rm"}
 	switch args[0] {
-	case "add", "import", "retitle":
+	case "add", "import", "retitle", "rm":
 	default:
-		return usagef("KERNL DISPATCH FAILURE: unknown bookmark subcommand %q%s - valid: add, import, retitle. Run: kernl bookmark --help",
-			args[0], didYouMean(args[0], []string{"add", "import", "retitle"}))
+		return usagef("KERNL DISPATCH FAILURE: unknown bookmark subcommand %q%s - valid: add, import, retitle, rm. Run: kernl bookmark --help",
+			args[0], didYouMean(args[0], valid))
 	}
 
 	cfg, err := loadCLIConfig(configPath)
@@ -41,6 +43,8 @@ func runBookmark(configPath string, args []string) error {
 		return runBookmarkAdd(a, args[1:])
 	case "retitle":
 		return runBookmarkRetitle(a, args[1:])
+	case "rm":
+		return runBookmarkRm(a, args[1:])
 	}
 	return runBookmarkImport(a, args[1:])
 }
@@ -136,6 +140,89 @@ func runBookmarkRetitle(a *app.App, args []string) error {
 
 	fmt.Printf("Retitled bookmark %s: %q -> %q\n", id, previous, title)
 	return nil
+}
+
+type bookmarkCompanion struct {
+	id      string
+	relPath string
+}
+
+func runBookmarkRm(a *app.App, args []string) error {
+	if len(args) != 1 {
+		return usagef("KERNL DISPATCH FAILURE: bookmark rm requires one ID - run: kernl bookmark rm <id>")
+	}
+	id := args[0]
+	ctx := context.Background()
+
+	var b *nodes.Bookmark
+	if err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		b, err = nodes.GetBookmark(ctx, tx, id)
+		return err
+	}); err != nil {
+		return wrapLoud(fmt.Sprintf("no bookmark with id %s", id), err)
+	}
+
+	var companions []bookmarkCompanion
+	if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		companions, err = bookmarkCompanions(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		for _, c := range companions {
+			if _, err := tx.Exec(`DELETE FROM note_paths WHERE uuid = ?`, c.id); err != nil {
+				return fmt.Errorf("delete companion note path %s: %w", c.id, err)
+			}
+			if err := nodes.DeleteNote(ctx, tx, c.id, nodes.Author{Name: "cli"}); err != nil {
+				return fmt.Errorf("delete companion note %s: %w", c.id, err)
+			}
+		}
+		return nodes.DeleteBookmark(ctx, tx, id, nodes.Author{Name: "cli"})
+	}); err != nil {
+		return wrapLoud("delete bookmark", err)
+	}
+
+	for _, c := range companions {
+		if c.relPath == "" || a.Config.Vault.Root == "" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(a.Config.Vault.Root, filepath.FromSlash(c.relPath))); err != nil && !os.IsNotExist(err) {
+			return wrapLoud(fmt.Sprintf("remove companion note file %s", c.relPath), err)
+		}
+	}
+
+	fmt.Printf("Deleted bookmark %s: %q <%s>\n", id, b.Title, b.URL)
+	if len(companions) > 0 {
+		fmt.Printf("Deleted %d companion note(s)\n", len(companions))
+	}
+	return nil
+}
+
+func bookmarkCompanions(ctx context.Context, tx *graph.WriteTx, bookmarkID string) ([]bookmarkCompanion, error) {
+	rows, err := tx.Query(
+		`SELECT n.id, COALESCE(np.path, '')
+		   FROM edges e
+		   JOIN nodes n ON n.id = e.src AND n.type = 'note' AND n.deleted_at IS NULL
+		   LEFT JOIN note_paths np ON np.uuid = n.id
+		  WHERE e.dst = ? AND e.label = 'describes'
+		  ORDER BY n.id`,
+		bookmarkID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("lookup bookmark companions: %w", err)
+	}
+	defer rows.Close()
+
+	var out []bookmarkCompanion
+	for rows.Next() {
+		var c bookmarkCompanion
+		if err := rows.Scan(&c.id, &c.relPath); err != nil {
+			return nil, fmt.Errorf("scan bookmark companion: %w", err)
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
 }
 
 func runBookmarkImport(a *app.App, args []string) error {
