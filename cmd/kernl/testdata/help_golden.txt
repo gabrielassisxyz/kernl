@@ -422,8 +422,8 @@ Usage:
 Done tasks are left out of the default listing, on --json as well as on
 the human one: a finished task outnumbers an open one several times over
 once a backlog has any history, and a list that shows both is a list
-nobody reads. The count line reports how many were hidden, so the
-omission is never silent.
+nobody reads. The omission is never silent: the count line reports it,
+and under --json it goes to stderr so stdout stays a plain array.
 
 --all brings them back; --status done lists only those.
 

@@ -30,8 +30,8 @@ Run 'kernl task <subcommand> --help' for details on each.`,
 			Details: `Done tasks are left out of the default listing, on --json as well as on
 the human one: a finished task outnumbers an open one several times over
 once a backlog has any history, and a list that shows both is a list
-nobody reads. The count line reports how many were hidden, so the
-omission is never silent.
+nobody reads. The omission is never silent: the count line reports it,
+and under --json it goes to stderr so stdout stays a plain array.
 
 --all brings them back; --status done lists only those.
 
@@ -169,11 +169,17 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 	if err != nil {
 		return err
 	}
-	kept, hiddenDone := selectTasks(rows, all, status, hasStatus)
+	selection := selectTasks(rows, all, status, hasStatus)
 	if asJSON {
-		return emitTaskRows(v.stdout(), kept)
+		// The note goes to stderr, not into the document: stdout stays the
+		// server's own array, and a machine reading it still gets told that
+		// entries were dropped instead of having to re-run with --all to find out.
+		if note := selection.hiddenDoneNote(); note != "" {
+			fmt.Fprintln(v.stderr(), note)
+		}
+		return emitTaskRows(v.stdout(), selection.kept)
 	}
-	return printTaskList(v.stdout(), kept, hiddenDone)
+	return printTaskList(v.stdout(), selection)
 }
 
 // taskListStatuses is the vocabulary --status accepts, in board order. It reads
@@ -216,28 +222,44 @@ func decodeTaskRows(raw json.RawMessage) ([]taskRow, error) {
 	return rows, nil
 }
 
-// selectTasks applies the status policy and reports how many done tasks it
-// dropped. The filtering is the client's own, not a query the server answers:
-// the board and the web list need every status in one response, so hiding done
-// is a listing decision, made where the listing is rendered. triageTasks already
-// makes the same call for the same reason.
-func selectTasks(rows []taskRow, all bool, status string, hasStatus bool) (kept []taskRow, hiddenDone int) {
-	kept = make([]taskRow, 0, len(rows))
+// taskSelection is what the filter did, not just what survived it. An empty
+// result means something different depending on why it is empty, and a caller
+// holding only the surviving rows cannot tell "nothing exists" from "nothing
+// matched" - which is how a listing ends up telling someone their vault is empty
+// while it holds three hundred tasks.
+type taskSelection struct {
+	kept       []taskRow
+	hiddenDone int
+	// status is the --status value, empty when the flag was absent.
+	status string
+	// total is how many the server returned, before any filtering.
+	total int
+}
+
+// selectTasks applies the status policy. The filtering is the client's own, not
+// a query the server answers: the board and the web list need every status in
+// one response, so hiding done is a listing decision, made where the listing is
+// rendered. triageTasks already makes the same call for the same reason.
+func selectTasks(rows []taskRow, all bool, status string, hasStatus bool) taskSelection {
+	sel := taskSelection{kept: make([]taskRow, 0, len(rows)), total: len(rows)}
+	if hasStatus {
+		sel.status = status
+	}
 	for _, row := range rows {
 		switch {
 		case hasStatus:
 			if row.view.Status == status {
-				kept = append(kept, row)
+				sel.kept = append(sel.kept, row)
 			}
 		case all:
-			kept = append(kept, row)
+			sel.kept = append(sel.kept, row)
 		case row.view.Status == nodes.TaskStatusDone:
-			hiddenDone++
+			sel.hiddenDone++
 		default:
-			kept = append(kept, row)
+			sel.kept = append(sel.kept, row)
 		}
 	}
-	return kept, hiddenDone
+	return sel
 }
 
 func runTaskCreate(v verbContext, asJSON bool, args []string) error {
@@ -492,30 +514,44 @@ func emitTaskRows(w io.Writer, rows []taskRow) error {
 	return emitJSON(w, body)
 }
 
-func printTaskList(w io.Writer, rows []taskRow, hiddenDone int) error {
-	if len(rows) == 0 {
-		if hiddenDone > 0 {
-			fmt.Fprintf(w, "No open tasks, and %d done one(s) hidden. See them with: kernl task list --all\n", hiddenDone)
-			return nil
-		}
-		fmt.Fprintln(w, "No tasks. Create one with: kernl task create \"<title>\"")
+func printTaskList(w io.Writer, sel taskSelection) error {
+	if len(sel.kept) == 0 {
+		fmt.Fprintln(w, sel.emptyLine())
 		return nil
 	}
-	for _, row := range rows {
+	for _, row := range sel.kept {
 		t := row.view
 		fmt.Fprintf(w, "%-24s [%-11s] %s%s\n", t.ID, t.Status, t.Title, taskAnnotations(t))
 	}
-	fmt.Fprintf(w, "\n%d task(s)%s\n", len(rows), hiddenDoneNote(hiddenDone))
+	if note := sel.hiddenDoneNote(); note != "" {
+		fmt.Fprintf(w, "\n%d task(s), %s\n", len(sel.kept), note)
+		return nil
+	}
+	fmt.Fprintf(w, "\n%d task(s)\n", len(sel.kept))
 	return nil
+}
+
+// emptyLine answers the question the reader actually has, which is not "is the
+// list empty" but "is there nothing, or did I filter it away". Reporting the
+// total is the difference between the two, and it is the number a filtered
+// empty result otherwise hides.
+func (s taskSelection) emptyLine() string {
+	switch {
+	case s.status != "" && s.total > 0:
+		return fmt.Sprintf("No tasks with status %q, out of %d in this listing. Widen it with: kernl task list --all", s.status, s.total)
+	case s.hiddenDone > 0:
+		return fmt.Sprintf("No open tasks, and %d done one(s) hidden. See them with: kernl task list --all", s.hiddenDone)
+	}
+	return "No tasks. Create one with: kernl task create \"<title>\""
 }
 
 // hiddenDoneNote is the honesty half of the default filter: a listing that drops
 // rows without saying so reads as the whole truth about how much work exists.
-func hiddenDoneNote(hiddenDone int) string {
-	if hiddenDone == 0 {
+func (s taskSelection) hiddenDoneNote() string {
+	if s.hiddenDone == 0 {
 		return ""
 	}
-	return fmt.Sprintf(", %d done hidden (--all keeps them, --status done lists only those)", hiddenDone)
+	return fmt.Sprintf("%d done hidden (--all keeps them, --status done lists only those)", s.hiddenDone)
 }
 
 func taskAnnotations(t taskView) string {
