@@ -6,7 +6,7 @@
 
 > **Context:** Kernl is an open-source, block-based, **single-binary (Go)** platform for a solo dev: a **knowledge-graph substrate** (notes, bookmarks, captures, memory) fused with a **multi-agent orchestrator** that executes epics as bead-graphs in true parallel. **Core value:** the human touches only judgment gates; the rest is a dependency graph executed in parallel without continuous supervision. The validated product soul is **substrate-aware planning**: your notes land in the planner's context automatically.
 
-## 0. Where we are: project context
+## 0. Project context
 
 `docs/` is for documentation that ships with the public repo, and `docs/GLOSSARY.md` is tracked: keep Ubiquitous Language consistent when changing public concepts. Markdown that is only useful while developing (handoffs, baselines, scratch plans, tracking docs) never belongs in `docs/` or at the repo root.
 
