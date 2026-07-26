@@ -36,6 +36,64 @@ func companionSlug(label, fallback string) string {
 	return s
 }
 
+// companionSuffixAttempts bounds the `-2`, `-3`, ... search before falling back
+// to the note id. The suffixed name is for the human reading the vault, so a long
+// walk defeats its own purpose; past this many collisions the unique-by-
+// construction name is the better answer.
+const companionSuffixAttempts = 50
+
+// freeCompanionPath picks a vault-relative path for the companion note that no
+// other note claims. Two entities with the same title slugify identically, and
+// note_paths.path is UNIQUE - so without this the second INSERT fails and, since
+// the entity and its companion share one transaction, the whole entity creation
+// is rolled back. A duplicate title is ordinary user behaviour, not an error.
+//
+// Disk is checked alongside the table because a companion folder may also hold
+// notes written by hand: those have no note_paths row yet (the reconciler adopts
+// them later), and overwriting one would destroy content the user typed.
+func freeCompanionPath(a *app.App, tx *graph.WriteTx, folder, slug, noteID string) (string, error) {
+	for attempt := 1; attempt <= companionSuffixAttempts; attempt++ {
+		name := slug
+		if attempt > 1 {
+			name = fmt.Sprintf("%s-%d", slug, attempt)
+		}
+		rel := filepath.ToSlash(filepath.Join(folder, name+".md"))
+		taken, err := companionPathTaken(a, tx, rel)
+		if err != nil {
+			return "", err
+		}
+		if !taken {
+			return rel, nil
+		}
+	}
+	// uuid v7: unique by construction, so this needs no further probing.
+	return filepath.ToSlash(filepath.Join(folder, slug+"-"+noteID+".md")), nil
+}
+
+// companionPathTaken reports whether relPath is already claimed by a note_paths
+// row or by a file in the vault.
+func companionPathTaken(a *app.App, tx *graph.WriteTx, relPath string) (bool, error) {
+	var claimed int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM note_paths WHERE path = ?`, relPath).Scan(&claimed); err != nil {
+		return false, fmt.Errorf("companion: probe note_paths: %w", err)
+	}
+	if claimed > 0 {
+		return true, nil
+	}
+	root := a.Config.Vault.Root
+	if root == "" {
+		return false, nil
+	}
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(relPath)))
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("companion: probe vault file: %w", err)
+}
+
 // createCompanionNote creates a real markdown note that describes an entity
 // (project/task/bookmark) so the user can annotate it and the wikilink resolver
 // can index links from it.
@@ -56,7 +114,10 @@ func companionSlug(label, fallback string) string {
 func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, entityID, folder, label string, tags ...string) (CompanionFile, error) {
 	noteID := uuid.Must(uuid.NewV7()).String()
 	slug := companionSlug(label, noteID)
-	relPath := filepath.ToSlash(filepath.Join(folder, slug+".md"))
+	relPath, err := freeCompanionPath(a, tx, folder, slug, noteID)
+	if err != nil {
+		return CompanionFile{}, err
+	}
 
 	title := strings.TrimSpace(label)
 	if title == "" {
