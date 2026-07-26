@@ -113,3 +113,15 @@ func TestArchiver_ArchiveBookmark_NotFound(t *testing.T) {
 		t.Fatal("expected error for 404 status, got nil")
 	}
 }
+
+// TestArchiveDirIsTheSameForEverySurface pins the one thing the two hardcoded
+// paths got wrong: an archive has to land in the same place no matter which
+// surface created the bookmark, or a page archived through the inbox is
+// unreachable from everything that looks for it.
+func TestArchiveDirIsTheSameForEverySurface(t *testing.T) {
+	const vault = "/home/u/vault"
+	want := filepath.Join(vault, ".kernl", "archives")
+	if got := ArchiveDir(vault); got != want {
+		t.Errorf("ArchiveDir(%q) = %q, want %q", vault, got, want)
+	}
+}

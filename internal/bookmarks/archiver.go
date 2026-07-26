@@ -13,6 +13,19 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 )
 
+// ArchiveDir is where archived pages live: one directory per bookmark under
+// `<vault>/.kernl/archives`, holding the raw HTML and its metadata.
+//
+// It is a dotfolder because nothing in it is meant to be opened by hand, which
+// is the opposite of the `kernl/` namespace holding generated notes. Callers go
+// through this function rather than joining the path themselves: they used to
+// disagree, with the inbox writing archives to `.kernl/bookmarks` while the
+// bookmark handler and the CLI wrote them to `.kernl/archives`, so where a
+// page's HTML ended up depended on which surface created the bookmark.
+func ArchiveDir(vaultRoot string) string {
+	return filepath.Join(vaultRoot, ".kernl", "archives")
+}
+
 // Archiver handles the fetching and archiving of web pages.
 type Archiver struct {
 	client  *http.Client

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -67,8 +66,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	// Archive (raw HTML + excerpt) in the background so the response is fast,
 	// matching the CLI/inbox paths which also archive.
-	dataDir := filepath.Join(a.Config.Vault.Root, ".kernl", "archives")
-	archiver := bookmarks.NewArchiver(nil, dataDir)
+	archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(a.Config.Vault.Root))
 	go func() {
 		if err := bookmarks.ArchiveAndPersist(context.Background(), a.Graph, archiver, id); err != nil {
 			slog.Warn("bookmark archive failed", "id", id, "error", err)
