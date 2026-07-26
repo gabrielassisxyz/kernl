@@ -135,7 +135,7 @@ Start the REST/SSE API and embedded web UI.
 kernl doctor
 ```
 
-Validate local prerequisites and config.
+Validate local prerequisites and config, and report notes sitting in a folder Kernl generates (`tasks/`, `projects/`, `bookmarks/`, `DA/`) that no task, project, bookmark or capture claims. That last check is advisory: the vault is yours, so a note you wrote by hand in one of those folders is reported, never moved or rewritten.
 
 ```bash
 kernl capture "text to save"

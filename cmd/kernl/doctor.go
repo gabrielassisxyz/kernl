@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 
+	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/preflight"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 func runDoctor(configPath string, args []string) error {
@@ -26,6 +31,7 @@ func runDoctor(configPath string, args []string) error {
 		ConfigPath:   configPath,
 		GoVersion:    runtime.Version(),
 		Orchestrator: true,
+		VaultOrphans: func() ([]string, error) { return scanVaultOrphans(configPath) },
 	})
 
 	if asJSON {
@@ -47,6 +53,44 @@ func runDoctor(configPath string, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// scanVaultOrphans lists notes in kernl-generated folders that no entity claims.
+//
+// It opens the graph read-only and only when the file is already there: doctor
+// is a diagnostic, so it must never create a database as a side effect of being
+// asked whether things are healthy, and it may well run while `kernl serve`
+// holds the same file.
+func scanVaultOrphans(configPath string) ([]string, error) {
+	cfg, err := loadCLIConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+	root := strings.TrimSpace(cfg.Vault.Root)
+	if root == "" {
+		return nil, nil
+	}
+	dbPath := filepath.Join(root, ".kernl-graph.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return nil, nil
+	}
+
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: dbPath})
+	if err != nil {
+		return nil, fmt.Errorf("opening graph: %w", err)
+	}
+	defer g.Close()
+
+	orphans, err := layout.ScanOrphans(ctx, g, root, cfg.Inbox.DASubdir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(orphans))
+	for _, o := range orphans {
+		out = append(out, fmt.Sprintf("%s (%s)", o.Path, o.Reason))
+	}
+	return out, nil
 }
 
 // doctorReport is the machine contract for `kernl doctor --json` (DIAGNOSE

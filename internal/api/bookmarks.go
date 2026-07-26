@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 func RegisterBookmarkRoutes(mux *http.ServeMux, a *app.App) {
@@ -51,7 +52,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		}
 		// The bookmark title is "Pending" until archived, so label the companion
 		// note by its URL (the meaningful identifier at creation time).
-		companion, err = CreateCompanionNote(ctx, tx, a, id, "bookmarks", req.URL, "bookmark")
+		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.BookmarksFolder, req.URL, "bookmark")
 		return err
 	})
 

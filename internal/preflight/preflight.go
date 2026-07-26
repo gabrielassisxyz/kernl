@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
@@ -66,6 +67,12 @@ type Deps struct {
 	// `serve --no-orchestrator`), the bd CLI is not required and its check is
 	// downgraded to advisory.
 	Orchestrator bool
+	// VaultOrphans lists notes sitting in a kernl-generated folder that no
+	// entity claims, each already rendered as "<path> (<reason>)". It is a
+	// function, and an optional one: the scan needs the graph, which `serve`
+	// has not opened yet when it runs preflight, so only `doctor` supplies it
+	// and the check is skipped when nil.
+	VaultOrphans func() ([]string, error)
 }
 
 func Run(deps Deps) *Report {
@@ -122,7 +129,36 @@ func Run(deps Deps) *Report {
 	}
 	checks = append(checks, Check{Name: "config", OK: cfgOK, Detail: cfgDetail, Fix: cfgFix})
 
+	if deps.VaultOrphans != nil {
+		checks = append(checks, vaultLayoutCheck(deps.VaultOrphans))
+	}
+
 	return &Report{checks: checks}
+}
+
+// vaultLayoutCheck reports notes that live in a folder kernl generates but that
+// no entity claims. It is advisory on purpose: a note written by hand inside
+// tasks/ is legitimate - the vault belongs to the user - so the drift is worth
+// naming and never worth blocking on.
+func vaultLayoutCheck(scan func() ([]string, error)) Check {
+	orphans, err := scan()
+	if err != nil {
+		return Check{
+			Name:     "vault-layout",
+			Detail:   fmt.Sprintf("could not scan the vault: %v", err),
+			Fix:      "check vault.root in the config and that the graph db is readable",
+			Advisory: true,
+		}
+	}
+	if len(orphans) == 0 {
+		return Check{Name: "vault-layout", OK: true, Advisory: true}
+	}
+	return Check{
+		Name:     "vault-layout",
+		Detail:   fmt.Sprintf("%d note(s) in kernl-generated folders belong to no entity: %s", len(orphans), strings.Join(orphans, ", ")),
+		Fix:      "move them elsewhere in the vault, or leave them - kernl never rewrites a note it did not create",
+		Advisory: true,
+	}
 }
 
 func checkGoVersion(version string, detail, fix *string) bool {
