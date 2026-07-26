@@ -71,9 +71,9 @@ func TestScanOrphansIgnoresAnchoredNotes(t *testing.T) {
 	g := newTestGraph(t)
 	vault := t.TempDir()
 
-	anchorNote(t, g, writeNote(t, vault, "tasks/ship-it.md", "companion\n"), DescribesLabel)
-	anchorNote(t, g, writeNote(t, vault, "projects/launch.md", "companion\n"), DescribesLabel)
-	anchorNote(t, g, writeNote(t, vault, "DA/prep-1.md", "primer\n"), PreparedForLabel)
+	anchorNote(t, g, writeNote(t, vault, TasksFolder+"/ship-it.md", "companion\n"), DescribesLabel)
+	anchorNote(t, g, writeNote(t, vault, ProjectsFolder+"/launch.md", "companion\n"), DescribesLabel)
+	anchorNote(t, g, writeNote(t, vault, DefaultDAFolder+"/prep-1.md", "primer\n"), PreparedForLabel)
 	// A note at the vault root is the user's own territory - never reported.
 	writeNote(t, vault, "loose-thought.md", "mine\n")
 
@@ -90,10 +90,10 @@ func TestScanOrphansReportsHandWrittenNote(t *testing.T) {
 	g := newTestGraph(t)
 	vault := t.TempDir()
 
-	anchorNote(t, g, writeNote(t, vault, "tasks/ship-it.md", "companion\n"), DescribesLabel)
-	writeNote(t, vault, "tasks/my-own-idea.md", "typed by hand, never indexed\n")
+	anchorNote(t, g, writeNote(t, vault, TasksFolder+"/ship-it.md", "companion\n"), DescribesLabel)
+	writeNote(t, vault, TasksFolder+"/my-own-idea.md", "typed by hand, never indexed\n")
 	// Indexed as a note, but tied to nothing: the entity it described is gone.
-	anchorNote(t, g, writeNote(t, vault, "projects/stale.md", "companion\n"), "")
+	anchorNote(t, g, writeNote(t, vault, ProjectsFolder+"/stale.md", "companion\n"), "")
 
 	orphans, err := ScanOrphans(context.Background(), g, vault, "")
 	if err != nil {
@@ -102,7 +102,7 @@ func TestScanOrphansReportsHandWrittenNote(t *testing.T) {
 	if len(orphans) != 2 {
 		t.Fatalf("expected 2 orphans, got %v", orphans)
 	}
-	if orphans[0].Path != "projects/stale.md" || orphans[1].Path != "tasks/my-own-idea.md" {
+	if orphans[0].Path != ProjectsFolder+"/stale.md" || orphans[1].Path != TasksFolder+"/my-own-idea.md" {
 		t.Errorf("unexpected orphan set (want sorted by path): %v", orphans)
 	}
 	if orphans[0].Reason == "" || orphans[1].Reason == "" {
@@ -143,7 +143,7 @@ func TestScanOrphansSkipsMissingVault(t *testing.T) {
 func TestScanOrphansAcceptsABriefedPrimer(t *testing.T) {
 	g := newTestGraph(t)
 	vault := t.TempDir()
-	relPath := writeNote(t, vault, "DA/prep-1.md", "primer\n")
+	relPath := writeNote(t, vault, DefaultDAFolder+"/prep-1.md", "primer\n")
 
 	ctx := context.Background()
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {

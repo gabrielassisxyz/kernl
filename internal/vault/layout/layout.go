@@ -22,12 +22,28 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
 )
 
+// Namespace is the single vault folder kernl writes notes into. Everything
+// else in the vault is the user's, organised by tag rather than by folder, and
+// a generated file landing there would be kernl deciding how their notes are
+// filed.
+//
+// It is deliberately NOT a dotfolder. `.kernl/` already exists for machine
+// blobs nobody opens by hand (archived pages, ingest staging), and hiding is
+// right for those. These notes are the opposite: they exist to be annotated, so
+// they have to be visible in the editor doing the annotating. Hidden would also
+// mean invisible to kernl itself - the reconciler and the watcher both skip
+// dot-directories, so notes under one are never indexed and never watched.
+const Namespace = "kernl"
+
 // Vault-relative folders kernl materializes entities into.
 const (
-	TasksFolder     = "tasks"
-	ProjectsFolder  = "projects"
-	BookmarksFolder = "bookmarks"
-	DefaultDAFolder = "DA"
+	TasksFolder     = Namespace + "/tasks"
+	ProjectsFolder  = Namespace + "/projects"
+	BookmarksFolder = Namespace + "/bookmarks"
+	// DefaultDAFolder mirrors the inbox.da_subdir default in internal/config;
+	// the folder is configurable, so this is only the fallback for a caller that
+	// has no config loaded.
+	DefaultDAFolder = Namespace + "/DA"
 )
 
 // Anchor edge labels: the edge that ties a generated note to the node it was

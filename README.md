@@ -135,7 +135,9 @@ Start the REST/SSE API and embedded web UI.
 kernl doctor
 ```
 
-Validate local prerequisites and config, and report notes sitting in a folder Kernl generates (`tasks/`, `projects/`, `bookmarks/`, `DA/`) that no task, project, bookmark or capture claims. That last check is advisory: the vault is yours, so a note you wrote by hand in one of those folders is reported, never moved or rewritten.
+Validate local prerequisites and config, and report notes sitting under `kernl/` in the vault that no task, project, bookmark or capture claims. That last check is advisory: the vault is yours, so a note you wrote by hand in one of those folders is reported, never moved or rewritten.
+
+Kernl writes the notes it generates under a single vault folder, `kernl/` (`kernl/tasks/`, `kernl/projects/`, `kernl/bookmarks/`, `kernl/DA/`). Everything outside it is yours to organize however you like. The folder is a convention for tidiness only: what makes a note the companion of a task is the edge between them in the graph, never its path, so moving one out of `kernl/` breaks nothing.
 
 ```bash
 kernl capture "text to save"

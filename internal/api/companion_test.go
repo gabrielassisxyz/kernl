@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
 
@@ -94,7 +95,7 @@ func TestCompanionNoteCreatedForProject(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	companionAssertions(t, a, vault, resp.ID, "projects")
+	companionAssertions(t, a, vault, resp.ID, layout.ProjectsFolder)
 }
 
 func TestCompanionNoteCreatedForTask(t *testing.T) {
@@ -114,7 +115,7 @@ func TestCompanionNoteCreatedForTask(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	companionAssertions(t, a, vault, resp.ID, "tasks")
+	companionAssertions(t, a, vault, resp.ID, layout.TasksFolder)
 }
 
 func TestCompanionNoteCreatedForBookmark(t *testing.T) {
@@ -134,7 +135,7 @@ func TestCompanionNoteCreatedForBookmark(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	companionAssertions(t, a, vault, resp.ID, "bookmarks")
+	companionAssertions(t, a, vault, resp.ID, layout.BookmarksFolder)
 }
 
 // TestCompanionNoteHandlesDuplicateTitles guards the whole create path: the slug
@@ -168,8 +169,8 @@ func TestCompanionNoteHandlesDuplicateTitles(t *testing.T) {
 	first := create("Same Title")
 	second := create("Same Title")
 
-	companionAssertions(t, a, vault, first, "tasks")
-	companionAssertions(t, a, vault, second, "tasks")
+	companionAssertions(t, a, vault, first, layout.TasksFolder)
+	companionAssertions(t, a, vault, second, layout.TasksFolder)
 
 	firstPath := companionPath(t, a, first)
 	secondPath := companionPath(t, a, second)
@@ -186,7 +187,7 @@ func TestCompanionNoteNeverClobbersHandWrittenFile(t *testing.T) {
 	a, vault := newCompanionTestApp(t)
 	r := NewRouter(a)
 
-	handWritten := filepath.Join(vault, "tasks", "read-the-docs.md")
+	handWritten := filepath.Join(vault, filepath.FromSlash(layout.TasksFolder), "read-the-docs.md")
 	if err := os.MkdirAll(filepath.Dir(handWritten), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
