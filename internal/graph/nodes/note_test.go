@@ -20,7 +20,7 @@ func TestNoteRoundtrip(t *testing.T) {
 		Title:  "My Note Title",
 		Body:   "Body content for the note.",
 		Origin: "",
-		Author: "user-gabriel",
+		Author: "user-alex",
 		Tags:   []string{"vault", "draft"},
 	}
 

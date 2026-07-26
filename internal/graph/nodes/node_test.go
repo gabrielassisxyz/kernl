@@ -13,8 +13,8 @@ func TestAuthorValid(t *testing.T) {
 	if (Author{}).Valid() {
 		t.Error("Author{}.Valid() should be false for empty name")
 	}
-	if !(Author{Name: "gabriel"}).Valid() {
-		t.Error("Author{Name:\"gabriel\"}.Valid() should be true")
+	if !(Author{Name: "alex"}).Valid() {
+		t.Error("Author{Name:\"alex\"}.Valid() should be true")
 	}
 }
 

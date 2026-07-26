@@ -57,9 +57,7 @@ __pycache__/
 .agents
 .impeccable/
 .vibe-chaos-to-concept/
-CLAUDE.md
 CLAUDE.local.md
-AGENTS.md
 
 # GitHub Copilot's slot for the same agent tooling, narrowed to the two subdirectories
 # it owns. `.github` itself must stay tracked: ignoring the whole directory once
@@ -80,13 +78,19 @@ kernl.yaml
 *.local.*
 *.log
 
+# Maintainer notes
+local/
+
+# Agent-run and tooling artifacts. Machine-generated per run, never reviewed as source.
+.kernl/
+.live-tweaks/
+
 RESEARCH_FINDINGS.md
 TOON_INTEGRATION_BRIEF.md
 SESSION_REPORT.md
 SESSION_TODO.md
 SESSION_*.md
 artifact-*.json
-artifacts
 *.mcp.json
 *.mcp.json.*.bak
 opencode.json

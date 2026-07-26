@@ -722,7 +722,7 @@ func TestOnCreate_UUIDInjectedOnDisk(t *testing.T) {
 	vault := newVaultDir(t)
 
 	path := filepath.Join(vault, "inject-test.md")
-	original := "---\ntitle: Inject Test\nauthor: gabriel\n---\n\nBody text here.\n"
+	original := "---\ntitle: Inject Test\nauthor: alex\n---\n\nBody text here.\n"
 	writeFile(t, path, original)
 
 	rec := reconcile.New(g, vault)
@@ -749,8 +749,8 @@ func TestOnCreate_UUIDInjectedOnDisk(t *testing.T) {
 	if fm.Title != "Inject Test" {
 		t.Errorf("title = %q, want %q", fm.Title, "Inject Test")
 	}
-	if fm.Author != "gabriel" {
-		t.Errorf("author = %q, want %q", fm.Author, "gabriel")
+	if fm.Author != "alex" {
+		t.Errorf("author = %q, want %q", fm.Author, "alex")
 	}
 
 	// Original body must still be present

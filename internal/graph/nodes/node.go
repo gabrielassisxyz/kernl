@@ -36,7 +36,7 @@ func (m Meta) NodeID() string { return m.ID }
 
 // Author models who performed a mutation.
 type Author struct {
-	Name string // e.g. "gabriel" or agent string
+	Name string // e.g. "alex" or agent string
 }
 
 func (a Author) Valid() bool    { return a.Name != "" }

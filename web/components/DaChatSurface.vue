@@ -121,12 +121,14 @@ defineProps({
   isOpen: Boolean
 })
 
-const daGreeting = ref('Hello, Gabriel.')
+// No name until there is a user record to take one from: a hardcoded name greets every
+// installation with somebody else's. Personalize this once user/session config exists.
+const daGreeting = ref('Hello.')
 
 const updateGreeting = () => {
   const h = new Date().getHours()
   const tod = h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening'
-  daGreeting.value = `${tod}, Gabriel.`
+  daGreeting.value = `Good ${tod.toLowerCase()}.`
 }
 
 onMounted(updateGreeting)

@@ -12,19 +12,8 @@
 # One path per line. `#` comments and blank lines are ignored. A path that does not
 # exist in the main tree is skipped, so listing an optional one costs nothing.
 
-# Planning and research documents — the largest body of un-versioned work here, and the
-# one a worktree most needs. Not versioned by design (`.gitignore`), which is exactly
-# why it has to be linked rather than left to `git worktree add`.
-artifacts
-
-# Agent instructions. TEMPORARY: these are git-ignored today, which is itself the bug —
-# a contributor (or a fresh worktree) that does not get them works without the project's
-# conventions. The fix is to commit them, after the hygiene pass that makes them
-# publishable; until then linking is what keeps every worktree from starting blind.
-# Remove these two lines the moment the files are tracked — a tracked file wins its own
-# name anyway, so leaving them here would be dead weight, not a safeguard.
-AGENTS.md
-CLAUDE.md
+# Maintainer notes
+local
 
 # Per-harness agent config: skills, settings, permissions.
 .claude
