@@ -59,11 +59,6 @@ __pycache__/
 .vibe-chaos-to-concept/
 CLAUDE.local.md
 
-# AGENTS.md and CLAUDE.md are deliberately TRACKED. `git worktree add` materializes only
-# tracked files, so ignoring them left every fresh worktree without the project's
-# conventions, and the failure was silent: the session just worked without them. A cloner
-# hit the same wall. Keeping them publishable is what makes this safe, not hiding them.
-
 # GitHub Copilot's slot for the same agent tooling, narrowed to the two subdirectories
 # it owns. `.github` itself must stay tracked: ignoring the whole directory once
 # swallowed a new CI workflow without a word.
