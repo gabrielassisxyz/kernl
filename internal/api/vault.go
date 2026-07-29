@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,14 +19,24 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
 )
 
-// The two ends POST /api/vault/append writes to. A newest-first log grows at
-// the start, an ordinary journal at the end; there is no third position on
-// purpose, because an offset-addressed insert is a different feature with a
-// different failure mode (a stale offset corrupts the note silently).
+// Where POST /api/vault/append puts the block. An ordinary journal grows at the
+// end; a newest-first log grows at the start, or - when it opens with a preamble
+// the reader must see before the entries - directly under the `---` that divides
+// the two.
+//
+// All three are named structures, not offsets. That is the line this route does
+// not cross: an offset-addressed insert goes stale between the read that found
+// the number and the write that uses it, and corrupts the note without a word.
+// A named anchor is either present or the request fails.
 const (
-	appendPositionStart = "start"
-	appendPositionEnd   = "end"
+	appendPositionStart      = "start"
+	appendPositionEnd        = "end"
+	appendPositionAfterBreak = "after-break"
 )
+
+// appendPositions is the accepted set, in the order the error message lists
+// them, so a rejected value and the CLI's help agree on the vocabulary.
+var appendPositions = []string{appendPositionStart, appendPositionEnd, appendPositionAfterBreak}
 
 func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/vault/list", func(w http.ResponseWriter, r *http.Request) {
@@ -177,11 +188,11 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		_, _ = w.Write([]byte(`{"status":"saved"}`))
 	})
 
-	// Add a block to one end of an existing note without a read-modify-write
-	// round trip. POST /api/vault/file is the wrong tool for a log that only
-	// grows at one end: the caller has to ship the whole file back, twice the
-	// transfer for a 160 KB note, and anything that writes between the read and
-	// the write is silently overwritten.
+	// Add a block at one of the note's named positions without a
+	// read-modify-write round trip. POST /api/vault/file is the wrong tool for a
+	// log that only grows in one place: the caller has to ship the whole file
+	// back, twice the transfer for a 160 KB note, and anything that writes
+	// between the read and the write is silently overwritten.
 	//
 	// The graph is deliberately left to the vault watcher, exactly as the
 	// full-file write leaves it: OnChange re-reads the file, updates the note
@@ -203,8 +214,8 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		if position == "" {
 			position = appendPositionEnd
 		}
-		if position != appendPositionEnd && position != appendPositionStart {
-			http.Error(w, "position must be "+appendPositionStart+" or "+appendPositionEnd, http.StatusBadRequest)
+		if !slices.Contains(appendPositions, position) {
+			http.Error(w, "position must be one of "+strings.Join(appendPositions, ", "), http.StatusBadRequest)
 			return
 		}
 
@@ -237,9 +248,22 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
-		updated := notes.AppendBlock(string(current), string(block))
-		if position == appendPositionStart {
+		var updated string
+		switch position {
+		case appendPositionStart:
 			updated = notes.PrependBlock(string(current), string(block))
+		case appendPositionAfterBreak:
+			var found bool
+			updated, found = notes.InsertAfterThematicBreak(string(current), string(block))
+			if !found {
+				// Falling back to either end would be the worst outcome: every
+				// entry still reads correctly on its own, so the note would rot
+				// into the wrong shape with nothing ever complaining.
+				http.Error(w, "no thematic break in "+filePath+" - position="+appendPositionAfterBreak+" inserts under the first `---` line below the frontmatter, and this note has none", http.StatusConflict)
+				return
+			}
+		default:
+			updated = notes.AppendBlock(string(current), string(block))
 		}
 		if err := os.WriteFile(fullPath, []byte(updated), 0644); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

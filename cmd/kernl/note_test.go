@@ -169,7 +169,7 @@ func TestNoteAppendSendsOnlyTheBlockToTheEnd(t *testing.T) {
 	if !strings.Contains(req.query, "position=end") || !strings.Contains(req.query, "path=log.md") {
 		t.Fatalf("path and position must travel as query params, got %q", req.query)
 	}
-	if !strings.Contains(out, "Appended 9 bytes to log.md") {
+	if !strings.Contains(out, "Appended 9 bytes to the end of log.md") {
 		t.Fatalf("unexpected output: %q", out)
 	}
 }
@@ -353,5 +353,92 @@ func TestNoteUnknownSubcommandHints(t *testing.T) {
 	}
 	if exitCode(err) != 2 {
 		t.Fatalf("want usage error, got %d", exitCode(err))
+	}
+}
+
+func TestNoteAppendPositionAfterBreakTravelsOnTheWire(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"appended","position":"after-break","bytes":9}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "append", "log.md", "--position", "after-break", "--file", local)
+	if err != nil {
+		t.Fatalf("note append --position after-break: %v", err)
+	}
+	if !strings.Contains(api.requests[0].query, "position=after-break") {
+		t.Fatalf("the placement must travel verbatim, got %q", api.requests[0].query)
+	}
+	if !strings.Contains(out, "Inserted 9 bytes under the first thematic break in log.md") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+// --prepend predates --position and is documented; removing it silently would
+// break every caller that already spells it that way.
+func TestNoteAppendPrependStillMeansPositionStart(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"appended","position":"start"}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.run(t, "append", "log.md", "--prepend", "--file", local); err != nil {
+		t.Fatalf("note append --prepend: %v", err)
+	}
+	if !strings.Contains(api.requests[0].query, "position=start") {
+		t.Fatalf("--prepend must still ask for the start, got %q", api.requests[0].query)
+	}
+}
+
+// A typo'd placement must die here, not one network hop away from the note.
+func TestNoteAppendRejectsAnUnknownPositionWithoutCallingTheAPI(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := api.run(t, "append", "log.md", "--position", "top", "--file", local)
+	if err == nil || exitCode(err) != 2 {
+		t.Fatalf("an unknown placement must be a usage error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "after-break") {
+		t.Fatalf("the error must list the accepted placements, got: %v", err)
+	}
+	if len(api.requests) != 0 {
+		t.Fatalf("nothing must reach the server, got %d requests", len(api.requests))
+	}
+}
+
+func TestNoteAppendRefusesPrependAndPositionTogether(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := api.run(t, "append", "log.md", "--prepend", "--position", "after-break", "--file", local)
+	if err == nil || exitCode(err) != 2 {
+		t.Fatalf("two ways of naming the placement at once must be a usage error, got: %v", err)
+	}
+	if len(api.requests) != 0 {
+		t.Fatalf("nothing must reach the server, got %d requests", len(api.requests))
+	}
+}
+
+// A note with no rule comes back 409, and that has to read as a failure rather
+// than as a block written somewhere else.
+func TestNoteAppendSurfacesAMissingThematicBreak(t *testing.T) {
+	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no thematic break in log.md", http.StatusConflict)
+	})
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "append", "log.md", "--position", "after-break", "--file", local)
+	if err == nil {
+		t.Fatal("a 409 must surface as a failure")
+	}
+	if strings.Contains(out, "Inserted") {
+		t.Fatalf("nothing may be reported as written, got %q", out)
 	}
 }
