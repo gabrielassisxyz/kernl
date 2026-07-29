@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-var noteSubs = []string{"list", "read", "write", "delete", "tags", "suggest", "apply-hunks"}
+var noteSubs = []string{"list", "read", "write", "append", "delete", "tags", "suggest", "apply-hunks"}
 
 var noteCommand = commandMeta{
 	Name:    "note",
 	Summary: "Read and write vault notes (the same files the editor edits)",
-	Usage:   "kernl note <list|read|write|delete|tags|suggest|apply-hunks> [args...]",
+	Usage:   "kernl note <list|read|write|append|delete|tags|suggest|apply-hunks> [args...]",
 	Details: `Every path is vault-relative (e.g. "projects/kernl.md"); the server
 resolves it against vault.root and rejects anything that escapes it.
 
@@ -64,6 +64,30 @@ Examples:
 			Flags: []commandFlag{
 				{Name: "--file", Value: "<local-path>", Description: "Read the body from a local file instead of stdin"},
 				{Name: "--json", Description: `Emit {"status":"saved"} on stdout`},
+			},
+		},
+		{
+			Name:    "append",
+			Summary: "Add a block to one end of an existing note",
+			Usage:   "kernl note append <path> [--file <local-path>] [--prepend] [--json]",
+			Details: `The block comes from --file, or from stdin when --file is omitted, and
+lands at the bottom of the note separated by one blank line. Nothing
+else in the note is rewritten, so a log that only grows at one end no
+longer has to be read back and re-uploaded whole to gain one entry.
+
+Appending to a note that does not exist fails; create it with
+'kernl note write' first.
+
+{{flags}}
+
+Examples:
+  printf '## 2026-07-29\n\nwhat happened\n' | kernl note append journal.md
+  kernl note append "system log.md" --file ./entry.md --prepend`,
+			Flags: []commandFlag{
+				{Name: "--file", Value: "<local-path>", Description: "Read the block from a local file instead of stdin"},
+				{Name: "--prepend", Description: "Put the block at the top instead, under the frontmatter",
+					Continuation: []string{"(what a newest-first log wants)"}},
+				{Name: "--json", Description: `Emit {"status","path","position","bytes"} on stdout`},
 			},
 		},
 		{
@@ -144,6 +168,8 @@ func runNote(v verbContext, args []string) error {
 		return runNoteRead(ctx, client, v.stdout(), asJSON, rest)
 	case "write":
 		return runNoteWrite(ctx, client, v.stdout(), asJSON, rest)
+	case "append":
+		return runNoteAppend(ctx, client, v.stdout(), asJSON, rest)
 	case "delete":
 		return runNoteDelete(ctx, client, v.stdout(), asJSON, rest)
 	case "tags":
@@ -285,6 +311,43 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 		return emitJSON(out, raw)
 	}
 	_, err = fmt.Fprintf(out, "Wrote %s (%d bytes).\n", path, len(body))
+	return err
+}
+
+func runNoteAppend(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, args []string) error {
+	toStart, args := parseBoolFlag(args, "--prepend")
+	source, hasSource, args, err := takeFlag("note append", args, "--file")
+	if err != nil {
+		return err
+	}
+	path, err := notePathArg("append", args)
+	if err != nil {
+		return err
+	}
+	body, err := readNoteBody("append", "--file", source, hasSource)
+	if err != nil {
+		return err
+	}
+	// The wire says which end in full words rather than carrying the flag's
+	// boolean: a query the server can reject on a typo beats one where a
+	// misspelled key means "the other end" and nothing complains.
+	position := "end"
+	if toStart {
+		position = "start"
+	}
+	route := "/api/vault/append?" + url.Values{"path": {path}, "position": {position}}.Encode()
+	raw, err := c.postRaw(ctx, route, "text/markdown", body)
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return emitJSON(out, raw)
+	}
+	verb := "Appended"
+	if toStart {
+		verb = "Prepended"
+	}
+	_, err = fmt.Fprintf(out, "%s %d bytes to %s.\n", verb, len(body), path)
 	return err
 }
 
