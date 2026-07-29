@@ -68,12 +68,24 @@ Examples:
 		},
 		{
 			Name:    "append",
-			Summary: "Add a block to one end of an existing note",
-			Usage:   "kernl note append <path> [--file <local-path>] [--prepend] [--json]",
+			Summary: "Add a block at one end of an existing note, or under its first rule",
+			Usage:   "kernl note append <path> [--file <local-path>] [--position <where>] [--json]",
 			Details: `The block comes from --file, or from stdin when --file is omitted, and
 lands at the bottom of the note separated by one blank line. Nothing
-else in the note is rewritten, so a log that only grows at one end no
+else in the note is rewritten, so a log that only grows in one place no
 longer has to be read back and re-uploaded whole to gain one entry.
+
+--position picks where:
+
+  end          the bottom of the note (the default)
+  start        the top of the body, under the frontmatter
+  after-break  under the note's first thematic break - the first '---'
+               line below the frontmatter. This is where a newest-first
+               log keeps its entries when it opens with a preamble the
+               reader has to see first. The frontmatter's own closing
+               fence does not count, and neither does a '---' inside a
+               fenced code block. A note with no such line is refused
+               rather than written at some other position.
 
 Appending to a note that does not exist fails; create it with
 'kernl note write' first.
@@ -82,11 +94,12 @@ Appending to a note that does not exist fails; create it with
 
 Examples:
   printf '## 2026-07-29\n\nwhat happened\n' | kernl note append journal.md
-  kernl note append "system log.md" --file ./entry.md --prepend`,
+  kernl note append "system log.md" --file ./entry.md --position after-break`,
 			Flags: []commandFlag{
 				{Name: "--file", Value: "<local-path>", Description: "Read the block from a local file instead of stdin"},
-				{Name: "--prepend", Description: "Put the block at the top instead, under the frontmatter",
-					Continuation: []string{"(what a newest-first log wants)"}},
+				{Name: "--position", Value: "<where>", Description: "end (default), start or after-break; see above"},
+				{Name: "--prepend", Description: "Older spelling of --position start; still works, but",
+					Continuation: []string{"--position says which of the three you mean"}},
 				{Name: "--json", Description: `Emit {"status","path","position","bytes"} on stdout`},
 			},
 		},
@@ -314,8 +327,29 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 	return err
 }
 
+// notePositions are the placements 'note append' accepts, each with the line it
+// reports on success. The order is the one --help and the error message use.
+//
+// The confirmation names the placement rather than saying "done": three
+// placements share one verb, and a caller reading "appended" when it asked for
+// after-break has no way to tell the block did not go where it meant.
+type notePlacement struct {
+	name   string
+	report string // format: bytes, then path
+}
+
+var notePositions = []notePlacement{
+	{"end", "Appended %d bytes to the end of %s.\n"},
+	{"start", "Prepended %d bytes to %s.\n"},
+	{"after-break", "Inserted %d bytes under the first thematic break in %s.\n"},
+}
+
 func runNoteAppend(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, args []string) error {
-	toStart, args := parseBoolFlag(args, "--prepend")
+	prepend, args := parseBoolFlag(args, "--prepend")
+	choice, hasChoice, args, err := takeFlag("note append", args, "--position")
+	if err != nil {
+		return err
+	}
 	source, hasSource, args, err := takeFlag("note append", args, "--file")
 	if err != nil {
 		return err
@@ -324,18 +358,15 @@ func runNoteAppend(ctx context.Context, c *apiClient, out io.Writer, asJSON bool
 	if err != nil {
 		return err
 	}
+	position, err := notePosition(prepend, choice, hasChoice)
+	if err != nil {
+		return err
+	}
 	body, err := readNoteBody("append", "--file", source, hasSource)
 	if err != nil {
 		return err
 	}
-	// The wire says which end in full words rather than carrying the flag's
-	// boolean: a query the server can reject on a typo beats one where a
-	// misspelled key means "the other end" and nothing complains.
-	position := "end"
-	if toStart {
-		position = "start"
-	}
-	route := "/api/vault/append?" + url.Values{"path": {path}, "position": {position}}.Encode()
+	route := "/api/vault/append?" + url.Values{"path": {path}, "position": {position.name}}.Encode()
 	raw, err := c.postRaw(ctx, route, "text/markdown", body)
 	if err != nil {
 		return err
@@ -343,12 +374,36 @@ func runNoteAppend(ctx context.Context, c *apiClient, out io.Writer, asJSON bool
 	if asJSON {
 		return emitJSON(out, raw)
 	}
-	verb := "Appended"
-	if toStart {
-		verb = "Prepended"
-	}
-	_, err = fmt.Fprintf(out, "%s %d bytes to %s.\n", verb, len(body), path)
+	_, err = fmt.Fprintf(out, position.report, len(body), path)
 	return err
+}
+
+// notePosition resolves the placement from --position and the older --prepend.
+//
+// A bad value is caught here rather than round-tripped: the note is on the
+// other side of that request, and a typo'd placement must not be one network
+// hop away from being written somewhere the caller did not mean.
+func notePosition(prepend bool, choice string, hasChoice bool) (notePlacement, error) {
+	var zero notePlacement
+	if prepend && hasChoice {
+		return zero, usagef("KERNL DISPATCH FAILURE: note append takes --prepend or --position, not both - --prepend is the older spelling of --position start")
+	}
+	if prepend {
+		return notePositions[1], nil
+	}
+	if !hasChoice {
+		return notePositions[0], nil
+	}
+	for _, p := range notePositions {
+		if p.name == choice {
+			return p, nil
+		}
+	}
+	names := make([]string, len(notePositions))
+	for i, p := range notePositions {
+		names[i] = p.name
+	}
+	return zero, usagef("KERNL DISPATCH FAILURE: note append --position %q is not a placement - use one of: %s", choice, strings.Join(names, ", "))
 }
 
 // readNoteBody takes the payload from a local file, or from stdin when the
