@@ -1,4 +1,4 @@
-package api
+package companion
 
 import (
 	"bytes"
@@ -13,7 +13,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
@@ -23,16 +22,16 @@ import (
 	"github.com/google/uuid"
 )
 
-// companionEdgeLabel links a companion note to the entity it describes.
-const companionEdgeLabel = "describes"
+// EdgeLabel links a companion note to the entity it describes.
+const EdgeLabel = "describes"
 
-var companionSlugRe = regexp.MustCompile(`[^a-z0-9]+`)
+var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
-// companionSlug builds a filesystem-safe slug from a label, falling back to the
+// slugOf builds a filesystem-safe slug from a label, falling back to the
 // node id when the label has no usable characters (e.g. a bookmark titled by URL).
-func companionSlug(label, fallback string) string {
+func slugOf(label, fallback string) string {
 	s := strings.ToLower(strings.TrimSpace(label))
-	s = companionSlugRe.ReplaceAllString(s, "-")
+	s = slugRe.ReplaceAllString(s, "-")
 	s = strings.Trim(s, "-")
 	if s == "" {
 		return fallback
@@ -40,13 +39,13 @@ func companionSlug(label, fallback string) string {
 	return s
 }
 
-// companionSuffixAttempts bounds the `-2`, `-3`, ... search before falling back
+// suffixAttempts bounds the `-2`, `-3`, ... search before falling back
 // to the note id. The suffixed name is for the human reading the vault, so a long
 // walk defeats its own purpose; past this many collisions the unique-by-
 // construction name is the better answer.
-const companionSuffixAttempts = 50
+const suffixAttempts = 50
 
-// freeCompanionPath picks a vault-relative path for the companion note that no
+// freePath picks a vault-relative path for the companion note that no
 // other note claims. Two entities with the same title slugify identically, and
 // note_paths.path is UNIQUE - so without this the second INSERT fails and, since
 // the entity and its companion share one transaction, the whole entity creation
@@ -55,14 +54,14 @@ const companionSuffixAttempts = 50
 // Disk is checked alongside the table because a companion folder may also hold
 // notes written by hand: those have no note_paths row yet (the reconciler adopts
 // them later), and overwriting one would destroy content the user typed.
-func freeCompanionPath(a *app.App, tx *graph.WriteTx, folder, slug, noteID string) (string, error) {
-	for attempt := 1; attempt <= companionSuffixAttempts; attempt++ {
+func freePath(vaultRoot string, tx *graph.WriteTx, folder, slug, noteID string) (string, error) {
+	for attempt := 1; attempt <= suffixAttempts; attempt++ {
 		name := slug
 		if attempt > 1 {
 			name = fmt.Sprintf("%s-%d", slug, attempt)
 		}
 		rel := filepath.ToSlash(filepath.Join(folder, name+".md"))
-		taken, err := companionPathTaken(a, tx, rel)
+		taken, err := pathTaken(vaultRoot, tx, rel)
 		if err != nil {
 			return "", err
 		}
@@ -74,9 +73,9 @@ func freeCompanionPath(a *app.App, tx *graph.WriteTx, folder, slug, noteID strin
 	return filepath.ToSlash(filepath.Join(folder, slug+"-"+noteID+".md")), nil
 }
 
-// companionPathTaken reports whether relPath is already claimed by a note_paths
+// pathTaken reports whether relPath is already claimed by a note_paths
 // row or by a file in the vault.
-func companionPathTaken(a *app.App, tx *graph.WriteTx, relPath string) (bool, error) {
+func pathTaken(vaultRoot string, tx *graph.WriteTx, relPath string) (bool, error) {
 	var claimed int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM note_paths WHERE path = ?`, relPath).Scan(&claimed); err != nil {
 		return false, fmt.Errorf("companion: probe note_paths: %w", err)
@@ -84,11 +83,10 @@ func companionPathTaken(a *app.App, tx *graph.WriteTx, relPath string) (bool, er
 	if claimed > 0 {
 		return true, nil
 	}
-	root := a.Config.Vault.Root
-	if root == "" {
+	if vaultRoot == "" {
 		return false, nil
 	}
-	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(relPath)))
+	_, err := os.Stat(filepath.Join(vaultRoot, filepath.FromSlash(relPath)))
 	if err == nil {
 		return true, nil
 	}
@@ -98,7 +96,7 @@ func companionPathTaken(a *app.App, tx *graph.WriteTx, relPath string) (bool, er
 	return false, fmt.Errorf("companion: probe vault file: %w", err)
 }
 
-// createCompanionNote creates a real markdown note that describes an entity
+// Create creates a real markdown note that describes an entity
 // (project/task/bookmark) so the user can annotate it and the wikilink resolver
 // can index links from it.
 //
@@ -111,7 +109,7 @@ func companionPathTaken(a *app.App, tx *graph.WriteTx, relPath string) (bool, er
 //
 // The entity creation and the note node/edge/note_paths rows are committed in
 // the SAME write transaction (passed in by the caller). The markdown file is
-// written to disk afterwards, by the caller, via writeCompanionFile.
+// written to disk afterwards, by the caller, via WriteFile.
 //
 // description is the entity's own short description, mirrored into the note's
 // frontmatter. Pass "" for an entity whose description is not kept in sync:
@@ -119,15 +117,15 @@ func companionPathTaken(a *app.App, tx *graph.WriteTx, relPath string) (bool, er
 //
 // TODO(6A): the entity is never renamed on disk. The companion keeps the path
 // it was created with even when the entity's title changes - the path is no
-// longer a function of the title (freeCompanionPath may suffix it), so deriving
+// longer a function of the title (freePath may suffix it), so deriving
 // a new name from a new title would re-couple the two. Deleting an entity does
 // remove its companion; renaming deliberately does not.
-func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, entityID, folder, label, description string, tags ...string) (CompanionFile, error) {
+func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder, label, description string, tags ...string) (File, error) {
 	noteID := uuid.Must(uuid.NewV7()).String()
-	slug := companionSlug(label, noteID)
-	relPath, err := freeCompanionPath(a, tx, folder, slug, noteID)
+	slug := slugOf(label, noteID)
+	relPath, err := freePath(vaultRoot, tx, folder, slug, noteID)
 	if err != nil {
-		return CompanionFile{}, err
+		return File{}, err
 	}
 
 	title := strings.TrimSpace(label)
@@ -147,7 +145,7 @@ func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, ent
 		}
 	}
 
-	fileBytes := renderCompanionMarkdown(noteID, title, description, body, cleanTags)
+	fileBytes := renderMarkdown(noteID, title, description, body, cleanTags)
 	contentHash := reconcile.HashBytes(fileBytes)
 
 	if _, err := nodes.CreateNote(ctx, tx, nodes.Note{
@@ -155,17 +153,17 @@ func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, ent
 		Title: title,
 		Body:  body,
 		Tags:  cleanTags,
-	}, nodes.Author{Name: "api"}); err != nil {
-		return CompanionFile{}, fmt.Errorf("companion: create note: %w", err)
+	}, nodes.Author{Name: "companion"}); err != nil {
+		return File{}, fmt.Errorf("companion: create note: %w", err)
 	}
 
 	// describes: companion note -> entity.
 	if _, err := edges.Create(ctx, tx, edges.Edge{
 		Src:   noteID,
 		Dst:   entityID,
-		Label: companionEdgeLabel,
-	}, nodes.Author{Name: "api"}); err != nil {
-		return CompanionFile{}, fmt.Errorf("companion: create describes edge: %w", err)
+		Label: EdgeLabel,
+	}, nodes.Author{Name: "companion"}); err != nil {
+		return File{}, fmt.Errorf("companion: create describes edge: %w", err)
 	}
 
 	// note_paths mapping with the on-disk hash so the reconciler adopts the file.
@@ -174,26 +172,26 @@ func CreateCompanionNote(ctx context.Context, tx *graph.WriteTx, a *app.App, ent
 		 VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`,
 		noteID, relPath, contentHash,
 	); err != nil {
-		return CompanionFile{}, fmt.Errorf("companion: insert note_paths: %w", err)
+		return File{}, fmt.Errorf("companion: insert note_paths: %w", err)
 	}
 
-	return CompanionFile{relPath: relPath, bytes: fileBytes}, nil
+	return File{relPath: relPath, bytes: fileBytes}, nil
 }
 
-// companionFile carries the bytes to write to disk after the transaction commits.
-// The zero value means "nothing to write" and WriteCompanionFile skips it, so a
+// File carries the bytes to write to disk after the transaction commits.
+// The zero value means "nothing to write" and WriteFile skips it, so a
 // caller that only sometimes touches the companion needs no extra flag.
-type CompanionFile struct {
+type File struct {
 	relPath string
 	bytes   []byte
 }
 
-// SyncCompanionDescription rewrites the description in the frontmatter of the
+// SyncDescription rewrites the description in the frontmatter of the
 // companion note describing entityID, and returns the bytes for the caller to
 // write after the transaction commits.
 //
 // The note is found through its describes edge, never by re-slugifying the
-// entity's title: freeCompanionPath may have suffixed the file name (-2, -3, or
+// entity's title: freePath may have suffixed the file name (-2, -3, or
 // the note id), so the title has not determined the path since duplicate titles
 // became legal. Re-deriving it would rewrite a different entity's note.
 //
@@ -203,81 +201,80 @@ type CompanionFile struct {
 // an edit nobody made, and the same divergence in its harder form (a live note
 // with no cache row) is what wedged one real vault for a month.
 //
-// Returns the zero CompanionFile - no error - whenever the file must not be
+// Returns the zero File - no error - whenever the file must not be
 // touched: no vault configured, no companion, the file is gone, its frontmatter
 // is unreadable, it belongs to another note, or the description already matches.
-func SyncCompanionDescription(ctx context.Context, tx *graph.WriteTx, a *app.App, entityID, description string) (CompanionFile, error) {
-	root := a.Config.Vault.Root
-	if root == "" {
-		return CompanionFile{}, nil
+func SyncDescription(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, description string) (File, error) {
+	if vaultRoot == "" {
+		return File{}, nil
 	}
-	note, found, err := companionOf(tx, entityID)
+	note, found, err := noteFor(tx, entityID)
 	if err != nil || !found {
-		return CompanionFile{}, err
+		return File{}, err
 	}
 
-	full := filepath.Join(root, filepath.FromSlash(note.relPath))
+	full := filepath.Join(vaultRoot, filepath.FromSlash(note.relPath))
 	raw, err := os.ReadFile(full)
 	if err != nil {
 		// A companion whose file the user deleted stays deleted: rewriting it here
 		// would resurrect a note they threw away.
 		slog.Warn("companion: description not synced, file unreadable", "note_id", note.id, "path", note.relPath, "error", err)
-		return CompanionFile{}, nil
+		return File{}, nil
 	}
 
-	updated, ok := rewriteCompanionDescription(raw, note, description)
+	updated, ok := rewriteDescription(raw, note, description)
 	if !ok {
 		slog.Warn("companion: description not synced, file is not one kernl can rewrite", "note_id", note.id, "path", note.relPath)
-		return CompanionFile{}, nil
+		return File{}, nil
 	}
 	if bytes.Equal(updated, raw) {
-		return CompanionFile{}, nil
+		return File{}, nil
 	}
 
 	if _, err := tx.Exec(
 		`UPDATE note_paths SET content_hash = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE uuid = ?`,
 		reconcile.HashBytes(updated), note.id,
 	); err != nil {
-		return CompanionFile{}, fmt.Errorf("companion: refresh note_paths hash: %w", err)
+		return File{}, fmt.Errorf("companion: refresh note_paths hash: %w", err)
 	}
-	return CompanionFile{relPath: note.relPath, bytes: updated}, nil
+	return File{relPath: note.relPath, bytes: updated}, nil
 }
 
-// companionRef is the companion note of an entity, as the graph knows it.
-type companionRef struct {
+// noteRef is the companion note of an entity, as the graph knows it.
+type noteRef struct {
 	id      string
 	title   string
 	relPath string
 }
 
-// companionOf resolves the note describing entityID through the describes edge
+// noteFor resolves the note describing entityID through the describes edge
 // and the path cache. found is false when the entity has no companion (created
 // before companions existed, or its note was deleted) - not an error.
-func companionOf(tx *graph.WriteTx, entityID string) (companionRef, bool, error) {
-	var ref companionRef
+func noteFor(tx *graph.WriteTx, entityID string) (noteRef, bool, error) {
+	var ref noteRef
 	err := tx.QueryRow(
 		`SELECT n.id, n.title FROM edges e
 		 JOIN nodes n ON n.id = e.src AND n.type = 'note' AND n.deleted_at IS NULL
 		 WHERE e.dst = ? AND e.label = ?`,
-		entityID, companionEdgeLabel,
+		entityID, EdgeLabel,
 	).Scan(&ref.id, &ref.title)
 	if err == sql.ErrNoRows {
-		return companionRef{}, false, nil
+		return noteRef{}, false, nil
 	}
 	if err != nil {
-		return companionRef{}, false, fmt.Errorf("companion: lookup describes edge: %w", err)
+		return noteRef{}, false, fmt.Errorf("companion: lookup describes edge: %w", err)
 	}
 	err = tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, ref.id).Scan(&ref.relPath)
 	if err == sql.ErrNoRows {
-		return companionRef{}, false, nil
+		return noteRef{}, false, nil
 	}
 	if err != nil {
-		return companionRef{}, false, fmt.Errorf("companion: lookup note path: %w", err)
+		return noteRef{}, false, fmt.Errorf("companion: lookup note path: %w", err)
 	}
 	return ref, true, nil
 }
 
-// rewriteCompanionDescription returns the file with its frontmatter re-rendered
+// rewriteDescription returns the file with its frontmatter re-rendered
 // around the new description, byte-for-byte preserving everything after the
 // closing fence. The body is the user's working material and is never the thing
 // being edited here.
@@ -291,7 +288,7 @@ func companionOf(tx *graph.WriteTx, entityID string) (companionRef, bool, error)
 //
 // ok is false when the file is not one kernl should rewrite: no frontmatter,
 // unparseable YAML, or an id naming a different note.
-func rewriteCompanionDescription(raw []byte, note companionRef, description string) ([]byte, bool) {
+func rewriteDescription(raw []byte, note noteRef, description string) ([]byte, bool) {
 	block, body := notes.SplitFrontmatter(string(raw))
 	if block == "" {
 		return nil, false
@@ -307,10 +304,10 @@ func rewriteCompanionDescription(raw []byte, note companionRef, description stri
 	if title == "" {
 		title = note.title
 	}
-	return renderCompanionMarkdown(note.id, title, description, body, fm.Tags), true
+	return renderMarkdown(note.id, title, description, body, fm.Tags), true
 }
 
-// renderCompanionMarkdown builds the markdown file content with a frontmatter
+// renderMarkdown builds the markdown file content with a frontmatter
 // id equal to the note node id, so reconcile.OnCreate/ColdStart match the
 // existing node by id rather than creating a duplicate.
 //
@@ -325,7 +322,7 @@ func rewriteCompanionDescription(raw []byte, note companionRef, description stri
 // and the file became unparseable the moment a title contained ":", "#" or a
 // leading "-". The marshaller quotes what needs quoting; a string builder cannot
 // know what that is.
-func renderCompanionMarkdown(id, title, description, body string, tags []string) []byte {
+func renderMarkdown(id, title, description, body string, tags []string) []byte {
 	// A local shape rather than frontmatter.Frontmatter: that struct is the READ
 	// contract and has no omitempty, so marshalling it would stamp empty author
 	// and origin lines onto every file.
@@ -351,15 +348,14 @@ func renderCompanionMarkdown(id, title, description, body string, tags []string)
 	return []byte(b.String())
 }
 
-// writeCompanionFile writes the companion markdown to the vault. It is a no-op
+// WriteFile writes the companion markdown to the vault. It is a no-op
 // when no vault root is configured (the node + edge are still created), so the
 // in-memory test harness and headless contexts do not error.
-func WriteCompanionFile(a *app.App, cf CompanionFile) error {
-	root := a.Config.Vault.Root
-	if root == "" || cf.relPath == "" {
+func WriteFile(vaultRoot string, cf File) error {
+	if vaultRoot == "" || cf.relPath == "" {
 		return nil
 	}
-	full := filepath.Join(root, filepath.FromSlash(cf.relPath))
+	full := filepath.Join(vaultRoot, filepath.FromSlash(cf.relPath))
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return fmt.Errorf("companion: mkdir: %w", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
@@ -38,7 +39,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	var id string
-	var companion CompanionFile
+	var companionFile companion.File
 
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		author := nodes.Author{Name: "api"}
@@ -59,7 +60,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		// file stem is its wikilink address, and renaming it would break links.
 		// A bookmark has no description of its own; the excerpt the archiver
 		// fetches lives on the bookmark node, not in the note's frontmatter.
-		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.BookmarksFolder, req.URL, "", "bookmark")
+		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, req.URL, "", "bookmark")
 		return err
 	})
 
@@ -67,7 +68,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := WriteCompanionFile(a, companion); err != nil {
+	if err := companion.WriteFile(a.Config.Vault.Root, companionFile); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
