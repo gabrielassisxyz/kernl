@@ -2,7 +2,10 @@ package inbox_test
 
 import (
 	"context"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -246,9 +249,32 @@ func TestReopenRemovesEveryDerivedNode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("DoRead: %v", err)
 	}
-	if files, _ := os.ReadDir(vault); len(files) != 0 {
-		t.Errorf("undo left %d vault files behind", len(files))
+	// No markdown anywhere, rather than an empty vault root: companions live in
+	// the layout's kernl/tasks and kernl/projects folders, and those folders are
+	// meant to outlive any single entity. What undo owes is that no file describing
+	// a node it deleted is left behind.
+	if leftover := markdownUnder(t, vault); len(leftover) != 0 {
+		t.Errorf("undo left markdown behind: %v", leftover)
 	}
+}
+
+// markdownUnder lists every .md file below root, vault-relative.
+func markdownUnder(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
+			rel, _ := filepath.Rel(root, path)
+			out = append(out, rel)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("walk vault: %v", err)
+	}
+	return out
 }
 
 // A discard among several actions means "this fragment is noise" - the capture

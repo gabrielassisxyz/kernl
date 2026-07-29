@@ -14,6 +14,8 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
 
@@ -126,6 +128,10 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 	// Set on an "update" merge: the note whose body changed, so its vault file
 	// can be mirrored after the tx commits.
 	var mergedNoteID, mergedNoteBody string
+	// Companion files for the entities this call created. They are written after
+	// the transaction commits, exactly like the API's create handlers do: the node,
+	// the describes edge and the note_paths row are transactional, the file is not.
+	var companions []companion.File
 
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		// Nodes created by this call, in action order. Provenance and the
@@ -145,23 +151,26 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 				}
 				createdIDs = append(createdIDs, id)
 			case "bookmark":
-				id, bookmark, err := createBookmarkFromAction(ctx, tx, action, author)
+				id, bookmark, cf, err := createBookmarkFromAction(ctx, tx, vaultRoot, action, author)
 				if err != nil {
 					return err
 				}
 				createdIDs = append(createdIDs, id)
 				newBookmarks = append(newBookmarks, bookmark)
+				companions = append(companions, cf)
 			case "task":
-				id, err := createTaskFromAction(ctx, tx, action, author)
+				id, cf, err := createTaskFromAction(ctx, tx, vaultRoot, action, author)
 				if err != nil {
 					return err
 				}
 				createdIDs = append(createdIDs, id)
+				companions = append(companions, cf)
 			case "project":
-				ids, err := createProjectFromAction(ctx, tx, action, author)
+				ids, cfs, err := createProjectFromAction(ctx, tx, vaultRoot, action, author)
 				if err != nil {
 					return err
 				}
+				companions = append(companions, cfs...)
 				// The project AND its initial tasks are all derived from this
 				// capture, so undo takes the whole subtree back out.
 				createdIDs = append(createdIDs, ids...)
@@ -229,6 +238,16 @@ func ProcessCapture(ctx context.Context, g *graph.Graph, vaultRoot string, archi
 	})
 	if err != nil {
 		return err
+	}
+
+	// The transaction committed, so every companion node exists in the graph and
+	// its note_paths row records a hash of these exact bytes. A file missing here
+	// reads to the reconciler as a note whose file was deleted by hand, so this
+	// loop is what keeps the cache honest rather than a convenience.
+	for _, cf := range companions {
+		if err := companion.WriteFile(vaultRoot, cf); err != nil {
+			slog.Warn("inbox: companion file not written", "err", err)
+		}
 	}
 
 	if archiver != nil {
@@ -335,7 +354,7 @@ func createNoteFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot stri
 
 	// The id suffix keeps two notes fanned out of the same capture in the same
 	// second from writing to the same file.
-	slug := fmt.Sprintf("capture-%s-%s", time.Now().Format("20060102150405"), shortID(id))
+	slug := fmt.Sprintf("capture-%s-%s", time.Now().Format("20060102150405"), uniqueSuffix(id))
 	md := fmt.Sprintf("---\nid: %s\ntitle: %q\ntags: [%s]\norigin: capture\n---\n\n%s",
 		id, n.Title, strings.Join(n.Tags, ", "), n.Body)
 	if err := os.WriteFile(filepath.Join(vaultRoot, slug+".md"), []byte(md), 0644); err != nil {
@@ -344,14 +363,25 @@ func createNoteFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot stri
 	return id, nil
 }
 
-func shortID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
+// uniqueSuffix returns the part of a node id that actually distinguishes it from
+// a sibling created milliseconds later.
+//
+// It takes the TAIL, not the head. Node ids are uuid v7, whose leading hex digits
+// encode the creation timestamp: every id minted in the same stretch of time
+// shares them. Slicing id[:8] therefore produced the same suffix for every note
+// of one fan-out, the file name collided, and each note overwrote the previous
+// one - the node stayed in the graph while its body was lost, which only surfaces
+// on a cold start rebuilt from the markdown. The random tail is what makes two
+// ids differ, so that is what the file name needs.
+func uniqueSuffix(id string) string {
+	const width = 8
+	if len(id) > width {
+		return id[len(id)-width:]
 	}
 	return id
 }
 
-func createBookmarkFromAction(ctx context.Context, tx *graph.WriteTx, action Action, author nodes.Author) (string, *nodes.Bookmark, error) {
+func createBookmarkFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot string, action Action, author nodes.Author) (string, *nodes.Bookmark, companion.File, error) {
 	b := nodes.Bookmark{
 		URL:   action.Body,
 		Title: action.Title,
@@ -365,13 +395,20 @@ func createBookmarkFromAction(ctx context.Context, tx *graph.WriteTx, action Act
 	}
 	id, err := nodes.CreateBookmark(ctx, tx, b, author)
 	if err != nil {
-		return "", nil, fmt.Errorf("create bookmark: %w", err)
+		return "", nil, companion.File{}, fmt.Errorf("create bookmark: %w", err)
 	}
 	b.ID = id
-	return id, &b, nil
+	// The bookmark's own description stays empty: the archiver fills the title
+	// later, and a description mirrored from the URL would be noise the sync path
+	// then has to keep in step.
+	cf, err := companion.Create(ctx, tx, vaultRoot, id, layout.BookmarksFolder, b.URL, "", "bookmark")
+	if err != nil {
+		return "", nil, companion.File{}, err
+	}
+	return id, &b, cf, nil
 }
 
-func createTaskFromAction(ctx context.Context, tx *graph.WriteTx, action Action, author nodes.Author) (string, error) {
+func createTaskFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot string, action Action, author nodes.Author) (string, companion.File, error) {
 	t := nodes.Task{
 		Title:       action.Title,
 		Description: action.Body,
@@ -384,23 +421,27 @@ func createTaskFromAction(ctx context.Context, tx *graph.WriteTx, action Action,
 	}
 	id, err := nodes.CreateTask(ctx, tx, t, author)
 	if err != nil {
-		return "", fmt.Errorf("create task: %w", err)
+		return "", companion.File{}, fmt.Errorf("create task: %w", err)
 	}
 	// Canonical link to the project (mirrored on the task's ProjectID for cheap
 	// filtering by ListTasks). An empty ProjectID leaves the task unfiled in the
 	// "unprocessed tasks" bucket.
 	if action.ProjectID != "" {
 		if err := linkPartOf(ctx, tx, id, action.ProjectID, author); err != nil {
-			return "", err
+			return "", companion.File{}, err
 		}
 	}
-	return id, nil
+	cf, err := companion.Create(ctx, tx, vaultRoot, id, layout.TasksFolder, t.Title, t.Description, "task")
+	if err != nil {
+		return "", companion.File{}, err
+	}
+	return id, cf, nil
 }
 
 // createProjectFromAction creates the project and its initial tasks, returning
 // every node it created (project first) so they all get provenance back to the
 // capture.
-func createProjectFromAction(ctx context.Context, tx *graph.WriteTx, action Action, author nodes.Author) ([]string, error) {
+func createProjectFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot string, action Action, author nodes.Author) ([]string, []companion.File, error) {
 	title := strings.TrimSpace(action.ProjectTitle)
 	if title == "" {
 		title = action.Title
@@ -418,24 +459,37 @@ func createProjectFromAction(ctx context.Context, tx *graph.WriteTx, action Acti
 		Tags:        action.Tags,
 	}, author)
 	if err != nil {
-		return nil, fmt.Errorf("create project: %w", err)
+		return nil, nil, fmt.Errorf("create project: %w", err)
 	}
 
 	created := []string{projectID}
+	projectCompanion, err := companion.Create(ctx, tx, vaultRoot, projectID, layout.ProjectsFolder, title, description, "project")
+	if err != nil {
+		return nil, nil, err
+	}
+	companions := []companion.File{projectCompanion}
+
 	for _, taskTitle := range cleanProjectTaskTitles(action.InitialTasks) {
 		taskID, err := nodes.CreateTask(ctx, tx, nodes.Task{
 			Title:     taskTitle,
 			ProjectID: projectID,
 		}, author)
 		if err != nil {
-			return nil, fmt.Errorf("create project task: %w", err)
+			return nil, nil, fmt.Errorf("create project task: %w", err)
 		}
 		if err := linkPartOf(ctx, tx, taskID, projectID, author); err != nil {
-			return nil, err
+			return nil, nil, err
+		}
+		// An initial task is a task like any other: without its own companion it
+		// would be the one node in the vault with nothing to annotate.
+		taskCompanion, err := companion.Create(ctx, tx, vaultRoot, taskID, layout.TasksFolder, taskTitle, "", "task")
+		if err != nil {
+			return nil, nil, err
 		}
 		created = append(created, taskID)
+		companions = append(companions, taskCompanion)
 	}
-	return created, nil
+	return created, companions, nil
 }
 
 func linkPartOf(ctx context.Context, tx *graph.WriteTx, taskID, projectID string, author nodes.Author) error {

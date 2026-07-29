@@ -1,11 +1,8 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -13,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
@@ -109,7 +107,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	author := nodes.Author{Name: "api"}
 	title := strings.TrimSpace(req.Title)
 	var id string
-	var companion CompanionFile
+	var companionFile companion.File
 	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var err error
 		id, err = nodes.CreateTask(ctx, tx, nodes.Task{
@@ -133,14 +131,14 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
-		companion, err = CreateCompanionNote(ctx, tx, a, id, layout.TasksFolder, title, req.Description, "task")
+		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.TasksFolder, title, req.Description, "task")
 		return err
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task: "+err.Error())
 		return
 	}
-	if err := WriteCompanionFile(a, companion); err != nil {
+	if err := companion.WriteFile(a.Config.Vault.Root, companionFile); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to write companion note: "+err.Error())
 		return
 	}
@@ -193,7 +191,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
-	var companion CompanionFile
+	var companionFile companion.File
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		if req.Title != nil {
 			// The companion note keeps its file name. After duplicate titles
@@ -209,7 +207,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 			var err error
-			if companion, err = SyncCompanionDescription(ctx, tx, a, id, *req.Description); err != nil {
+			if companionFile, err = companion.SyncDescription(ctx, tx, a.Config.Vault.Root, id, *req.Description); err != nil {
 				return err
 			}
 		}
@@ -238,7 +236,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	}
 	// After the commit, mirroring the create path: the hash the transaction
 	// recorded describes these bytes, so the file is written last.
-	if err := WriteCompanionFile(a, companion); err != nil {
+	if err := companion.WriteFile(a.Config.Vault.Root, companionFile); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update companion note: "+err.Error())
 		return
 	}
@@ -258,24 +256,9 @@ func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	// project, nothing points at it that we own.
 	var companionPath string
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		var noteID string
-		err := tx.QueryRow(
-			`SELECT e.src FROM edges e
-			 JOIN nodes n ON n.id = e.src AND n.type = 'note' AND n.deleted_at IS NULL
-			 WHERE e.dst = ? AND e.label = ?`,
-			id, companionEdgeLabel,
-		).Scan(&noteID)
-		if err != nil && err != sql.ErrNoRows {
+		var err error
+		if companionPath, err = companion.Delete(ctx, tx, id); err != nil {
 			return err
-		}
-		if noteID != "" {
-			_ = tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, noteID).Scan(&companionPath)
-			if err := nodes.DeleteNote(ctx, tx, noteID, nodes.Author{Name: "api"}); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(`DELETE FROM note_paths WHERE uuid = ?`, noteID); err != nil {
-				return err
-			}
 		}
 		return nodes.DeleteTask(ctx, tx, id, nodes.Author{Name: "api"})
 	})
@@ -288,11 +271,7 @@ func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
-	// Best-effort file removal after the transaction committed; the watcher
-	// treats a delete event for an already-gone node as a no-op.
-	if companionPath != "" && a.Config.Vault.Root != "" {
-		_ = os.Remove(filepath.Join(a.Config.Vault.Root, filepath.FromSlash(companionPath)))
-	}
+	companion.RemoveFile(a.Config.Vault.Root, companionPath)
 	w.WriteHeader(http.StatusNoContent)
 }
 

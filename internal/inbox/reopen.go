@@ -11,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 )
 
 // derivedNode is one node a capture became, as seen by the undo path.
@@ -47,9 +48,21 @@ func Reopen(ctx context.Context, g *graph.Graph, vaultRoot string, captureID str
 		return err
 	}
 
-	// Remove the derived nodes and return the capture to the pending queue.
+	// Remove the derived nodes and return the capture to the pending queue. A
+	// task, project or bookmark carries a companion note, so undo has to take
+	// that with it: leaving it behind would leave a note in the vault describing
+	// an entity that no longer exists, and the capture it came from back in the
+	// queue ready to create a second one.
+	var companionPaths []string
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		for _, d := range derived {
+			relPath, err := companion.Delete(ctx, tx, d.id)
+			if err != nil {
+				return err
+			}
+			if relPath != "" {
+				companionPaths = append(companionPaths, relPath)
+			}
 			if err := deleteDerived(ctx, tx, d, author); err != nil {
 				return err
 			}
@@ -70,6 +83,10 @@ func Reopen(ctx context.Context, g *graph.Graph, vaultRoot string, captureID str
 	})
 	if err != nil {
 		return err
+	}
+
+	for _, relPath := range companionPaths {
+		companion.RemoveFile(vaultRoot, relPath)
 	}
 
 	// Remove the markdown outside the transaction (mirrors how Process writes it).
