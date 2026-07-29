@@ -419,3 +419,8 @@ func RemoveFile(vaultRoot, relPath string) {
 		slog.Warn("companion: file not removed", "path", relPath, "error", err)
 	}
 }
+
+// RelPath is the vault-relative path the companion file was written to, for a
+// caller that has to report what it did. Empty for the zero File, which means
+// nothing was written.
+func (f File) RelPath() string { return f.relPath }

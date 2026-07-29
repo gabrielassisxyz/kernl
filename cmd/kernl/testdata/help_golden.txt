@@ -607,7 +607,7 @@ Flags:
 kernl note - Read and write vault notes (the same files the editor edits)
 
 Usage:
-  kernl note <list|read|write|append|delete|tags|suggest|apply-hunks> [args...]
+  kernl note <list|read|write|append|delete|tags|suggest|apply-hunks|backfill-companions> [args...]
 
 Subcommands:
   list           List notes with their graph node id, type and title
@@ -618,6 +618,7 @@ Subcommands:
   tags           List every note tag with the files carrying it
   suggest        Ask the DA for edit hunks on a note (never writes)
   apply-hunks    Apply hunks from 'note suggest' to a note
+  backfill-companions Write the missing companion note of every task, project and bookmark
 
 Every path is vault-relative (e.g. "projects/kernl.md"); the server
 resolves it against vault.root and rejects anything that escapes it.
@@ -756,6 +757,26 @@ Flags:
 Example:
   kernl note suggest daily.md --instruction "tighten the intro" --json > h.json
   kernl note apply-hunks daily.md --hunks h.json
+
+### kernl note backfill-companions
+kernl note backfill-companions - Write the missing companion note of every task, project and bookmark
+
+Usage:
+  kernl note backfill-companions [--dry-run] [--yes] [--json]
+
+A task, project or bookmark normally gets a companion note: the
+markdown file you annotate, and the only copy of that entity the
+vault backup carries, since the graph db is not versioned. An
+entity with none exists in the database and nowhere else.
+
+Lists them and writes nothing unless you pass --yes. This cannot
+tell an entity that never had a companion from one whose note you
+deleted on purpose, so a confirmed run brings the second kind back.
+
+Flags:
+  --dry-run  List what is missing and write nothing (the default)
+  --yes      Actually write the companion notes
+  --json     Emit {"dryRun","entities":[{"id","type","title","path"}]}
 
 ### kernl inbox
 kernl inbox - Triage the capture inbox (list, add, process, classify)

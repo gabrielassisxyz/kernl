@@ -14,12 +14,12 @@ import (
 	"time"
 )
 
-var noteSubs = []string{"list", "read", "write", "append", "delete", "tags", "suggest", "apply-hunks"}
+var noteSubs = []string{"list", "read", "write", "append", "delete", "tags", "suggest", "apply-hunks", "backfill-companions"}
 
 var noteCommand = commandMeta{
 	Name:    "note",
 	Summary: "Read and write vault notes (the same files the editor edits)",
-	Usage:   "kernl note <list|read|write|append|delete|tags|suggest|apply-hunks> [args...]",
+	Usage:   "kernl note <list|read|write|append|delete|tags|suggest|apply-hunks|backfill-companions> [args...]",
 	Details: `Every path is vault-relative (e.g. "projects/kernl.md"); the server
 resolves it against vault.root and rejects anything that escapes it.
 
@@ -158,6 +158,26 @@ Example:
 				{Name: "--json", Description: `Emit {"status","last_modified"} on stdout`},
 			},
 		},
+		{
+			Name:    "backfill-companions",
+			Summary: "Write the missing companion note of every task, project and bookmark",
+			Usage:   "kernl note backfill-companions [--dry-run] [--yes] [--json]",
+			Details: `A task, project or bookmark normally gets a companion note: the
+markdown file you annotate, and the only copy of that entity the
+vault backup carries, since the graph db is not versioned. An
+entity with none exists in the database and nowhere else.
+
+Lists them and writes nothing unless you pass --yes. This cannot
+tell an entity that never had a companion from one whose note you
+deleted on purpose, so a confirmed run brings the second kind back.
+
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--dry-run", Description: "List what is missing and write nothing (the default)"},
+				{Name: "--yes", Description: "Actually write the companion notes"},
+				{Name: "--json", Description: `Emit {"dryRun","entities":[{"id","type","title","path"}]}`},
+			},
+		},
 	},
 }
 
@@ -189,6 +209,8 @@ func runNote(v verbContext, args []string) error {
 		return runNoteTags(ctx, client, v.stdout(), asJSON, rest)
 	case "suggest":
 		return runNoteSuggest(ctx, client, v.stdout(), asJSON, rest)
+	case "backfill-companions":
+		return runNoteBackfillCompanions(ctx, client, v.stdout(), asJSON, rest)
 	default:
 		return runNoteApplyHunks(ctx, client, v.stdout(), asJSON, rest)
 	}

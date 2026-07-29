@@ -11,6 +11,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/preflight"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
@@ -27,11 +28,12 @@ func runDoctor(configPath string, args []string) error {
 	}
 
 	report := preflight.Run(preflight.Deps{
-		LookPath:     preflight.LookPath,
-		ConfigPath:   configPath,
-		GoVersion:    runtime.Version(),
-		Orchestrator: true,
-		VaultOrphans: func() ([]string, error) { return scanVaultOrphans(configPath) },
+		LookPath:          preflight.LookPath,
+		ConfigPath:        configPath,
+		GoVersion:         runtime.Version(),
+		Orchestrator:      true,
+		VaultOrphans:      func() ([]string, error) { return scanVaultOrphans(configPath) },
+		CompanionsMissing: func() (int, error) { return countMissingCompanions(configPath) },
 	})
 
 	if asJSON {
@@ -91,6 +93,39 @@ func scanVaultOrphans(configPath string) ([]string, error) {
 		out = append(out, fmt.Sprintf("%s (%s)", o.Path, o.Reason))
 	}
 	return out, nil
+}
+
+// countMissingCompanions counts entities with no companion note, opening the
+// graph read-only under the same rules as scanVaultOrphans: only if the database
+// is already there, and never creating one.
+func countMissingCompanions(configPath string) (int, error) {
+	cfg, err := loadCLIConfig(configPath)
+	if err != nil {
+		return 0, err
+	}
+	root := strings.TrimSpace(cfg.Vault.Root)
+	if root == "" {
+		return 0, nil
+	}
+	dbPath := filepath.Join(root, ".kernl-graph.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return 0, nil
+	}
+
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: dbPath})
+	if err != nil {
+		return 0, fmt.Errorf("opening graph: %w", err)
+	}
+	defer g.Close()
+
+	var missing int
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		orphans, err := companion.Missing(ctx, tx)
+		missing = len(orphans)
+		return err
+	})
+	return missing, err
 }
 
 // doctorReport is the machine contract for `kernl doctor --json` (DIAGNOSE

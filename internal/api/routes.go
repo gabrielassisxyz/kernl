@@ -30,6 +30,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterChatRoutes(mux, a)
 	RegisterChatResolveRoutes(mux, a)
 	RegisterVaultRoutes(mux, a)
+	registerCompanionBackfillRoutes(mux, a)
 	RegisterMemoryRoutes(mux, a)
 	RegisterBookmarkRoutes(mux, a)
 	RegisterProjectRoutes(mux, a)
