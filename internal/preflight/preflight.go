@@ -73,6 +73,10 @@ type Deps struct {
 	// has not opened yet when it runs preflight, so only `doctor` supplies it
 	// and the check is skipped when nil.
 	VaultOrphans func() ([]string, error)
+	// CompanionsMissing counts entities whose companion note is gone. Optional
+	// and graph-backed for the same reason as VaultOrphans, and supplied by the
+	// same caller.
+	CompanionsMissing func() (int, error)
 }
 
 func Run(deps Deps) *Report {
@@ -133,7 +137,41 @@ func Run(deps Deps) *Report {
 		checks = append(checks, vaultLayoutCheck(deps.VaultOrphans))
 	}
 
+	if deps.CompanionsMissing != nil {
+		checks = append(checks, companionNotesCheck(deps.CompanionsMissing))
+	}
+
 	return &Report{checks: checks}
+}
+
+// companionNotesCheck reports entities whose companion note is gone, which is the
+// mirror image of vaultLayoutCheck: that one finds files no entity claims, this
+// one finds entities with no file.
+//
+// Advisory, and for a sharper reason than vault-layout's. The count cannot
+// distinguish an entity that never had a companion from one whose note the user
+// deleted on purpose, and the second is a choice kernl honours elsewhere. So this
+// names the drift and points at the command that repairs it; it never repairs on
+// its own, and it never fails the run.
+func companionNotesCheck(count func() (int, error)) Check {
+	missing, err := count()
+	if err != nil {
+		return Check{
+			Name:     "companion-notes",
+			Detail:   fmt.Sprintf("could not scan the graph: %v", err),
+			Fix:      "check vault.root in the config and that the graph db is readable",
+			Advisory: true,
+		}
+	}
+	if missing == 0 {
+		return Check{Name: "companion-notes", OK: true, Advisory: true}
+	}
+	return Check{
+		Name:     "companion-notes",
+		Detail:   fmt.Sprintf("%d task/project/bookmark(s) have no companion note, so they exist only in the graph db and not in the vault markdown", missing),
+		Fix:      "kernl note backfill-companions --dry-run to see them, then --yes to write them",
+		Advisory: true,
+	}
 }
 
 // vaultLayoutCheck reports notes that live in a folder kernl generates but that
