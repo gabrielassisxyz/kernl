@@ -12,6 +12,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
@@ -191,4 +192,58 @@ func companionPathFor(t *testing.T, a *app.App, entityID string) string {
 		t.Fatalf("companion path for %s: %v", entityID, err)
 	}
 	return path
+}
+
+// An entity that lost a companion once and has one now must not be offered up
+// again. This is the shape the sweep hit on a real vault: three entities whose
+// companion had been deleted in July kept being reported as missing after the
+// backfill had already given them a new one, because the scan asked the question
+// per edge instead of per entity. A second confirmed run would have written a
+// second companion for each.
+func TestCompanionBackfillIgnoresADeletedCompanionAlongsideALiveOne(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+	id := seedBareTask(t, a, "Task que já perdeu uma companheira", "")
+
+	// The state the real vault was in, reached the way it was reached there: the
+	// companion's FILE was deleted, so the watcher tombstoned the note. That is a
+	// SOFT delete, which keeps the node row and its describes edge; the hard delete
+	// behind nodes.DeleteNote takes the edge with it via ON DELETE CASCADE and would
+	// not reproduce this at all.
+	var deadNoteID string
+	if err := a.Graph.DoWrite(context.Background(), func(tx *graph.WriteTx) error {
+		var err error
+		deadNoteID, err = nodes.CreateNote(context.Background(), tx, nodes.Note{
+			Title: "companheira antiga",
+		}, nodes.Author{Name: "test"})
+		if err != nil {
+			return err
+		}
+		if _, err := edges.Create(context.Background(), tx, edges.Edge{
+			Src: deadNoteID, Dst: id, Label: "describes",
+		}, nodes.Author{Name: "test"}); err != nil {
+			return err
+		}
+		return nodes.SoftDeleteNoteTx(context.Background(), tx, deadNoteID, "companheira-antiga", "companheira antiga", nodes.Author{Name: "test"})
+	}); err != nil {
+		t.Fatalf("seed deleted companion: %v", err)
+	}
+
+	// First pass: no live companion, so it is genuinely missing and gets one.
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("POST", "/api/vault/companions/backfill", bytes.NewReader([]byte("{}"))))
+	if w.Code != http.StatusOK {
+		t.Fatalf("first pass: %d %s", w.Code, w.Body.String())
+	}
+	if got := len(decodeBackfill(t, w.Body.Bytes()).Entities); got != 1 {
+		t.Fatalf("first pass wrote %d companions, want 1", got)
+	}
+
+	// Second pass: the dead edge is still there next to the live one, and it must
+	// not read as an entity without a companion.
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest("GET", "/api/vault/companions/missing", nil))
+	if got := decodeBackfill(t, w.Body.Bytes()).Entities; len(got) != 0 {
+		t.Errorf("a deleted companion next to a live one still reads as missing: %+v", got)
+	}
 }
