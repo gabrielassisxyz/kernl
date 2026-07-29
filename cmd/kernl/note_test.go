@@ -147,6 +147,89 @@ func TestNoteWriteWithoutSourceOrStdinFailsLoud(t *testing.T) {
 	}
 }
 
+func TestNoteAppendSendsOnlyTheBlockToTheEnd(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"appended","path":"log.md","position":"end","bytes":9}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "append", "log.md", "--file", local)
+	if err != nil {
+		t.Fatalf("note append: %v", err)
+	}
+	req := api.requests[0]
+	if req.method != http.MethodPost || req.path != "/api/vault/append" {
+		t.Fatalf("wrong call: %+v", req)
+	}
+	// Only the new block travels - shipping the whole note back is the cost the
+	// verb exists to remove.
+	if req.body != "## entry\n" {
+		t.Fatalf("body must be the block verbatim, got %q", req.body)
+	}
+	if !strings.Contains(req.query, "position=end") || !strings.Contains(req.query, "path=log.md") {
+		t.Fatalf("path and position must travel as query params, got %q", req.query)
+	}
+	if !strings.Contains(out, "Appended 9 bytes to log.md") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+func TestNoteAppendPrependAsksForTheStart(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"appended","position":"start"}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "append", "log.md", "--prepend", "--file", local)
+	if err != nil {
+		t.Fatalf("note append --prepend: %v", err)
+	}
+	if !strings.Contains(api.requests[0].query, "position=start") {
+		t.Fatalf("--prepend must ask for the start, got %q", api.requests[0].query)
+	}
+	if !strings.Contains(out, "Prepended 9 bytes to log.md") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+func TestNoteAppendJSONPassesTheServerEnvelopeThrough(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"appended","path":"log.md","position":"end","bytes":9}`))
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "append", "log.md", "--file", local, "--json")
+	if err != nil {
+		t.Fatalf("note append --json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("--json must emit JSON, got %q", out)
+	}
+	if decoded["status"] != "appended" || decoded["position"] != "end" {
+		t.Fatalf("unexpected envelope: %v", decoded)
+	}
+}
+
+// A 404 from the server is the "that note does not exist" case, and it must
+// reach the caller as a failure instead of a cheerful confirmation.
+func TestNoteAppendSurfacesAMissingNote(t *testing.T) {
+	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no such note: log.md", http.StatusNotFound)
+	})
+	local := filepath.Join(t.TempDir(), "entry.md")
+	if err := os.WriteFile(local, []byte("## entry\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "append", "log.md", "--file", local)
+	if err == nil {
+		t.Fatal("appending to a missing note must fail")
+	}
+	if strings.Contains(out, "Appended") {
+		t.Fatalf("nothing may be reported as written, got %q", out)
+	}
+}
+
 func TestNoteDeleteRequiresYes(t *testing.T) {
 	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	out, err := api.run(t, "delete", "notes/x.md")

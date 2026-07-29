@@ -14,7 +14,17 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/notes"
 	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
+)
+
+// The two ends POST /api/vault/append writes to. A newest-first log grows at
+// the start, an ordinary journal at the end; there is no third position on
+// purpose, because an offset-addressed insert is a different feature with a
+// different failure mode (a stale offset corrupts the note silently).
+const (
+	appendPositionStart = "start"
+	appendPositionEnd   = "end"
 )
 
 func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
@@ -165,6 +175,89 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"status":"saved"}`))
+	})
+
+	// Add a block to one end of an existing note without a read-modify-write
+	// round trip. POST /api/vault/file is the wrong tool for a log that only
+	// grows at one end: the caller has to ship the whole file back, twice the
+	// transfer for a 160 KB note, and anything that writes between the read and
+	// the write is silently overwritten.
+	//
+	// The graph is deliberately left to the vault watcher, exactly as the
+	// full-file write leaves it: OnChange re-reads the file, updates the note
+	// node and refreshes note_paths.content_hash from the bytes on disk. Writing
+	// the hash here as well would only race that same write.
+	mux.HandleFunc("POST /api/vault/append", func(w http.ResponseWriter, r *http.Request) {
+		root := a.Config.Vault.Root
+		if root == "" {
+			home, _ := os.UserHomeDir()
+			root = filepath.Join(home, ".kernl", "vault")
+		}
+
+		filePath := r.URL.Query().Get("path")
+		if filePath == "" {
+			http.Error(w, "missing path", http.StatusBadRequest)
+			return
+		}
+		position := r.URL.Query().Get("position")
+		if position == "" {
+			position = appendPositionEnd
+		}
+		if position != appendPositionEnd && position != appendPositionStart {
+			http.Error(w, "position must be "+appendPositionStart+" or "+appendPositionEnd, http.StatusBadRequest)
+			return
+		}
+
+		fullPath, err := resolveVaultFilePath(root, filePath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		block, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if strings.TrimSpace(string(block)) == "" {
+			http.Error(w, "the block to add is empty", http.StatusBadRequest)
+			return
+		}
+
+		// Append never creates. A typo'd path that silently produced a new note
+		// would scatter one log across several files, and the caller would find
+		// out only when the entries went missing.
+		current, err := os.ReadFile(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "no such note: "+filePath+" - append only adds to a note that exists; create it first with POST /api/vault/file", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		updated := notes.AppendBlock(string(current), string(block))
+		if position == appendPositionStart {
+			updated = notes.PrependBlock(string(current), string(block))
+		}
+		if err := os.WriteFile(fullPath, []byte(updated), 0644); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if info, statErr := os.Stat(fullPath); statErr == nil {
+			lm := info.ModTime().Format(time.RFC3339)
+			w.Header().Set("Last-Modified", lm)
+			w.Header().Set("ETag", lm)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"status":   "appended",
+			"path":     filePath,
+			"position": position,
+			"bytes":    len(block),
+		})
 	})
 
 	// Deleting the file is enough: the vault watcher's OnDelete reconciles the

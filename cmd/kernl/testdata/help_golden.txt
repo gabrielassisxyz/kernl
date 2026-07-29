@@ -607,12 +607,13 @@ Flags:
 kernl note - Read and write vault notes (the same files the editor edits)
 
 Usage:
-  kernl note <list|read|write|delete|tags|suggest|apply-hunks> [args...]
+  kernl note <list|read|write|append|delete|tags|suggest|apply-hunks> [args...]
 
 Subcommands:
   list           List notes with their graph node id, type and title
   read           Print a note's contents
   write          Create or overwrite a note from a file or stdin
+  append         Add a block to one end of an existing note
   delete         Move a note to the trash (requires --yes)
   tags           List every note tag with the files carrying it
   suggest        Ask the DA for edit hunks on a note (never writes)
@@ -663,6 +664,30 @@ Flags:
 Examples:
   kernl note write inbox/idea.md --file ./draft.md
   echo "# Title" | kernl note write inbox/idea.md
+
+### kernl note append
+kernl note append - Add a block to one end of an existing note
+
+Usage:
+  kernl note append <path> [--file <local-path>] [--prepend] [--json]
+
+The block comes from --file, or from stdin when --file is omitted, and
+lands at the bottom of the note separated by one blank line. Nothing
+else in the note is rewritten, so a log that only grows at one end no
+longer has to be read back and re-uploaded whole to gain one entry.
+
+Appending to a note that does not exist fails; create it with
+'kernl note write' first.
+
+Flags:
+  --file <local-path>  Read the block from a local file instead of stdin
+  --prepend            Put the block at the top instead, under the frontmatter
+                       (what a newest-first log wants)
+  --json               Emit {"status","path","position","bytes"} on stdout
+
+Examples:
+  printf '## 2026-07-29\n\nwhat happened\n' | kernl note append journal.md
+  kernl note append "system log.md" --file ./entry.md --prepend
 
 ### kernl note delete
 kernl note delete - Move a note to the trash (requires --yes)
