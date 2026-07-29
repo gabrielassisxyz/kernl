@@ -335,7 +335,7 @@ func createNoteFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot stri
 
 	// The id suffix keeps two notes fanned out of the same capture in the same
 	// second from writing to the same file.
-	slug := fmt.Sprintf("capture-%s-%s", time.Now().Format("20060102150405"), shortID(id))
+	slug := fmt.Sprintf("capture-%s-%s", time.Now().Format("20060102150405"), uniqueSuffix(id))
 	md := fmt.Sprintf("---\nid: %s\ntitle: %q\ntags: [%s]\norigin: capture\n---\n\n%s",
 		id, n.Title, strings.Join(n.Tags, ", "), n.Body)
 	if err := os.WriteFile(filepath.Join(vaultRoot, slug+".md"), []byte(md), 0644); err != nil {
@@ -344,9 +344,20 @@ func createNoteFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot stri
 	return id, nil
 }
 
-func shortID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
+// uniqueSuffix returns the part of a node id that actually distinguishes it from
+// a sibling created milliseconds later.
+//
+// It takes the TAIL, not the head. Node ids are uuid v7, whose leading hex digits
+// encode the creation timestamp: every id minted in the same stretch of time
+// shares them. Slicing id[:8] therefore produced the same suffix for every note
+// of one fan-out, the file name collided, and each note overwrote the previous
+// one - the node stayed in the graph while its body was lost, which only surfaces
+// on a cold start rebuilt from the markdown. The random tail is what makes two
+// ids differ, so that is what the file name needs.
+func uniqueSuffix(id string) string {
+	const width = 8
+	if len(id) > width {
+		return id[len(id)-width:]
 	}
 	return id
 }
