@@ -424,3 +424,17 @@ func RemoveFile(vaultRoot, relPath string) {
 // caller that has to report what it did. Empty for the zero File, which means
 // nothing was written.
 func (f File) RelPath() string { return f.relPath }
+
+// WriteFiles writes a batch of companion files after their transaction
+// committed. It stops at the first failure and reports which file it was: the
+// graph rows are already in, so a file that does not land is drift the
+// reconciler will read as a note deleted by hand, and knowing which one is the
+// difference between a fix and a guess.
+func WriteFiles(vaultRoot string, files []File) error {
+	for _, cf := range files {
+		if err := WriteFile(vaultRoot, cf); err != nil {
+			return fmt.Errorf("companion: writing %s: %w", cf.relPath, err)
+		}
+	}
+	return nil
+}

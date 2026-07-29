@@ -20,6 +20,8 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/ingest"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 type ingestSourceFetcher interface {
@@ -276,6 +278,7 @@ func createIngestSourceNode(ctx context.Context, a *app.App, doc ingest.SourceDo
 		title = doc.URL
 	}
 	var id string
+	var cf companion.File
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var err error
 		id, err = nodes.CreateBookmark(ctx, tx, nodes.Bookmark{
@@ -284,9 +287,25 @@ func createIngestSourceNode(ctx context.Context, a *app.App, doc ingest.SourceDo
 			Description: "ingest source: " + doc.Kind,
 			Tags:        []string{"ingest-source"},
 		}, nodes.Author{Name: "ingest-source"})
+		if err != nil {
+			return err
+		}
+		// An ingest source is a bookmark like any other as far as the vault is
+		// concerned, so it gets the same companion. Skipping it would be worse than
+		// inconsistent: the doctor check and the backfill sweep both look for
+		// bookmarks with no companion, so an exception here would be reported as
+		// drift forever and repaired by the sweep anyway. The ingest-source tag
+		// travels onto the note, which is what keeps it distinguishable.
+		cf, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, doc.URL, "", "bookmark", "ingest-source")
 		return err
 	})
-	return id, err
+	if err != nil {
+		return "", err
+	}
+	if err := companion.WriteFile(a.Config.Vault.Root, cf); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func ingestQueueListHandler(a *app.App) http.HandlerFunc {

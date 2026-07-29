@@ -11,6 +11,8 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/bookmarks"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
+	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
 func runBookmark(configPath string, args []string) error {
@@ -60,6 +62,7 @@ func runBookmarkAdd(a *app.App, args []string) error {
 	url := args[0]
 	ctx := context.Background()
 	var id, saved string
+	var cf companion.File
 
 	// An explicit --title outranks extraction and is never overwritten by it:
 	// the pages worth bookmarking by hand are often the ones whose markup lies
@@ -92,11 +95,22 @@ func runBookmarkAdd(a *app.App, args []string) error {
 			return wrapLoud("update bookmark", err)
 		}
 
+		// Labelled by URL, not by the title the archiver just extracted, so that
+		// every bookmark companion is named the same way no matter which surface
+		// created it: the API has no title yet at this point (it archives async).
+		cf, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, b.URL, "", "bookmark")
+		if err != nil {
+			return err
+		}
+
 		saved = b.Title
 		return nil
 	})
 
 	if err != nil {
+		return err
+	}
+	if err := companion.WriteFile(a.Config.Vault.Root, cf); err != nil {
 		return err
 	}
 
@@ -246,14 +260,15 @@ func runBookmarkImport(a *app.App, args []string) error {
 	ctx := context.Background()
 	var count int
 
+	var companions []companion.File
 	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		author := nodes.Author{Name: "cli"}
 		var innerErr error
 		switch format {
 		case "pocket":
-			count, innerErr = bookmarks.ImportPocket(ctx, tx, f, author)
+			count, companions, innerErr = bookmarks.ImportPocket(ctx, tx, a.Config.Vault.Root, f, author)
 		case "pinboard":
-			count, innerErr = bookmarks.ImportPinboard(ctx, tx, f, author)
+			count, companions, innerErr = bookmarks.ImportPinboard(ctx, tx, a.Config.Vault.Root, f, author)
 		default:
 			return fmt.Errorf("KERNL DISPATCH FAILURE: unknown format %q", format)
 		}
@@ -264,6 +279,9 @@ func runBookmarkImport(a *app.App, args []string) error {
 	})
 
 	if err != nil {
+		return err
+	}
+	if err := companion.WriteFiles(a.Config.Vault.Root, companions); err != nil {
 		return err
 	}
 
