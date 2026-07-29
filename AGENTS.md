@@ -1,6 +1,6 @@
 # Kernl: Master Agent Briefing
 
-> **Read this before every interaction.** It is the living spec: short, imperative, action-oriented. Every gotcha, architectural decision or "common hurdle" discovered along the way gets one line added here.
+> **Read this before every interaction.** It is the living public project contract: short, imperative, and action-oriented. Keep stable repository conventions, user-visible constraints, and reproducible build hazards here. Do not turn it into a session log: one-off progress, scratch plans, and harness-specific learnings belong in `local/` or the harness memory.
 >
 > This is the single canonical agent-instruction file for all harnesses (Claude Code, Codex, OpenCode, …). `CLAUDE.md` just points here. Both are tracked: a clone that does not carry them starts without the project's conventions, and so does the agent working in it.
 
@@ -26,7 +26,7 @@ bin/ci                                      # before pushing
 ```
 
 - **Backend/CLI:** Go 1.26+. Single binary built from `./cmd/kernl`.
-- **Issue tracker / orchestrator storage:** **`bd` only** (gastownhall/beads ≥ 1.0.4, Dolt **embedded**). `br`/`bv` are NOT used in this repo and stay out. `.beads/` is gitignored (no task data in the public repo).
+- **Orchestrator storage:** **`bd` only** (gastownhall/beads ≥ 1.0.4, Dolt **embedded**). This is the *product's* runtime store for executing epics, **not** this repo's own dev-task tracker; that is §6, and conflating the two is how `bd` ends up proposed as a backlog backend. `br`/`bv` are NOT used in this repo and stay out. `.beads/` is gitignored (no task data in the public repo).
 - **Runtime state:** `~/.kernl/state/<bead-id>.json` per-bead store (heartbeats, follow-up counts, watchdog). Purgeable, reconstructed from bead metadata on restart.
 - **Graph substrate:** SQLite at `<vault.root>/.kernl-graph.db` (nodes/edges/revisions/tags + FTS5). API, vault watcher, and `kernl capture` all share this one DB.
 - **Frontend:** Vue 3 (Composition API) + **Nuxt**, in `web/`. Built to static (`nuxt generate` → `web/.output/public`) and **embedded into the Go binary** via `//go:embed` (see `web/embed.go`).
@@ -92,7 +92,7 @@ cd web && npm install && npm run generate   # produces web/.output/public
 - **Work in your own worktree. Mandatory.** Multiple sessions run in parallel and nothing tells you another is active. Before your first write, run **`bin/worktree new
   <type>/<short-name>`** and do everything in the dir it prints (branched off a fresh
   `origin/master`, under `$WORKTREE_BASE/kernl/<task>`). The main tree stays on `master` as a clean reference, never commit there. `feat/<short-name>` / `fix/<short-name>`, or `feat/<epicID>` for an epic. Read-only exploration needs no worktree. Tidy up merged worktrees with `bin/worktree status` / `rm`.
-- **Task tracking.** The published statement of direction is **`ROADMAP.md`**: what exists, what is missing, what is deliberately out of scope. The working backlog and the parked ideas are maintainer notes in `local/` (see §0). Backend for now: **markdown**; the product's `bd`/orchestrator store is a separate runtime concern, never a dev-task backend.
+- **Task tracking.** The working backlog and the parked ideas are maintainer notes in `local/` (see §0). Backend for now: **markdown**; the product's `bd`/orchestrator store is a separate runtime concern, never a dev-task backend. **There is deliberately no published roadmap.** A statement of direction nobody maintains reads as a promise, and at pre-1.0 with one user there is no direction stable enough to publish. If one earns its place later it comes back; until then, what the project does is what the README and the code say it does.
 - **Small releases:** atomic commits, `type: what changed`. Every commit on `master` passes `bin/ci` and is production-ready. Never `git add .` blind: separate unrelated changes. Closed work gets committed before the next task starts; say so when it hasn't been.
 - **Before every commit:** show `git status` + `git diff --cached` and confirm no `.env`, token, key, or secret is staged. If one is, **STOP and say so**. The deterministic backstop is the `gitleaks` pre-commit hook (`bin/install-hooks`); this habit is the probabilistic one. If a secret ever lands, rotate the key, because a pushed secret is compromised regardless of history rewrite.
 - **Anti-overwrite:** never overwrite a file without first reading/`git diff`-ing it.
@@ -101,7 +101,7 @@ cd web && npm install && npm run generate   # produces web/.output/public
 
 ## 7. Pair programming with an agent
 
-- The human defines the **WHAT**; the agent decides the **HOW**. Don't wait for line-by-line dictation.
+- The human defines the **WHAT**; for consequential **HOW** decisions (architecture, semantics, new dependencies, or a changed public contract), the agent presents options and trade-offs and waits for a decision. Once the direction is settled, the agent owns the implementation details; do not wait for line-by-line dictation.
 - **Plan first.** For any non-trivial task, present the full plan + to-do list and wait for approval BEFORE writing code. For destructive operations, gate behind an explicit flag.
 - A non-trivial task should arrive with four things: **what is wanted / how / what is explicitly NOT wanted / how it gets validated.** When one is missing (especially the anti-goal), ask instead of assuming the default.
 - If a task is impossible under the stated constraints, or information is missing, **say so, don't invent or guess.** Propose a better approach when you have one: this project wants to be contested, not obeyed blindly.
