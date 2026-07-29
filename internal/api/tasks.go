@@ -1,11 +1,8 @@
 package api
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -259,24 +256,9 @@ func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	// project, nothing points at it that we own.
 	var companionPath string
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		var noteID string
-		err := tx.QueryRow(
-			`SELECT e.src FROM edges e
-			 JOIN nodes n ON n.id = e.src AND n.type = 'note' AND n.deleted_at IS NULL
-			 WHERE e.dst = ? AND e.label = ?`,
-			id, companion.EdgeLabel,
-		).Scan(&noteID)
-		if err != nil && err != sql.ErrNoRows {
+		var err error
+		if companionPath, err = companion.Delete(ctx, tx, id); err != nil {
 			return err
-		}
-		if noteID != "" {
-			_ = tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, noteID).Scan(&companionPath)
-			if err := nodes.DeleteNote(ctx, tx, noteID, nodes.Author{Name: "api"}); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(`DELETE FROM note_paths WHERE uuid = ?`, noteID); err != nil {
-				return err
-			}
 		}
 		return nodes.DeleteTask(ctx, tx, id, nodes.Author{Name: "api"})
 	})
@@ -289,11 +271,7 @@ func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
-	// Best-effort file removal after the transaction committed; the watcher
-	// treats a delete event for an already-gone node as a no-op.
-	if companionPath != "" && a.Config.Vault.Root != "" {
-		_ = os.Remove(filepath.Join(a.Config.Vault.Root, filepath.FromSlash(companionPath)))
-	}
+	companion.RemoveFile(a.Config.Vault.Root, companionPath)
 	w.WriteHeader(http.StatusNoContent)
 }
 

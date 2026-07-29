@@ -364,3 +364,58 @@ func WriteFile(vaultRoot string, cf File) error {
 	}
 	return nil
 }
+
+// Delete removes the companion note of an entity: the note node and its
+// note_paths row inside the caller's transaction, returning the vault-relative
+// path so the caller can unlink the file once that transaction has committed. An
+// entity with no companion returns "" and no error, which is the normal case for
+// anything created before companions existed.
+//
+// The file is deliberately NOT removed here. The graph write can still roll back
+// after this returns, and a file deleted inside a transaction that then aborts is
+// gone for good, while an orphan file merely waits to be adopted by the
+// reconciler. So the destructive half runs last, outside the transaction, exactly
+// like Create defers WriteFile.
+func Delete(ctx context.Context, tx *graph.WriteTx, entityID string) (string, error) {
+	var noteID string
+	err := tx.QueryRow(
+		`SELECT e.src FROM edges e
+		 JOIN nodes n ON n.id = e.src AND n.type = 'note' AND n.deleted_at IS NULL
+		 WHERE e.dst = ? AND e.label = ?`,
+		entityID, EdgeLabel,
+	).Scan(&noteID)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("companion: lookup describes edge: %w", err)
+	}
+
+	var relPath string
+	// A companion with no note_paths row is possible (the row is written by
+	// Create, but a hand-deleted vault file leaves the node behind), and it only
+	// means there is no file to unlink.
+	if err := tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, noteID).Scan(&relPath); err != nil && err != sql.ErrNoRows {
+		return "", fmt.Errorf("companion: lookup note path: %w", err)
+	}
+	if err := nodes.DeleteNote(ctx, tx, noteID, nodes.Author{Name: "companion"}); err != nil {
+		return "", fmt.Errorf("companion: delete note: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM note_paths WHERE uuid = ?`, noteID); err != nil {
+		return "", fmt.Errorf("companion: delete note_paths: %w", err)
+	}
+	return relPath, nil
+}
+
+// RemoveFile unlinks a companion file after its transaction committed. Failure is
+// not returned: the node is already gone, so a leftover file is inert (the
+// watcher reads a delete for a node that no longer exists as a no-op) and there
+// is nothing the caller could do about it anyway.
+func RemoveFile(vaultRoot, relPath string) {
+	if vaultRoot == "" || relPath == "" {
+		return
+	}
+	if err := os.Remove(filepath.Join(vaultRoot, filepath.FromSlash(relPath))); err != nil && !os.IsNotExist(err) {
+		slog.Warn("companion: file not removed", "path", relPath, "error", err)
+	}
+}
