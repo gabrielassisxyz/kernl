@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/subprocess"
@@ -259,7 +260,9 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: bead.State, Success: false},
 				fmt.Errorf("KERNL DISPATCH FAILURE: empty prompt for bead %s at state %s - Fix: the stage prompt builder returned nothing; check the preceding error for why it declined", deps.BeadID, activeState)
 		}
-		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
+		agentInput.Command, agentInput.Args = BuildStageArgs(
+			adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
+			agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
 		if agentInput.Env == nil {
 			agentInput.Env = make(map[string]string)

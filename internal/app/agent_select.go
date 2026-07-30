@@ -34,18 +34,17 @@ func ResolveAgentForPool(cfg *config.Config, pool string) (RunBeadInput, error) 
 		return RunBeadInput{}, fmt.Errorf("KERNL DISPATCH FAILURE: selecting agent from pool %q: %w", pool, err)
 	}
 
-	args := copySlice(agentCfg.Args)
-	if agentCfg.Model != "" {
-		// Append --model so the CLI binary knows which upstream provider/model to
-		// use. This is supported by opencode and most litellm-proxy consumers.
-		args = append(args, "--model", agentCfg.Model)
-	}
-
+	// The model is NOT appended here: each CLI names it differently
+	// (--model, -m, -c model="..."), so the flag is chosen per dialect when
+	// the stage argv is built. Baking --model in made every agent that is
+	// not opencode undispatchable.
 	return RunBeadInput{
-		Command:   agentCfg.Command,
-		Args:      args,
-		Env:       agentCfg.Env,
-		AgentName: agentID,
+		Command:      agentCfg.Command,
+		Args:         copySlice(agentCfg.Args),
+		Model:        agentCfg.Model,
+		ApprovalMode: agentCfg.ApprovalMode,
+		Env:          agentCfg.Env,
+		AgentName:    agentID,
 	}, nil
 }
 
