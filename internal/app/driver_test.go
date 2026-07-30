@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -115,6 +116,36 @@ func (p *stubProvider) PushEvent(id string, evt session.TerminalEvent) {}
 
 func newTestSCM() *session.SessionConnectionManager {
 	return session.NewSessionConnectionManager(&stubProvider{}, nil)
+}
+
+// A follow-up resumes the same conversation and must resume it under the same
+// allowlist. The nudge path used to re-derive one with no stage, which drops
+// the stage contract's deny rules, so the record has to carry the path the
+// dispatch actually ran under.
+func TestDriverRecordsTheAllowlistTheNudgeMustReuse(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "ready_for_implementation"}}
+	spawn := &fakeSpawner{
+		script: "{\"type\":\"session_idle\"}\n",
+		onExit: func() { be.state["kb-1"] = "done" },
+	}
+	nudges := session.NewNudgeRegistry()
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), NudgeRegistry: nudges})
+
+	stageAllowlist := filepath.Join(t.TempDir(), "opencode-kb-1-implementation.json")
+	if _, err := d.RunBead(context.Background(), RunBeadInput{
+		BeadID: "kb-1", RepoPath: t.TempDir(), Command: "opencode", AgentName: "opencode",
+		Env: map[string]string{"OPENCODE_CONFIG": stageAllowlist},
+	}); err != nil {
+		t.Fatalf("RunBead: %v", err)
+	}
+
+	rec, ok := nudges.Get("kb-1-opencode")
+	if !ok {
+		t.Fatal("driver must register the spawn context for the nudge path")
+	}
+	if rec.OpencodeConfigPath != stageAllowlist {
+		t.Errorf("OpencodeConfigPath = %q, want the allowlist the dispatch ran under %q", rec.OpencodeConfigPath, stageAllowlist)
+	}
 }
 
 func TestDriverRunBeadAdvancesViaTakeLoop(t *testing.T) {
