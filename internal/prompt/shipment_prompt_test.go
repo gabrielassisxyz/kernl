@@ -44,6 +44,23 @@ func TestRenderShipment_Content(t *testing.T) {
 	}
 }
 
+// Shipment runs under claude and codex too, and neither has opencode's
+// permission model. Explaining opencode's rejections to them is noise that
+// invites an agent to reason about a sandbox it is not in.
+func TestRenderShipment_DoesNotExplainAnotherAgentsSandbox(t *testing.T) {
+	out, err := prompt.RenderShipment(sampleShipmentInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "opencode") {
+		t.Error("the shipment prompt has no dialect and must not name one")
+	}
+	// The prohibition itself is dialect-neutral and stays.
+	if !strings.Contains(out, "/tmp") {
+		t.Error("the shipment prompt must still keep scratch files out of /tmp")
+	}
+}
+
 func TestRenderShipment_EmptyBranches(t *testing.T) {
 	cases := []prompt.ShipmentInput{
 		{EpicID: "e1", EpicTitle: "x", EpicBranch: "", BaseBranch: "master", RemoteName: "origin", RemoteURL: "u", RepoSlug: "h/o/r"},

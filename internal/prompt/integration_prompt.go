@@ -30,7 +30,7 @@ type IntegrationInput struct {
 
 const integrationTemplate = `You are the kernl integration agent for epic {{.EpicID}}: "{{.EpicTitle}}".
 
-Your job: merge each child branch into the epic branch in topological order, resolve any conflicts, verify the combined tree builds, and finish with a marker commit. Do NOT push and do NOT create a PR - that is the separate shipment stage.
+Your job: merge each child branch into the epic branch in topological order, resolve any conflicts, verify the combined tree passes this repository's own check, and finish with a marker commit. Do NOT push and do NOT create a PR - that is the separate shipment stage.
 
 Inputs:
 - epic_branch: {{.EpicBranch}}
@@ -44,9 +44,10 @@ Procedure:
    a. git merge --no-ff {{"{{.Branch}}"}}
    b. On conflict: read the conflict markers; resolve safely using the full context of the epic and child descriptions, then git add the resolved files and git commit. If you cannot converge within your follow-up budget, write
       "merge_outcome: merge_conflict" and "merge_conflict_at: {{"{{.Branch}}"}}" to the epic bead description (via bd update) and STOP.
+   Resolving a conflict means writing code, and this repository's conventions are the ones that apply to it: read AGENTS.md in your worktree (or CONTRIBUTING.md, or the README) before you write any. Nothing about how any other project works applies here.
 3. After all merges succeed, verify the combined tree with this repository's own check:
    {{.VerifyCommand}}
-   If it fails, the merge is not done: fix the combined tree and re-run it.
+   If it fails, the merge is not done: fix the combined tree and re-run it. Whatever this command checks is what "done" means here - do not substitute a check of your own.
 4. Finish with a marker commit whose message contains EXACTLY the literal "stage: integration", for example:
    git commit --allow-empty -m "stage: integration: merged N child branches into {{.EpicBranch}}"
    This marker commit is REQUIRED - an exit gate checks for it.

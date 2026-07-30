@@ -29,6 +29,11 @@ func TestRenderIntegration_Content(t *testing.T) {
 		"merge_conflict",
 		"feat/e1",
 		"bin/ci",
+		// Integration replaces the generic stage prompt wholesale, so the rule
+		// that sends an agent to the target repository's own conventions never
+		// reaches this stage unless this template carries it - and resolving a
+		// merge conflict means writing code under those conventions.
+		"AGENTS.md",
 	}
 	// The stack of the repository being integrated is not kernl's to assume.
 	for _, banned := range []string{"go build", "go test"} {

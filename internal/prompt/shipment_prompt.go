@@ -48,7 +48,7 @@ Procedure:
 4. Any other gh error: write "merge_outcome: pr_create_failed" to the epic bead description and STOP.
 5. On success: write a line "pr_url: <url>" AND "merge_outcome: success" to the epic bead description, then STOP. The "pr_url:" line is REQUIRED - an exit gate checks the epic description contains "pr_url:".
 
-Recording the result - write to the epic description in a SINGLE command, with NO temporary files under /tmp (opencode auto-rejects /tmp writes; keep any scratch inside the worktree). Append to the existing description by reading it inline:
+Recording the result - write to the epic description in a SINGLE command, with NO temporary files under /tmp; keep any scratch inside the worktree. Append to the existing description by reading it inline:
   bd update {{.EpicID}} -d "$(bd show {{.EpicID}} --json | jq -r '.[0].description')
 
   pr_url: <url>
