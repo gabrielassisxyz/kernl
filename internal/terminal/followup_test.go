@@ -76,10 +76,13 @@ func TestHandleTakeLoopTurnEnded_SendsFollowUpWhenActive(t *testing.T) {
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if !result {
 		t.Error("expected true when bead is in active state")
+	}
+	if err != nil {
+		t.Errorf("expected no error when follow-up is sent, got: %v", err)
 	}
 	if !sent {
 		t.Error("expected follow-up prompt to be sent")
@@ -103,10 +106,13 @@ func TestHandleTakeLoopTurnEnded_DoesNotSendWhenTerminal(t *testing.T) {
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
 		t.Error("expected false when bead has advanced to terminal")
+	}
+	if err != nil {
+		t.Errorf("expected no error when bead is terminal, got: %v", err)
 	}
 	if sent {
 		t.Error("expected no follow-up when bead is terminal")
@@ -127,10 +133,13 @@ func TestHandleTakeLoopTurnEnded_DoesNotSendWhenQueue(t *testing.T) {
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
 		t.Error("expected false when bead is in queue state")
+	}
+	if err != nil {
+		t.Errorf("expected no error when bead is in queue state, got: %v", err)
 	}
 	if sent {
 		t.Error("expected no follow-up when bead is in queue state")
@@ -148,10 +157,13 @@ func TestHandleTakeLoopTurnEnded_ReturnsFalseWhenFetchFails(t *testing.T) {
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
 		t.Error("expected false when backend fetch fails")
+	}
+	if err != nil {
+		t.Errorf("expected no error when the bead fetch itself fails, got: %v", err)
 	}
 	if sent {
 		t.Error("expected no follow-up when fetch fails")
@@ -167,10 +179,13 @@ func TestHandleTakeLoopTurnEnded_SendUserTurnFails(t *testing.T) {
 		SendUserTurn: func(prompt, source string) bool { return false },
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
 		t.Error("expected false when sendUserTurn fails")
+	}
+	if err != nil {
+		t.Errorf("expected no error when SendUserTurn itself fails (dialect supports follow-up, delivery just failed), got: %v", err)
 	}
 }
 
@@ -187,7 +202,11 @@ func TestHandleTakeLoopTurnEnded_CapStopsAfterFive(t *testing.T) {
 
 	results := make([]bool, 7)
 	for i := 0; i < 7; i++ {
-		results[i] = HandleTakeLoopTurnEnded(ctx, deps)
+		result, err := HandleTakeLoopTurnEnded(ctx, deps)
+		if err != nil {
+			t.Fatalf("call %d: expected no error while under the cap, got: %v", i+1, err)
+		}
+		results[i] = result
 	}
 
 	expected := []bool{true, true, true, true, true, false, false}
@@ -219,7 +238,9 @@ func TestHandleTakeLoopTurnEnded_CapBannerEmitted(t *testing.T) {
 	}
 
 	for i := 0; i < 6; i++ {
-		HandleTakeLoopTurnEnded(ctx, deps)
+		if _, err := HandleTakeLoopTurnEnded(ctx, deps); err != nil {
+			t.Fatalf("call %d: expected no error while under the cap, got: %v", i+1, err)
+		}
 	}
 
 	found := false
@@ -267,15 +288,20 @@ func TestHandleTakeLoopTurnEnded_CapResetOnStateAdvance(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		HandleTakeLoopTurnEnded(ctx, deps)
+		if _, err := HandleTakeLoopTurnEnded(ctx, deps); err != nil {
+			t.Fatalf("call %d: expected no error, got: %v", i+1, err)
+		}
 	}
 	if ctx.FollowUpAttempts.Count != 3 {
 		t.Errorf("expected count=3 after 3 stuck turns, got %d", ctx.FollowUpAttempts.Count)
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 	if !result {
 		t.Error("expected true when state advances to different active state")
+	}
+	if err != nil {
+		t.Errorf("expected no error when state advances, got: %v", err)
 	}
 	if ctx.FollowUpAttempts.Count != 1 {
 		t.Errorf("expected count reset to 1 after state change, got %d", ctx.FollowUpAttempts.Count)
@@ -298,10 +324,13 @@ func TestHandleTakeLoopTurnEnded_CapResetOnQueueState(t *testing.T) {
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
 		t.Error("expected false when bead reaches terminal state")
+	}
+	if err != nil {
+		t.Errorf("expected no error when bead reaches terminal state, got: %v", err)
 	}
 	if ctx.FollowUpAttempts.Count != 0 {
 		t.Errorf("expected count reset to 0, got %d", ctx.FollowUpAttempts.Count)
@@ -333,10 +362,13 @@ func TestHandleTakeLoopTurnEnded_LeaseHealthBlocksFollowUp(t *testing.T) {
 		},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if result {
 		t.Error("expected false when lease health check fails")
+	}
+	if err != nil {
+		t.Errorf("expected no error for lease-health refusal (only missing capability halts the run), got: %v", err)
 	}
 	if sent {
 		t.Error("expected no follow-up sent when lease is unhealthy")
@@ -373,10 +405,16 @@ func TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport(t *testi
 				LeaseChecker: &mockLeaseChecker{healthy: true},
 			}
 
-			result := HandleTakeLoopTurnEnded(ctx, deps)
+			result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 			if result {
 				t.Error("expected false when dialect has no follow-up support")
+			}
+			if err == nil {
+				t.Fatal("expected a non-nil error so the caller (RunBead) can halt instead of reporting success")
+			}
+			if !containsAll(err.Error(), "KERNL DISPATCH FAILURE", dialect) {
+				t.Errorf("expected returned error to carry KERNL DISPATCH FAILURE and name dialect %q, got: %v", dialect, err)
 			}
 			if sent {
 				t.Errorf("expected SendUserTurn never called for one-shot %s", dialect)
@@ -405,10 +443,13 @@ func TestHandleTakeLoopTurnEnded_ClaudeInteractiveStillFollowsUp(t *testing.T) {
 		LeaseChecker: &mockLeaseChecker{healthy: true},
 	}
 
-	result := HandleTakeLoopTurnEnded(ctx, deps)
+	result, err := HandleTakeLoopTurnEnded(ctx, deps)
 
 	if !result {
 		t.Error("expected true when claude interactive supports follow-up")
+	}
+	if err != nil {
+		t.Errorf("expected no error when claude interactive supports follow-up, got: %v", err)
 	}
 	if !sent {
 		t.Error("expected SendUserTurn to be called for claude interactive")

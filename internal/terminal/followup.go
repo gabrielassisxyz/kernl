@@ -66,29 +66,40 @@ type FollowUpDeps struct {
 	InteractionLog InteractionLog
 }
 
-func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
+// HandleTakeLoopTurnEnded decides whether the take-loop should nudge the
+// running agent because its turn ended while the bead is still stuck in an
+// active state. The bool return says whether stdin should stay open (true)
+// or be scheduled for close (false) - see SessionRuntime.handleTurnEnd. The
+// error return is a distinct, narrower signal: non-nil only when the dialect
+// has no way to ever receive a follow-up (Capabilities.SupportsFollowUp is
+// false), which the caller must propagate as a hard failure. Every other
+// false-with-nil-error case (terminal state, cap reached, lease unhealthy,
+// SendUserTurn failed) means "no follow-up right now", not "this run cannot
+// be trusted."
+func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) (bool, error) {
 	tag := fmt.Sprintf("[terminal-manager] [%s] [take-loop]", ctx.ID)
 
 	state, err := fetchBeadState(ctx, deps)
 	if err != nil || state == "" {
 		slog.Warn(fmt.Sprintf("%s onTurnEnded bead fetch failed", tag), "error", err)
-		return false
+		return false, nil
 	}
 
 	wf := orchestration.ResolveWorkflowForBead(ctx.Bead, ctx.WorkflowsByID, ctx.FallbackWorkflow)
 	if IsQueueOrTerminalState(state, wf) {
 		ctx.FollowUpAttempts.Count = 0
 		ctx.FollowUpAttempts.LastState = state
-		return false
+		return false, nil
 	}
 
 	if !ctx.Capabilities.SupportsFollowUp {
-		slog.Error(fmt.Sprintf(
-			"%s KERNL DISPATCH FAILURE: refusing follow-up for bead=%s state=%s - dialect %q has no follow-up/resume path",
-			tag, ctx.BeadID, state, ctx.Dialect,
-		))
+		dispatchErr := fmt.Errorf(
+			"KERNL DISPATCH FAILURE: refusing follow-up for bead %s in state %s - dialect %q has no follow-up/resume path (SupportsFollowUp=false) - Fix: give %q a resume mechanism (e.g. claude --resume, a captured codex thread id) and declare it in internal/session/capabilities.go before relying on take-loop nudges for it",
+			ctx.BeadID, state, ctx.Dialect, ctx.Dialect,
+		)
+		slog.Error(fmt.Sprintf("%s %s", tag, dispatchErr))
 		emitFollowUpUnsupportedBanner(ctx, ctx.BeadID, state, ctx.Dialect)
-		return false
+		return false, dispatchErr
 	}
 
 	count := RecordFollowUpProgress(ctx.FollowUpAttempts, state)
@@ -98,7 +109,7 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 			tag, ctx.BeadID, state, count,
 		))
 		emitFollowUpCapBanner(ctx, ctx.BeadID, state, count)
-		return false
+		return false, nil
 	}
 
 	health, healthErr := deps.LeaseChecker.EvaluateLeaseHealth(ctx.Entry.KnotsLeaseID, ctx.RepoPath)
@@ -114,18 +125,18 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 			tag, ctx.BeadID, ctx.Entry.KnotsLeaseID, reason,
 		))
 		emitLeaseDeadBanner(ctx, state, health)
-		return false
+		return false, nil
 	}
 
 	prompt := BuildTakeLoopFollowUpPrompt(ctx.BeadID, state)
 	sent := deps.SendUserTurn(prompt, FollowUpSource)
 	if !sent {
 		slog.Warn(fmt.Sprintf("%s failed to send follow-up prompt for bead=%s state=%s", tag, ctx.BeadID, state))
-		return false
+		return false, nil
 	}
 
 	emitFollowUpPushEvent(ctx, ctx.BeadID, state)
-	return true
+	return true, nil
 }
 
 func fetchBeadState(ctx *TakeLoopContext, deps FollowUpDeps) (string, error) {

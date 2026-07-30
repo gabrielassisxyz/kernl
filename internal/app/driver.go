@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/adapter"
@@ -196,6 +197,20 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		resultSessionID = sessionID
 	}
 
+	// A follow-up refused for lack of a delivery channel (SupportsFollowUp
+	// false) means the stage could not be nudged out of a stuck state. An
+	// exit-zero exit code from the agent process does not make that stage
+	// successful - report the refusal as the run's own failure so the
+	// caller (DriveBeadToTerminal) halts instead of evaluating the exit
+	// gate and advancing the bead on a stage nobody actually finished.
+	if followUpErr := w.followUpError(); followUpErr != nil {
+		return RunBeadResult{
+			SessionID:  resultSessionID,
+			FinalState: finalState,
+			Success:    false,
+		}, followUpErr
+	}
+
 	return RunBeadResult{
 		SessionID:  resultSessionID,
 		FinalState: finalState,
@@ -213,6 +228,29 @@ type sessionPump struct {
 
 	stopCh chan struct{}
 	done   chan struct{}
+
+	mu          sync.Mutex
+	followUpErr error
+}
+
+// followUpError reports the most recent hard failure from the take-loop's
+// follow-up gate (set by handleTurnEnded when terminal.HandleTakeLoopTurnEnded
+// returns a non-nil error), so RunBead can surface it after the run instead
+// of only the boolean handleTurnEnded returns to SetOnTurnEnded - that bool
+// already carries a different meaning (whether to keep stdin open) and can't
+// also carry "this run must be reported as failed."
+func (p *sessionPump) followUpError() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.followUpErr
+}
+
+func (p *sessionPump) setFollowUpError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.followUpErr == nil {
+		p.followUpErr = err
+	}
 }
 
 func (p *sessionPump) start() {
@@ -290,7 +328,11 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 		LeaseChecker: &terminal.DefaultLeaseHealthChecker{},
 	}
 
-	return terminal.HandleTakeLoopTurnEnded(ctx, deps)
+	proceed, err := terminal.HandleTakeLoopTurnEnded(ctx, deps)
+	if err != nil {
+		p.setFollowUpError(err)
+	}
+	return proceed
 }
 
 func exitCodeFromErr(err error) int {
