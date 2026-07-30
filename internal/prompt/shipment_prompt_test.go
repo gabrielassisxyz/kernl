@@ -10,7 +10,7 @@ import (
 func sampleShipmentInput() prompt.ShipmentInput {
 	return prompt.ShipmentInput{
 		EpicID: "e1", EpicTitle: "Test epic", EpicBranch: "feat/e1", BaseBranch: "master",
-		RemoteName: "origin", RemoteURL: "git@github.com:owner/repo.git",
+		RemoteName: "origin", RemoteURL: "git@github.com:owner/repo.git", RepoSlug: "github.com/owner/repo",
 	}
 }
 
@@ -22,7 +22,7 @@ func TestRenderShipment_Content(t *testing.T) {
 	mustContain := []string{
 		"git push",
 		"gh pr create",
-		"gh pr list --head feat/e1 --json url",
+		"--head feat/e1 --json url",
 		"pr_already_exists",
 		"pr_url:",
 		"push_failed",
@@ -31,6 +31,11 @@ func TestRenderShipment_Content(t *testing.T) {
 		// resolve on its own initiative.
 		"git push origin feat/e1",
 		"git@github.com:owner/repo.git",
+		// gh must be pinned to the verified repository: without --repo it picks
+		// one out of the working directory's remotes, which is the choice that
+		// must not stay open.
+		"gh pr create --repo github.com/owner/repo",
+		"gh pr list --repo github.com/owner/repo",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(out, want) {
@@ -41,8 +46,8 @@ func TestRenderShipment_Content(t *testing.T) {
 
 func TestRenderShipment_EmptyBranches(t *testing.T) {
 	cases := []prompt.ShipmentInput{
-		{EpicID: "e1", EpicTitle: "x", EpicBranch: "", BaseBranch: "master", RemoteName: "origin", RemoteURL: "u"},
-		{EpicID: "e1", EpicTitle: "x", EpicBranch: "feat/e1", BaseBranch: "", RemoteName: "origin", RemoteURL: "u"},
+		{EpicID: "e1", EpicTitle: "x", EpicBranch: "", BaseBranch: "master", RemoteName: "origin", RemoteURL: "u", RepoSlug: "h/o/r"},
+		{EpicID: "e1", EpicTitle: "x", EpicBranch: "feat/e1", BaseBranch: "", RemoteName: "origin", RemoteURL: "u", RepoSlug: "h/o/r"},
 	}
 	for _, in := range cases {
 		if _, err := prompt.RenderShipment(in); err == nil {
@@ -57,9 +62,17 @@ func TestRenderShipment_EmptyBranches(t *testing.T) {
 // "push to origin" with origin unresolved is the ambiguity that published a
 // pull request nobody asked for.
 func TestRenderShipment_RefusesWithoutDestination(t *testing.T) {
-	in := sampleShipmentInput()
-	in.RemoteURL = ""
-	if _, err := prompt.RenderShipment(in); err == nil {
-		t.Fatal("expected a refusal when the destination is unresolved")
+	for _, blank := range []func(*prompt.ShipmentInput){
+		func(in *prompt.ShipmentInput) { in.RemoteURL = "" },
+		func(in *prompt.ShipmentInput) { in.RemoteName = "" },
+		// A local-path remote produces no repository slug, so there is nothing
+		// to open a pull request on and nothing to pin gh to.
+		func(in *prompt.ShipmentInput) { in.RepoSlug = "" },
+	} {
+		in := sampleShipmentInput()
+		blank(&in)
+		if _, err := prompt.RenderShipment(in); err == nil {
+			t.Errorf("expected a refusal for input %+v", in)
+		}
 	}
 }

@@ -54,7 +54,25 @@ func NormalizeRemote(remote string) string {
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	return joinRemote(u.Hostname(), u.Path)
+	// u.Host, not u.Hostname(): the port is part of the identity. On a
+	// self-hosted git the port is what distinguishes one service from another,
+	// and folding it away lets a remote that was never allowed match one that
+	// was. Credentials live in u.User and are dropped here, as they should be.
+	return joinRemote(u.Host, u.Path)
+}
+
+// RepoSlug returns the "host/owner/repo" slug of a network remote, or "" for a
+// local path. It is what gh needs as --repo so that repository selection is
+// never inferred from the working directory.
+func RepoSlug(remote string) string {
+	identity := NormalizeRemote(remote)
+	if !strings.Contains(identity, ".") || strings.HasPrefix(identity, "/") {
+		return ""
+	}
+	if strings.Count(identity, "/") < 2 {
+		return ""
+	}
+	return identity
 }
 
 // matchesAllowList reports whether an already-normalized identity is listed.
@@ -146,16 +164,48 @@ func CheckPullRequestAllowed(prURL string, allowed []string) error {
 	)
 }
 
-// repoFromPullRequestURL extracts "host/owner/repo" from a pull request URL,
-// tolerating GitHub's /pull/ and GitLab's /-/merge_requests/ shapes.
+// repoFromPullRequestURL extracts "host/owner/repo" from a pull request URL.
+//
+// It splits on the pull-request marker rather than taking the first two path
+// segments, for two reasons. A repository path is not always two segments -
+// GitLab nests groups, so taking two would compare the group against the
+// allow-list and reject a publish that was allowed. And a URL with no marker at
+// all is not evidence of a pull request: an issue link would otherwise pass a
+// check whose entire job is to confirm where the run published.
 func repoFromPullRequestURL(prURL string) string {
 	u, err := url.Parse(strings.TrimSpace(prURL))
 	if err != nil || u.Host == "" {
 		return ""
 	}
-	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
-	if len(segments) < 3 {
+	path := strings.Trim(u.Path, "/")
+
+	repoPath, number, ok := cutPullRequestMarker(path)
+	if !ok || !isNumber(number) || strings.Count(repoPath, "/") < 1 {
 		return ""
 	}
-	return joinRemote(u.Hostname(), segments[0]+"/"+segments[1])
+	return joinRemote(u.Host, repoPath)
+}
+
+// cutPullRequestMarker splits a URL path into the repository part and the pull
+// request number, handling GitHub's /pull/<n> and GitLab's
+// /-/merge_requests/<n>.
+func cutPullRequestMarker(path string) (repoPath, number string, ok bool) {
+	for _, marker := range []string{"/-/merge_requests/", "/pull/", "/pulls/"} {
+		if before, after, found := strings.Cut(path, marker); found {
+			return before, strings.SplitN(after, "/", 2)[0], true
+		}
+	}
+	return "", "", false
+}
+
+func isNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

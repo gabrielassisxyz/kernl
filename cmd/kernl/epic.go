@@ -565,6 +565,7 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 					EpicID: epicID, EpicTitle: bead.Title,
 					EpicBranch: "feat/" + epicID, BaseBranch: "master",
 					RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
+					RepoSlug: plan.Destination.RepoSlug,
 				})
 				if perr != nil {
 					// Falling back to the generic prompt here would drop the
@@ -615,5 +616,18 @@ func verifyPublishedPullRequest(a *app.App, epicID, repoPath string, plan shipme
 		// own outcome reporting owns that case.
 		return nil
 	}
-	return shipment.CheckPullRequestAllowed(prURL, plan.Allowed)
+	checkErr := shipment.CheckPullRequestAllowed(prURL, plan.Allowed)
+	if checkErr == nil {
+		return nil
+	}
+
+	// The drive loop advances the bead as soon as the exit gate passes, so by
+	// the time this runs the epic already reads as awaiting_pr_review. Leaving
+	// it there would make the tracker say the run succeeded while the CLI says
+	// it published somewhere it may not - and the tracker is what the next
+	// session reads. Block it, and say so if that itself fails.
+	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: string(workflow.StatusBlocked)}, repoPath); err != nil {
+		return fmt.Errorf("%w - and the epic could not be marked blocked (%v), so its state still reads as a successful run: fix it by hand", checkErr, err)
+	}
+	return fmt.Errorf("%w - epic %s marked blocked", checkErr, epicID)
 }

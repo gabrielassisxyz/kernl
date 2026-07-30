@@ -15,6 +15,9 @@ const DefaultRemoteName = "origin"
 type Destination struct {
 	RemoteName string
 	RemoteURL  string
+	// RepoSlug is the "host/owner/repo" gh needs as --repo. Empty for a local
+	// path remote, which cannot host a pull request.
+	RepoSlug string
 }
 
 // RemoteLookup reads a remote's URL out of a repository. It exists so the
@@ -39,7 +42,15 @@ func ResolveDestination(repoPath, remoteName string, allowed []string, lookup Re
 	if err := CheckRemoteAllowed(url, allowed); err != nil {
 		return Destination{}, err
 	}
-	return Destination{RemoteName: remoteName, RemoteURL: url}, nil
+	slug := RepoSlug(url)
+	if slug == "" {
+		return Destination{}, fmt.Errorf(
+			"KERNL DISPATCH FAILURE: remote %q (%s) is not a repository a pull request can be opened on - "+
+				"Fix: point shipment at a hosted remote, or run with --dry-run to stop before shipment",
+			remoteName, url,
+		)
+	}
+	return Destination{RemoteName: remoteName, RemoteURL: url, RepoSlug: slug}, nil
 }
 
 // GitRemoteURL is the production RemoteLookup: a thin shell around
