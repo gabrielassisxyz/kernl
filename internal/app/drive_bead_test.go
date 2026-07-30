@@ -1138,3 +1138,52 @@ sys.exit(1)
 		}
 	})
 }
+
+// TestResolveArtifactDir_OutsideWorktree proves exit-gate artifacts resolve
+// outside the worktree kernl hands to the agent - the fix for PR #40 on
+// archeion, where .kernl/<bead>/*.md ended up published in a target
+// repository's diff because the old artifact directory was a subdirectory
+// of the worktree.
+func TestResolveArtifactDir_OutsideWorktree(t *testing.T) {
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	stateDir := t.TempDir()
+
+	dir, err := resolveArtifactDir(stateDir, "epic-1", "kb-1")
+	if err != nil {
+		t.Fatalf("resolveArtifactDir: %v", err)
+	}
+	if strings.HasPrefix(dir, worktree) {
+		t.Errorf("artifact dir %q must not be inside the worktree %q", dir, worktree)
+	}
+	if !strings.HasPrefix(dir, stateDir) {
+		t.Errorf("artifact dir %q must be under StateDir %q", dir, stateDir)
+	}
+	if want := filepath.Join(stateDir, "run", "epic-1", "kb-1"); dir != want {
+		t.Errorf("artifact dir = %q, want %q", dir, want)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Errorf("resolveArtifactDir must create the directory it returns: %v", err)
+	}
+}
+
+func TestResolveArtifactDir_FailsLoudWithoutStateDir(t *testing.T) {
+	_, err := resolveArtifactDir("", "epic-1", "kb-1")
+	if err == nil {
+		t.Fatal("expected a loud failure when StateDir is empty")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") || !strings.Contains(err.Error(), "StateDir") {
+		t.Errorf("error must name the field that fixes it, got: %v", err)
+	}
+}
+
+func TestEpicIDFor_FallsBackToBeadIDWithNoParent(t *testing.T) {
+	standalone := &backend.Bead{ID: "kb-1"}
+	if got := epicIDFor(standalone); got != "kb-1" {
+		t.Errorf("epicIDFor(no parent) = %q, want kb-1", got)
+	}
+
+	child := &backend.Bead{ID: "kb-2", ParentID: "epic-1"}
+	if got := epicIDFor(child); got != "epic-1" {
+		t.Errorf("epicIDFor(with parent) = %q, want epic-1", got)
+	}
+}

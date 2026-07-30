@@ -119,8 +119,8 @@ func TestWorkerProfile_StopsAtAwaitingIntegration(t *testing.T) {
 	if g := wf.ExitGates["implementation"]; g.Type != "commit_marker" || g.Path != "stage: implementation" {
 		t.Errorf("implementation gate = %+v; want commit_marker/stage: implementation", g)
 	}
-	if g := wf.ExitGates["implementation_review"]; g.Type != "artifact_verdict" || g.Path != ".kernl/<bead_id>/implementation-review.md" {
-		t.Errorf("implementation_review gate = %+v; want artifact_verdict/.kernl/<bead_id>/implementation-review.md", g)
+	if g := wf.ExitGates["implementation_review"]; g.Type != "artifact_verdict" || g.Path != "<artifact_dir>/implementation-review.md" {
+		t.Errorf("implementation_review gate = %+v; want artifact_verdict/<artifact_dir>/implementation-review.md", g)
 	}
 
 	// Autopilot (standalone) must still flow past implementation_review toward shipment, not stop.
@@ -143,39 +143,46 @@ func TestEpicProfile_AutopilotUnaffected(t *testing.T) {
 func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 	wf := BuiltinProfileDescriptor("epic")
 	dir := t.TempDir()
+	artifactDir := t.TempDir()
 
 	// shipment / description_contains
-	if ok, _ := EvaluateExitGate(wf, ExitGateContext{FromState: "shipment", WorktreePath: dir, BeadID: "kernl-e1", BeadDescription: "merge_outcome: success\npr_url: https://x/pr/1\n"}); !ok {
+	if ok, _ := EvaluateExitGate(wf, ExitGateContext{FromState: "shipment", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1", BeadDescription: "merge_outcome: success\npr_url: https://x/pr/1\n"}); !ok {
 		t.Error("shipment gate should pass when description has pr_url:")
 	}
-	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "shipment", WorktreePath: dir, BeadID: "kernl-e1", BeadDescription: "merge_outcome: success\n"}); ok || reason == "" {
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "shipment", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1", BeadDescription: "merge_outcome: success\n"}); ok || reason == "" {
 		t.Errorf("shipment gate should fail without pr_url: (ok=%v reason=%q)", ok, reason)
 	}
 
-	// integration_review / artifact_verdict
-	reviewDir := filepath.Join(dir, ".kernl", "kernl-e1")
-	if err := os.MkdirAll(reviewDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	reviewFile := filepath.Join(reviewDir, "integration-review.md")
+	// integration_review / artifact_verdict - the artifact lives in
+	// ArtifactDir (outside the worktree), not under the worktree's own
+	// .kernl/<bead_id>/ as it did before the artifact directory moved.
+	reviewFile := filepath.Join(artifactDir, "integration-review.md")
 	if err := os.WriteFile(reviewFile, []byte("looks good\n\nVERDICT: PASS"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, BeadID: "kernl-e1"}); !ok {
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"}); !ok {
 		t.Errorf("integration_review gate should pass on VERDICT: PASS (reason=%q)", reason)
 	}
 	if err := os.WriteFile(reviewFile, []byte("needs work\n\nVERDICT: FAIL"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, BeadID: "kernl-e1"}); ok {
+	if ok, _ := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"}); ok {
 		t.Error("integration_review gate should fail on VERDICT: FAIL")
+	}
+
+	// integration_review / artifact_verdict must not fall back to the
+	// worktree (or the filesystem root) when ArtifactDir is unset - that
+	// would silently write and read kernl's control files back inside the
+	// target repository again.
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, ArtifactDir: "", BeadID: "kernl-e1"}); ok || !strings.Contains(reason, "artifact_dir_unset") {
+		t.Errorf("integration_review gate must fail with artifact_dir_unset when ArtifactDir is empty; got ok=%v reason=%q", ok, reason)
 	}
 }
 
 // TestEvaluateExitGate_Total proves EvaluateExitGate always passes when there
 // is nothing for it to check: a state with no declared gate, a gate with an
 // empty type, and the legacy agent_exit_zero type. None of these should ever
-// require WorktreePath or BaseSHA to be set.
+// require WorktreePath, ArtifactDir or BaseSHA to be set.
 func TestEvaluateExitGate_Total(t *testing.T) {
 	// "autopilot" declares no ExitGates at all - every state on it is the
 	// "no gate for this state" case.

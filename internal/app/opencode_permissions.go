@@ -34,7 +34,15 @@ type opencodeConfig struct {
 // file, and a file kernl drops inside the agent's tree gets swept up by the
 // stage's own `git add -A` and travels into the target repository's pull
 // request.
-func writeStageOpencodeConfig(staticConfigPath, outDir, beadID, stage string, stages map[string]backend.StageContract) (string, error) {
+//
+// artifactDir, when non-empty, is granted external_directory access scoped
+// to this bead's own artifact directory - nowhere else. Exit-gate artifacts
+// (plan.md, review verdicts, ...) now live there instead of inside the
+// worktree, and opencode auto-rejects any external_directory path that is
+// not explicitly allowed; without this rule every write the stage contract
+// requires would be rejected, and renderOperatingRules tells the agent to
+// treat that rejection as fatal.
+func writeStageOpencodeConfig(staticConfigPath, outDir, beadID, stage, artifactDir string, stages map[string]backend.StageContract) (string, error) {
 	baseCfg, err := loadOpencodeBase(staticConfigPath)
 	if err != nil {
 		return "", err
@@ -51,6 +59,15 @@ func writeStageOpencodeConfig(staticConfigPath, outDir, beadID, stage string, st
 		}
 	}
 	baseCfg.Permission.Edit = editRules
+
+	if artifactDir != "" {
+		extRules, err := normalizeExternalDirRules(baseCfg.Permission.ExternalDirectory, staticConfigPath)
+		if err != nil {
+			return "", err
+		}
+		extRules[filepath.Join(artifactDir, "**")] = "allow"
+		baseCfg.Permission.ExternalDirectory = extRules
+	}
 
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating stage config dir %s: %w", outDir, err)
@@ -96,6 +113,39 @@ func normalizeEditRules(edit any, sourcePath string) (map[string]string, error) 
 		return rules, nil
 	default:
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opencode allowlist %s has a permission.edit of type %T, which is neither a verdict nor a pattern map - Fix: make it a string or an object of pattern -> verdict", sourcePath, edit)
+	}
+}
+
+// normalizeExternalDirRules mirrors normalizeEditRules for the
+// external_directory permission field, so a stage specialization can add its
+// own artifact-directory allow rule without discarding whatever an operator
+// already granted there.
+//
+// Unlike normalizeEditRules, a nil field normalizes to an empty map rather
+// than "*": "allow" - external_directory is closed by default (opencode's
+// own behavior, and this file's builtinOpencodeAllowlist only opens /tmp),
+// and a stage specialization must not widen that just because the operator's
+// own config left the field unset.
+func normalizeExternalDirRules(externalDirectory any, sourcePath string) (map[string]string, error) {
+	switch v := externalDirectory.(type) {
+	case nil:
+		return map[string]string{}, nil
+	case string:
+		return map[string]string{"*": v}, nil
+	case map[string]string:
+		return maps.Clone(v), nil
+	case map[string]any:
+		rules := make(map[string]string, len(v))
+		for pattern, verdict := range v {
+			s, ok := verdict.(string)
+			if !ok {
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opencode allowlist %s has permission.external_directory[%q] = %v, which is not a verdict string - Fix: make it \"allow\", \"ask\" or \"deny\"", sourcePath, pattern, verdict)
+			}
+			rules[pattern] = s
+		}
+		return rules, nil
+	default:
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opencode allowlist %s has a permission.external_directory of type %T, which is neither a verdict nor a pattern map - Fix: make it a string or an object of pattern -> verdict", sourcePath, externalDirectory)
 	}
 }
 

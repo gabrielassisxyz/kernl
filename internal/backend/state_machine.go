@@ -125,7 +125,7 @@ var builtinProfiles = []profileConfig{
 			// integration agent must leave a marker commit on the epic branch.
 			"integration": {Type: "commit_marker", Path: "stage: integration"},
 			// integration_review agent must write a PASS verdict artifact.
-			"integration_review": {Type: "artifact_verdict", Path: ".kernl/<bead_id>/integration-review.md"},
+			"integration_review": {Type: "artifact_verdict", Path: "<artifact_dir>/integration-review.md"},
 			// shipment agent must record the opened PR URL in the epic description.
 			"shipment": {Type: "description_contains", Path: "pr_url:"},
 		},
@@ -160,7 +160,7 @@ var builtinProfiles = []profileConfig{
 			// to awaiting_integration (see kernl-gc7j post-mortem).
 			"implementation": {Type: "commit_marker", Path: "stage: implementation"},
 			// implementation_review agent must write a PASS verdict artifact.
-			"implementation_review": {Type: "artifact_verdict", Path: ".kernl/<bead_id>/implementation-review.md"},
+			"implementation_review": {Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"},
 		},
 	},
 	{
@@ -553,16 +553,26 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 
 // ExitGateContext is everything EvaluateExitGate needs to judge one stage's
 // exit. It replaced a five-string positional call that was about to grow a
-// sixth parameter (the artifact directory a follow-up fix needs) - a struct
+// sixth (artifact directory) and seventh (base SHA) parameter - a struct
 // keeps the call site self-describing instead of a wall of same-typed
 // strings that differ only by argument position.
 type ExitGateContext struct {
 	// FromState is the workflow state the agent just ran in.
 	FromState string
-	// WorktreePath is the bead's git worktree. Both commit_marker and the
-	// artifact-based gates resolve their targets relative to it.
+	// WorktreePath is the bead's git worktree. commit_marker scans it for
+	// the stage's own commits; a gate.Path that does not use the
+	// <artifact_dir> placeholder (a custom workflow's own worktree-relative
+	// file, or the pre-existing ".kernl/<bead_id>/..." convention) also
+	// resolves relative to it.
 	WorktreePath string
-	BeadID       string
+	// ArtifactDir is where kernl writes exit-gate artifacts for this bead -
+	// absolute, and deliberately outside WorktreePath, so a stage's own
+	// `git add <files>` can never sweep kernl's control files into the
+	// target repository's commits (archeion PR #40 shipped
+	// .kernl/<bead>/*.md this way). A gate.Path using <artifact_dir>
+	// resolves against it instead of the worktree.
+	ArtifactDir string
+	BeadID      string
 	// BeadDescription is the bead's current description, read fresh after
 	// the agent ran, so description_contains gates see markers the agent
 	// just wrote there.
@@ -576,6 +586,31 @@ type ExitGateContext struct {
 	BaseSHA string
 }
 
+// ResolveArtifactPath expands the <bead_id> and <artifact_dir> placeholders
+// used in a stage contract's or exit gate's Path/Inputs strings. It is pure
+// text substitution - a string with neither placeholder (e.g. "bead.title",
+// a descriptive Inputs entry) comes back unchanged, so callers can run every
+// entry through it without first checking whether it names a real file.
+func ResolveArtifactPath(raw, beadID, artifactDir string) string {
+	resolved := strings.ReplaceAll(raw, "<bead_id>", beadID)
+	return strings.ReplaceAll(resolved, "<artifact_dir>", artifactDir)
+}
+
+// ResolveArtifactFSPath turns a stage contract's or exit gate's Path into the
+// real file it names on disk. A path using <artifact_dir> already resolves to
+// an absolute location outside the worktree once substituted. A path that
+// does not - the pre-existing ".kernl/<bead_id>/..." convention, or a custom
+// workflow's own worktree-relative file such as
+// examples/custom-workflow's "qa_verdict.txt" - keeps resolving relative to
+// the worktree, exactly as it always has, so nothing that predates the
+// <artifact_dir> placeholder changes behavior.
+func ResolveArtifactFSPath(raw, beadID, worktreePath, artifactDir string) string {
+	if strings.Contains(raw, "<artifact_dir>") {
+		return ResolveArtifactPath(raw, beadID, artifactDir)
+	}
+	return filepath.Join(worktreePath, ResolveArtifactPath(raw, beadID, artifactDir))
+}
+
 // EvaluateExitGate decides whether a bead may advance past ctx.FromState
 // after its agent exited zero. An empty/unknown gate type passes (legacy
 // agent_exit_zero).
@@ -586,21 +621,28 @@ func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, 
 	}
 	switch gate.Type {
 	case "artifact_exists":
-		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", ctx.BeadID)
-		abs := filepath.Join(ctx.WorktreePath, resolved)
+		// A <artifact_dir> path with no ArtifactDir would substitute to an
+		// empty string and resolve against the filesystem root - looking
+		// like a real (missing) path instead of the unresolvable one it is.
+		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
+			return false, "artifact_dir_unset: " + gate.Path
+		}
+		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
-			return false, "artifact_missing: " + resolved
+			return false, "artifact_missing: " + abs
 		}
 		return true, ""
 	case "artifact_verdict":
-		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", ctx.BeadID)
-		abs := filepath.Join(ctx.WorktreePath, resolved)
+		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
+			return false, "artifact_dir_unset: " + gate.Path
+		}
+		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		data, err := os.ReadFile(abs)
 		if err != nil {
-			return false, "artifact_missing: " + resolved
+			return false, "artifact_missing: " + abs
 		}
 		if !strings.HasSuffix(strings.TrimSpace(string(data)), "VERDICT: PASS") {
-			return false, "verdict_not_pass: " + resolved
+			return false, "verdict_not_pass: " + abs
 		}
 		return true, ""
 	case "commit_marker":
