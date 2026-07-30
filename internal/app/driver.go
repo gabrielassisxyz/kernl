@@ -72,12 +72,30 @@ type RunBeadInput struct {
 	// the nudge record because a follow-up prompt tells the agent to inspect
 	// and advance the bead, and it cannot name the tracker it does not know.
 	TrackerCommand string
+	// Pool is the settings.pools key this agent was selected from (e.g.
+	// "implementation"). Carried through so the stage-attempt ledger can
+	// record which pool dispatched the agent, distinct from AgentName (which
+	// agent within the pool actually ran).
+	Pool string
 }
 
 type RunBeadResult struct {
 	SessionID  string
 	FinalState string
 	Success    bool
+	// ExitCode is the spawned process's exit code (0 on a clean exit). The
+	// stage-attempt ledger records it as a fact independent of Success,
+	// which also folds in the follow-up-refusal case below.
+	ExitCode int
+	// Usage is the last terminal token-usage event the dialect's stream
+	// reported (codex's turn.completed, claude's result), or nil when the
+	// run never emitted one - e.g. it errored before completing a turn.
+	Usage *session.TokenUsageCounts
+	// FollowUpCount is how many take-loop nudges this run sent before the
+	// agent's turn ended for good.
+	FollowUpCount int
+	// Nudged reports whether at least one follow-up was sent.
+	Nudged bool
 }
 
 type SessionDriver struct {
@@ -122,6 +140,8 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// here would hand out a capability profile promising a delivery channel
 	// this invocation never opens.
 	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), false)
+	usageLogger := session.NewCapturingUsageLogger()
+	r.SetTokenUsageLogger(usageLogger)
 
 	envSlice := envMapToSlice(input.Env)
 	cwd := input.Cwd
@@ -185,6 +205,12 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// stage that never needed a nudge.
 	r.WaitDrained()
 
+	// Read back after WaitDrained: the reader goroutine that fed the
+	// logger has fully finished by this point (see WaitDrained's own
+	// comment on why Wait() used to race it), so this read cannot miss the
+	// event carrying the run's token totals.
+	usage := usageLogger.Usage()
+
 	exitErr := proc.Wait()
 	exitCode := exitCodeFromErr(exitErr)
 
@@ -214,18 +240,28 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// successful - report the refusal as the run's own failure so the
 	// caller (DriveBeadToTerminal) halts instead of evaluating the exit
 	// gate and advancing the bead on a stage nobody actually finished.
+	followUpCount, nudged := w.followUpStats()
+
 	if followUpErr := w.followUpError(); followUpErr != nil {
 		return RunBeadResult{
-			SessionID:  resultSessionID,
-			FinalState: finalState,
-			Success:    false,
+			SessionID:     resultSessionID,
+			FinalState:    finalState,
+			Success:       false,
+			ExitCode:      exitCode,
+			Usage:         usage,
+			FollowUpCount: followUpCount,
+			Nudged:        nudged,
 		}, followUpErr
 	}
 
 	return RunBeadResult{
-		SessionID:  resultSessionID,
-		FinalState: finalState,
-		Success:    exitCode == 0,
+		SessionID:     resultSessionID,
+		FinalState:    finalState,
+		Success:       exitCode == 0,
+		ExitCode:      exitCode,
+		Usage:         usage,
+		FollowUpCount: followUpCount,
+		Nudged:        nudged,
 	}, nil
 }
 
@@ -240,8 +276,10 @@ type sessionPump struct {
 	stopCh chan struct{}
 	done   chan struct{}
 
-	mu          sync.Mutex
-	followUpErr error
+	mu            sync.Mutex
+	followUpErr   error
+	followUpCount int
+	nudged        bool
 }
 
 // followUpError reports the most recent hard failure from the take-loop's
@@ -262,6 +300,25 @@ func (p *sessionPump) setFollowUpError(err error) {
 	if p.followUpErr == nil {
 		p.followUpErr = err
 	}
+}
+
+// recordFollowUpSent tracks that HandleTakeLoopTurnEnded actually sent a
+// nudge prompt (its "proceed" return is only ever true after SendUserTurn
+// succeeded - see terminal.HandleTakeLoopTurnEnded), so RunBead can report
+// how many follow-ups a run needed for the stage-attempt ledger.
+func (p *sessionPump) recordFollowUpSent() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.followUpCount++
+	p.nudged = true
+}
+
+// followUpStats reports how many follow-ups this run sent, safe to call
+// once the runtime's reader goroutine (the only writer) has stopped.
+func (p *sessionPump) followUpStats() (count int, nudged bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.followUpCount, p.nudged
 }
 
 func (p *sessionPump) start() {
@@ -342,6 +399,9 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 	proceed, err := terminal.HandleTakeLoopTurnEnded(ctx, deps)
 	if err != nil {
 		p.setFollowUpError(err)
+	}
+	if proceed {
+		p.recordFollowUpSent()
 	}
 	return proceed
 }

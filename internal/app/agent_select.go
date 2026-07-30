@@ -45,6 +45,7 @@ func ResolveAgentForPool(cfg *config.Config, pool string) (RunBeadInput, error) 
 		ApprovalMode: agentCfg.ApprovalMode,
 		Env:          agentCfg.Env,
 		AgentName:    agentID,
+		Pool:         pool,
 	}, nil
 }
 
