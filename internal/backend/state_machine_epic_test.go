@@ -305,6 +305,43 @@ func TestEvaluateExitGate_CommitMarkerUnreadableBaseSHA(t *testing.T) {
 	}
 }
 
+// TestEvaluateExitGate_CommitMarkerRejectsRewrittenHistory proves that a
+// BaseSHA which resolves fine but is no longer an ancestor of HEAD does not
+// admit a marker that only exists on the history HEAD was moved onto.
+// `git log <base>..HEAD` means "reachable from HEAD, not reachable from
+// base" - it does not require base to be an ancestor, so if the agent resets
+// or rebases onto an unrelated line of history that already contains the
+// marker (a sibling epic stage's commit, this repository's own log), that
+// range still evaluates and the marker satisfies a gate the stage never
+// earned. This is the original ancestor-commit defect reached through a
+// second door: BaseSHA was captured correctly, but HEAD moved out from
+// under it.
+func TestEvaluateExitGate_CommitMarkerRejectsRewrittenHistory(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := BuiltinProfileDescriptor("worker")
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	baseSHA := gitCommit(t, dir, "base: captured before dispatch")
+
+	// The agent rewrites history: an unrelated orphan line already carries
+	// the marker as an ancestor commit, and HEAD is reset onto its tip -
+	// baseSHA is left behind on a branch HEAD no longer descends from.
+	if out, err := exec.Command("git", "-C", dir, "checkout", "--orphan", "rewritten").CombinedOutput(); err != nil {
+		t.Fatalf("git checkout --orphan: %v\n%s", err, out)
+	}
+	gitCommit(t, dir, "stage: implementation: an unrelated ancestor's marker")
+	gitCommit(t, dir, "further work on the rewritten line")
+
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA}); ok {
+		t.Errorf("commit_marker must not pass when BaseSHA is not an ancestor of HEAD (reason=%q)", reason)
+	} else if !strings.Contains(reason, "history_rewritten") {
+		t.Errorf("reason should say the base SHA is no longer an ancestor, got %q", reason)
+	}
+}
+
 func TestCanonicalYAML_Parity(t *testing.T) {
 	// Write workflows.CanonicalYAML to a temporary file.
 	dir := t.TempDir()

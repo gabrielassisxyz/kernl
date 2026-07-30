@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -648,6 +649,25 @@ func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, 
 	case "commit_marker":
 		if ctx.BaseSHA == "" {
 			return false, "commit_marker_unscoped: " + gate.Path
+		}
+		// `git log <base>..HEAD` means "reachable from HEAD, not reachable
+		// from base" - it does NOT require base to be an ancestor of HEAD.
+		// If the worktree's history was rewritten under the run (the agent
+		// reset or rebased onto a line of history that already contains the
+		// marker), that range still evaluates and can admit the marker from
+		// an unrelated commit while the stage itself produced nothing -
+		// the original defect, reached through a different door. Requiring
+		// ancestry first closes it.
+		ancestorOut, err := exec.Command("git", "-C", ctx.WorktreePath, "merge-base", "--is-ancestor", ctx.BaseSHA, "HEAD").CombinedOutput()
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				// Exit code 1 from --is-ancestor is a clean negative answer,
+				// not a broken command: base resolved fine, it just is not
+				// reachable from HEAD anymore.
+				return false, "commit_marker_history_rewritten: base " + ctx.BaseSHA + " is not an ancestor of HEAD"
+			}
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(ancestorOut))
 		}
 		out, err := exec.Command("git", "-C", ctx.WorktreePath, "log", "--format=%B", ctx.BaseSHA+"..HEAD").CombinedOutput()
 		if err != nil {
