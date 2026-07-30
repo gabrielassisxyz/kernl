@@ -19,11 +19,17 @@ type NudgeRegistry struct {
 }
 
 type NudgeRecord struct {
-	BeadID            string
-	RepoPath          string
-	Cwd               string
-	OpencodeSessionID string
-	Running           bool
+	BeadID   string
+	RepoPath string
+	Cwd      string
+	// OpencodeConfigPath is the allowlist the original dispatch ran under,
+	// recorded verbatim. A follow-up resumes the same conversation, so it has
+	// to run under the same policy - and the stage-specialized allowlist that
+	// carries the stage's deny rules cannot be rebuilt from this record, which
+	// knows nothing about workflows or stages.
+	OpencodeConfigPath string
+	OpencodeSessionID  string
+	Running            bool
 }
 
 func NewNudgeRegistry() *NudgeRegistry {
@@ -49,6 +55,9 @@ func (r *NudgeRegistry) Upsert(sessionID string, partial NudgeRecord) {
 	}
 	if partial.Cwd != "" {
 		existing.Cwd = partial.Cwd
+	}
+	if partial.OpencodeConfigPath != "" {
+		existing.OpencodeConfigPath = partial.OpencodeConfigPath
 	}
 	if partial.OpencodeSessionID != "" {
 		existing.OpencodeSessionID = partial.OpencodeSessionID

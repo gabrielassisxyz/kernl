@@ -30,6 +30,14 @@ type App struct {
 	NudgeRegistry *session.NudgeRegistry
 	Graph         *graph.Graph
 
+	// StateDir is where kernl writes files that belong to a run rather than to
+	// the repository being worked on - today, the allowlist a dispatched agent
+	// runs under. It is resolved once here, at the process boundary, so no
+	// function inside the dispatch loop resolves a home directory of its own:
+	// the ones that did wrote into the operator's real ~/.kernl from every
+	// unit test that reached them.
+	StateDir string
+
 	// ConfigPath is the kernl.yaml this process loaded. The settings API needs it
 	// to write typed field updates back to the file the user actually edits.
 	// Empty when the app was built from an in-memory config (tests, harnesses),
@@ -107,8 +115,14 @@ func NewApp(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opening graph: %w", err)
 	}
 
+	stateDir, err := DefaultStateDir()
+	if err != nil {
+		return nil, err
+	}
+
 	return &App{
 		Backend:       be,
+		StateDir:      stateDir,
 		Terminal:      tm,
 		SCM:           scm,
 		Driver:        driver,

@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -50,6 +52,12 @@ type DriveBeadDeps struct {
 	// structural, because an agent told not to publish can still decide that
 	// publishing is what the instruction meant.
 	StopBeforeState string
+	// StateDir is the directory kernl writes a run's own control files into -
+	// the opencode allowlist and its per-stage specializations. It is passed
+	// in rather than derived from the home directory here, because a function
+	// deep in the dispatch loop that resolves its own paths writes into the
+	// operator's real state directory from every unit test that reaches it.
+	StateDir string
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -263,17 +271,12 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		agentInput.Command, agentInput.Args = BuildStageArgs(
 			adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
 			agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
-		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)
 		if agentInput.Env == nil {
 			agentInput.Env = make(map[string]string)
 		}
-		if len(wf.Stages) > 0 {
-			staticConfigPath := deps.RepoPath + "/orchestrator/opencode-config.json"
-			stageCfgPath, cfgErr := writeStageOpencodeConfig(staticConfigPath, deps.Worktree, deps.BeadID, activeState, wf.Stages)
-			if cfgErr != nil {
-				slog.Warn("DRIVE_TRACE stage-opencode-config failed, using static config", "err", cfgErr)
-			} else {
-				agentInput.Env["OPENCODE_CONFIG"] = stageCfgPath
+		if adapter.ResolveDialect(agentInput.Command) == adapter.DialectOpenCode {
+			if cfgErr := applyOpencodePermissions(agentInput.Env, deps.Config, deps.StateDir, deps.BeadID, activeState, wf.Stages); cfgErr != nil {
+				return RunBeadResult{FinalState: bead.State, Success: false}, cfgErr
 			}
 		}
 
@@ -405,20 +408,56 @@ func filterOutLabelPrefix(labels []string, prefix string) []string {
 	return out
 }
 
-// injectOpencodeConfigEnv sets OPENCODE_CONFIG to orchestrator/opencode-config.json
-// (alongside go.mod inside the canonical repo) so the spawned agent honors
-// the orchestrator's permission allowlist instead of opencode's defaults
-// (which auto-reject external_directory writes like /tmp/*).
-// Does not overwrite an explicit OPENCODE_CONFIG already set by the caller.
-func injectOpencodeConfigEnv(env map[string]string, repoPath string) map[string]string {
-	if env == nil {
-		env = map[string]string{}
-	}
+// applyOpencodePermissions points OPENCODE_CONFIG at the allowlist the spawned
+// agent must honor, so it does not fall back to opencode's own defaults (which
+// auto-reject external_directory reads like /tmp/*). When the workflow carries
+// stage contracts, the allowlist is specialized per stage with that stage's
+// forbidden paths denied.
+//
+// It fails rather than warns. A stage that runs without its deny rules is a
+// stage running under a policy nobody chose, and the warning it used to emit
+// was several screens away from the rejections it caused.
+//
+// An OPENCODE_CONFIG the caller set explicitly wins and is left alone.
+func applyOpencodePermissions(env map[string]string, cfg *config.Config, kernlDir, beadID, stage string, stages map[string]backend.StageContract) error {
 	if _, exists := env["OPENCODE_CONFIG"]; exists {
-		return env
+		return nil
 	}
-	env["OPENCODE_CONFIG"] = repoPath + "/orchestrator/opencode-config.json"
-	return env
+	if kernlDir == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for bead %s, so kernl has nowhere of its own to write the agent's allowlist - Fix: set DriveBeadDeps.StateDir (app.DefaultStateDir() outside tests)", beadID)
+	}
+	var configured string
+	if cfg != nil {
+		configured = cfg.Orchestrator.OpencodeConfigPath
+	}
+	basePath, err := resolveOpencodeBaseConfig(configured, kernlDir)
+	if err != nil {
+		return err
+	}
+	env["OPENCODE_CONFIG"] = basePath
+
+	if len(stages) == 0 {
+		return nil
+	}
+	stageDir := filepath.Join(kernlDir, "run", beadID)
+	stagePath, err := writeStageOpencodeConfig(basePath, stageDir, beadID, stage, stages)
+	if err != nil {
+		return err
+	}
+	env["OPENCODE_CONFIG"] = stagePath
+	return nil
+}
+
+// DefaultStateDir is the directory kernl owns for files that belong to a run
+// but not to the repository being worked on. It is resolved at the process
+// boundary and passed down, never re-derived mid-dispatch: a unit test that
+// reached the derivation wrote into the operator's real ~/.kernl.
+func DefaultStateDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve the home directory kernl keeps its state in - %w - Fix: set HOME, or set orchestrator.opencodeConfigPath in kernl.yaml to an explicit path", err)
+	}
+	return filepath.Join(home, ".kernl"), nil
 }
 
 // appendOpencodeStageFlags adds the per-stage flags opencode needs to

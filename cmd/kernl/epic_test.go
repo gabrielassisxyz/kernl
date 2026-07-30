@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -216,8 +217,21 @@ func epicRunFailSpawn(ctx context.Context, cmd string, args []string, cwd string
 	return &epicRunTestProcess{exitErr: context.DeadlineExceeded}, strings.NewReader(""), strings.NewReader(""), nil
 }
 
+// withoutGit asks for the worktree manager's no-git mode, where each bead's
+// worktree is an mkdir'd directory and no branch is ever cut. It is a test
+// fixture and nothing else: production refuses a repository path that is not a
+// git repository, because the silent version of this mode dispatched agents
+// into empty folders whenever registry.repos[].path was wrong.
+func withoutGit(t *testing.T) {
+	t.Helper()
+	previous := epicGitRunner
+	epicGitRunner = func(string) (epic.GitRunner, error) { return nil, nil }
+	t.Cleanup(func() { epicGitRunner = previous })
+}
+
 func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	t.Helper()
+	withoutGit(t)
 	be := &epicRunTestBackend{
 		beads: []backend.Bead{
 			{ID: "e", Type: "epic", Title: "test epic"},
@@ -243,6 +257,9 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	return &app.App{
 		Backend: be,
 		Driver:  driver,
+		// The allowlist kernl writes for a dispatched agent lands here, not in
+		// the operator's real ~/.kernl.
+		StateDir: t.TempDir(),
 		Config: &config.Config{
 			Settings: config.Settings{
 				Agents: map[string]config.AgentConfig{
@@ -273,6 +290,25 @@ func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 	}
 	if !guiURLPrinted {
 		t.Error("epic run must print the embedded GUI URL on startup")
+	}
+}
+
+// A registry path that is not a git repository used to degrade in silence:
+// no base branch, no epic branch, and every bead's worktree an empty directory
+// the agent had nothing to edit in.
+func TestEpicRunRefusesAPathThatIsNotAGitRepository(t *testing.T) {
+	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
+	// Undo the fixture's no-git mode: this test is about what production does.
+	epicGitRunner = func(repoPath string) (epic.GitRunner, error) {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: %s is not a git repository - Fix: correct registry.repos[].path in kernl.yaml", repoPath)
+	}
+
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--dry-run", "e"}, func(string) {})
+	if err == nil {
+		t.Fatal("expected a loud refusal rather than a run against a directory with no git")
+	}
+	if !strings.Contains(err.Error(), "registry.repos[].path") {
+		t.Errorf("the error must name the config key that fixes it, got: %v", err)
 	}
 }
 

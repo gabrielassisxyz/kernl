@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
@@ -64,8 +66,8 @@ type Deps struct {
 	ConfigPath string
 	GoVersion  string
 	// Orchestrator reports whether orchestration is enabled. When false (e.g.
-	// `serve --no-orchestrator`), the bd CLI is not required and its check is
-	// downgraded to advisory.
+	// `serve --no-orchestrator`), no tracker CLI is required and those checks
+	// are downgraded to advisory.
 	Orchestrator bool
 	// VaultOrphans lists notes sitting in a kernl-generated folder that no
 	// entity claims, each already rendered as "<path> (<reason>)". It is a
@@ -82,30 +84,14 @@ type Deps struct {
 func Run(deps Deps) *Report {
 	var checks []Check
 
-	// bd check. bd backs the orchestrator's issue store, so it is required when
-	// orchestration is enabled and advisory otherwise (GUI/graph-only serve).
-	bdOK := true
-	bdDetail := ""
-	bdFix := ""
-	if _, err := deps.LookPath("bd"); err != nil {
-		bdOK = false
-		bdDetail = "bd CLI not found in PATH"
-		bdFix = "install bd: see https://github.com/gastownhall/beads"
-	}
-	checks = append(checks, Check{Name: "bd", OK: bdOK, Detail: bdDetail, Fix: bdFix, Advisory: !deps.Orchestrator})
+	cfgCheck, cfg := configCheck(deps.ConfigPath)
 
-	// opencode check. opencode is just one of several agent CLIs
-	// (claude/codex/gemini); the dispatcher fails loud at run time when a
-	// configured agent is missing, so this is advisory, never a startup gate.
-	ocOK := true
-	ocDetail := ""
-	ocFix := ""
-	if _, err := deps.LookPath("opencode"); err != nil {
-		ocOK = false
-		ocDetail = "opencode CLI not found in PATH"
-		ocFix = "install opencode (or another configured agent CLI): see https://github.com/anthropics/opencode"
-	}
-	checks = append(checks, Check{Name: "opencode", OK: ocOK, Detail: ocDetail, Fix: ocFix, Advisory: true})
+	// The binaries to check come from the configuration, which is why this
+	// runs after the config is loaded. A fixed list used to report "bd" and
+	// "opencode" to an operator running claude and codex, and say nothing
+	// about either: three verdicts, none of them about a binary a run would
+	// actually execute.
+	checks = append(checks, binaryChecks(configuredBinaries(cfg, deps.Orchestrator), deps.LookPath)...)
 
 	// Go version check
 	goDetail := ""
@@ -113,28 +99,7 @@ func Run(deps Deps) *Report {
 	goOK := checkGoVersion(deps.GoVersion, &goDetail, &goFix)
 	checks = append(checks, Check{Name: "go", OK: goOK, Detail: goDetail, Fix: goFix})
 
-	// Config check
-	cfgOK := true
-	cfgDetail := ""
-	cfgFix := ""
-	cfgPath := deps.ConfigPath
-	if cfgPath == "" {
-		cfgOK = false
-		cfgDetail = "no config path provided"
-		cfgFix = "run kernl serve --config /path/to/kernl.yaml"
-	} else if _, err := os.Stat(cfgPath); err != nil {
-		cfgOK = false
-		cfgDetail = fmt.Sprintf("config file not found: %s", cfgPath)
-		// Two different users hit this: one has no config yet, one has one
-		// somewhere else and is running from the wrong directory. Naming only
-		// the first sends the second off to create a duplicate.
-		cfgFix = fmt.Sprintf("copy kernl.yaml.example to %s and fill in your agents, or export KERNL_CONFIG=<path> if you already have a config elsewhere", cfgPath)
-	} else if _, err := config.Load(cfgPath); err != nil {
-		cfgOK = false
-		cfgDetail = fmt.Sprintf("config invalid: %v", err)
-		cfgFix = fmt.Sprintf("fix the errors in %s (hint: kernl doctor shows the issue)", cfgPath)
-	}
-	checks = append(checks, Check{Name: "config", OK: cfgOK, Detail: cfgDetail, Fix: cfgFix})
+	checks = append(checks, cfgCheck)
 
 	if deps.VaultOrphans != nil {
 		checks = append(checks, vaultLayoutCheck(deps.VaultOrphans))
@@ -145,6 +110,140 @@ func Run(deps Deps) *Report {
 	}
 
 	return &Report{checks: checks}
+}
+
+// configCheck validates the config file and hands back what it parsed, so the
+// checks that depend on the configuration do not read it a second time. A nil
+// config means it could not be read: nothing downstream can be checked, and
+// the config check itself already says why.
+func configCheck(path string) (Check, *config.Config) {
+	if path == "" {
+		return Check{Name: "config", Detail: "no config path provided", Fix: "run kernl serve --config /path/to/kernl.yaml"}, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		return Check{
+			Name:   "config",
+			Detail: fmt.Sprintf("config file not found: %s", path),
+			// Two different users hit this: one has no config yet, one has one
+			// somewhere else and is running from the wrong directory. Naming only
+			// the first sends the second off to create a duplicate.
+			Fix: fmt.Sprintf("copy kernl.yaml.example to %s and fill in your agents, or export KERNL_CONFIG=<path> if you already have a config elsewhere", path),
+		}, nil
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		return Check{
+			Name:   "config",
+			Detail: fmt.Sprintf("config invalid: %v", err),
+			Fix:    fmt.Sprintf("fix the errors in %s (hint: kernl doctor shows the issue)", path),
+		}, nil
+	}
+	return Check{Name: "config", OK: true}, cfg
+}
+
+// requiredBinary is one CLI the configuration would execute, and who asked
+// for it.
+type requiredBinary struct {
+	name   string
+	usedBy string
+	fix    string
+	// resolveErr is set when the configuration does not say which binary this
+	// is. The check then reports that, rather than checking a binary picked by
+	// a default - which is a check that passes about the wrong program.
+	resolveErr string
+	advisory   bool
+}
+
+// configuredBinaries lists the CLIs this configuration names: the tracker
+// behind each registered repository, and the command of every configured
+// agent. Trackers gate a run the way bd always did, so they are required when
+// orchestration is on. Agents stay advisory: dispatch fails loud at run time
+// when the one it picked is missing, and refusing to serve the graph because
+// one of several configured agents is uninstalled would be out of proportion.
+func configuredBinaries(cfg *config.Config, orchestrating bool) []requiredBinary {
+	if cfg == nil {
+		return nil
+	}
+	var bins []requiredBinary
+	seen := map[string]int{}
+	add := func(b requiredBinary) {
+		if b.name == "" {
+			return
+		}
+		if i, ok := seen[b.name]; ok {
+			bins[i].usedBy += ", " + b.usedBy
+			bins[i].advisory = bins[i].advisory && b.advisory
+			return
+		}
+		seen[b.name] = len(bins)
+		bins = append(bins, b)
+	}
+
+	for _, repo := range cfg.Registry.Repos {
+		// Resolved exactly as a run resolves it, so doctor cannot report one
+		// tracker healthy while the run executes another.
+		mm, err := backend.ResolveMemoryManager(repo.Path, repo.MemoryManager)
+		if err == nil {
+			var bin string
+			bin, err = backend.TrackerBinary(mm)
+			if err == nil {
+				add(requiredBinary{
+					name:     bin,
+					usedBy:   "repo " + repo.Path,
+					fix:      "install the tracker CLI, or correct registry.repos[].memoryManager in kernl.yaml",
+					advisory: !orchestrating,
+				})
+				continue
+			}
+		}
+		// A tracker that cannot be named is reported as the unresolved check
+		// it is. Naming a binary anyway would check the wrong one and pass.
+		add(requiredBinary{
+			name:       "tracker",
+			usedBy:     "repo " + repo.Path,
+			fix:        "set registry.repos[].memoryManager in kernl.yaml to the tracker this repository uses",
+			advisory:   !orchestrating,
+			resolveErr: err.Error(),
+		})
+	}
+
+	// Sorted, because map iteration order would otherwise shuffle the doctor
+	// output between runs and make two reports impossible to diff.
+	agentIDs := make([]string, 0, len(cfg.Settings.Agents))
+	for id := range cfg.Settings.Agents {
+		agentIDs = append(agentIDs, id)
+	}
+	sort.Strings(agentIDs)
+	for _, id := range agentIDs {
+		add(requiredBinary{
+			name:     cfg.Settings.Agents[id].Command,
+			usedBy:   "agent " + id,
+			fix:      "install it, or correct settings.agents." + id + ".command in kernl.yaml",
+			advisory: true,
+		})
+	}
+	return bins
+}
+
+func binaryChecks(bins []requiredBinary, lookPath func(string) (string, error)) []Check {
+	checks := make([]Check, 0, len(bins))
+	for _, b := range bins {
+		check := Check{Name: b.name, OK: true, Advisory: b.advisory}
+		if b.resolveErr != "" {
+			check.OK = false
+			check.Detail = fmt.Sprintf("cannot tell which tracker CLI %s needs: %s", b.usedBy, b.resolveErr)
+			check.Fix = b.fix
+			checks = append(checks, check)
+			continue
+		}
+		if _, err := lookPath(b.name); err != nil {
+			check.OK = false
+			check.Detail = fmt.Sprintf("%s not found in PATH (needed by %s)", b.name, b.usedBy)
+			check.Fix = b.fix
+		}
+		checks = append(checks, check)
+	}
+	return checks
 }
 
 // companionNotesCheck reports entities whose companion note is gone, which is the

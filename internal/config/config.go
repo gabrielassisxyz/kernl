@@ -56,8 +56,12 @@ type RegistryConfig struct {
 }
 
 type RepoEntry struct {
-	Path          string         `yaml:"path"`
-	MemoryManager string         `yaml:"memoryManager"`
+	Path          string `yaml:"path"`
+	MemoryManager string `yaml:"memoryManager"`
+	// DefaultBranch overrides what epic and bead branches are cut from. Leave
+	// it unset and the branch is read out of the repository itself; set it
+	// only when the repository disagrees with what origin advertises.
+	DefaultBranch string         `yaml:"defaultBranch,omitempty"`
 	Shipment      ShipmentConfig `yaml:"shipment,omitempty"`
 }
 
@@ -90,6 +94,11 @@ type OrchestratorConfig struct {
 	MaxConcurrentBeads int    `yaml:"maxConcurrentBeads,omitempty"`
 	RunStatePath       string `yaml:"runStatePath,omitempty"`
 	StageRetryAttempts int    `yaml:"stageRetryAttempts,omitempty"`
+	// OpencodeConfigPath overrides the permission allowlist handed to a
+	// dispatched opencode agent. It is deliberately not defaulted here: unset
+	// means kernl writes and uses its own file, while a path that is set and
+	// missing is an operator mistake that must fail loud rather than fall back.
+	OpencodeConfigPath string `yaml:"opencodeConfigPath,omitempty"`
 }
 
 type SweepConfig struct {

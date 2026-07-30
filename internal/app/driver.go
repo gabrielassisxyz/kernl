@@ -133,10 +133,11 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// Register spawn context so manual /nudge requests can later re-resolve
 	// the agent and respawn against the captured opencode session id.
 	d.nudges.Upsert(sessionID, session.NudgeRecord{
-		BeadID:   input.BeadID,
-		RepoPath: input.RepoPath,
-		Cwd:      cwd,
-		Running:  true,
+		BeadID:             input.BeadID,
+		RepoPath:           input.RepoPath,
+		Cwd:                cwd,
+		OpencodeConfigPath: input.Env["OPENCODE_CONFIG"],
+		Running:            true,
 	})
 	defer d.nudges.SetRunning(sessionID, false)
 

@@ -100,7 +100,21 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	agentInput.Command, agentInput.Args = BuildStageArgs(
 		adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
 		agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
-	agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, rec.RepoPath)
+	if agentInput.Env == nil {
+		agentInput.Env = map[string]string{}
+	}
+	if adapter.ResolveDialect(agentInput.Command) == adapter.DialectOpenCode {
+		// The follow-up resumes the same session under the same policy, so it
+		// reuses the recorded allowlist rather than deriving one. Deriving it
+		// here meant re-deriving it without a stage: the stage-specialized
+		// allowlist carries the contract's forbidden paths as deny rules, and
+		// a follow-up that dropped them handed the resumed agent write access
+		// to exactly the files its stage may not touch.
+		if rec.OpencodeConfigPath == "" {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: no recorded opencode allowlist for session %s (bead %s), so the follow-up would resume under a policy the stage did not set - Fix: nudge a session dispatched by this build; older sessions predate the recorded path", sessionID, rec.BeadID)
+		}
+		agentInput.Env["OPENCODE_CONFIG"] = rec.OpencodeConfigPath
+	}
 	agentInput.BeadID = rec.BeadID
 	agentInput.RepoPath = rec.RepoPath
 	agentInput.Cwd = rec.Cwd
