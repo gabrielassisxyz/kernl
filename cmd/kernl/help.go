@@ -167,7 +167,7 @@ running 'kernl serve'.`,
 	},
 	{
 		Name:    "sweep",
-		Summary: "Close epics whose PRs are merged in master",
+		Summary: "Close epics whose PRs are merged",
 		Usage:   "kernl sweep [--yes | --dry-run] [--repo <path>] [--failure-threshold <n>] [--backoff-minutes <a,b,...>] [--stale-warn-days <n>]",
 		Details: `Lists epics awaiting PR review, asks gh whether each PR merged, and closes
 the merged ones (epic + children) in the tracker.

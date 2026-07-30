@@ -114,7 +114,7 @@ func renderOperatingRules(b *strings.Builder) {
 	b.WriteString("   ```bash\n")
 	b.WriteString("   git add -A && git commit -m \"<conventional message>\"\n")
 	b.WriteString("   ```\n")
-	b.WriteString("7. DO NOT push. DO NOT switch branches. DO NOT touch `master`.\n\n")
+	b.WriteString("7. DO NOT push. DO NOT switch branches. Commit only onto the branch already checked out in this worktree; leave every other branch alone.\n\n")
 	b.WriteString("If a tool call is auto-rejected (e.g. 'permission requested: external_directory'), STOP and switch to an in-worktree path immediately - do NOT keep retrying the rejected path; the rejection means opencode will not allow it this session.\n\n")
 	b.WriteString("If you cannot proceed because of a missing dependency, fail loud with a descriptive error and stop. Do not invent stubs.\n\n")
 }

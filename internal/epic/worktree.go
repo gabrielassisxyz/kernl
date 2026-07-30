@@ -11,14 +11,20 @@ import (
 )
 
 type WorktreeManager struct {
-	root       string
-	repoPath   string
+	root     string
+	repoPath string
+	// baseBranch is what epic and bead branches are cut from. It is resolved
+	// per repository by ResolveBaseBranch and passed in rather than assumed,
+	// because a wrong guess here fails at `git branch` with an error that
+	// looks like a broken repository. Empty is only valid alongside a nil
+	// gitRun, where no branch is ever created.
+	baseBranch string
 	gitRun     func(dir string, args ...string) (string, error)
 	updateDesc func(beadID string, fn func(oldDesc string) string) error
 }
 
-func NewWorktreeManager(root string, repoPath string, gitRun func(dir string, args ...string) (string, error), updateDesc func(beadID string, fn func(oldDesc string) string) error) *WorktreeManager {
-	return &WorktreeManager{root: root, repoPath: repoPath, gitRun: gitRun, updateDesc: updateDesc}
+func NewWorktreeManager(root string, repoPath string, baseBranch string, gitRun func(dir string, args ...string) (string, error), updateDesc func(beadID string, fn func(oldDesc string) string) error) *WorktreeManager {
+	return &WorktreeManager{root: root, repoPath: repoPath, baseBranch: baseBranch, gitRun: gitRun, updateDesc: updateDesc}
 }
 
 func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
@@ -26,6 +32,9 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 
 	if m.gitRun == nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: gitRun not wired - EnsureEpicBranch cannot operate without a git executor - Fix: wire a git executor via NewWorktreeManager")
+	}
+	if m.baseBranch == "" {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no base branch for %s - epic branch %s has nothing to be cut from - Fix: pass the branch resolved by ResolveBaseBranch to NewWorktreeManager", m.repoPath, branchName)
 	}
 
 	output, err := m.gitRun(m.repoPath, "branch", "--list", branchName)
@@ -35,8 +44,8 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 	branchExists := strings.TrimSpace(output) != ""
 
 	if !branchExists {
-		if _, err := m.gitRun(m.repoPath, "branch", branchName, "master"); err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating epic branch %s from master - %w - Fix: verify master exists in the repo at %s", branchName, err, m.repoPath)
+		if _, err := m.gitRun(m.repoPath, "branch", branchName, m.baseBranch); err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating epic branch %s from %s - %w - Fix: verify %s exists in the repo at %s", branchName, m.baseBranch, err, m.baseBranch, m.repoPath)
 		}
 	}
 
@@ -157,7 +166,11 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 	// collide with `add -b kernl/<bead>`.
 	_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+beadID)
 
-	baseBranch := "master"
+	if m.baseBranch == "" {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no base branch for %s - bead branch kernl/%s has nothing to be cut from - Fix: pass the branch resolved by ResolveBaseBranch to NewWorktreeManager", m.repoPath, beadID)
+	}
+
+	baseBranch := m.baseBranch
 	epicBranch := "feat/" + epicID
 	output, err := m.gitRun(m.repoPath, "branch", "--list", epicBranch)
 	if err == nil && strings.TrimSpace(output) != "" {

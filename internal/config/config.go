@@ -56,8 +56,12 @@ type RegistryConfig struct {
 }
 
 type RepoEntry struct {
-	Path          string         `yaml:"path"`
-	MemoryManager string         `yaml:"memoryManager"`
+	Path          string `yaml:"path"`
+	MemoryManager string `yaml:"memoryManager"`
+	// DefaultBranch overrides what epic and bead branches are cut from. Leave
+	// it unset and the branch is read out of the repository itself; set it
+	// only when the repository disagrees with what origin advertises.
+	DefaultBranch string         `yaml:"defaultBranch,omitempty"`
 	Shipment      ShipmentConfig `yaml:"shipment,omitempty"`
 }
 

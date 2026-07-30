@@ -52,11 +52,33 @@ func (f *fakeDescUpdater) lastDesc(beadID string) string {
 	return f.updates[beadID]
 }
 
+// An unresolved base branch used to be papered over with the literal "master".
+// With git wired, both branch-cutting paths must refuse rather than guess.
+func TestBranchCuttingRefusesWithoutABaseBranch(t *testing.T) {
+	root := t.TempDir()
+
+	t.Run("epic branch", func(t *testing.T) {
+		fr := newFakeGitRunner()
+		wm := NewWorktreeManager(root, root, "", fr.run, nil)
+		if _, err := wm.EnsureEpicBranch("e1"); err == nil {
+			t.Fatal("expected a loud failure when no base branch was resolved")
+		}
+	})
+
+	t.Run("bead branch", func(t *testing.T) {
+		fr := newFakeGitRunner()
+		wm := NewWorktreeManager(root, root, "", fr.run, nil)
+		if _, err := wm.Add("e1", "kb-1", nil); err == nil {
+			t.Fatal("expected a loud failure when no base branch was resolved")
+		}
+	})
+}
+
 func TestEnsureEpicBranchCreatesWhenAbsent(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
 	fd := &fakeDescUpdater{}
-	wm := NewWorktreeManager(root, root, fr.run, fd.update)
+	wm := NewWorktreeManager(root, root, "main", fr.run, fd.update)
 
 	branch, err := wm.EnsureEpicBranch("e1")
 	if err != nil {
@@ -72,7 +94,7 @@ func TestEnsureEpicBranchCreatesWhenAbsent(t *testing.T) {
 		if c[0] == "branch" && c[1] == "--list" && c[2] == "feat/e1" {
 			foundList = true
 		}
-		if c[0] == "branch" && c[1] == "feat/e1" && c[2] == "master" {
+		if c[0] == "branch" && c[1] == "feat/e1" && c[2] == "main" {
 			foundCreate = true
 		}
 	}
@@ -80,7 +102,7 @@ func TestEnsureEpicBranchCreatesWhenAbsent(t *testing.T) {
 		t.Error("never listed feat/e1")
 	}
 	if !foundCreate {
-		t.Error("never created feat/e1 from master - it should have been absent on first list call")
+		t.Error("never created feat/e1 from main - it should have been absent on first list call")
 	}
 }
 
@@ -88,7 +110,7 @@ func TestEnsureEpicBranchIsIdempotent(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
 	fd := &fakeDescUpdater{}
-	wm := NewWorktreeManager(root, root, fr.run, fd.update)
+	wm := NewWorktreeManager(root, root, "main", fr.run, fd.update)
 
 	_, err := wm.EnsureEpicBranch("e1")
 	if err != nil {
@@ -100,7 +122,7 @@ func TestEnsureEpicBranchIsIdempotent(t *testing.T) {
 		t.Fatalf("second call: %v", err)
 	}
 	for _, call := range fr.calls {
-		if call[0] == "branch" && call[1] == "feat/e1" && call[2] == "master" {
+		if call[0] == "branch" && call[1] == "feat/e1" && call[2] == "main" {
 			t.Error("second call should not recreate feat/e1 - branch already exists in fake")
 		}
 	}
@@ -110,7 +132,7 @@ func TestEnsureEpicBranchStoresInDescription(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
 	fd := &fakeDescUpdater{}
-	wm := NewWorktreeManager(root, root, fr.run, fd.update)
+	wm := NewWorktreeManager(root, root, "main", fr.run, fd.update)
 
 	_, err := wm.EnsureEpicBranch("e1")
 	if err != nil {
@@ -126,7 +148,7 @@ func TestAddBasesWorktreeOnEpicBranchWhenPresent(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
 	fr.branch["feat/e1"] = true
-	wm := NewWorktreeManager(root, root, fr.run, nil)
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
 
 	_, err := wm.Add("e1", "child-a", nil)
 	if err != nil {
@@ -157,7 +179,7 @@ func TestAddBasesWorktreeOnEpicBranchWhenPresent(t *testing.T) {
 func TestAddBasesWorktreeOnMasterWhenEpicBranchAbsent(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
-	wm := NewWorktreeManager(root, root, fr.run, nil)
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
 
 	_, err := wm.Add("e1", "child-b", nil)
 	if err != nil {
@@ -176,12 +198,12 @@ func TestAddBasesWorktreeOnMasterWhenEpicBranchAbsent(t *testing.T) {
 	}
 	foundMaster := false
 	for _, a := range addArgs {
-		if a == "master" {
+		if a == "main" {
 			foundMaster = true
 		}
 	}
 	if !foundMaster {
-		t.Errorf("worktree add not based on master when epic branch absent: %v", addArgs)
+		t.Errorf("worktree add not based on the resolved base branch when epic branch absent: %v", addArgs)
 	}
 }
 
@@ -189,7 +211,7 @@ func TestAddMergesDependencyBranches(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
 	fr.branch["kernl/dep-1"] = true // the dependency already produced its branch
-	wm := NewWorktreeManager(root, root, fr.run, nil)
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
 
 	if _, err := wm.Add("e1", "child-d", []string{"dep-1"}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -210,7 +232,7 @@ func TestAddSkipsMissingDependencyBranch(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
 	// dep-2 never produced a branch (branch map empty) - nothing to merge.
-	wm := NewWorktreeManager(root, root, fr.run, nil)
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
 
 	if _, err := wm.Add("e1", "child-e", []string{"dep-2"}); err != nil {
 		t.Fatalf("Add: %v", err)
@@ -224,7 +246,7 @@ func TestAddSkipsMissingDependencyBranch(t *testing.T) {
 }
 
 func TestAddFallsBackToMkdirWhenNoGitRun(t *testing.T) {
-	wm := NewWorktreeManager(t.TempDir(), "", nil, nil)
+	wm := NewWorktreeManager(t.TempDir(), "", "", nil, nil)
 	path, err := wm.Add("epic-1", "kb-3", nil)
 	if err != nil {
 		t.Fatalf("Add: %v", err)
@@ -249,7 +271,7 @@ func TestAddRecoversFromExistingPath(t *testing.T) {
 	}
 
 	fr := newFakeGitRunner()
-	wm := NewWorktreeManager(root, root, fr.run, nil)
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
 
 	path, err := wm.Add("e1", "dup", nil)
 	if err != nil {
@@ -266,7 +288,7 @@ func TestAddRecoversFromExistingPath(t *testing.T) {
 func TestAddCreatesBranchWithKernlPrefix(t *testing.T) {
 	root := t.TempDir()
 	fr := newFakeGitRunner()
-	wm := NewWorktreeManager(root, root, fr.run, nil)
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
 
 	_, err := wm.Add("e1", "child-c", nil)
 	if err != nil {
@@ -301,7 +323,7 @@ func TestCleanupEpic_RemovesWorktreesAndBranches(t *testing.T) {
 	fr.branch["feat/e1"] = true
 	fr.branch["kernl/c1"] = true
 	fr.branch["kernl/c2"] = true
-	wm := NewWorktreeManager(root, repoPath, fr.run, nil)
+	wm := NewWorktreeManager(root, repoPath, "main", fr.run, nil)
 
 	_ = os.MkdirAll(filepath.Join(root, "e1", "c1"), 0o755)
 	_ = os.WriteFile(filepath.Join(root, "e1", "c1", "file.txt"), []byte("stale"), 0o644)

@@ -337,7 +337,21 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		// Not used for epic branch; runstate tracks worktrees separately.
 		return nil
 	}
-	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, gitRunForWM, wtUpdateDesc)
+	// The base branch is a fact about the target repository, not a constant.
+	// It is resolved once here and handed to everything downstream that has to
+	// name it: the worktree manager cuts branches from it and the integration
+	// and shipment prompts tell the agent what to merge onto.
+	var baseBranch string
+	if gitRunForWM != nil {
+		resolved, berr := epic.ResolveBaseBranch(repoPath, repoEntry.DefaultBranch, gitRunForWM)
+		if berr != nil {
+			return berr
+		}
+		baseBranch = resolved
+		out(fmt.Sprintf("base branch: %s\n", baseBranch))
+	}
+
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, baseBranch, gitRunForWM, wtUpdateDesc)
 	if gitRunForWM != nil {
 		if _, err := wm.EnsureEpicBranch(epicID); err != nil {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot ensure epic branch for %s: %w", epicID, err)
@@ -427,7 +441,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		return werr
 	}
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
-	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, plan, out); err != nil {
+	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, baseBranch, epicWorktree, stateStore, plan, out); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
@@ -514,7 +528,7 @@ func resolveShipmentPlan(repoEntry config.RepoEntry, dryRun bool, out func(strin
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
-func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, epicWorktree string, stateStore *workflow.AgentStateStore, plan shipmentPlan, out func(string)) error {
+func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, baseBranch, epicWorktree string, stateStore *workflow.AgentStateStore, plan shipmentPlan, out func(string)) error {
 	epicBead, err := a.Backend.Get(epicID, repoPath)
 	if err != nil || epicBead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
@@ -554,7 +568,7 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 				}
 				s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
 					EpicID: epicID, EpicTitle: bead.Title,
-					EpicBranch: "feat/" + epicID, BaseBranch: "master", Children: cs,
+					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch, Children: cs,
 				})
 				if perr != nil {
 					return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
@@ -563,7 +577,7 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 			case "shipment":
 				s, perr := prompt.RenderShipment(prompt.ShipmentInput{
 					EpicID: epicID, EpicTitle: bead.Title,
-					EpicBranch: "feat/" + epicID, BaseBranch: "master",
+					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch,
 					RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
 					RepoSlug: plan.Destination.RepoSlug,
 				})

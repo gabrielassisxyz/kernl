@@ -10,7 +10,7 @@ Subcommands:
   doctor       Run system checks (env, binaries, config)
   epic         Manage epics (bead graphs)
   bead         Manage individual beads (run one locally, or read and edit the tracker)
-  sweep        Close epics whose PRs are merged in master
+  sweep        Close epics whose PRs are merged
   bookmark     Manage bookmarks
   capture      Capture a quick note/idea into the inbox (text arg or stdin)
   plan         Show the vault notes relevant to a topic (substrate-aware planning)
@@ -313,7 +313,7 @@ At least one of the three is required. Each one you pass replaces that
 field wholesale.
 
 ### kernl sweep
-kernl sweep - Close epics whose PRs are merged in master
+kernl sweep - Close epics whose PRs are merged
 
 Usage:
   kernl sweep [--yes | --dry-run] [--repo <path>] [--failure-threshold <n>] [--backoff-minutes <a,b,...>] [--stale-warn-days <n>]

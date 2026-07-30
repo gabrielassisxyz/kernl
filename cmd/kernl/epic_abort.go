@@ -75,7 +75,7 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 		childIDs = append(childIDs, child.ID)
 	}
 
-	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, nil, nil)
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, "", nil, nil)
 	if cerr := wm.CleanupEpic(epicID, childIDs); cerr != nil {
 		return cerr
 	}
