@@ -12,6 +12,10 @@ import (
 )
 
 func runEpicAbort(a *app.App, args []string, out func(string)) error {
+	repoFlag, args, err := takeRepoFlag("epic abort", args)
+	if err != nil {
+		return err
+	}
 	var epicID string
 	var yes, dryRun bool
 	for _, arg := range args {
@@ -22,8 +26,8 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 			dryRun = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return usagef("KERNL DISPATCH FAILURE: unknown epic abort flag %q%s - valid: --yes, --dry-run",
-					arg, didYouMean(arg, []string{"--yes", "--dry-run"}))
+				return usagef("KERNL DISPATCH FAILURE: unknown epic abort flag %q%s - valid: --yes, --dry-run, --repo",
+					arg, didYouMean(arg, []string{"--yes", "--dry-run", "--repo"}))
 			}
 			if epicID != "" {
 				return usagef("KERNL DISPATCH FAILURE: epic abort takes exactly one epic ID, got %q and %q - abort one epic at a time", epicID, arg)
@@ -34,10 +38,11 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 	if epicID == "" {
 		return usagef("KERNL DISPATCH FAILURE: epic abort requires an epic ID - run: kernl epic abort <epic-id>")
 	}
-	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	if err != nil {
+		return err
 	}
-	repoPath := a.Config.Registry.Repos[0].Path
+	repoPath := repoEntry.Path
 
 	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
 	if err != nil {

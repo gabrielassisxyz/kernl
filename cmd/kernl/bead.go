@@ -56,16 +56,20 @@ func runBeadWithApp(a *app.App, args []string) error {
 }
 
 func runBeadCmd(a *app.App, args []string) error {
+	repoFlag, args, err := takeRepoFlag("bead run", args)
+	if err != nil {
+		return err
+	}
 	if len(args) == 0 {
 		return usagef("KERNL DISPATCH FAILURE: bead run requires a bead ID - run: kernl bead run <bead-id>")
 	}
 
 	beadID := args[0]
 
-	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	if err != nil {
+		return err
 	}
-	repoEntry := a.Config.Registry.Repos[0]
 	repoPath := repoEntry.Path
 
 	if err := refuseUnverifiedShipment(a, beadID, repoEntry); err != nil {

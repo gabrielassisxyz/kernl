@@ -87,7 +87,8 @@ The server hosts the web GUI, the REST API and the SSE event streams.`,
 		Name:    "doctor",
 		Summary: "Run system checks (env, binaries, config)",
 		Usage:   "kernl [--config <path>] doctor [--json]",
-		Details: `Checks that bd, the agent CLI, Go and the config file are usable.
+		Details: `Checks that the binaries the config names (each repo's tracker, each
+configured agent), Go and the config file itself are usable.
 Exit code is non-zero when a required check fails.
 
 {{flags}}`,
@@ -107,28 +108,30 @@ the others drive the orchestrator locally.`,
 			{
 				Name:    "list",
 				Summary: "List epics with child counts and state",
-				Usage:   "kernl epic list [--json]",
+				Usage:   "kernl epic list [--json] [--repo <path|name>]",
 				Details: "{{flags}}",
 				Flags: []commandFlag{
 					{Name: "--json", Description: `Emit {"epics":[{"id","title","children","state"}]} on stdout`},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
 			{
 				Name:    "run",
 				Summary: "Execute an epic's bead graph in parallel",
-				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--dry-run] <epic-id>",
+				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--dry-run] [--repo <path|name>] <epic-id>",
 				Details: "{{flags}}",
 				Flags: []commandFlag{
 					{Name: "--workflow", Value: "<path>", Description: "Use a custom workflow YAML instead of the default profile"},
 					{Name: "--autonomous", Description: "Let the DA infer the workflow shape without prompting"},
 					{Name: "--interactive", Description: "With --autonomous: confirm the inferred shape first"},
 					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
 			{
 				Name:    "merge",
 				Summary: "(Re-)run only the epic-level integration stages",
-				Usage:   "kernl epic merge [--dry-run] <epic-id>",
+				Usage:   "kernl epic merge [--dry-run] [--repo <path|name>] <epic-id>",
 				Details: `Drives the epic bead through integration -> integration_review -> shipment.
 Use it to recover a blocked epic; it does not run the children.
 
@@ -139,14 +142,22 @@ use --dry-run to stop before shipment.
 {{flags}}`,
 				Flags: []commandFlag{
 					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
 			{
 				Name:    "abort",
 				Summary: "Close an epic and its children; clean worktrees and agent state",
-				Usage:   "kernl epic abort [--dry-run] <epic-id> --yes",
+				Usage:   "kernl epic abort [--dry-run] [--repo <path|name>] <epic-id> --yes",
 				Details: `Destructive: closes the epic and every child bead, removes their worktrees
-and purges agent state. Requires --yes; use --dry-run to preview.`,
+and purges agent state. Requires --yes; use --dry-run to preview.
+
+{{flags}}`,
+				Flags: []commandFlag{
+					{Name: "--yes", Description: "Confirm the close; without it nothing is changed"},
+					{Name: "--dry-run", Description: "Preview what would be closed and removed"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+				},
 			},
 		}, epicAPISubcommands...),
 	},
@@ -161,7 +172,7 @@ running 'kernl serve'.`,
 			{
 				Name:    "run",
 				Summary: "Drive a single bead through its workflow",
-				Usage:   "kernl bead run <bead-id>",
+				Usage:   "kernl bead run [--repo <path|name>] <bead-id>",
 			},
 		}, beadAPISubcommands...),
 	},

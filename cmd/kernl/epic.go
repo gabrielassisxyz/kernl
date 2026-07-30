@@ -106,20 +106,25 @@ func runEpicWithApp(a *app.App, configPath string, args []string, out func(strin
 }
 
 func runEpicList(a *app.App, w io.Writer, args []string) error {
+	repoFlag, args, err := takeRepoFlag("epic list", args)
+	if err != nil {
+		return err
+	}
 	var asJSON bool
 	for _, arg := range args {
 		switch arg {
 		case "--json":
 			asJSON = true
 		default:
-			return usagef("KERNL DISPATCH FAILURE: unknown epic list flag %q%s - valid: --json",
-				arg, didYouMean(arg, []string{"--json"}))
+			return usagef("KERNL DISPATCH FAILURE: unknown epic list flag %q%s - valid: --json, --repo",
+				arg, didYouMean(arg, []string{"--json", "--repo"}))
 		}
 	}
-	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	if err != nil {
+		return err
 	}
-	repoPath := a.Config.Registry.Repos[0].Path
+	repoPath := repoEntry.Path
 
 	epics, err := a.Backend.List(&backend.BeadListFilters{Type: "epic"}, repoPath)
 	if err != nil {
@@ -163,6 +168,10 @@ type epicListRow struct {
 }
 
 func runEpicRun(a *app.App, configPath string, args []string, out func(string)) error {
+	repoFlag, args, err := takeRepoFlag("epic run", args)
+	if err != nil {
+		return err
+	}
 	var workflowPath string
 	var workflowFlagSeen bool
 	var autonomous bool
@@ -198,8 +207,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		} else if strings.HasPrefix(arg, "-") {
 			// A mistyped flag must not silently become the epic ID (it used
 			// to swallow --autonomous typos and run non-autonomous).
-			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive, --dry-run",
-				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive", "--dry-run"}))
+			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive, --dry-run, --repo",
+				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive", "--dry-run", "--repo"}))
 		} else {
 			remainingArgs = append(remainingArgs, arg)
 		}
@@ -212,11 +221,11 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if len(remainingArgs) == 0 {
 		return usagef("KERNL DISPATCH FAILURE: epic run requires an epic ID - run: kernl epic run <epic-id>")
 	}
-	if len(a.Config.Registry.Repos) == 0 {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
-	}
 	epicID := remainingArgs[0]
-	repoEntry := a.Config.Registry.Repos[0]
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	if err != nil {
+		return err
+	}
 	repoPath := repoEntry.Path
 
 	// U1: Config and CLI flags for autonomous mode. The lookup honors the
