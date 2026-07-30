@@ -315,6 +315,26 @@ func TestEpicRunRefusesAPathThatIsNotAGitRepository(t *testing.T) {
 	}
 }
 
+// An empty StateDir used to fall back to deriving one from os.Getenv("HOME")
+// deep inside the run, which made agent state land in the operator's real
+// ~/.kernl from any caller (test or otherwise) that forgot to set it. It must
+// fail loud instead, naming the field that fixes it.
+func TestEpicRunFailsLoudWithoutStateDir(t *testing.T) {
+	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
+	fakeApp.StateDir = ""
+
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--dry-run", "e"}, func(string) {})
+	if err == nil {
+		t.Fatal("expected a loud refusal rather than a run with no state directory")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "App.StateDir") {
+		t.Errorf("error must name the field that fixes it (App.StateDir), got: %v", err)
+	}
+}
+
 func TestEpicRunBlockedPrintsNextStep(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunFailSpawn)
 	var out strings.Builder
