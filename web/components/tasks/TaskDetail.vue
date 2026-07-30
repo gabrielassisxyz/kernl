@@ -96,11 +96,37 @@
             </div>
           </section>
 
-          <section v-if="task.description">
+          <section>
             <h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-base">Description</h3>
-            <p class="font-body text-body text-text-primary whitespace-pre-wrap">{{ task.description }}</p>
+            <textarea
+              v-if="editingDescription"
+              ref="descriptionInputRef"
+              v-model="descriptionDraft"
+              data-test="description-input"
+              rows="3"
+              placeholder="What this task is, in a sentence or two."
+              class="w-full resize-none overflow-hidden font-body text-body text-text-primary leading-relaxed bg-bg-base rounded border border-primary/70 px-component py-base outline-none placeholder:text-text-muted"
+              @input="autoResizeDescription"
+              @keydown.enter.exact.stop
+              @keydown.enter.ctrl.prevent="commitDescription"
+              @keydown.enter.meta.prevent="commitDescription"
+              @keydown.esc.stop="cancelDescription"
+              @blur="commitDescription"
+            ></textarea>
+            <p
+              v-else
+              data-test="description-display"
+              class="font-body text-body whitespace-pre-wrap rounded cursor-text hover:bg-white/5 -mx-tight px-tight"
+              :class="task.description ? 'text-text-primary' : 'text-text-faint'"
+              :title="task.description ? 'Click to edit' : 'Click to add a description'"
+              @click="beginDescription"
+            >
+              {{ task.description || 'No description.' }}
+            </p>
+            <p v-if="editingDescription" class="mt-tight font-mono-data text-mono-data text-text-faint">
+              Ctrl+Enter or click away to save · Esc to discard
+            </p>
           </section>
-          <p v-else class="font-body text-body text-text-faint">No description.</p>
         </div>
 
         <!-- Footer meta -->
@@ -135,6 +161,7 @@ const emit = defineEmits<{
   (e: 'set-status', id: string, status: string): void
   (e: 'set-due-date', id: string, dueDate: string): void
   (e: 'set-title', id: string, title: string): void
+  (e: 'set-description', id: string, description: string): void
   (e: 'delete', id: string): void
 }>()
 
@@ -178,6 +205,48 @@ function commitTitle() {
 
 function cancelTitle() {
   editingTitle.value = false
+}
+
+// --- Description edit ---
+// Click-to-edit like the title, and deliberately not a modal: the description
+// is one or three sentences of context (the companion note holds the essay), so
+// making it a dialog would cost more attention than the edit is worth. Two
+// things differ from the title above. Enter inserts a newline instead of
+// committing, because this field is genuinely multi-line, so the commit keys
+// are Ctrl/Cmd+Enter and blur. And blank is a legitimate value here: it is how
+// a description added by mistake gets removed, where a blank title is refused
+// by the API.
+const editingDescription = ref(false)
+const descriptionDraft = ref('')
+const descriptionInputRef = ref<HTMLTextAreaElement | null>(null)
+
+function autoResizeDescription() {
+  const el = descriptionInputRef.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
+async function beginDescription() {
+  if (!props.task) return
+  descriptionDraft.value = props.task.description
+  editingDescription.value = true
+  await nextTick()
+  descriptionInputRef.value?.focus()
+  autoResizeDescription()
+}
+
+// Ctrl+Enter and blur both land here; the guard makes the blur that follows a
+// keyboard commit a no-op, so one edit is never PATCHed twice.
+function commitDescription() {
+  if (!editingDescription.value || !props.task) return
+  editingDescription.value = false
+  const next = descriptionDraft.value.trim()
+  if (next !== props.task.description) emit('set-description', props.task.id, next)
+}
+
+function cancelDescription() {
+  editingDescription.value = false
 }
 
 // A finished task is never late, however old its deadline.
@@ -232,7 +301,10 @@ watch(() => props.task, async (newTask, oldTask) => {
 const briefing = ref<{ id: string; title: string; body: string } | null>(null)
 watch(() => props.task?.id, async (id) => {
   briefing.value = null
-  editingTitle.value = false // never carry a half-finished rename across tasks
+  // Never carry a half-finished edit across tasks: the draft would render over
+  // the new task's field and a blur would then write it to the wrong task.
+  editingTitle.value = false
+  editingDescription.value = false
   if (!id) return
   try {
     briefing.value = await $fetch<{ id: string; title: string; body: string }>(`/api/nodes/${id}/briefing`)
