@@ -153,7 +153,7 @@ export function useChatSession() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content,
-        scope_node_id: scopeNodeId || '',
+        scopeNodeId: scopeNodeId || '',
         draftActions: draftActions || [],
       }),
     });

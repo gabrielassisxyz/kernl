@@ -73,7 +73,7 @@ func TestPostMessageAndGetSession(t *testing.T) {
 	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
 	// Post message.
-	body := `{"content":"hello","scope_node_id":""}`
+	body := `{"content":"hello","scopeNodeId":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(body))
 	msgReq.Header.Set("Content-Type", "application/json")
 	msgW := httptest.NewRecorder()
@@ -122,7 +122,7 @@ func TestChatEventsSSE(t *testing.T) {
 	}
 	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
-	msgBody := `{"content":"hello","scope_node_id":""}`
+	msgBody := `{"content":"hello","scopeNodeId":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
 	msgReq.Header.Set("Content-Type", "application/json")
 	msgW := httptest.NewRecorder()
@@ -169,7 +169,7 @@ func TestChatEventsSSE_SendsCorrectEventSequence(t *testing.T) {
 	}
 	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
-	msgBody := `{"content":"hello","scope_node_id":""}`
+	msgBody := `{"content":"hello","scopeNodeId":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
 	msgReq.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(httptest.NewRecorder(), msgReq)
