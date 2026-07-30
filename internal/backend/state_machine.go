@@ -844,3 +844,47 @@ func ValidateStages(stages map[string]StageContract) error {
 	}
 	return nil
 }
+
+// legacyInWorktreeArtifactPrefix is the pre-fix convention for exit-gate
+// artifacts: a path rooted inside the bead's own worktree. Kernl's own
+// .gitignore covers .kernl/, but the target repository's does not, so an
+// artifact written there and then committed - a stage's own
+// `git add <files>`, or a workflow definition that predates this fix -
+// travels straight into that repository's own commits (the defect PR #40 on
+// archeion made public). A workflow that still names this location is not
+// "the old convention still supported": nothing consumes it as a fallback,
+// so honoring it silently would mean teaching every workflow written from
+// an unmigrated example the same bug this project exists to close.
+const legacyInWorktreeArtifactPrefix = ".kernl/"
+
+// ValidateArtifactPaths rejects any stage OutputArtifact/Inputs entry, or
+// filesystem-based exit gate Path, that still names the legacy in-worktree
+// ".kernl/" location instead of the <artifact_dir> placeholder. Called from
+// workflow resolution (LoadWorkflowYAML) so a workflow definition written
+// before the artifact directory moved outside the worktree fails loud,
+// naming the offending stage, instead of quietly reproducing the defect
+// that move fixed.
+func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string]WorkflowExitGate) error {
+	for name, stage := range stages {
+		if strings.Contains(stage.OutputArtifact.Path, legacyInWorktreeArtifactPrefix) {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q output_artifact.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is written outside the worktree", name, stage.OutputArtifact.Path)
+		}
+		for _, inp := range stage.Inputs {
+			if strings.Contains(inp, legacyInWorktreeArtifactPrefix) {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q input %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is read from outside the worktree", name, inp)
+			}
+		}
+	}
+	for state, gate := range exitGates {
+		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
+			// commit_marker and description_contains Path values are marker
+			// text and description substrings, not filesystem paths - a
+			// ".kernl/" substring there means nothing.
+			continue
+		}
+		if strings.Contains(gate.Path, legacyInWorktreeArtifactPrefix) {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the gate checks outside the worktree", state, gate.Path)
+		}
+	}
+	return nil
+}

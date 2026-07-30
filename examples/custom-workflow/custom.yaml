@@ -94,10 +94,10 @@ exit_gates:
     path: "qa_verdict.txt"
   integration_review:
     type: "artifact_verdict"
-    path: ".kernl/<bead_id>/integration-review.md"
+    path: "<artifact_dir>/integration-review.md"
   shipment_review:
     type: "artifact_verdict"
-    path: ".kernl/<bead_id>/shipment-review.md"
+    path: "<artifact_dir>/shipment-review.md"
 stages:
   planning:
     role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code."
@@ -107,7 +107,7 @@ stages:
       - "bead.acceptance"
       - "repo state (read-only)"
     output_artifact:
-      path: ".kernl/<bead_id>/plan.md"
+      path: "<artifact_dir>/plan.md"
     forbidden_paths:
       - "**/*.go"
       - "**/*.ts"
@@ -122,20 +122,18 @@ stages:
     role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan."
     inputs:
       - "bead.acceptance"
-      - ".kernl/<bead_id>/plan.md"
+      - "<artifact_dir>/plan.md"
     output_artifact:
       kind: "commits"
       commit_marker: "stage: implementation"
-    forbidden_paths:
-      - ".kernl/**/plan.md"
   implementation_review:
     role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict."
     inputs:
       - "bead.acceptance"
-      - ".kernl/<bead_id>/plan.md"
+      - "<artifact_dir>/plan.md"
       - "implementation commits"
     output_artifact:
-      path: ".kernl/<bead_id>/implementation-review.md"
+      path: "<artifact_dir>/implementation-review.md"
       must_end_with: "VERDICT: PASS"
     forbidden_paths:
       - "**/*.go"
@@ -151,8 +149,6 @@ stages:
     output_artifact:
       kind: "commits"
       commit_marker: "stage: integration"
-    forbidden_paths:
-      - ".kernl/**/plan.md"
   integration_review:
     role: "Review the integration. Verify merge conflicts are resolved, no regressions are introduced, and the combined codebase meets quality gates."
     inputs:
@@ -160,7 +156,7 @@ stages:
       - "integration commits"
       - "test results"
     output_artifact:
-      path: ".kernl/<bead_id>/integration-review.md"
+      path: "<artifact_dir>/integration-review.md"
       must_end_with: "VERDICT: PASS"
     forbidden_paths:
       - "**/*.go"
@@ -171,7 +167,7 @@ stages:
     role: "Prepare the bead for final merge. Create the pull request, write the PR description with stage summary, and ensure all CI checks are green."
     inputs:
       - "bead.acceptance"
-      - "all stage artifacts in .kernl/<bead_id>/"
+      - "all stage artifacts in <artifact_dir>/"
     output_artifact:
       kind: "commits"
       commit_marker: "stage: shipment"
@@ -180,15 +176,14 @@ stages:
       - "**/*.ts"
       - "**/*.py"
       - "**/*.rs"
-      - ".kernl/**/plan.md"
   shipment_review:
     role: "Review the PR for completeness and correctness. Verify the PR description accurately summarizes the work, all stage artifacts are present, and the bead is ready to merge."
     inputs:
       - "bead.acceptance"
       - "PR description"
-      - "all stage artifacts in .kernl/<bead_id>/"
+      - "all stage artifacts in <artifact_dir>/"
     output_artifact:
-      path: ".kernl/<bead_id>/shipment-review.md"
+      path: "<artifact_dir>/shipment-review.md"
       must_end_with: "VERDICT: PASS"
     forbidden_paths:
       - "**/*.go"
