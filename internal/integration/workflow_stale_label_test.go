@@ -175,13 +175,15 @@ bd -C "$repo" update "$bid" --status "$next" >/dev/null
 
 	// ---- 6. Run ----
 	res, err := app.DriveBeadToTerminal(context.Background(), app.DriveBeadDeps{
-		VerifyCommand: "bin/ci",
-		Backend:       be,
-		Driver:        driver,
-		Config:        cfg,
-		BeadID:        beadID,
-		RepoPath:      repoPath,
-		Worktree:      repoPath,
+		StateDir:       t.TempDir(),
+		TrackerCommand: "bd",
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         driver,
+		Config:         cfg,
+		BeadID:         beadID,
+		RepoPath:       repoPath,
+		Worktree:       repoPath,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)

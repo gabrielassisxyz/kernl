@@ -16,9 +16,8 @@ import (
 // is the child - are properties of br's wire format, and a mock at the Go level
 // would assert the adapter against the author's own reading of it.
 type fakeBr struct {
-	t     *testing.T
-	dir   string
-	calls []string
+	t   *testing.T
+	dir string
 }
 
 // newFakeBr writes a shell script named br into a temp dir, puts that dir on
