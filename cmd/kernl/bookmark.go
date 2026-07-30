@@ -95,10 +95,12 @@ func runBookmarkAdd(a *app.App, args []string) error {
 			return wrapLoud("update bookmark", err)
 		}
 
-		// Labelled by URL, not by the title the archiver just extracted, so that
-		// every bookmark companion is named the same way no matter which surface
-		// created it: the API has no title yet at this point (it archives async).
-		cf, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, b.URL, "", "bookmark")
+		// Named after the title, which by here is the one the archiver extracted:
+		// this surface archives inside the transaction, so unlike the API it has
+		// the real title before the companion is written. Same rule either way -
+		// the companion takes the entity's title - and the readable name is what
+		// that rule buys wherever the title is already known.
+		cf, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, b.Title, "", "bookmark")
 		if err != nil {
 			return err
 		}

@@ -296,7 +296,7 @@ func createIngestSourceNode(ctx context.Context, a *app.App, doc ingest.SourceDo
 		// bookmarks with no companion, so an exception here would be reported as
 		// drift forever and repaired by the sweep anyway. The ingest-source tag
 		// travels onto the note, which is what keeps it distinguishable.
-		cf, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, doc.URL, "", "bookmark", "ingest-source")
+		cf, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, title, "", "bookmark", "ingest-source")
 		return err
 	})
 	if err != nil {

@@ -19,12 +19,19 @@ import (
 // without one the bookmark lives in the graph db alone, which is git-ignored, and
 // an import of a thousand links would leave nothing in the backed-up markdown.
 //
-// Labelled by URL to match every other bookmark companion. The description stays
-// empty even when the export carried one: the entity's description is what
-// SyncDescription keeps in step later, and stamping an imported value here would
-// make the first edit look like drift.
-func companionFor(ctx context.Context, tx *graph.WriteTx, vaultRoot, bookmarkID, url string) (companion.File, error) {
-	return companion.Create(ctx, tx, vaultRoot, bookmarkID, layout.BookmarksFolder, url, "", "bookmark")
+// Named after the title the export carried, falling back to the URL when it
+// carried none - the same substitution the bookmark node makes for itself, so the
+// note and the entity never disagree about what they are called.
+//
+// The description stays empty even when the export had one: the entity's
+// description is what SyncDescription keeps in step later, and stamping an
+// imported value here would make the first edit look like drift.
+func companionFor(ctx context.Context, tx *graph.WriteTx, vaultRoot, bookmarkID, title, url string) (companion.File, error) {
+	label := strings.TrimSpace(title)
+	if label == "" {
+		label = url
+	}
+	return companion.Create(ctx, tx, vaultRoot, bookmarkID, layout.BookmarksFolder, label, "", "bookmark")
 }
 
 // ImportPocket parses a Pocket export HTML file and creates bookmarks in the graph.
@@ -52,7 +59,7 @@ func ImportPocket(ctx context.Context, tx *graph.WriteTx, vaultRoot string, r io
 		if err != nil {
 			return count, nil, fmt.Errorf("create bookmark for %s: %w", url, err)
 		}
-		cf, err := companionFor(ctx, tx, vaultRoot, id, url)
+		cf, err := companionFor(ctx, tx, vaultRoot, id, title, url)
 		if err != nil {
 			return count, nil, err
 		}
@@ -92,7 +99,7 @@ func ImportPinboard(ctx context.Context, tx *graph.WriteTx, vaultRoot string, r 
 		if err != nil {
 			return count, nil, fmt.Errorf("create bookmark for %s: %w", item.Href, err)
 		}
-		cf, err := companionFor(ctx, tx, vaultRoot, id, item.Href)
+		cf, err := companionFor(ctx, tx, vaultRoot, id, item.Description, item.Href)
 		if err != nil {
 			return count, nil, err
 		}

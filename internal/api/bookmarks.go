@@ -54,13 +54,17 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err != nil {
 			return err
 		}
-		// Archiving is asynchronous, so no title exists yet to name the
-		// companion note by; it takes the URL, the only identifier available at
-		// creation time. It keeps that name afterwards on purpose - the note's
-		// file stem is its wikilink address, and renaming it would break links.
+		// Named after the bookmark's title, the one rule for every companion:
+		// a task's note is named after the task, and a bookmark's after the
+		// bookmark. Here that resolves to the URL, because archiving is
+		// asynchronous and b.Title is still standing in for the real one - the
+		// same output the URL used to be hardcoded to, now as a consequence of
+		// the rule rather than an exception to it. The name does not change when
+		// the archiver later learns the title: the note's file stem is its
+		// wikilink address, and renaming it would break links.
 		// A bookmark has no description of its own; the excerpt the archiver
 		// fetches lives on the bookmark node, not in the note's frontmatter.
-		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, req.URL, "", "bookmark")
+		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.BookmarksFolder, b.Title, "", "bookmark")
 		return err
 	})
 

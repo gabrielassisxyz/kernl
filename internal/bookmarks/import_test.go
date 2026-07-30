@@ -38,6 +38,11 @@ func TestImportPocket(t *testing.T) {
 		if len(companions) != count {
 			t.Errorf("got %d companion files for %d bookmarks", len(companions), count)
 		}
+		for _, cf := range companions {
+			if strings.Contains(cf.RelPath(), "example-com") || strings.Contains(cf.RelPath(), "https") {
+				t.Errorf("companion %q is named after the URL, want the title", cf.RelPath())
+			}
+		}
 		return nil
 	})
 

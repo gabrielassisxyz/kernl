@@ -122,8 +122,17 @@ func TestBookmarkImportWritesACompanionPerLink(t *testing.T) {
 			if got := countBookmarkCompanions(t, a); got != 2 {
 				t.Errorf("describes edges to bookmarks = %d, want 2", got)
 			}
-			if files := companionFilesUnder(t, vault); len(files) != 2 {
-				t.Errorf("companion files = %v, want two", files)
+			files := companionFilesUnder(t, vault)
+			if len(files) != 2 {
+				t.Fatalf("companion files = %v, want two", files)
+			}
+			// Named after the title the export carried, not the URL: one rule for
+			// every companion, and the readable name is what it buys here.
+			want := map[string]bool{"example.md": true, "org.md": true}
+			for _, f := range files {
+				if !want[f] {
+					t.Errorf("companion %q is not named after its title (want one of %v)", f, want)
+				}
 			}
 		})
 	}
