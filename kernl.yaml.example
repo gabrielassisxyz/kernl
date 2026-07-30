@@ -69,6 +69,18 @@ registry:
   repos:
     - path: /home/me/projects/example
       memoryManager: beads
+      # Shipment is the only stage that acts outside the machine: it pushes and
+      # opens a pull request. Declare where that is allowed to land. With no
+      # allowedRemotes the stage refuses to push at all - a repository that has
+      # not said where it may publish does not publish. Run with --dry-run to
+      # exercise everything up to shipment without configuring this.
+      shipment:
+        allowedRemotes:
+          - git@github.com:me/example.git
+        # The git remote to push to (default: origin). It is resolved to a URL,
+        # checked against allowedRemotes, and named in the agent's prompt, so
+        # nothing about the destination is left for the agent to work out.
+        # remote: origin
 
 # Orchestrator block controls the execution engine.
 orchestrator:
