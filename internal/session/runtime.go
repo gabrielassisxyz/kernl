@@ -490,7 +490,15 @@ func (r *SessionRuntime) processClaudeEvent(evtType string, obj map[string]any, 
 	case "result":
 		r.mu.Lock()
 		r.lastEventType = "result"
+		tokenLogger := r.tokenLogger
+		dialect := r.dialect
+		beadID := r.beadID
 		r.mu.Unlock()
+
+		if tokenLogger != nil {
+			LogTokenUsageForEvent(tokenLogger, adapter.AgentDialect(dialect), obj, beadID)
+		}
+
 		r.emit("stdout", rawLine)
 		r.handleTurnEnd("turn_ended")
 	default:
