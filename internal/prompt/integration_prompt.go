@@ -22,6 +22,10 @@ type IntegrationInput struct {
 	EpicBranch string
 	BaseBranch string
 	Children   []Child
+	// VerifyCommand is how the target repository says "this works". The step
+	// used to be `go build ./...`, which is a fact about kernl and means
+	// nothing in a repository that is not written in Go.
+	VerifyCommand string
 }
 
 const integrationTemplate = `You are the kernl integration agent for epic {{.EpicID}}: "{{.EpicTitle}}".
@@ -40,7 +44,9 @@ Procedure:
    a. git merge --no-ff {{"{{.Branch}}"}}
    b. On conflict: read the conflict markers; resolve safely using the full context of the epic and child descriptions, then git add the resolved files and git commit. If you cannot converge within your follow-up budget, write
       "merge_outcome: merge_conflict" and "merge_conflict_at: {{"{{.Branch}}"}}" to the epic bead description (via bd update) and STOP.
-3. After all merges succeed: verify the combined tree builds with "go build ./...". Run quick tests with "go test ./..." if applicable.
+3. After all merges succeed, verify the combined tree with this repository's own check:
+   {{.VerifyCommand}}
+   If it fails, the merge is not done: fix the combined tree and re-run it.
 4. Finish with a marker commit whose message contains EXACTLY the literal "stage: integration", for example:
    git commit --allow-empty -m "stage: integration: merged N child branches into {{.EpicBranch}}"
    This marker commit is REQUIRED - an exit gate checks for it.
@@ -61,6 +67,9 @@ var integrationTmpl = template.Must(template.New("integration").Parse(integratio
 func RenderIntegration(in IntegrationInput) (string, error) {
 	if in.EpicBranch == "" || in.BaseBranch == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: missing branches in IntegrationInput - EpicBranch=%q BaseBranch=%q - Fix: populate both branches", in.EpicBranch, in.BaseBranch)
+	}
+	if in.VerifyCommand == "" {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: integration prompt has no verify command, so the merged tree would be handed on unchecked - Fix: resolve it with epic.ResolveVerifyCommand before dispatch")
 	}
 	var buf bytes.Buffer
 	if err := integrationTmpl.Execute(&buf, integrationView{IntegrationInput: in, Outcomes: merge.All()}); err != nil {

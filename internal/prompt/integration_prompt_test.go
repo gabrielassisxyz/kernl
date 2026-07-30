@@ -9,7 +9,8 @@ import (
 
 func sampleIntegrationInput() prompt.IntegrationInput {
 	return prompt.IntegrationInput{
-		EpicID: "e1", EpicTitle: "Test epic", EpicBranch: "feat/e1", BaseBranch: "master",
+		EpicID: "e1", EpicTitle: "Test epic", EpicBranch: "feat/e1", BaseBranch: "main",
+		VerifyCommand: "bin/ci",
 		Children: []prompt.Child{
 			{ID: "c1", Branch: "feat/c1", WorktreePath: "/tmp/c1"},
 			{ID: "c2", Branch: "feat/c2", WorktreePath: "/tmp/c2"},
@@ -27,6 +28,13 @@ func TestRenderIntegration_Content(t *testing.T) {
 		"stage: integration",
 		"merge_conflict",
 		"feat/e1",
+		"bin/ci",
+	}
+	// The stack of the repository being integrated is not kernl's to assume.
+	for _, banned := range []string{"go build", "go test"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("integration prompt must NOT name a toolchain: found %q", banned)
+		}
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(out, want) {

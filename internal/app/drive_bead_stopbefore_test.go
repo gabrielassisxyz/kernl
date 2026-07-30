@@ -17,6 +17,7 @@ func TestDriveBeadToTerminal_StopBeforeStateDoesNotDispatchThatStage(t *testing.
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		StateDir:        t.TempDir(),
+		VerifyCommand:   "bin/ci",
 		Backend:         be,
 		Driver:          driver,
 		Config:          newDriveTestConfig(),
@@ -55,6 +56,7 @@ func TestDriveBeadToTerminal_StopBeforeStateAlsoStopsWhenAlreadyInIt(t *testing.
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		StateDir:        t.TempDir(),
+		VerifyCommand:   "bin/ci",
 		Backend:         be,
 		Driver:          driver,
 		Config:          newDriveTestConfig(),
@@ -83,13 +85,14 @@ func TestDriveBeadToTerminal_EmptyStopBeforeStateDrivesNormally(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
 	})
 
 	if err != nil {

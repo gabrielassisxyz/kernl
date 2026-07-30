@@ -146,13 +146,14 @@ func TestDriveWorker_StopsAtAwaitingIntegration(t *testing.T) {
 	})
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree},
-		Config:   newDriveTestConfig(),
-		BeadID:   "kernl-c1",
-		RepoPath: t.TempDir(),
-		Worktree: worktree,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree},
+		Config:        newDriveTestConfig(),
+		BeadID:        "kernl-c1",
+		RepoPath:      t.TempDir(),
+		Worktree:      worktree,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
@@ -187,13 +188,14 @@ func TestDriveWorker_BlocksWhenImplementationSkipsCommit(t *testing.T) {
 	})
 
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   &silentDriver{},
-		Config:   newDriveTestConfig(),
-		BeadID:   "kernl-c2",
-		RepoPath: t.TempDir(),
-		Worktree: worktree,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        &silentDriver{},
+		Config:        newDriveTestConfig(),
+		BeadID:        "kernl-c2",
+		RepoPath:      t.TempDir(),
+		Worktree:      worktree,
 	})
 	if res.Success || res.FinalState != "blocked" {
 		t.Fatalf("worker should block when implementation leaves no marker commit; got %+v", res)
@@ -252,13 +254,14 @@ func TestDriveEpic_ReachesAwaitingPRReview(t *testing.T) {
 	})
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   &artifactDriver{be: be, epicID: "kernl-e1", worktree: worktree},
-		Config:   newDriveTestConfig(),
-		BeadID:   "kernl-e1",
-		RepoPath: t.TempDir(),
-		Worktree: worktree,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        &artifactDriver{be: be, epicID: "kernl-e1", worktree: worktree},
+		Config:        newDriveTestConfig(),
+		BeadID:        "kernl-e1",
+		RepoPath:      t.TempDir(),
+		Worktree:      worktree,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
@@ -299,13 +302,14 @@ func TestDriveEpic_BlocksWhenShipmentSkipsPR(t *testing.T) {
 	noPR := &noPRDriver{artifactDriver: drv}
 
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   noPR,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kernl-e2",
-		RepoPath: t.TempDir(),
-		Worktree: worktree,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        noPR,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kernl-e2",
+		RepoPath:      t.TempDir(),
+		Worktree:      worktree,
 	})
 	if res.Success || res.FinalState != "blocked" {
 		t.Fatalf("epic should block when shipment skips pr_url; got %+v", res)
@@ -337,13 +341,14 @@ func TestDriveEpic_BlocksOnIntegrationConflict(t *testing.T) {
 
 	// Driver exits zero on integration but leaves NO marker commit.
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   &silentDriver{},
-		Config:   newDriveTestConfig(),
-		BeadID:   "kernl-e3",
-		RepoPath: t.TempDir(),
-		Worktree: worktree,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        &silentDriver{},
+		Config:        newDriveTestConfig(),
+		BeadID:        "kernl-e3",
+		RepoPath:      t.TempDir(),
+		Worktree:      worktree,
 	})
 	if res.Success || res.FinalState != "blocked" {
 		t.Fatalf("epic should block when integration leaves no marker commit; got %+v", res)

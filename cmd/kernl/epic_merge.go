@@ -66,6 +66,12 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 	}
 	out(fmt.Sprintf("base branch: %s\n", baseBranch))
 
+	verifyCommand, err := epic.ResolveVerifyCommand(repoPath, repoEntry.VerifyCommand)
+	if err != nil {
+		return err
+	}
+	out(fmt.Sprintf("verify with: %s\n", verifyCommand))
+
 	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, baseBranch, execGitRun, nil)
 	if _, err := wm.EnsureEpicBranch(epicID); err != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot ensure epic branch for %s: %w", epicID, err)
@@ -81,5 +87,9 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore: %w", err)
 	}
 
-	return driveEpic(context.Background(), a, ep, epicID, repoPath, baseBranch, epicWorktree, stateStore, plan, out)
+	return driveEpic(context.Background(), epicDrive{
+		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
+		BaseBranch: baseBranch, VerifyCommand: verifyCommand, Worktree: epicWorktree,
+		StateStore: stateStore, Shipment: plan, Out: out,
+	})
 }

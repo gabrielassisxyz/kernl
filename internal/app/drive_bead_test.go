@@ -144,14 +144,15 @@ func TestDriveBead_OrchestratorAdvancesAfterAgentSuccess(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir:  t.TempDir(),
-		Backend:   be,
-		Driver:    driver,
-		Config:    newDriveTestConfig(),
-		BeadID:    "kb-1",
-		RepoPath:  "/tmp/repo",
-		Worktree:  "/tmp/worktree",
-		MaxStages: 16,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
+		MaxStages:     16,
 	})
 
 	if err != nil {
@@ -174,14 +175,15 @@ func TestDriveBead_GateDefaultIsAgentExitZero(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir:  t.TempDir(),
-		Backend:   be,
-		Driver:    driver,
-		Config:    newDriveTestConfig(),
-		BeadID:    "kb-1",
-		RepoPath:  "/tmp/repo",
-		Worktree:  "/tmp/worktree",
-		MaxStages: 16,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
+		MaxStages:     16,
 	})
 
 	if err != nil {
@@ -204,14 +206,15 @@ func TestDriveBead_AgentBdUpdateAttemptDoesNotDoubleAdvance(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir:  t.TempDir(),
-		Backend:   be,
-		Driver:    driver,
-		Config:    newDriveTestConfig(),
-		BeadID:    "kb-1",
-		RepoPath:  "/tmp/repo",
-		Worktree:  "/tmp/worktree",
-		MaxStages: 16,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
+		MaxStages:     16,
 	})
 
 	if err != nil {
@@ -236,13 +239,14 @@ func TestDriveBeadToTerminal_LoopsThroughMultipleStages(t *testing.T) {
 
 	var stages []string
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
 		Log: func(stage int, state string) {
 			stages = append(stages, state)
 		},
@@ -268,13 +272,14 @@ func TestDriveBeadToTerminal_TerminalStateShortCircuits(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
 	})
 
 	if err != nil {
@@ -294,13 +299,14 @@ func TestDriveBeadToTerminal_AwaitingIntegrationIsGate(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
 	})
 
 	if err != nil {
@@ -320,13 +326,14 @@ func TestDriveBeadToTerminal_BlockedReturnsFalse(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
 	})
 
 	if err != nil {
@@ -348,14 +355,15 @@ func TestDriveBead_StageCommentRecorded(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir:  t.TempDir(),
-		Backend:   be,
-		Driver:    driver,
-		Config:    newDriveTestConfig(),
-		BeadID:    "kb-1",
-		RepoPath:  "/tmp/repo",
-		Worktree:  "/tmp/worktree",
-		MaxStages: 16,
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
+		MaxStages:     16,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
@@ -390,13 +398,14 @@ func TestDriveBeadToTerminal_UnknownStateTriggersDispatchFailure(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir: t.TempDir(),
-		Backend:  be,
-		Driver:   driver,
-		Config:   newDriveTestConfig(),
-		BeadID:   "kb-1",
-		RepoPath: "/tmp/repo",
-		Worktree: "/tmp/worktree",
+		StateDir:      t.TempDir(),
+		VerifyCommand: "bin/ci",
+		Backend:       be,
+		Driver:        driver,
+		Config:        newDriveTestConfig(),
+		BeadID:        "kb-1",
+		RepoPath:      "/tmp/repo",
+		Worktree:      "/tmp/worktree",
 	})
 
 	if err == nil {
@@ -533,6 +542,7 @@ print(json.dumps({"context_payload": new_payload}))
 	worktreeDir := t.TempDir()
 	_, err = DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		StateDir:        t.TempDir(),
+		VerifyCommand:   "bin/ci",
 		Backend:         be,
 		Driver:          driver,
 		Config:          newDriveTestConfig(),
@@ -638,6 +648,7 @@ print(json.dumps({"context_payload": new_payload}))
 		worktreeDir := t.TempDir()
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -678,6 +689,7 @@ print(json.dumps({"context_payload": new_payload}))
 		worktreeDir := t.TempDir()
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -717,6 +729,7 @@ print(json.dumps({"context_payload": new_payload}))
 		worktreeDir := t.TempDir()
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -753,6 +766,7 @@ func TestDriveBead_NilGuardRegression(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		StateDir:        t.TempDir(),
+		VerifyCommand:   "bin/ci",
 		Backend:         be,
 		Driver:          driver,
 		Config:          newDriveTestConfig(),
@@ -840,6 +854,7 @@ sys.exit(1)
 
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -915,6 +930,7 @@ time.sleep(5)
 
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -979,6 +995,7 @@ sys.stdout.write("A" * 70000)
 
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -1044,6 +1061,7 @@ sys.exit(1)
 
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 			StateDir:        t.TempDir(),
+			VerifyCommand:   "bin/ci",
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -1077,14 +1095,15 @@ sys.exit(1)
 
 		driver := &scriptedDriver{be: be}
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-			StateDir:  t.TempDir(),
-			Backend:   be,
-			Driver:    driver,
-			Config:    newDriveTestConfig(),
-			BeadID:    "kb-blocked-check",
-			RepoPath:  "/tmp/repo",
-			Worktree:  t.TempDir(),
-			MaxStages: 16,
+			StateDir:      t.TempDir(),
+			VerifyCommand: "bin/ci",
+			Backend:       be,
+			Driver:        driver,
+			Config:        newDriveTestConfig(),
+			BeadID:        "kb-blocked-check",
+			RepoPath:      "/tmp/repo",
+			Worktree:      t.TempDir(),
+			MaxStages:     16,
 		})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
