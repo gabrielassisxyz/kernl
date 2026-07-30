@@ -13,6 +13,14 @@ type Child struct {
 	ID           string
 	Branch       string
 	WorktreePath string
+	// ArtifactDir is where this child's own exit-gate artifacts (plan.md,
+	// review verdicts) were written - outside its worktree, under the same
+	// run root as the epic's own artifact directory. Without it here, the
+	// integration agent has no path by which to read a child's artifacts:
+	// before artifacts moved outside the worktree they arrived for free
+	// when a child branch was merged; now they never travel in a commit,
+	// so the reader needs the directory named explicitly.
+	ArtifactDir string
 }
 
 // IntegrationInput feeds the integration prompt template.
@@ -39,7 +47,7 @@ Inputs:
 - epic_branch: {{.EpicBranch}}
 - base_branch: {{.BaseBranch}}
 - children (ordered):{{range .Children}}
-  - {{.ID}}: branch={{.Branch}}, worktree={{.WorktreePath}}
+  - {{.ID}}: branch={{.Branch}}, worktree={{.WorktreePath}}, artifacts={{.ArtifactDir}}
 {{end}}
 Procedure:
 1. Work in the epic worktree. The epic branch {{.EpicBranch}} is already checked out there - do not re-checkout or switch branches.
@@ -47,7 +55,7 @@ Procedure:
    a. git merge --no-ff {{"{{.Branch}}"}}
    b. On conflict: read the conflict markers; resolve safely using the full context of the epic and child descriptions, then git add the resolved files and git commit. If you cannot converge within your follow-up budget, write
       "merge_outcome: merge_conflict" and "merge_conflict_at: {{"{{.Branch}}"}}" to the epic bead description (via {{.TrackerCommand}} update) and STOP.
-   Resolving a conflict means writing code, and this repository's conventions are the ones that apply to it: read AGENTS.md in your worktree (or CONTRIBUTING.md, or the README) before you write any. Nothing about how any other project works applies here.
+   Resolving a conflict means writing code, and this repository's conventions are the ones that apply to it: read AGENTS.md in your worktree (or CONTRIBUTING.md, or the README) before you write any. Nothing about how any other project works applies here. A child's own plan and review artifacts, if you need the context behind its changes, are at the artifacts path listed for it above - not inside its worktree or branch.
 3. After all merges succeed, verify the combined tree with this repository's own check:
    {{.VerifyCommand}}
    If it fails, the merge is not done: fix the combined tree and re-run it. Whatever this command checks is what "done" means here - do not substitute a check of your own.

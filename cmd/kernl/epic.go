@@ -606,6 +606,23 @@ type epicDrive struct {
 	Out            func(string)
 }
 
+// buildIntegrationChildren pairs each child bead with its own artifact
+// directory, which sits beside the epic's under the same run root
+// (<StateDir>/run/<epicID>/<id> - see resolveArtifactDir in
+// internal/app/drive_bead.go). Before exit-gate artifacts moved outside the
+// worktree, a child's plan and review verdicts arrived for free once its
+// branch was merged; now that they never travel in a commit, the
+// integration agent has no way to read a sibling's artifacts unless the
+// path is named explicitly here, alongside the branch it already names.
+func buildIntegrationChildren(children []backend.Bead, epicArtifactDir string) []prompt.Child {
+	runRoot := filepath.Dir(epicArtifactDir)
+	cs := make([]prompt.Child, 0, len(children))
+	for _, c := range children {
+		cs = append(cs, prompt.Child{ID: c.ID, Branch: "kernl/" + c.ID, ArtifactDir: filepath.Join(runRoot, c.ID)})
+	}
+	return cs
+}
+
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
@@ -654,10 +671,7 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 			switch in.State {
 			case "integration":
 				children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
-				cs := make([]prompt.Child, 0, len(children))
-				for _, c := range children {
-					cs = append(cs, prompt.Child{ID: c.ID, Branch: "kernl/" + c.ID})
-				}
+				cs := buildIntegrationChildren(children, in.ArtifactDir)
 				s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
 					EpicID: epicID, EpicTitle: in.Bead.Title,
 					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch, Children: cs,
