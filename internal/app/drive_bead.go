@@ -439,6 +439,21 @@ func epicIDFor(bead *backend.Bead) string {
 	return bead.ID
 }
 
+// isSafePathComponent reports whether s is usable as a single path segment
+// under kernl's state directory. epicID and beadID are tracker data - in the
+// scenario this project is built for, the tracker belongs to a repository
+// kernl does not own - so they are attacker-reachable strings, not trusted
+// identifiers. filepath.Join cleans ".." away rather than rejecting it, so
+// joining an unvalidated component can walk the result outside StateDir
+// entirely; resolveArtifactDir also re-checks the joined path itself, but
+// this is the first line of defense and the one that names which id is bad.
+func isSafePathComponent(s string) bool {
+	if s == "" || s == "." || s == ".." {
+		return false
+	}
+	return !strings.ContainsAny(s, `/\`)
+}
+
 // resolveArtifactDir is where exit-gate artifacts (plan.md, review verdicts,
 // ...) live for one bead - deliberately outside the worktree, so a stage's
 // own `git add <files>` can never sweep kernl's control files into the
@@ -449,7 +464,23 @@ func resolveArtifactDir(stateDir, epicID, beadID string) (string, error) {
 	if stateDir == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for bead %s, so kernl has nowhere of its own to write exit-gate artifacts outside the worktree - Fix: set DriveBeadDeps.StateDir (app.DefaultStateDir() outside tests)", beadID)
 	}
-	dir := filepath.Join(stateDir, "run", epicID, beadID)
+	if !isSafePathComponent(epicID) {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: bead %s has an unsafe epic/parent id %q for its artifact directory - Fix: the id must be a single path segment with no '/', '\\', '.', or '..'", beadID, epicID)
+	}
+	if !isSafePathComponent(beadID) {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: bead id %q is unsafe for its artifact directory - Fix: the id must be a single path segment with no '/', '\\', '.', or '..'", beadID)
+	}
+
+	runRoot := filepath.Join(stateDir, "run")
+	dir := filepath.Join(runRoot, epicID, beadID)
+	// Belt and braces: even validated components could combine into
+	// something unanticipated, so the joined result itself must still land
+	// under runRoot before anything is created or granted access to it.
+	rel, err := filepath.Rel(runRoot, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: artifact dir %s for bead %s escapes %s - Fix: epic/parent id %q and bead id %q must resolve to a path beneath it", dir, beadID, runRoot, epicID, beadID)
+	}
+
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating artifact dir %s for bead %s: %w", dir, beadID, err)
 	}
