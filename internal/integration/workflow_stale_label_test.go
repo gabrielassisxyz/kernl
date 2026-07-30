@@ -171,6 +171,7 @@ bd -C "$repo" update "$bid" --status "$next" >/dev/null
 		},
 		SCM:           session.NewSessionConnectionManager(fakeSessionProvider{}, nil),
 		NudgeRegistry: session.NewNudgeRegistry(),
+		LogDir:        t.TempDir(),
 	})
 
 	// ---- 6. Run ----

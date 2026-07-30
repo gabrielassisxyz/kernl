@@ -242,7 +242,7 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 		},
 	}
 	scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
-	driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawnFn, SCM: scm})
+	driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawnFn, SCM: scm, LogDir: t.TempDir()})
 	pools := map[string]config.PoolConfig{
 		"implementation":        {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 		"planning":              {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
@@ -312,6 +312,26 @@ func TestEpicRunRefusesAPathThatIsNotAGitRepository(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "registry.repos[].path") {
 		t.Errorf("the error must name the config key that fixes it, got: %v", err)
+	}
+}
+
+// An empty StateDir used to fall back to deriving one from os.Getenv("HOME")
+// deep inside the run, which made agent state land in the operator's real
+// ~/.kernl from any caller (test or otherwise) that forgot to set it. It must
+// fail loud instead, naming the field that fixes it.
+func TestEpicRunFailsLoudWithoutStateDir(t *testing.T) {
+	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
+	fakeApp.StateDir = ""
+
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--dry-run", "e"}, func(string) {})
+	if err == nil {
+		t.Fatal("expected a loud refusal rather than a run with no state directory")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "App.StateDir") {
+		t.Errorf("error must name the field that fixes it (App.StateDir), got: %v", err)
 	}
 }
 
