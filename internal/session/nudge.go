@@ -29,7 +29,12 @@ type NudgeRecord struct {
 	// knows nothing about workflows or stages.
 	OpencodeConfigPath string
 	OpencodeSessionID  string
-	Running            bool
+	// TrackerCommand is how the repository's tracker is typed. The follow-up
+	// prompts tell the agent to inspect and advance the bead, so they have to
+	// name a tracker that exists; they used to say "bd" whatever the repository
+	// used.
+	TrackerCommand string
+	Running        bool
 }
 
 func NewNudgeRegistry() *NudgeRegistry {
@@ -61,6 +66,9 @@ func (r *NudgeRegistry) Upsert(sessionID string, partial NudgeRecord) {
 	}
 	if partial.OpencodeSessionID != "" {
 		existing.OpencodeSessionID = partial.OpencodeSessionID
+	}
+	if partial.TrackerCommand != "" {
+		existing.TrackerCommand = partial.TrackerCommand
 	}
 	existing.Running = partial.Running
 }

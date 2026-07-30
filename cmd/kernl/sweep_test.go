@@ -1,8 +1,12 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 func TestDispatchSweepRunsTick(t *testing.T) {
@@ -158,5 +162,38 @@ func TestSweepFlagsYesParsed(t *testing.T) {
 	f, err := parseSweepFlags([]string{"--yes"})
 	if err != nil || !f.yes {
 		t.Fatalf("expected yes=true, got %+v err=%v", f, err)
+	}
+}
+
+// Sweep reads and closes beads, so it needs the repository's own tracker. Both
+// entry points constructed bd unconditionally, which against a br repository
+// opened a Dolt store that is not there and swept nothing while reporting
+// success.
+func TestSweepUsesTheRepositorysTracker(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".beads", "beads.db"), []byte("sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: repo, MemoryManager: "br"}}}}
+
+	runner, err := defaultSweeperFactory(cfg)
+	if err != nil {
+		t.Fatalf("defaultSweeperFactory: %v", err)
+	}
+	if runner == nil {
+		t.Fatal("a registered repo must produce a sweeper")
+	}
+}
+
+// A repository whose tracker cannot be named must stop the sweeper rather than
+// have one picked for it.
+func TestSweepRefusesARepositoryWithNoResolvableTracker(t *testing.T) {
+	cfg := &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}}}
+
+	if _, err := defaultSweeperFactory(cfg); err == nil {
+		t.Fatal("expected a refusal rather than a default tracker")
 	}
 }

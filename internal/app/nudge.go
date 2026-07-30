@@ -90,7 +90,7 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 
 	prompt := opts.Prompt
 	if prompt == "" {
-		prompt = DefaultNudgePrompt(opts.Preset, rec.BeadID, rec.RepoPath)
+		prompt = DefaultNudgePrompt(opts.Preset, rec.BeadID, rec.TrackerCommand)
 	}
 
 	agentInput, err := ResolveAgentForBead(a.Config, a.Backend, rec.BeadID, rec.RepoPath)
@@ -156,37 +156,42 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	return nil
 }
 
-// DefaultNudgePrompt returns the canonical text for a given preset, with
-// bead-id and repo-path substituted. The frontend pre-fills its textarea
-// with the same strings so the user can edit before sending.
-func DefaultNudgePrompt(preset NudgePreset, beadID, repoPath string) string {
+// DefaultNudgePrompt returns the canonical text for a given preset, with the
+// bead id and the repository's own tracker command substituted. The frontend
+// pre-fills its textarea with the same strings so the user can edit before
+// sending.
+//
+// trackerCommand is the whole invocation, pinned to the repository - the text
+// used to hardcode "bd -C <repo>", which in a repository tracked with br told
+// the agent to run a program that is not installed.
+func DefaultNudgePrompt(preset NudgePreset, beadID, trackerCommand string) string {
 	switch preset {
 	case NudgePresetAdvanceStatus:
-		return fmt.Sprintf(`Your previous turn exited cleanly but the bead status was NOT advanced. The orchestrator's polling loop will not progress until you run the required bd update --status command for this stage.
+		return fmt.Sprintf(`Your previous turn exited cleanly but the bead status was NOT advanced. The orchestrator's polling loop will not progress until you run the required update --status command for this stage.
 
-1. Run: bd -C %s show %s
+1. Run: %s show %s
    Confirm the current state and figure out which status this stage should advance to.
 2. Verify your work is genuinely complete: git status, git diff, and any required tests for the files you touched. If tests do not pass, fix them first.
-3. If complete: run the bd update --status <next> command for this stage and then exit.
+3. If complete: run %s update %s --status <next> for this stage and then exit.
 4. If NOT complete: finish the remaining work first, then advance the status.
-5. If genuinely blocked: run bd -C %s update %s --status blocked and write a one-paragraph explanation of the block to _scratch/STAGE_BLOCKED.md.
+5. If genuinely blocked: run %s update %s --status blocked and write a one-paragraph explanation of the block to _scratch/STAGE_BLOCKED.md.
 
 Do not start unrelated work. Do not redo work that is already on disk. Just close out this stage.`,
-			repoPath, beadID, repoPath, beadID,
+			trackerCommand, beadID, trackerCommand, beadID, trackerCommand, beadID,
 		)
 	case NudgePresetGeneric, "":
 		return fmt.Sprintf(`Your previous turn was interrupted before completion (likely an upstream API error, timeout, or rate-limit cut you off mid-task). Resume from where you left off - do NOT restart from scratch.
 
-1. Run: bd -C %s show %s
+1. Run: %s show %s
    See the bead's current state and the most recent status transition.
 2. Run git status and git diff in the worktree to see what work is already on disk.
 3. Re-read the stage instructions you received earlier in this conversation.
 4. Continue the work that was in progress. Do NOT start anything new and do NOT redo work that is already complete.
-5. When the stage is genuinely done, run the required bd update --status <next> command and exit. If you are truly blocked, run bd -C %s update %s --status blocked and document the block.
+5. When the stage is genuinely done, run %s update %s --status <next> and exit. If you are truly blocked, run %s update %s --status blocked and document the block.
 
 Be defensive - your previous turn ended unexpectedly, so verify state on disk before acting on memory.`,
-			repoPath, beadID, repoPath, beadID,
+			trackerCommand, beadID, trackerCommand, beadID, trackerCommand, beadID,
 		)
 	}
-	return fmt.Sprintf("Continue from where you left off on bead %s in repo %s.", beadID, repoPath)
+	return fmt.Sprintf("Continue from where you left off on bead %s.", beadID)
 }

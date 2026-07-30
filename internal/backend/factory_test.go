@@ -363,7 +363,7 @@ func TestAutoRouteFromConfig_RepoNotInRegistry_UsesDetection(t *testing.T) {
 		},
 	}
 	tmpDir := t.TempDir()
-	beadsDir := filepath.Join(tmpDir, ".beads")
+	beadsDir := filepath.Join(tmpDir, ".beads", "embeddeddolt")
 	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestAutoRouteFromConfig_RepoNotInRegistry_UsesDetection(t *testing.T) {
 
 func TestAutoRouteBackendWithDetection_Beads(t *testing.T) {
 	tmpDir := t.TempDir()
-	beadsDir := filepath.Join(tmpDir, ".beads")
+	beadsDir := filepath.Join(tmpDir, ".beads", "embeddeddolt")
 	if err := os.MkdirAll(beadsDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

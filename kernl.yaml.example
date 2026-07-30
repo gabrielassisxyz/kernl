@@ -74,7 +74,12 @@ settings:
 registry:
   repos:
     - path: /home/me/projects/example
-      memoryManager: beads
+      # Which tracker this repository's work lives in: br (beads_rust, SQLite
+      # at .beads/beads.db) or beads (bd, Dolt at .beads/embeddeddolt). Leave it
+      # unset and it is detected from what is inside .beads/ - both trackers use
+      # that directory name, so the name alone decides nothing. Declaring it is
+      # what lets `kernl doctor` tell you the CLI is missing before a run does.
+      memoryManager: br
       # What epic and bead branches are cut from. Leave it unset and the branch
       # is read out of the repository - what origin advertises as its HEAD,
       # falling back to whatever is checked out. Set it only when the

@@ -61,6 +61,10 @@ type RunBeadInput struct {
 	// reconnects to its existing conversation context instead of starting
 	// a brand-new session.
 	SessionID string
+	// TrackerCommand is how this repository's tracker is typed. Recorded on
+	// the nudge record because a follow-up prompt tells the agent to inspect
+	// and advance the bead, and it cannot name the tracker it does not know.
+	TrackerCommand string
 }
 
 type RunBeadResult struct {
@@ -137,6 +141,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		RepoPath:           input.RepoPath,
 		Cwd:                cwd,
 		OpencodeConfigPath: input.Env["OPENCODE_CONFIG"],
+		TrackerCommand:     input.TrackerCommand,
 		Running:            true,
 	})
 	defer d.nudges.SetRunning(sessionID, false)

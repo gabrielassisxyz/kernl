@@ -36,7 +36,10 @@ func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
 		return nil, nil
 	}
 	repoPath := cfg.Registry.Repos[0].Path
-	b := backend.NewBdCliBackend(repoPath)
+	b, err := backend.AutoRouteFromConfig(cfg, repoPath)
+	if err != nil {
+		return nil, err
+	}
 	adapter := &sweepBackendAdapter{b: b, dir: repoPath}
 	ghAdapter := &ghCliAdapter{}
 	sweepCfg := sweep.Config{

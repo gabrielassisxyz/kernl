@@ -33,9 +33,11 @@ func runBead(v verbContext, args []string) error {
 		return err
 	}
 
-	a, err := app.NewApp(cfg)
+	// Resolved before construction: the backend is picked once, and which
+	// tracker it speaks is a property of the repository this run names.
+	a, err := appForSelectedRepo(cfg, "bead run", args[1:])
 	if err != nil {
-		return wrapLoud("creating app", err)
+		return err
 	}
 
 	return runBeadWithApp(a, args)

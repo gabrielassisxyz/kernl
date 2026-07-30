@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -48,15 +49,43 @@ func TestDetectMemoryManager_KnotsMarker(t *testing.T) {
 	}
 }
 
-func TestDetectMemoryManager_BeadsMarker(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".beads"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	result := DetectMemoryManager(dir)
-	if result != MemoryManagerBeads {
-		t.Errorf("expected beads, got %s", result)
-	}
+// bd and br both store under .beads/, so the directory name identifies
+// neither. Detecting on it returned bd for a br repository, and the run then
+// opened a database that does not exist - which looks exactly like a tracker
+// with no ready work.
+func TestDetectMemoryManager_TellsBdAndBrApartByWhatIsInTheMarkerDirectory(t *testing.T) {
+	t.Run("embeddeddolt is bd", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".beads", "embeddeddolt"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := DetectMemoryManager(dir); got != MemoryManagerBeads {
+			t.Errorf("expected beads, got %q", got)
+		}
+	})
+
+	t.Run("beads.db is br", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".beads"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".beads", "beads.db"), []byte("sqlite"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := DetectMemoryManager(dir); got != MemoryManagerBeadsRust {
+			t.Errorf("expected br, got %q", got)
+		}
+	})
+
+	t.Run("an empty .beads names neither", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".beads"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if got := DetectMemoryManager(dir); got != "" {
+			t.Errorf("a marker directory that identifies no tracker must detect nothing, got %q", got)
+		}
+	})
 }
 
 func TestDetectMemoryManager_BothMarkers_KnotsWins(t *testing.T) {
@@ -73,12 +102,61 @@ func TestDetectMemoryManager_BothMarkers_KnotsWins(t *testing.T) {
 	}
 }
 
-func TestDetectMemoryManager_NoMarker_DefaultsBeads(t *testing.T) {
-	dir := t.TempDir()
-	result := DetectMemoryManager(dir)
-	if result != MemoryManagerBeads {
-		t.Errorf("expected beads default, got %s", result)
+func TestDetectMemoryManager_NoMarkerDetectsNothing(t *testing.T) {
+	if got := DetectMemoryManager(t.TempDir()); got != "" {
+		t.Errorf("a directory with no tracker store must detect nothing, got %q", got)
 	}
+}
+
+// The rule the whole tracker question is settled by, in one place.
+func TestResolveMemoryManager(t *testing.T) {
+	brRepo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(brRepo, ".beads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(brRepo, ".beads", "beads.db"), []byte("sqlite"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("the configured value wins over what is on disk", func(t *testing.T) {
+		got, err := ResolveMemoryManager(brRepo, "beads")
+		if err != nil {
+			t.Fatalf("ResolveMemoryManager: %v", err)
+		}
+		if got != MemoryManagerBeads {
+			t.Errorf("got %q, want the configured beads", got)
+		}
+	})
+
+	t.Run("unset falls back to what is on disk", func(t *testing.T) {
+		got, err := ResolveMemoryManager(brRepo, "")
+		if err != nil {
+			t.Fatalf("ResolveMemoryManager: %v", err)
+		}
+		if got != MemoryManagerBeadsRust {
+			t.Errorf("got %q, want the detected br", got)
+		}
+	})
+
+	t.Run("an unknown configured value fails loud", func(t *testing.T) {
+		_, err := ResolveMemoryManager(brRepo, "beadz")
+		if err == nil {
+			t.Fatal("expected a refusal rather than a default")
+		}
+		if !strings.Contains(err.Error(), "memoryManager") {
+			t.Errorf("the error must name the config key that fixes it, got: %v", err)
+		}
+	})
+
+	t.Run("undetectable and unconfigured fails loud", func(t *testing.T) {
+		_, err := ResolveMemoryManager(t.TempDir(), "")
+		if err == nil {
+			t.Fatal("expected a refusal rather than a guess")
+		}
+		if !strings.Contains(err.Error(), "memoryManager") {
+			t.Errorf("the error must name the config key that fixes it, got: %v", err)
+		}
+	})
 }
 
 func TestIsKnownMemoryManagerType(t *testing.T) {

@@ -199,14 +199,16 @@ func TestArtifactHandoff_PlanningArtifactWrittenAndCommented(t *testing.T) {
 	}
 
 	_, err := app.DriveBeadToTerminal(context.Background(), app.DriveBeadDeps{
-		VerifyCommand: "bin/ci",
-		Backend:       be,
-		Driver:        driver,
-		Config:        artifactHandoffTestConfig(),
-		BeadID:        "kb-1",
-		RepoPath:      repoDir,
-		Worktree:      worktreeDir,
-		MaxStages:     16,
+		StateDir:       t.TempDir(),
+		TrackerCommand: "bd",
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         driver,
+		Config:         artifactHandoffTestConfig(),
+		BeadID:         "kb-1",
+		RepoPath:       repoDir,
+		Worktree:       worktreeDir,
+		MaxStages:      16,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)

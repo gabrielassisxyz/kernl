@@ -27,6 +27,12 @@ type StagePromptInput struct {
 	// Dialect selects the notes that apply to one agent CLI and are noise to
 	// the rest.
 	Dialect adapter.AgentDialect
+	// TrackerCommand is how this repository's tracker is typed from inside a
+	// worktree, binary and store-pinning flags together. The prompt names the
+	// tracker in prose, and which one it is is a property of the repository:
+	// "bd" was written into these strings when kernl was the only repository
+	// the orchestrator ever ran against.
+	TrackerCommand string
 }
 
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
@@ -42,7 +48,7 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 	renderRole(&b, hasContract, contract)
 	renderInputs(&b, hasContract, contract, in.Bead.ID)
 	renderOutput(&b, hasContract, contract, in.Bead.ID)
-	renderForbidden(&b, hasContract, contract)
+	renderForbidden(&b, hasContract, contract, in.TrackerCommand)
 	renderOperatingRules(&b, in.VerifyCommand, in.Dialect)
 
 	if !hasContract {
@@ -108,14 +114,14 @@ func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageCo
 	b.WriteString("\n")
 }
 
-func renderForbidden(b *strings.Builder, hasContract bool, contract backend.StageContract) {
+func renderForbidden(b *strings.Builder, hasContract bool, contract backend.StageContract, trackerCommand string) {
 	b.WriteString("## You may NOT\n\n")
 	if hasContract {
 		for _, fp := range contract.ForbiddenPaths {
 			fmt.Fprintf(b, "- Modify `%s`\n", fp)
 		}
 	}
-	b.WriteString("- Do not run `bd update`, `bd close`, or `bd open`. The orchestrator advances the bead when your stage completes.\n")
+	fmt.Fprintf(b, "- Do not run `%s update`, `%s close`, or `%s reopen`. The orchestrator advances the bead when your stage completes.\n", trackerCommand, trackerCommand, trackerCommand)
 	b.WriteString("\n")
 }
 

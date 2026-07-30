@@ -579,35 +579,42 @@ func AutoRouteBackendWithDetection(repoPath string) (BackendPort, error) {
 	}
 }
 
+// AutoRouteFromConfig builds the backend that speaks a repository's tracker.
+//
+// Resolution is ResolveMemoryManager's: the configured memoryManager wins, an
+// unset one detects from disk, and neither answering is a failure. A repository
+// not present in the registry is still routable - it is a path someone named
+// explicitly - but it has no configured value to lean on.
 func AutoRouteFromConfig(cfg *config.Config, repoPath string) (BackendPort, error) {
 	if repoPath == "" {
 		return nil, newBackendDispatchError("backend", "", "autoRoute", "repo_path_missing")
 	}
 
+	configured := ""
 	for _, repo := range cfg.Registry.Repos {
 		if repo.Path == repoPath {
-			mm := repo.MemoryManager
-			if mm == "" {
-				detected := DetectMemoryManager(repoPath)
-				mm = string(detected)
-			}
-			switch mm {
-			case "knots":
-				return NewKnotsBackend(repoPath), nil
-			case "beads", "":
-				return NewBdCliBackend(repoPath), nil
-			default:
-				return nil, newBackendDispatchError("backend", repoPath, "autoRoute", "repo_type_unknown")
-			}
+			configured = repo.MemoryManager
+			break
 		}
 	}
 
-	detected := DetectMemoryManager(repoPath)
-	switch detected {
+	mm, err := ResolveMemoryManager(repoPath, configured)
+	if err != nil {
+		return nil, err
+	}
+	return backendForMemoryManager(mm, repoPath)
+}
+
+// backendForMemoryManager is the one place a memory manager becomes an
+// implementation, so a new tracker is a case here and nowhere else.
+func backendForMemoryManager(mm MemoryManagerType, repoPath string) (BackendPort, error) {
+	switch mm {
 	case MemoryManagerKnots:
 		return NewKnotsBackend(repoPath), nil
 	case MemoryManagerBeads:
 		return NewBdCliBackend(repoPath), nil
+	case MemoryManagerBeadsRust:
+		return NewBrCliBackend(repoPath), nil
 	default:
 		return nil, newBackendDispatchError("backend", repoPath, "autoRoute", "repo_type_unknown")
 	}

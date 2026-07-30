@@ -11,6 +11,7 @@ func sampleShipmentInput() prompt.ShipmentInput {
 	return prompt.ShipmentInput{
 		EpicID: "e1", EpicTitle: "Test epic", EpicBranch: "feat/e1", BaseBranch: "master",
 		RemoteName: "origin", RemoteURL: "git@github.com:owner/repo.git", RepoSlug: "github.com/owner/repo",
+		TrackerCommand: "br --db /repo/.beads/beads.db",
 	}
 }
 
@@ -41,6 +42,27 @@ func TestRenderShipment_Content(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("shipment prompt missing %q", want)
 		}
+	}
+}
+
+// The one command the shipment stage is told to run against the tracker writes
+// the pr_url line the exit gate reads. It embedded "bd" and bd's JSON envelope,
+// so against a br repository it wrote nothing and the gate saw nothing.
+func TestRenderShipment_RecordsThroughTheRepositorysOwnTracker(t *testing.T) {
+	out, err := prompt.RenderShipment(sampleShipmentInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "bd update") || strings.Contains(out, "bd show") {
+		t.Errorf("the recipe must not name kernl's own tracker:\n%s", out)
+	}
+	if !strings.Contains(out, "br --db /repo/.beads/beads.db update e1 --description") {
+		t.Errorf("the recipe must append through the repository's tracker:\n%s", out)
+	}
+	// description is absent rather than empty when unset, and `jq -r` would
+	// otherwise write the string "null" into the epic's description.
+	if !strings.Contains(out, `.[0].description // ""`) {
+		t.Errorf("the recipe must tolerate an unset description:\n%s", out)
 	}
 }
 
