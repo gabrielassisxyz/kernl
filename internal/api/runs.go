@@ -64,9 +64,18 @@ func listRunsHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		filter.Tags = strings.Split(tags, ",")
 	}
 	if raw := r.URL.Query().Get("limit"); raw != "" {
+		// Neighbouring handlers (nodes_search.go, nodes_related.go, plan.go)
+		// silently ignore a malformed limit and fall back to a default. That is
+		// fine for a typeahead or planning widget, but this endpoint lists a
+		// table that grows with every orchestrator run: ListWorkflowRuns only
+		// applies LIMIT when it is > 0, so a silently-ignored "-5" or "0" would
+		// not shrink the result, it would return every run in the graph with no
+		// signal that the bound was dropped. Reject anything that is not a
+		// positive integer instead of letting a bad value turn into "give me
+		// everything".
 		limit, err := strconv.Atoi(raw)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid limit: "+err.Error())
+		if err != nil || limit <= 0 {
+			writeError(w, http.StatusBadRequest, "invalid limit: must be a positive integer, got "+raw)
 			return
 		}
 		filter.Limit = limit

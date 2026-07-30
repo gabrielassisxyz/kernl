@@ -92,6 +92,33 @@ func TestListRunsHandlerHonoursFilters(t *testing.T) {
 	}
 }
 
+func TestListRunsHandlerRejectsInvalidLimit(t *testing.T) {
+	a := testApp()
+	g := testutil.NewInMemoryTestGraph(t)
+	a.Graph = g
+	r := NewRouter(a)
+
+	seedWorkflowRun(t, g, nodes.WorkflowRun{
+		Title: "run-a", WorkflowName: "epic-run", Status: "running",
+	})
+
+	// Each of these must be rejected loudly rather than silently ignored: a
+	// non-numeric value is an obvious typo, but a negative or zero limit is the
+	// dangerous case, because ListWorkflowRuns only bounds the query when the
+	// limit is > 0 and would otherwise return every run in the graph.
+	for _, limit := range []string{"abc", "-5", "0"} {
+		t.Run("limit="+limit, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/runs?limit="+limit, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != 400 {
+				t.Fatalf("expected status 400 for limit=%s, got %d: %s", limit, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestGetRunHandlerReturnsRun(t *testing.T) {
 	a := testApp()
 	g := testutil.NewInMemoryTestGraph(t)
