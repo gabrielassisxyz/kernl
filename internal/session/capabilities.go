@@ -36,14 +36,30 @@ type DialectCapabilities struct {
 	SupportsInteractive     bool
 }
 
-var claudeCapabilities = DialectCapabilities{
+var claudeInteractiveCapabilities = DialectCapabilities{
 	Interactive:             true,
 	PromptTransport:         TransportStdioStreamJSON,
 	SupportsFollowUp:        true,
 	SupportsAskUserAutoResp: true,
 	StdinDrainPolicy:        DrainCloseAfterResult,
 	ResultDetection:         ResultDetectionTypeResult,
-	SupportsInteractive:     false,
+	SupportsInteractive:     true,
+}
+
+// claudeOneShotCapabilities is what the take-loop actually dispatches: claude
+// with the prompt on the CLI arg (`-p <prompt>`), per adapter.BuildClaudePromptModeArgs.
+// That invocation never opens an interactive channel, so it cannot receive a
+// mid-turn follow-up the way claudeInteractiveCapabilities (stream-json over
+// stdin) can - claiming SupportsFollowUp here would promise a nudge over a
+// transport this process never listens on.
+var claudeOneShotCapabilities = DialectCapabilities{
+	Interactive:             false,
+	PromptTransport:         TransportCLIArg,
+	SupportsFollowUp:        false,
+	SupportsAskUserAutoResp: false,
+	StdinDrainPolicy:        DrainNeverOpened,
+	ResultDetection:         ResultDetectionTypeResult,
+	SupportsInteractive:     true,
 }
 
 var codexOneShotCapabilities = DialectCapabilities{
@@ -129,7 +145,10 @@ var geminiInteractiveCapabilities = DialectCapabilities{
 func CapabilitiesForDialect(dialect string, interactive bool) DialectCapabilities {
 	switch dialect {
 	case "claude":
-		return claudeCapabilities
+		if interactive {
+			return claudeInteractiveCapabilities
+		}
+		return claudeOneShotCapabilities
 	case "codex":
 		if interactive {
 			return codexInteractiveCapabilities

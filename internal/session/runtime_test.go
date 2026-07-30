@@ -30,19 +30,19 @@ func (p *pipeWriter) String() string {
 	return string(p.data)
 }
 
-func TestCapabilitiesForDialect_Claude(t *testing.T) {
-	caps := CapabilitiesForDialect("claude", false)
+func TestCapabilitiesForDialect_ClaudeInteractive(t *testing.T) {
+	caps := CapabilitiesForDialect("claude", true)
 	if !caps.Interactive {
-		t.Error("claude should be interactive")
+		t.Error("claude interactive should be interactive")
 	}
 	if caps.PromptTransport != TransportStdioStreamJSON {
 		t.Errorf("expected stdin-stream-json, got %s", caps.PromptTransport)
 	}
 	if !caps.SupportsFollowUp {
-		t.Error("claude should support follow-up")
+		t.Error("claude interactive should support follow-up")
 	}
 	if !caps.SupportsAskUserAutoResp {
-		t.Error("claude should support AskUser auto-response")
+		t.Error("claude interactive should support AskUser auto-response")
 	}
 	if caps.StdinDrainPolicy != DrainCloseAfterResult {
 		t.Errorf("expected close-after-result, got %s", caps.StdinDrainPolicy)
@@ -50,8 +50,31 @@ func TestCapabilitiesForDialect_Claude(t *testing.T) {
 	if caps.ResultDetection != ResultDetectionTypeResult {
 		t.Errorf("expected type-result, got %s", caps.ResultDetection)
 	}
-	if caps.SupportsInteractive {
-		t.Error("claude doesn't have an interactive variant override")
+}
+
+// TestCapabilitiesForDialect_ClaudeOneShot pins the profile actually used by
+// the take-loop: claude dispatched with `-p <prompt>` on the CLI arg
+// (adapter.BuildClaudePromptModeArgs), which never opens the stdin-stream-json
+// channel the interactive profile relies on for a follow-up.
+func TestCapabilitiesForDialect_ClaudeOneShot(t *testing.T) {
+	caps := CapabilitiesForDialect("claude", false)
+	if caps.Interactive {
+		t.Error("claude one-shot should not be interactive")
+	}
+	if caps.PromptTransport != TransportCLIArg {
+		t.Errorf("expected cli-arg, got %s", caps.PromptTransport)
+	}
+	if caps.SupportsFollowUp {
+		t.Error("claude one-shot should not support follow-up - -p <prompt> never opens a channel to deliver one")
+	}
+	if caps.SupportsAskUserAutoResp {
+		t.Error("claude one-shot should not support AskUser auto-response - no stdin to write to")
+	}
+	if caps.StdinDrainPolicy != DrainNeverOpened {
+		t.Errorf("expected never-opened, got %s", caps.StdinDrainPolicy)
+	}
+	if !caps.SupportsInteractive {
+		t.Error("claude supports interactive mode")
 	}
 }
 
