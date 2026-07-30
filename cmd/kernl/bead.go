@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -21,6 +22,16 @@ import (
 // serves, and is dispatched before any of that setup - building the app
 // requires bd, and asking for a bead list should not.
 var beadSubcommands = []string{"run", "list", "get", "create", "set", "close", "rollback", "refine-scope", "mark-terminal"}
+
+// resolveBeadShipmentDestination settles where bead run may publish before
+// any dispatch, exactly like epic run's resolveShipmentPlan does. It is a
+// variable, mirroring epicGitRunner (cmd/kernl/epic.go), so a hermetic test
+// can stub the git remote lookup shipment.ResolveDestination performs
+// underneath without shelling out to a real git process; production has no
+// path to override it.
+var resolveBeadShipmentDestination = func(repoPath string, cfg config.ShipmentConfig) (shipment.Destination, error) {
+	return shipment.ResolveDestination(repoPath, cfg.Remote, cfg.AllowedRemotes, nil)
+}
 
 func runBead(v verbContext, args []string) error {
 	if len(args) == 0 {
@@ -100,7 +111,9 @@ func runBeadCmd(a *app.App, args []string) error {
 
 // parseBeadRunArgs splits the positional bead ID from --dry-run. A mistyped
 // flag must not silently become the bead ID (the same trap epic run guards
-// against for --autonomous).
+// against for --autonomous), and a second positional must not be silently
+// dropped: `kernl bead run kb-1 kb-2` dispatches exactly one bead, so a
+// second bead ID is a usage error, not a hint the CLI ignores.
 func parseBeadRunArgs(args []string) (beadID string, dryRun bool, err error) {
 	for _, arg := range args {
 		switch {
@@ -111,6 +124,8 @@ func parseBeadRunArgs(args []string) (beadID string, dryRun bool, err error) {
 				arg, didYouMean(arg, []string{"--dry-run", "--repo"}))
 		case beadID == "":
 			beadID = arg
+		default:
+			return "", false, usagef("KERNL DISPATCH FAILURE: bead run takes exactly one bead ID, got unexpected extra argument %q - run: kernl bead run <bead-id>", arg)
 		}
 	}
 	if beadID == "" {
@@ -119,18 +134,59 @@ func parseBeadRunArgs(args []string) (beadID string, dryRun bool, err error) {
 	return beadID, dryRun, nil
 }
 
-// runBeadDispatch drives a single bead through the same machinery epic run
-// uses for each of its children: a real per-bead worktree from
-// epic.WorktreeManager, then app.DriveBeadToTerminal for the stage prompt,
-// per-dialect argv and exit-gate advance. `bead run` used to skip all of this
-// and call a.Driver.RunBead directly, which spawned the agent with no prompt
-// at all.
+// runBeadDispatch drives a single, standalone bead through the same
+// machinery epic run uses for each of its children: a real per-bead worktree
+// from epic.WorktreeManager, then app.DriveBeadToTerminal for the stage
+// prompt, per-dialect argv and exit-gate advance. `bead run` used to skip all
+// of this and call a.Driver.RunBead directly, which spawned the agent with
+// no prompt at all.
+//
+// "Standalone" is load-bearing: a bead that belongs to an epic needs the
+// epic branch, dependency merges, integration/shipment BuildPrompt overrides
+// and shipment plan that only epic run assembles. Rebuilding that here would
+// be a second, divergent copy of epic run's orchestration; refuseEpicManagedBead
+// below refuses those beads instead, naming the command that already handles
+// them, rather than silently driving them through a lesser path.
 //
 // driver is threaded through explicitly, rather than read off App inside this
 // function, so a hermetic test can hand it a fake BeadDriver and observe
 // exactly what gets assembled, without spawning a real agent process.
 func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry config.RepoEntry, dryRun bool) (app.RunBeadResult, error) {
 	repoPath := repoEntry.Path
+
+	bead, err := a.Backend.Get(beadID, repoPath)
+	if err != nil || bead == nil {
+		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", beadID, repoPath, err)
+	}
+
+	// --dry-run must stop before the stage is entered, not spawn the agent
+	// and ask it to hold back - an agent told not to publish can still decide
+	// that publishing is what the instruction meant. Returning here, before
+	// any of the checks or filesystem work below, is what containment means
+	// for a single bead: nothing is created, removed or resolved, so there is
+	// nothing for a dry run to have side effects on. wm.Add in particular
+	// auto-cleans an existing worktree path, so reaching it even once on the
+	// --dry-run path would discard whatever a previous real run left there.
+	if dryRun {
+		return app.RunBeadResult{FinalState: bead.State, Success: true}, nil
+	}
+
+	if err := refuseEpicManagedBead(bead); err != nil {
+		return app.RunBeadResult{}, err
+	}
+
+	// Resolved unconditionally, regardless of the bead's current state:
+	// DriveBeadToTerminal may advance this bead all the way through its own
+	// shipment stage in this same call, and refuseUnverifiedShipment (called
+	// by the CLI entry point before this function) only catches a bead that
+	// is ALREADY at the shipment state - not one that will reach it a few
+	// stages from now. A repository with no declared shipment destination
+	// must refuse before any work starts, the same as epic run does at
+	// epic.go's resolveShipmentPlan, not partway through a run that already
+	// dispatched real agent work.
+	if _, err := resolveBeadShipmentDestination(repoPath, repoEntry.Shipment); err != nil {
+		return app.RunBeadResult{}, err
+	}
 
 	gitRun, err := epicGitRunner(repoPath)
 	if err != nil {
@@ -178,25 +234,15 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, baseBranch, gitRun, noopUpdateDesc)
 	// Grouped under its own ID rather than a parent epic's: bead run dispatches
 	// exactly one bead, so there is no epic branch to layer it onto and no
-	// sibling dependency branches to merge in.
+	// sibling dependency branches to merge in (refuseEpicManagedBead above
+	// already refused a bead that has either).
+	worktreePath := wm.Path(beadID, beadID)
+	if info, statErr := os.Stat(worktreePath); statErr == nil && info.IsDir() {
+		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: a worktree for bead %s already exists at %s - bead run does not resume a bead into an existing worktree, and Add would force-recreate it, discarding whatever is there - Fix: remove %s by hand if it is safe to discard, or if this bead is mid-workflow after a previous run, continue it manually in that worktree", beadID, worktreePath, worktreePath)
+	}
 	worktree, err := wm.Add(beadID, beadID, nil)
 	if err != nil {
 		return app.RunBeadResult{}, err
-	}
-
-	// --dry-run must stop before the stage is entered, not spawn the agent and
-	// ask it to hold back - an agent told not to publish can still decide that
-	// publishing is what the instruction meant. Stopping the loop as soon as it
-	// sees the bead's own current state, before any claim or dispatch, is what
-	// containment looks like for a single bead (epic run does the same thing by
-	// naming the shipment state explicitly).
-	stopBefore := ""
-	if dryRun {
-		bead, err := a.Backend.Get(beadID, repoPath)
-		if err != nil || bead == nil {
-			return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", beadID, repoPath, err)
-		}
-		stopBefore = bead.State
 	}
 
 	return app.DriveBeadToTerminal(context.Background(), app.DriveBeadDeps{
@@ -208,13 +254,33 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		RepoPath:        repoPath,
 		Worktree:        worktree,
 		AgentStateStore: stateStore,
-		StopBeforeState: stopBefore,
 		VerifyCommand:   verifyCommand,
 		TrackerCommand:  trackerCommand,
 		Log: func(stage int, state string) {
 			fmt.Printf("bead %s [stage %d] %s\n", beadID, stage, state)
 		},
 	})
+}
+
+// refuseEpicManagedBead is the root-cause guard behind findings 3 and 5: a
+// bead that belongs to an epic, declares dependencies on other beads, or runs
+// the "epic" workflow profile needs the epic branch, dependency merges and
+// integration/shipment prompts that only epic run assembles. bead run has no
+// epic DAG to draw any of that from, so rather than build a second, lesser
+// copy of that machinery it refuses and names the command that already has
+// it.
+func refuseEpicManagedBead(bead *backend.Bead) error {
+	if bead.ParentID != "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s is a child of epic %s - bead run has no epic branch or dependency graph to drive it correctly - Fix: run `kernl epic run %s`, which drives every child of the epic together", bead.ID, bead.ParentID, bead.ParentID)
+	}
+	if len(bead.Dependencies) > 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s declares %d dependencies - bead run has no epic DAG to merge them from before dispatch - Fix: run the owning epic with `kernl epic run <epic-id>`", bead.ID, len(bead.Dependencies))
+	}
+	wf := backend.ResolveWorkflow(bead)
+	if wf.ID == "epic" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s runs the epic workflow profile - its integration and shipment stages need the epic-specific prompt and verified destination epic run builds, not the generic one bead run would give it - Fix: run `kernl epic run %s`", bead.ID, bead.ID)
+	}
+	return nil
 }
 
 // refuseUnverifiedShipment stops `bead run` from dispatching the shipment stage
@@ -235,7 +301,7 @@ func refuseUnverifiedShipment(a *app.App, beadID string, repoEntry config.RepoEn
 	if dispatch.DerivePoolKey(&wf, bead.State) != "shipment" {
 		return nil
 	}
-	if _, err := shipment.ResolveDestination(repoEntry.Path, repoEntry.Shipment.Remote, repoEntry.Shipment.AllowedRemotes, nil); err != nil {
+	if _, err := resolveBeadShipmentDestination(repoEntry.Path, repoEntry.Shipment); err != nil {
 		return err
 	}
 	return nil

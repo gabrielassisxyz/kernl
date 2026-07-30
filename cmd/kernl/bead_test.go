@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -11,12 +13,22 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/session"
+	"github.com/gabrielassisxyz/kernl/internal/shipment"
 )
 
 type testBackend struct {
 	mu    sync.Mutex
 	state map[string]string
+	// parents, depCount and profiles are optional per-bead overrides for the
+	// fields refuseEpicManagedBead inspects. Nil (the common case for a
+	// standalone bead) means the zero value: no parent, no dependencies, no
+	// explicit profile - reading a nil map in Go returns the zero value
+	// rather than panicking, so tests that never set these are unaffected.
+	parents  map[string]string
+	depCount map[string]int
+	profiles map[string]string
 }
 
 func (b *testBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
@@ -35,7 +47,11 @@ func (b *testBackend) Get(id string, repoPath string) (*backend.Bead, error) {
 	if !ok {
 		return nil, nil
 	}
-	return &backend.Bead{ID: id, State: s}, nil
+	bead := &backend.Bead{ID: id, State: s, ParentID: b.parents[id], ProfileID: b.profiles[id]}
+	if n := b.depCount[id]; n > 0 {
+		bead.Dependencies = make([]backend.BeadDependency, n)
+	}
+	return bead, nil
 }
 func (b *testBackend) Create(input backend.CreateBeadInput, repoPath string) (*backend.Bead, error) {
 	return nil, nil
@@ -132,6 +148,31 @@ func (f *fakeBeadDriver) RunBead(ctx context.Context, input app.RunBeadInput) (a
 	return app.RunBeadResult{FinalState: "ready_for_review", Success: true}, nil
 }
 
+// withResolvableShipment stubs resolveBeadShipmentDestination to succeed,
+// mirroring withoutGit(t) for the worktree manager's git executor: it lets a
+// hermetic test reach a full, successful dispatch without shelling out to
+// git for a remote a bare t.TempDir() does not have.
+func withResolvableShipment(t *testing.T) {
+	t.Helper()
+	previous := resolveBeadShipmentDestination
+	resolveBeadShipmentDestination = func(repoPath string, cfg config.ShipmentConfig) (shipment.Destination, error) {
+		return shipment.Destination{RemoteName: "origin", RemoteURL: "git@github.com:example/example.git", RepoSlug: "example/example"}, nil
+	}
+	t.Cleanup(func() { resolveBeadShipmentDestination = previous })
+}
+
+// withUnresolvableShipment stubs resolveBeadShipmentDestination to fail the
+// way a repository with no declared shipment remote would, without shelling
+// out to git to produce that failure.
+func withUnresolvableShipment(t *testing.T) {
+	t.Helper()
+	previous := resolveBeadShipmentDestination
+	resolveBeadShipmentDestination = func(repoPath string, cfg config.ShipmentConfig) (shipment.Destination, error) {
+		return shipment.Destination{}, fmt.Errorf("KERNL DISPATCH FAILURE: no shipment destination declared for %s - Fix: set registry.repos[].shipment.remote and .allowedRemotes in kernl.yaml", repoPath)
+	}
+	t.Cleanup(func() { resolveBeadShipmentDestination = previous })
+}
+
 // testAppForBeadRun builds the App bead run needs to reach dispatch in a
 // hermetic test: a repo that declares its own tracker and verify command (so
 // nothing is auto-detected from a bare temp dir), a worktree root of its own,
@@ -139,9 +180,13 @@ func (f *fakeBeadDriver) RunBead(ctx context.Context, input app.RunBeadInput) (a
 // withoutGit(t) is epic_test.go's fixture for the worktree manager's no-git
 // mode - bead run refuses a repo path that is not a git repository in
 // production, exactly like epic run, so a plain t.TempDir() needs it too.
+// withResolvableShipment(t) is the analogous fixture for the up-front
+// shipment destination check; a test that wants the real (unstubbed)
+// behavior calls withUnresolvableShipment(t) afterward to override it.
 func testAppForBeadRun(t *testing.T, be *testBackend) *app.App {
 	t.Helper()
 	withoutGit(t)
+	withResolvableShipment(t)
 	return &app.App{
 		Backend:  be,
 		StateDir: t.TempDir(),
@@ -255,6 +300,196 @@ func TestRunBeadDispatchDryRunStopsBeforeDispatch(t *testing.T) {
 	}
 	if res.FinalState != "ready_for_implementation" {
 		t.Errorf("dry-run must stop at the bead's own current state, got %q", res.FinalState)
+	}
+}
+
+// seedExistingWorktree recreates what a previous real bead run leaves behind:
+// a worktree at the exact path wm.Add(beadID, beadID, nil) would use, with a
+// file in it standing in for committed or uncommitted work. It uses the same
+// no-git fallback bead run itself uses in these tests (gitRun nil), so the
+// path matches exactly what runBeadDispatch would compute.
+func seedExistingWorktree(t *testing.T, a *app.App, beadID string) string {
+	t.Helper()
+	noopUpdateDesc := func(string, func(string) string) error { return nil }
+	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, a.Config.Registry.Repos[0].Path, "", nil, noopUpdateDesc)
+	path, err := wm.Add(beadID, beadID, nil)
+	if err != nil {
+		t.Fatalf("seeding an existing worktree for %s: %v", beadID, err)
+	}
+	marker := filepath.Join(path, "work-from-a-previous-run.txt")
+	if err := os.WriteFile(marker, []byte("do not discard me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return marker
+}
+
+// TestRunBeadDispatchDryRunNeverTouchesAnExistingWorktree is the regression
+// test for finding 2: wm.Add auto-cleans (git worktree remove --force, then
+// os.RemoveAll) any path already there before recreating it. Reaching that
+// call at all on the --dry-run path would silently discard whatever a
+// previous real run left in the worktree, while dispatching no agent and
+// writing no tracker state - the single most destructive thing this flag
+// could do, under the name people reach for specifically to avoid side
+// effects.
+func TestRunBeadDispatchDryRunNeverTouchesAnExistingWorktree(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-7": "ready_for_implementation"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+	marker := seedExistingWorktree(t, a, "kb-7")
+
+	if _, err := runBeadDispatch(a, driver, "kb-7", repoEntry, true); err != nil {
+		t.Fatalf("dry-run must not error: %v", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("dry-run discarded the existing worktree: %v", statErr)
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("dry-run must not dispatch an agent, got %d driver calls", len(driver.calls))
+	}
+}
+
+// TestRunBeadDispatchRefusesWhenAWorktreeAlreadyExists is the regression test
+// for finding 4: a non-dry-run re-run of a bead whose worktree already exists
+// must refuse rather than let wm.Add force-recreate (and thereby discard) it.
+// bead run has no epic-level runstate to tell a safe-to-discard leftover from
+// a previous run's committed work, so it does not guess.
+func TestRunBeadDispatchRefusesWhenAWorktreeAlreadyExists(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-8": "ready_for_implementation"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+	marker := seedExistingWorktree(t, a, "kb-8")
+
+	_, err := runBeadDispatch(a, driver, "kb-8", repoEntry, false)
+	if err == nil {
+		t.Fatal("expected a refusal rather than a silent force-recreate of the existing worktree")
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("refusal must leave the existing worktree untouched: %v", statErr)
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching, got %d driver calls", len(driver.calls))
+	}
+}
+
+// TestRunBeadDispatchRefusesUnresolvedShipmentDestinationUpFront is the
+// regression test for finding 1: a bead that is not currently AT the
+// shipment state can still be driven all the way to it within this same
+// call, so the shipment destination must be verified before any dispatch
+// starts, not only when the bead happens to already be sitting at shipment.
+func TestRunBeadDispatchRefusesUnresolvedShipmentDestinationUpFront(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-6": "ready_for_implementation"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	withUnresolvableShipment(t)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	_, err := runBeadDispatch(a, driver, "kb-6", repoEntry, false)
+	if err == nil {
+		t.Fatal("expected a refusal when the shipment destination cannot be resolved, even though the bead has not reached shipment yet")
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching any agent, got %d driver calls", len(driver.calls))
+	}
+	entries, _ := os.ReadDir(a.Config.Orchestrator.WorktreeRoot)
+	if len(entries) != 0 {
+		t.Errorf("must refuse before creating any worktree, found %v", entries)
+	}
+}
+
+// TestRunBeadDispatchRefusesAnEpicChild is the regression test for finding 3:
+// bead run has no epic branch or dependency graph to drive a child bead
+// correctly, so it must refuse rather than silently build a lesser tree.
+func TestRunBeadDispatchRefusesAnEpicChild(t *testing.T) {
+	be := &testBackend{
+		state:   map[string]string{"kb-9": "ready_for_implementation"},
+		parents: map[string]string{"kb-9": "kb-epic"},
+	}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	_, err := runBeadDispatch(a, driver, "kb-9", repoEntry, false)
+	if err == nil {
+		t.Fatal("expected a refusal for a bead that belongs to an epic")
+	}
+	if !strings.Contains(err.Error(), "kernl epic run") {
+		t.Errorf("refusal must name kernl epic run as the fix, got: %v", err)
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching, got %d driver calls", len(driver.calls))
+	}
+}
+
+// TestRunBeadDispatchRefusesABeadWithDependencies covers the second half of
+// finding 3: a bead can be dependency-managed without a parent epic label
+// having been set on it yet, and bead run has no DAG to merge those
+// dependency branches from either way.
+func TestRunBeadDispatchRefusesABeadWithDependencies(t *testing.T) {
+	be := &testBackend{
+		state:    map[string]string{"kb-10": "ready_for_implementation"},
+		depCount: map[string]int{"kb-10": 1},
+	}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	_, err := runBeadDispatch(a, driver, "kb-10", repoEntry, false)
+	if err == nil {
+		t.Fatal("expected a refusal for a bead with declared dependencies")
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching, got %d driver calls", len(driver.calls))
+	}
+}
+
+// TestRunBeadDispatchRefusesAnEpicProfileBead is the regression test for
+// finding 5: the epic workflow profile's integration and shipment stages need
+// the epic-specific BuildPrompt and verified shipment plan that only epic run
+// assembles - the generic stage-contract prompt bead run would otherwise emit
+// names neither the child branches integration needs nor the remote shipment
+// needs.
+func TestRunBeadDispatchRefusesAnEpicProfileBead(t *testing.T) {
+	be := &testBackend{
+		state:    map[string]string{"kb-11": "ready_for_integration"},
+		profiles: map[string]string{"kb-11": "epic"},
+	}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	_, err := runBeadDispatch(a, driver, "kb-11", repoEntry, false)
+	if err == nil {
+		t.Fatal("expected a refusal for a bead running the epic workflow profile")
+	}
+	if !strings.Contains(err.Error(), "kernl epic run") {
+		t.Errorf("refusal must name kernl epic run as the fix, got: %v", err)
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching, got %d driver calls", len(driver.calls))
+	}
+}
+
+// TestParseBeadRunArgsRejectsExtraPositionals is the regression test for
+// finding 6: a second positional argument used to be silently discarded, so
+// `kernl bead run kb-1 kb-2` dispatched kb-1 and said nothing about kb-2.
+func TestParseBeadRunArgsRejectsExtraPositionals(t *testing.T) {
+	_, _, err := parseBeadRunArgs([]string{"kb-1", "kb-2"})
+	if err == nil {
+		t.Fatal("expected a usage error for a second positional argument")
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("an extra positional is a usage error, got exit %d", exitCode(err))
+	}
+}
+
+func TestParseBeadRunArgsAcceptsDryRunOnEitherSide(t *testing.T) {
+	if id, dry, err := parseBeadRunArgs([]string{"--dry-run", "kb-1"}); err != nil || id != "kb-1" || !dry {
+		t.Fatalf("got id=%q dry=%v err=%v", id, dry, err)
+	}
+	if id, dry, err := parseBeadRunArgs([]string{"kb-1", "--dry-run"}); err != nil || id != "kb-1" || !dry {
+		t.Fatalf("got id=%q dry=%v err=%v", id, dry, err)
 	}
 }
 

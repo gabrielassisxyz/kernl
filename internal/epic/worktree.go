@@ -124,6 +124,14 @@ func (m *WorktreeManager) CleanupEpic(epicID string, childIDs []string) error {
 	return nil
 }
 
+// Path answers where Add would create a worktree for a given epicID/beadID
+// pair, without creating, removing or otherwise touching anything. Callers
+// that need to refuse a re-run rather than silently let Add force-recreate
+// (and thereby auto-clean) an existing worktree check this first.
+func (m *WorktreeManager) Path(epicID, beadID string) string {
+	return filepath.Join(m.root, epicID, beadID)
+}
+
 // Add creates the isolated worktree for a child bead on its own branch
 // kernl/<beadID>. depBeadIDs are the bead's direct dependencies; their branches
 // (kernl/<dep>) are merged into the new worktree so a dependent child starts
