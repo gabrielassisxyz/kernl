@@ -14,19 +14,30 @@ type MemoryManagerType string
 const (
 	MemoryManagerKnots MemoryManagerType = "knots"
 	MemoryManagerBeads MemoryManagerType = "beads"
+	// MemoryManagerBeadsRust is br (beads_rust). The value is the binary name
+	// rather than "beadsrust" because "beads" was already taken by bd, and
+	// renaming that would invalidate every kernl.yaml and registry.json
+	// already on disk for a purely cosmetic symmetry.
+	MemoryManagerBeadsRust MemoryManagerType = "br"
 )
 
 type memoryManagerImpl struct {
 	Type            MemoryManagerType
 	Label           string
 	MarkerDirectory string
-	Binary          string
-	Precedence      int
+	// MarkerEntry disambiguates two managers that share a marker directory.
+	// bd and br both store under .beads/, so the directory name says nothing
+	// about which one wrote it; what is inside it does. Empty means the
+	// directory alone identifies the manager.
+	MarkerEntry string
+	Binary      string
+	Precedence  int
 }
 
 var knownMemoryManagers = []memoryManagerImpl{
 	{Type: MemoryManagerKnots, Label: "Knots", MarkerDirectory: ".knots", Binary: "kno", Precedence: 0},
-	{Type: MemoryManagerBeads, Label: "Beads", MarkerDirectory: ".beads", Binary: "bd", Precedence: 1},
+	{Type: MemoryManagerBeads, Label: "Beads", MarkerDirectory: ".beads", MarkerEntry: "embeddeddolt", Binary: "bd", Precedence: 1},
+	{Type: MemoryManagerBeadsRust, Label: "Beads (Rust)", MarkerDirectory: ".beads", MarkerEntry: "beads.db", Binary: "br", Precedence: 2},
 }
 
 // ResolveMemoryManager answers which tracker a repository is worked with, and
@@ -48,7 +59,11 @@ func ResolveMemoryManager(repoPath, configured string) (MemoryManagerType, error
 		}
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: repo %s declares memoryManager %q, which is not a tracker kernl knows - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", repoPath, configured, strings.Join(knownMemoryManagerTypes(), ", "))
 	}
-	return DetectMemoryManager(repoPath), nil
+	detected := DetectMemoryManager(repoPath)
+	if detected == "" {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: nothing in %s says which tracker it uses, and there is more than one that could - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", repoPath, strings.Join(knownMemoryManagerTypes(), ", "))
+	}
+	return detected, nil
 }
 
 // TrackerBinary names the CLI a memory manager drives.
@@ -89,13 +104,30 @@ func KnownMemoryManagerMarkers() []string {
 	return markers
 }
 
+// DetectMemoryManager answers which tracker wrote the store in a repository,
+// by what is inside the marker directory rather than by its name.
+//
+// bd and br both keep their store in `.beads/`, so the name is not evidence:
+// matching on it returned "bd" for a br repository and the run opened the wrong
+// database - silently, because a tracker that finds no issues looks exactly
+// like a tracker with no work ready.
+//
+// Nothing recognized returns the empty type. It used to return bd, which was
+// harmless while bd was the only CLI tracker and is a wrong answer now.
 func DetectMemoryManager(repoPath string) MemoryManagerType {
 	for _, mm := range knownMemoryManagers {
-		if _, err := os.Stat(filepath.Join(repoPath, mm.MarkerDirectory)); err == nil {
+		markerDir := filepath.Join(repoPath, mm.MarkerDirectory)
+		if _, err := os.Stat(markerDir); err != nil {
+			continue
+		}
+		if mm.MarkerEntry == "" {
+			return mm.Type
+		}
+		if _, err := os.Stat(filepath.Join(markerDir, mm.MarkerEntry)); err == nil {
 			return mm.Type
 		}
 	}
-	return MemoryManagerBeads
+	return ""
 }
 
 type RegistryRepo struct {
@@ -156,11 +188,14 @@ var configDir = func() string {
 	return filepath.Join(home, ".config", "kernl")
 }
 
+// defaultMemoryManagerType is registry bookkeeping: it fills the field in
+// registry.json when the file does not carry one. It keeps the old bd default
+// for an undetectable repository deliberately - a stale value in a bookkeeping
+// file is a stale value, whereas a run that guesses opens the wrong database.
+// The run's own resolution is ResolveMemoryManager, which fails instead.
 func defaultMemoryManagerType(repoPath string) MemoryManagerType {
-	for _, mm := range knownMemoryManagers {
-		if _, err := os.Stat(filepath.Join(repoPath, mm.MarkerDirectory)); err == nil {
-			return mm.Type
-		}
+	if detected := DetectMemoryManager(repoPath); detected != "" {
+		return detected
 	}
 	return MemoryManagerBeads
 }
