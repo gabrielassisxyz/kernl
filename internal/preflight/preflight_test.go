@@ -12,40 +12,55 @@ func errNotFound() error {
 	return errors.New("not found")
 }
 
-func TestRunCollectsAllChecks(t *testing.T) {
+func TestRunChecksTheBinariesTheConfigNames(t *testing.T) {
+	// claude and codex configured against a knots repo: not one of the three
+	// binaries the old fixed list looked at.
+	looked := map[string]bool{}
 	fakeLook := func(bin string) (string, error) {
-		if bin == "bd" {
-			return "/usr/bin/bd", nil
+		looked[bin] = true
+		if bin == "claude" {
+			return "/usr/bin/claude", nil
 		}
 		return "", errNotFound()
 	}
 
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "kernl.yaml")
+	cfgPath := filepath.Join(t.TempDir(), "kernl.yaml")
 	content := []byte(`settings:
   agents:
-    stub:
-      command: stub
+    claude:
+      command: claude
+    codex:
+      command: codex
   pools: {}
+registry:
+  repos:
+    - path: /repo/one
+      memoryManager: knots
 `)
 	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	rep := Run(Deps{
-		LookPath:   fakeLook,
-		ConfigPath: cfgPath,
-		GoVersion:  "go1.26",
-	})
+	rep := Run(Deps{LookPath: fakeLook, ConfigPath: cfgPath, GoVersion: "go1.26"})
 
-	if rep.Check("bd").OK != true {
-		t.Error("bd check should pass when LookPath finds it")
+	if rep.Check("claude") == nil || !rep.Check("claude").OK {
+		t.Error("a configured agent that is installed must be reported as present")
 	}
-	if rep.Check("opencode").OK != false {
-		t.Error("opencode check should fail when LookPath misses it")
+	codex := rep.Check("codex")
+	if codex == nil || codex.OK {
+		t.Error("a configured agent that is missing must be reported")
 	}
-	if rep.Check("opencode").Fix == "" {
+	if codex != nil && codex.Fix == "" {
 		t.Error("a failing check must carry an actionable Fix string")
+	}
+	if rep.Check("kno") == nil {
+		t.Error("the tracker behind a knots repo is kno, and it must be checked")
+	}
+	if rep.Check("opencode") != nil {
+		t.Error("opencode is not configured here and must not be reported on")
+	}
+	if looked["bd"] {
+		t.Error("bd is not the tracker of any registered repo and must not be looked up")
 	}
 }
 
@@ -53,15 +68,16 @@ func writeValidConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "kernl.yaml")
-	content := []byte("settings:\n  agents:\n    stub:\n      command: stub\n  pools: {}\n")
+	content := []byte("settings:\n  agents:\n    stub:\n      command: stub\n  pools: {}\nregistry:\n  repos:\n    - path: /repo/one\n      memoryManager: beads\n")
 	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
 		t.Fatal(err)
 	}
 	return cfgPath
 }
 
-func TestOpencodeIsAlwaysAdvisory(t *testing.T) {
-	// Only opencode missing; bd present, valid config, orchestrator on.
+func TestAgentBinariesAreAlwaysAdvisory(t *testing.T) {
+	// Only the agent missing; the tracker is present, config valid,
+	// orchestrator on.
 	look := func(bin string) (string, error) {
 		if bin == "bd" {
 			return "/usr/bin/bd", nil
@@ -70,16 +86,16 @@ func TestOpencodeIsAlwaysAdvisory(t *testing.T) {
 	}
 	rep := Run(Deps{LookPath: look, ConfigPath: writeValidConfig(t), GoVersion: "go1.26", Orchestrator: true})
 
-	if !rep.Check("opencode").Advisory {
-		t.Error("opencode must be advisory regardless of orchestrator mode")
+	if !rep.Check("stub").Advisory {
+		t.Error("a configured agent must be advisory regardless of orchestrator mode")
 	}
 	if rep.RequiredFailed() {
-		t.Error("a missing opencode alone must not fail required checks")
+		t.Error("a missing agent alone must not fail required checks")
 	}
 }
 
-func TestBdIsRequiredOnlyWhenOrchestrating(t *testing.T) {
-	// Nothing on PATH; valid config. bd is the only thing that should gate.
+func TestTrackerIsRequiredOnlyWhenOrchestrating(t *testing.T) {
+	// Nothing on PATH; valid config. The tracker is the only thing that gates.
 	missing := func(string) (string, error) { return "", errNotFound() }
 	cfg := writeValidConfig(t)
 

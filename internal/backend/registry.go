@@ -20,12 +20,25 @@ type memoryManagerImpl struct {
 	Type            MemoryManagerType
 	Label           string
 	MarkerDirectory string
+	Binary          string
 	Precedence      int
 }
 
 var knownMemoryManagers = []memoryManagerImpl{
-	{Type: MemoryManagerKnots, Label: "Knots", MarkerDirectory: ".knots", Precedence: 0},
-	{Type: MemoryManagerBeads, Label: "Beads", MarkerDirectory: ".beads", Precedence: 1},
+	{Type: MemoryManagerKnots, Label: "Knots", MarkerDirectory: ".knots", Binary: "kno", Precedence: 0},
+	{Type: MemoryManagerBeads, Label: "Beads", MarkerDirectory: ".beads", Binary: "bd", Precedence: 1},
+}
+
+// TrackerBinary names the CLI a memory manager drives. An unrecognized (or
+// empty) manager resolves the same way DetectMemoryManager does, so preflight
+// checks the binary a run would actually execute.
+func TrackerBinary(mm string) string {
+	for _, impl := range knownMemoryManagers {
+		if string(impl.Type) == mm {
+			return impl.Binary
+		}
+	}
+	return TrackerBinary(string(MemoryManagerBeads))
 }
 
 func IsKnownMemoryManagerType(value string) bool {
