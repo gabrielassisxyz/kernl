@@ -50,8 +50,8 @@ func serveNudgePrompts(w http.ResponseWriter, r *http.Request, a *app.App) {
 		"beadId":            rec.BeadID,
 		"opencodeSessionId": rec.OpencodeSessionID,
 		"running":           rec.Running,
-		"generic":           app.DefaultNudgePrompt(app.NudgePresetGeneric, rec.BeadID, rec.RepoPath),
-		"advance_status":    app.DefaultNudgePrompt(app.NudgePresetAdvanceStatus, rec.BeadID, rec.RepoPath),
+		"generic":           app.DefaultNudgePrompt(app.NudgePresetGeneric, rec.BeadID, rec.TrackerCommand),
+		"advance_status":    app.DefaultNudgePrompt(app.NudgePresetAdvanceStatus, rec.BeadID, rec.TrackerCommand),
 	})
 }
 

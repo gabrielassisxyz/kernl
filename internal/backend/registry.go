@@ -86,22 +86,35 @@ func TrackerBinary(mm MemoryManagerType) (string, error) {
 // ~/.kernl/worktrees, so a bare `br update` there answers "Beads not
 // initialized" - the run's own bookkeeping silently stops happening.
 //
-// bd is left bare deliberately. It reaches its store from a worktree unaided -
-// the live run's logs show `bd update` succeeding from one - and pinning it
-// would be changing a path that works to match one that did not.
+// bd pins with `-C` instead, which is what its own adapter passes on every call
+// and what the follow-up prompts already said. bd does reach its store from a
+// worktree unaided, so for bd this is determinism rather than a fix - but it
+// means one string is the whole invocation for either tracker, with nothing
+// left for a call site to remember to append.
+//
+// The result is shell text an agent reads and types, not argv, so the path is
+// quoted: a repository under a path with a space would otherwise render as two
+// arguments and the tracker would try to run the second word as a subcommand.
 func TrackerInvocation(mm MemoryManagerType, repoPath string) (string, error) {
 	bin, err := TrackerBinary(mm)
 	if err != nil {
 		return "", err
 	}
 	if mm != MemoryManagerBeadsRust {
-		return bin, nil
+		return bin + " -C " + shellQuote(repoPath), nil
 	}
 	dbPath, err := BrDatabasePath(repoPath)
 	if err != nil {
 		return "", err
 	}
-	return bin + " --db " + dbPath, nil
+	return bin + " --db " + shellQuote(dbPath), nil
+}
+
+// shellQuote wraps a value so a POSIX shell reads it as one word, whatever is
+// in it. Single quotes suspend every expansion, and the only character that
+// cannot appear inside them is the single quote itself.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
 func knownMemoryManagerTypes() []string {
@@ -143,19 +156,29 @@ func KnownMemoryManagerMarkers() []string {
 // Nothing recognized returns the empty type. It used to return bd, which was
 // harmless while bd was the only CLI tracker and is a wrong answer now.
 func DetectMemoryManager(repoPath string) MemoryManagerType {
+	var matched []MemoryManagerType
 	for _, mm := range knownMemoryManagers {
 		markerDir := filepath.Join(repoPath, mm.MarkerDirectory)
 		if _, err := os.Stat(markerDir); err != nil {
 			continue
 		}
 		if mm.MarkerEntry == "" {
+			// A marker directory of its own is unambiguous, and its precedence
+			// over the shared one is deliberate: .knots wins outright.
 			return mm.Type
 		}
 		if _, err := os.Stat(filepath.Join(markerDir, mm.MarkerEntry)); err == nil {
-			return mm.Type
+			matched = append(matched, mm.Type)
 		}
 	}
-	return ""
+	// Two stores inside the same .beads/ is a real state - it is what running
+	// the wrong tracker once leaves behind - and picking the first one visited
+	// means reading a database nobody chose. Detection declines; the operator
+	// says which.
+	if len(matched) != 1 {
+		return ""
+	}
+	return matched[0]
 }
 
 type RegistryRepo struct {

@@ -48,18 +48,32 @@ func NewBrCliBackend(repoPath string) *BrCliBackend {
 // Exported because the stage prompts need the same path: an agent told to run
 // `br update` from its worktree gets "Beads not initialized" without it.
 func BrDatabasePath(repoPath string) (string, error) {
-	pattern := filepath.Join(repoPath, ".beads", "*.db")
-	matches, err := filepath.Glob(pattern)
+	// Read the directory rather than glob it: a repository path is data, and
+	// filepath.Glob would read a `[` in it as pattern syntax - failing outright
+	// on some paths and matching a sibling directory's database on others.
+	beadsDir := filepath.Join(repoPath, ".beads")
+	entries, err := os.ReadDir(beadsDir)
 	if err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: looking for br's database under %s: %w", pattern, err)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot read %s, so br's database cannot be found - %w - Fix: run `br init` in %s, or correct registry.repos[].path in kernl.yaml", beadsDir, err, repoPath)
 	}
-	switch len(matches) {
+
+	var found []string
+	for _, entry := range entries {
+		// Directories named *.db are not databases, and the -wal/-shm
+		// companions do not end in .db so they exclude themselves.
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".db") {
+			continue
+		}
+		found = append(found, filepath.Join(beadsDir, entry.Name()))
+	}
+
+	switch len(found) {
 	case 1:
-		return matches[0], nil
+		return found[0], nil
 	case 0:
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no br database under %s - Fix: run `br init` in %s, or correct registry.repos[].path in kernl.yaml", pattern, repoPath)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no br database in %s - Fix: run `br init` in %s, or correct registry.repos[].path in kernl.yaml", beadsDir, repoPath)
 	default:
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: %d databases under %s (%s), so which one br would open is not decidable - Fix: leave exactly one .db file in that directory", len(matches), pattern, strings.Join(matches, ", "))
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: %d databases in %s (%s), so which one br would open is not decidable - Fix: leave exactly one .db file in that directory", len(found), beadsDir, strings.Join(found, ", "))
 	}
 }
 
@@ -158,7 +172,7 @@ type brIssue struct {
 	Notes              string         `json:"notes"`
 	AcceptanceCriteria string         `json:"acceptance_criteria"`
 	Status             string         `json:"status"`
-	Priority           int            `json:"priority"`
+	Priority           *int           `json:"priority"`
 	IssueType          string         `json:"issue_type"`
 	Assignee           string         `json:"assignee"`
 	Owner              string         `json:"owner"`
@@ -203,6 +217,27 @@ type brListEnvelope struct {
 	Total  int       `json:"total"`
 }
 
+// priorityOrDefault answers what RawBead's int field cannot: whether br said
+// nothing about priority or said zero.
+//
+// NormalizeBead maps 0 to 2, which is right for bd - an absent key decodes as
+// 0 there and means "unset". br emits priority on every issue and 0 is a real
+// P0, so passing it through unchanged would quietly demote every P0 to P2. The
+// pointer keeps the distinction only as far as this decoder; nothing outside it
+// has to care.
+func (i brIssue) priorityOrDefault() int {
+	if i.Priority == nil {
+		return 0
+	}
+	return *i.Priority
+}
+
+// isExplicitPriority reports whether br stated a priority this decoder must
+// preserve past NormalizeBead's unset-means-P2 rule.
+func (i brIssue) isExplicitPriority() bool {
+	return i.Priority != nil && *i.Priority >= 0 && *i.Priority <= 4
+}
+
 // toRawBead converts br's issue into the shape NormalizeBead already knows.
 //
 // The dependency mapping is the part worth reading: the issue being shown is
@@ -222,7 +257,7 @@ func (i brIssue) toRawBead() RawBead {
 		AcceptanceCriteria: i.AcceptanceCriteria,
 		IssueType:          i.IssueType,
 		Status:             i.Status,
-		Priority:           i.Priority,
+		Priority:           i.priorityOrDefault(),
 		Labels:             i.Labels,
 		Assignee:           i.Assignee,
 		Owner:              i.Owner,
@@ -236,6 +271,16 @@ func (i brIssue) toRawBead() RawBead {
 		Metadata:           i.Metadata,
 		Dependencies:       deps,
 	}
+}
+
+// toBead is the only conversion this adapter uses, so the priority rule below
+// cannot be forgotten at one of the three call sites.
+func (i brIssue) toBead() Bead {
+	bead := NormalizeBead(i.toRawBead())
+	if i.isExplicitPriority() {
+		bead.Priority = *i.Priority
+	}
+	return bead
 }
 
 func (b *BrCliBackend) Capabilities() BackendCapabilities {
@@ -254,7 +299,7 @@ func (b *BrCliBackend) Get(id string, repoPath string) (*Bead, error) {
 	if len(issues) == 0 {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br show %s returned no issue - Fix: verify the id exists in %s", id, repoPath)
 	}
-	bead := NormalizeBead(issues[0].toRawBead())
+	bead := issues[0].toBead()
 	return &bead, nil
 }
 
@@ -307,7 +352,7 @@ func (b *BrCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, 
 	}
 	beads := make([]Bead, 0, len(envelope.Issues))
 	for _, issue := range envelope.Issues {
-		beads = append(beads, NormalizeBead(issue.toRawBead()))
+		beads = append(beads, issue.toBead())
 	}
 	return beads, nil
 }
@@ -344,7 +389,7 @@ func (b *BrCliBackend) listChildren(filters *BeadListFilters, repoPath string) (
 
 	beads := make([]Bead, 0, len(issues))
 	for _, issue := range issues {
-		bead := NormalizeBead(issue.toRawBead())
+		bead := issue.toBead()
 		if !matchesFilters(bead, filters) {
 			continue
 		}
@@ -422,44 +467,22 @@ func (b *BrCliBackend) Update(id string, input UpdateBeadInput, repoPath string)
 	for _, l := range input.Labels {
 		args = append(args, brValue("--add-label", l))
 	}
+	// --set-labels is repeatable and replaces the whole set, so the state
+	// change and the labels that mirror it go in one command. Doing it as
+	// remove-then-add afterwards was both unnecessary and not atomic: a
+	// failure partway left the bead with a new status and a half-replaced
+	// label set, which is the stale-label state the workflow reads as truth.
+	for _, l := range input.SetLabels {
+		args = append(args, brValue("--set-labels", l))
+	}
+	for _, l := range input.RemoveLabels {
+		args = append(args, brValue("--remove-label", l))
+	}
 	if len(args) == 2 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: update of %s asks for no change - Fix: populate at least one field of UpdateBeadInput", id)
 	}
-	if _, err := b.run(context.Background(), repoPath, args...); err != nil {
-		return err
-	}
-	// br has no set-labels: the whole wf:state:* set has to be replaced by
-	// removing what is there and adding what was asked for. Done after the
-	// update so a failed status change never leaves the labels claiming a
-	// state the status does not have.
-	if len(input.SetLabels) > 0 {
-		return b.setLabels(id, input.SetLabels, repoPath)
-	}
-	return nil
-}
-
-func (b *BrCliBackend) setLabels(id string, labels []string, repoPath string) error {
-	current, err := b.Get(id, repoPath)
-	if err != nil {
-		return err
-	}
-	wanted := make(map[string]bool, len(labels))
-	for _, l := range labels {
-		wanted[l] = true
-	}
-	for _, existing := range current.Labels {
-		if !wanted[existing] {
-			if _, err := b.run(context.Background(), repoPath, "label", "remove", id, "--", existing); err != nil {
-				return err
-			}
-		}
-	}
-	for _, l := range labels {
-		if _, err := b.run(context.Background(), repoPath, "label", "add", id, "--", l); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := b.run(context.Background(), repoPath, args...)
+	return err
 }
 
 func (b *BrCliBackend) Close(id string, reason string, repoPath string) (*TerminalState, error) {

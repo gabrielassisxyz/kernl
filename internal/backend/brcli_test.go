@@ -97,6 +97,73 @@ func TestAutoRouteFromConfigFollowsTheRepositorysTracker(t *testing.T) {
 	}
 }
 
+// The invocation goes into prompt text an agent reads and types, so it is
+// shell syntax rather than argv. An unquoted path with a space renders as two
+// arguments and the tracker tries to run the second word as a subcommand.
+func TestTrackerInvocationQuotesThePath(t *testing.T) {
+	t.Run("br pins a quoted database", func(t *testing.T) {
+		parent := t.TempDir()
+		repo := filepath.Join(parent, "kernl br review")
+		if err := os.MkdirAll(filepath.Join(repo, ".beads"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, ".beads", "beads.db"), []byte("sqlite"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := TrackerInvocation(MemoryManagerBeadsRust, repo)
+		if err != nil {
+			t.Fatalf("TrackerInvocation: %v", err)
+		}
+		want := "br --db '" + filepath.Join(repo, ".beads", "beads.db") + "'"
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("bd pins a quoted repo", func(t *testing.T) {
+		got, err := TrackerInvocation(MemoryManagerBeads, "/tmp/a repo")
+		if err != nil {
+			t.Fatalf("TrackerInvocation: %v", err)
+		}
+		if got != "bd -C '/tmp/a repo'" {
+			t.Errorf("got %q", got)
+		}
+	})
+
+	t.Run("a quote in the path cannot escape the quoting", func(t *testing.T) {
+		got, err := TrackerInvocation(MemoryManagerBeads, `/tmp/it's here`)
+		if err != nil {
+			t.Fatalf("TrackerInvocation: %v", err)
+		}
+		if got != `bd -C '/tmp/it'\''s here'` {
+			t.Errorf("got %q", got)
+		}
+	})
+}
+
+// Both stores inside one .beads/ is a real state - running the wrong tracker
+// once leaves it behind - and picking whichever is visited first means reading
+// a database nobody chose.
+func TestDetectMemoryManagerDeclinesWhenBothStoresArePresent(t *testing.T) {
+	repo := brRepo(t)
+	if err := os.MkdirAll(filepath.Join(repo, ".beads", "embeddeddolt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := DetectMemoryManager(repo); got != "" {
+		t.Errorf("detection must decline when both stores are present, got %q", got)
+	}
+	if _, err := ResolveMemoryManager(repo, ""); err == nil {
+		t.Fatal("an ambiguous repository must fail loud rather than pick one")
+	}
+	// Declared wins, so the operator can still say which.
+	got, err := ResolveMemoryManager(repo, "br")
+	if err != nil || got != MemoryManagerBeadsRust {
+		t.Errorf("a declared tracker must settle it, got %q / %v", got, err)
+	}
+}
+
 func TestBrDatabasePath(t *testing.T) {
 	t.Run("finds the one database", func(t *testing.T) {
 		repo := brRepo(t)
@@ -279,14 +346,13 @@ func TestBrCliUpdateWithNothingToChangeFailsLoud(t *testing.T) {
 	}
 }
 
-// br has no set-labels, so replacing the wf:state:* set means removing what is
-// there and adding what was asked for.
-func TestBrCliSetLabelsReplacesRatherThanAdds(t *testing.T) {
+// Replacing the wf:state:* set travels with the status change it mirrors.
+// Doing it afterwards as remove-then-add was not atomic: a failure partway left
+// a new status beside a half-replaced label set, which the workflow then reads
+// as truth.
+func TestBrCliSetLabelsTravelsWithTheStatusChange(t *testing.T) {
 	repo := brRepo(t)
-	fake := newFakeBr(t, map[string]string{
-		"update kb-1": `[{"id":"kb-1"}]`,
-		"show kb-1":   `[{"id":"kb-1","labels":["wf:state:implementation","wf:profile:worker"]}]`,
-	})
+	fake := newFakeBr(t, map[string]string{"update kb-1": `[{"id":"kb-1"}]`})
 
 	err := NewBrCliBackend(repo).Update("kb-1", UpdateBeadInput{
 		State:     "implementation_review",
@@ -296,15 +362,71 @@ func TestBrCliSetLabelsReplacesRatherThanAdds(t *testing.T) {
 		t.Fatalf("Update: %v", err)
 	}
 
-	joined := strings.Join(fake.calledWith(), "\n")
-	if !strings.Contains(joined, "label remove kb-1 -- wf:state:implementation") {
-		t.Errorf("the stale state label must be removed, calls:\n%s", joined)
+	calls := fake.calledWith()
+	if len(calls) != 1 {
+		t.Fatalf("the status and its labels must be one command, got %d:\n%s", len(calls), strings.Join(calls, "\n"))
 	}
-	if !strings.Contains(joined, "label add kb-1 -- wf:state:implementation_review") {
-		t.Errorf("the new state label must be added, calls:\n%s", joined)
+	for _, want := range []string{
+		"--status=implementation_review",
+		"--set-labels=wf:profile:worker",
+		"--set-labels=wf:state:implementation_review",
+	} {
+		if !strings.Contains(calls[0], want) {
+			t.Errorf("call must carry %q, got:\n%s", want, calls[0])
+		}
 	}
-	if strings.Contains(joined, "label remove kb-1 -- wf:profile:worker") {
-		t.Errorf("a label that is still wanted must not be removed, calls:\n%s", joined)
+	if strings.Contains(calls[0], "label remove") {
+		t.Error("--set-labels replaces the whole set; nothing needs removing by hand")
+	}
+}
+
+// An update that only replaces labels is a real update. The no-change guard
+// used to run before SetLabels was considered, so `epic run` relabelling an
+// epic was refused outright.
+func TestBrCliUpdateWithOnlyLabelsIsAnUpdate(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{"update kb-1": `[{"id":"kb-1"}]`})
+
+	if err := NewBrCliBackend(repo).Update("kb-1", UpdateBeadInput{SetLabels: []string{"wf:profile:epic"}}, repo); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "--set-labels=wf:profile:epic") {
+		t.Errorf("calls: %v", fake.calledWith())
+	}
+}
+
+// br emits a priority on every issue and 0 is a real P0. The shared normalizer
+// maps 0 to 2 because for bd an absent key decodes as 0 and means "unset", so
+// passing br's value through unchanged quietly demoted every P0 to P2.
+func TestBrCliKeepsP0(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"show kb-1": `[{"id":"kb-1","title":"urgent","status":"open","priority":0}]`,
+	})
+
+	bead, err := NewBrCliBackend(repo).Get("kb-1", repo)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if bead.Priority != 0 {
+		t.Errorf("Priority = %d, want the P0 br reported", bead.Priority)
+	}
+}
+
+// An issue br says nothing about keeps the shared default, which is what the
+// pointer exists to tell apart.
+func TestBrCliAbsentPriorityKeepsTheDefault(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"show kb-1": `[{"id":"kb-1","title":"no priority","status":"open"}]`,
+	})
+
+	bead, err := NewBrCliBackend(repo).Get("kb-1", repo)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if bead.Priority != 2 {
+		t.Errorf("Priority = %d, want the default 2", bead.Priority)
 	}
 }
 
