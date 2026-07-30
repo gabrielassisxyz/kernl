@@ -2,8 +2,10 @@ package backend
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend/workflows"
@@ -143,10 +145,10 @@ func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 	dir := t.TempDir()
 
 	// shipment / description_contains
-	if ok, _ := EvaluateExitGate(wf, "shipment", dir, "kernl-e1", "merge_outcome: success\npr_url: https://x/pr/1\n"); !ok {
+	if ok, _ := EvaluateExitGate(wf, ExitGateContext{FromState: "shipment", WorktreePath: dir, BeadID: "kernl-e1", BeadDescription: "merge_outcome: success\npr_url: https://x/pr/1\n"}); !ok {
 		t.Error("shipment gate should pass when description has pr_url:")
 	}
-	if ok, reason := EvaluateExitGate(wf, "shipment", dir, "kernl-e1", "merge_outcome: success\n"); ok || reason == "" {
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "shipment", WorktreePath: dir, BeadID: "kernl-e1", BeadDescription: "merge_outcome: success\n"}); ok || reason == "" {
 		t.Errorf("shipment gate should fail without pr_url: (ok=%v reason=%q)", ok, reason)
 	}
 
@@ -159,14 +161,140 @@ func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 	if err := os.WriteFile(reviewFile, []byte("looks good\n\nVERDICT: PASS"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ok, reason := EvaluateExitGate(wf, "integration_review", dir, "kernl-e1", ""); !ok {
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, BeadID: "kernl-e1"}); !ok {
 		t.Errorf("integration_review gate should pass on VERDICT: PASS (reason=%q)", reason)
 	}
 	if err := os.WriteFile(reviewFile, []byte("needs work\n\nVERDICT: FAIL"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if ok, _ := EvaluateExitGate(wf, "integration_review", dir, "kernl-e1", ""); ok {
+	if ok, _ := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, BeadID: "kernl-e1"}); ok {
 		t.Error("integration_review gate should fail on VERDICT: FAIL")
+	}
+}
+
+// TestEvaluateExitGate_Total proves EvaluateExitGate always passes when there
+// is nothing for it to check: a state with no declared gate, a gate with an
+// empty type, and the legacy agent_exit_zero type. None of these should ever
+// require WorktreePath or BaseSHA to be set.
+func TestEvaluateExitGate_Total(t *testing.T) {
+	// "autopilot" declares no ExitGates at all - every state on it is the
+	// "no gate for this state" case.
+	autopilot := BuiltinProfileDescriptor("autopilot")
+	if ok, reason := EvaluateExitGate(autopilot, ExitGateContext{FromState: "implementation", BeadID: "kb-1"}); !ok {
+		t.Errorf("a state with no declared gate must pass, got ok=%v reason=%q", ok, reason)
+	}
+
+	wf := WorkflowDescriptor{
+		ExitGates: map[string]WorkflowExitGate{
+			"empty_type":       {Type: ""},
+			"legacy_exit_zero": {Type: "agent_exit_zero"},
+		},
+	}
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "empty_type", BeadID: "kb-1"}); !ok {
+		t.Errorf("an empty gate type must pass, got ok=%v reason=%q", ok, reason)
+	}
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "legacy_exit_zero", BeadID: "kb-1"}); !ok {
+		t.Errorf("agent_exit_zero must pass, got ok=%v reason=%q", ok, reason)
+	}
+}
+
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "--initial-branch", "main"},
+		{"config", "user.email", "t@t"},
+		{"config", "user.name", "t"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+func gitCommit(t *testing.T, dir, message string) string {
+	t.Helper()
+	if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", message).CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestEvaluateExitGate_CommitMarkerScopedToBaseSHA proves the commit_marker
+// gate only sees commits produced after BaseSHA, not the marker sitting in
+// an ancestor commit - the bug recorded in the kernl-gc7j post-mortem, where
+// a marker already present in the branch's history (a sibling merge, the
+// base branch's own log) satisfied a gate the current stage never earned.
+func TestEvaluateExitGate_CommitMarkerScopedToBaseSHA(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := BuiltinProfileDescriptor("worker")
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	// The marker sits only in an ancestor commit - a sibling epic stage, or
+	// the base branch's own history - never produced by this stage.
+	gitCommit(t, dir, "stage: implementation: an ancestor's marker")
+	baseSHA := gitCommit(t, dir, "base: unrelated work after the marker")
+
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA}); ok {
+		t.Errorf("commit_marker must not pass on an ancestor marker outside BaseSHA..HEAD (reason=%q)", reason)
+	}
+
+	// The stage now produces its own marker commit after BaseSHA.
+	if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "stage: implementation: did the work").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA}); !ok {
+		t.Errorf("commit_marker should pass once the stage's own commit carries the marker (reason=%q)", reason)
+	}
+}
+
+// TestEvaluateExitGate_CommitMarkerRequiresBaseSHA proves an empty BaseSHA
+// fails the gate instead of silently scanning the whole branch history -
+// exactly the fallback that reintroduces the ancestor-commit bug.
+func TestEvaluateExitGate_CommitMarkerRequiresBaseSHA(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := BuiltinProfileDescriptor("worker")
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	gitCommit(t, dir, "stage: implementation: did the work")
+
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: ""})
+	if ok {
+		t.Fatal("commit_marker must not pass with no BaseSHA, even though the marker is on HEAD")
+	}
+	if !strings.Contains(reason, "unscoped") {
+		t.Errorf("reason should say the scan was never scoped, got %q", reason)
+	}
+}
+
+// TestEvaluateExitGate_CommitMarkerUnreadableBaseSHA proves an unreachable
+// BaseSHA is reported as unreadable, not as a missing marker - the two mean
+// different things and the caller (and its operator) needs to tell them apart.
+func TestEvaluateExitGate_CommitMarkerUnreadableBaseSHA(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := BuiltinProfileDescriptor("worker")
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	gitCommit(t, dir, "stage: implementation: did the work")
+
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: "0000000000000000000000000000000000dead"})
+	if ok {
+		t.Fatal("commit_marker must not pass when BaseSHA cannot be resolved")
+	}
+	if !strings.Contains(reason, "unreadable") {
+		t.Errorf("reason should say the base SHA was unreadable, got %q", reason)
 	}
 }
 

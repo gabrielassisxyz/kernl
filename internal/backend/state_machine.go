@@ -551,26 +551,50 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 	return "", false
 }
 
-// EvaluateExitGate decides whether a bead may advance past fromState after its
-// agent exited zero. beadDescription is the bead's current description (read
-// fresh after the agent ran) so description-based gates can inspect markers the
-// agent wrote there. An empty/unknown gate type passes (legacy agent_exit_zero).
-func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID, beadDescription string) (passed bool, reason string) {
-	gate, ok := wf.ExitGates[fromState]
+// ExitGateContext is everything EvaluateExitGate needs to judge one stage's
+// exit. It replaced a five-string positional call that was about to grow a
+// sixth parameter (the artifact directory a follow-up fix needs) - a struct
+// keeps the call site self-describing instead of a wall of same-typed
+// strings that differ only by argument position.
+type ExitGateContext struct {
+	// FromState is the workflow state the agent just ran in.
+	FromState string
+	// WorktreePath is the bead's git worktree. Both commit_marker and the
+	// artifact-based gates resolve their targets relative to it.
+	WorktreePath string
+	BeadID       string
+	// BeadDescription is the bead's current description, read fresh after
+	// the agent ran, so description_contains gates see markers the agent
+	// just wrote there.
+	BeadDescription string
+	// BaseSHA is the worktree HEAD captured before the agent was dispatched.
+	// commit_marker scopes its scan to BaseSHA..HEAD so it only sees commits
+	// this stage produced. Empty means no pre-dispatch capture happened;
+	// commit_marker fails rather than falling back to scanning the whole
+	// branch, which is how an ancestor commit (a sibling merge, the base
+	// branch's own history) used to satisfy a gate the stage never earned.
+	BaseSHA string
+}
+
+// EvaluateExitGate decides whether a bead may advance past ctx.FromState
+// after its agent exited zero. An empty/unknown gate type passes (legacy
+// agent_exit_zero).
+func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, reason string) {
+	gate, ok := wf.ExitGates[ctx.FromState]
 	if !ok || gate.Type == "" || gate.Type == "agent_exit_zero" {
 		return true, ""
 	}
 	switch gate.Type {
 	case "artifact_exists":
-		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
-		abs := filepath.Join(worktreePath, resolved)
+		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", ctx.BeadID)
+		abs := filepath.Join(ctx.WorktreePath, resolved)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
 			return false, "artifact_missing: " + resolved
 		}
 		return true, ""
 	case "artifact_verdict":
-		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
-		abs := filepath.Join(worktreePath, resolved)
+		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", ctx.BeadID)
+		abs := filepath.Join(ctx.WorktreePath, resolved)
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			return false, "artifact_missing: " + resolved
@@ -580,7 +604,10 @@ func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID, be
 		}
 		return true, ""
 	case "commit_marker":
-		out, err := exec.Command("git", "-C", worktreePath, "log", "-n", "200", "--format=%B").CombinedOutput()
+		if ctx.BaseSHA == "" {
+			return false, "commit_marker_unscoped: " + gate.Path
+		}
+		out, err := exec.Command("git", "-C", ctx.WorktreePath, "log", "--format=%B", ctx.BaseSHA+"..HEAD").CombinedOutput()
 		if err != nil {
 			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(out))
 		}
@@ -589,7 +616,7 @@ func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID, be
 		}
 		return true, ""
 	case "description_contains":
-		if !strings.Contains(beadDescription, gate.Path) {
+		if !strings.Contains(ctx.BeadDescription, gate.Path) {
 			return false, "description_missing: " + gate.Path
 		}
 		return true, ""

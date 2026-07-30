@@ -173,6 +173,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				ContextPayload: runtimeState.ContextPayload,
 			}
 
+			// Captured before dispatch so commit_marker gates can scope their
+			// scan to what this stage produced, not the branch's prior
+			// history (see backend.ExitGateContext).
+			baseSHA := worktreeHeadSHA(deps.Worktree)
 			startTime := time.Now()
 			resp, err := subprocess.RunSubprocessStage(ctx, activeStage, req)
 			if err != nil {
@@ -221,7 +225,13 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
 				gateDesc = freshBead.Description
 			}
-			gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID, gateDesc)
+			gatePassed, gateReason := backend.EvaluateExitGate(wf, backend.ExitGateContext{
+				FromState:       activeState,
+				WorktreePath:    deps.Worktree,
+				BeadID:          deps.BeadID,
+				BeadDescription: gateDesc,
+				BaseSHA:         baseSHA,
+			})
 			if gatePassed {
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 				if ok {
@@ -322,6 +332,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		agentInput.Env["BEAD_ID"] = deps.BeadID
 		agentInput.Env["REPO_PATH"] = deps.RepoPath
 
+		// Captured before dispatch so commit_marker gates can scope their
+		// scan to what this stage produced, not the branch's prior history
+		// (see backend.ExitGateContext).
+		baseSHA := worktreeHeadSHA(deps.Worktree)
 		startTime := time.Now()
 		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
@@ -344,7 +358,13 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
 			gateDesc = freshBead.Description
 		}
-		gatePassed, gateReason := backend.EvaluateExitGate(wf, activeState, deps.Worktree, deps.BeadID, gateDesc)
+		gatePassed, gateReason := backend.EvaluateExitGate(wf, backend.ExitGateContext{
+			FromState:       activeState,
+			WorktreePath:    deps.Worktree,
+			BeadID:          deps.BeadID,
+			BeadDescription: gateDesc,
+			BaseSHA:         baseSHA,
+		})
 		if gatePassed {
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 			if ok {
