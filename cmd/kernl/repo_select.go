@@ -5,8 +5,36 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
+
+// appForSelectedRepo builds the application around the repository this
+// invocation names, so it gets that repository's tracker.
+//
+// The order matters and is the whole point: the backend is chosen once, at
+// construction, from a memory manager that belongs to one repository. Building
+// the app first and resolving --repo afterwards changed which path was passed
+// to each call and never which implementation received it - so `--repo
+// <a br repository>` ran bd against it and found no database.
+//
+// It parses --repo without consuming it; the verb's own takeRepoFlag strips it
+// and resolves the same entry again, which is idempotent.
+func appForSelectedRepo(cfg *config.Config, verb string, args []string) (*app.App, error) {
+	requested, _, err := takeRepoFlag(verb, args)
+	if err != nil {
+		return nil, err
+	}
+	entry, err := resolveRepoEntry(cfg, requested)
+	if err != nil {
+		return nil, err
+	}
+	a, err := app.NewAppForRepo(cfg, entry.Path)
+	if err != nil {
+		return nil, wrapLoud("creating app", err)
+	}
+	return a, nil
+}
 
 // resolveRepoEntry picks which registered repository an orchestrator verb acts
 // on.

@@ -31,7 +31,17 @@ func runSweep(configPath string, args []string) error {
 		fmt.Fprintln(os.Stderr, "sweep: dry-run (no epics will be closed) - add --yes to close merged epics, or --dry-run to silence this notice")
 	}
 
-	b := backend.NewBdCliBackend(repoPath)
+	// Sweep reads and closes beads, so it needs the repository's own tracker.
+	// It used to construct bd unconditionally, which against a br repository
+	// opened a Dolt store that is not there and swept nothing.
+	appCfg, err := loadCLIConfig(configPath)
+	if err != nil {
+		return err
+	}
+	b, err := backend.AutoRouteFromConfig(appCfg, repoPath)
+	if err != nil {
+		return err
+	}
 	adapter := &sweepBackendAdapter{b: b, dir: repoPath}
 	ghAdapter := &ghCliAdapter{}
 
@@ -135,7 +145,7 @@ func sweepIntValue(args []string, i int) (int, int, error) {
 }
 
 type sweepBackendAdapter struct {
-	b   *backend.BdCliBackend
+	b   backend.BackendPort
 	dir string
 }
 

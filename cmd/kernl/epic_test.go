@@ -267,7 +267,10 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 				},
 				Pools: pools,
 			},
-			Registry:     config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir()}}},
+			// verifyCommand rather than a bin/ci on disk: this is a bare
+			// t.TempDir(), not a repository, and the point being tested is
+			// executor wiring.
+			Registry:     config.RegistryConfig{Repos: []config.RepoEntry{{Path: t.TempDir(), VerifyCommand: "true", MemoryManager: "beads"}}},
 			Orchestrator: config.OrchestratorConfig{WorktreeRoot: t.TempDir(), MaxConcurrentBeads: 5},
 			Server:       config.ServerConfig{Port: 0},
 		},

@@ -39,11 +39,17 @@ type DriveBeadDeps struct {
 	// the bead is being resumed from a previous run rather than dispatched
 	// fresh.
 	SessionID string
+	// VerifyCommand is how the target repository says "this works", resolved
+	// once per run by epic.ResolveVerifyCommand and named in every stage
+	// prompt. The prompt used to name a Go toolchain and a module path
+	// instead, which is a fact about kernl, not about the repository the agent
+	// is working in.
+	VerifyCommand string
 	// BuildPrompt, when non-nil, overrides the default per-stage prompt
 	// builder. The epic driver uses it to inject integration/shipment prompts
 	// that need epic-specific context (child branches, epic branch) the
 	// generic StageContract prompt cannot express.
-	BuildPrompt func(bead *backend.Bead, activeState string, wf backend.WorkflowDescriptor, repoPath, worktree string) string
+	BuildPrompt func(in StagePromptInput, wf backend.WorkflowDescriptor) string
 	// AgentStateStore holds the context-store handle.
 	AgentStateStore *workflow.AgentStateStore
 	// StopBeforeState halts the loop rather than entering the named state,
@@ -58,6 +64,11 @@ type DriveBeadDeps struct {
 	// deep in the dispatch loop that resolves its own paths writes into the
 	// operator's real state directory from every unit test that reaches it.
 	StateDir string
+	// TrackerCommand is how this repository's tracker is typed from inside a
+	// worktree. Resolved once per run by backend.TrackerInvocation, because
+	// which tracker it is and how it reaches its store are both properties of
+	// the repository being worked on.
+	TrackerCommand string
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -255,11 +266,35 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 		slog.Info("DRIVE_TRACE pre-claim", "bead", deps.BeadID, "iter", i, "state", bead.State, "claimable", runtime.IsAgentClaimable, "owner", runtime.NextActionOwnerKind, "agent", agentInput.AgentName)
 
+		// An empty verify command would render rule 4 as an empty code block:
+		// the agent runs nothing and declares itself done, which is the exact
+		// failure this stopped being a hardcoded Go command to prevent.
+		// Same reason as the verify command: an empty tracker command renders
+		// the stage's own bookkeeping instructions as bare flags with no
+		// program in front of them.
+		if strings.TrimSpace(deps.TrackerCommand) == "" {
+			return RunBeadResult{FinalState: bead.State, Success: false},
+				fmt.Errorf("KERNL DISPATCH FAILURE: no tracker command for bead %s - the stage prompt would name no tracker at all - Fix: resolve it with backend.TrackerInvocation and pass it in DriveBeadDeps.TrackerCommand", deps.BeadID)
+		}
+		if strings.TrimSpace(deps.VerifyCommand) == "" {
+			return RunBeadResult{FinalState: bead.State, Success: false},
+				fmt.Errorf("KERNL DISPATCH FAILURE: no verify command for bead %s - the stage prompt would tell the agent to run nothing before declaring done - Fix: resolve it with epic.ResolveVerifyCommand and pass it in DriveBeadDeps.VerifyCommand", deps.BeadID)
+		}
+		promptInput := StagePromptInput{
+			Bead:           bead,
+			State:          activeState,
+			Stages:         wf.Stages,
+			RepoPath:       deps.RepoPath,
+			Worktree:       deps.Worktree,
+			VerifyCommand:  deps.VerifyCommand,
+			TrackerCommand: deps.TrackerCommand,
+			Dialect:        adapter.ResolveDialect(agentInput.Command),
+		}
 		var prompt string
 		if deps.BuildPrompt != nil {
-			prompt = deps.BuildPrompt(bead, activeState, wf, deps.RepoPath, deps.Worktree)
+			prompt = deps.BuildPrompt(promptInput, wf)
 		} else {
-			prompt = BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
+			prompt = BuildBeadStagePrompt(promptInput)
 		}
 		// An agent spawned with no prompt does whatever it infers from the
 		// working directory, which is the worst possible reading of "the stage

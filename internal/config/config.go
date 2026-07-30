@@ -61,7 +61,11 @@ type RepoEntry struct {
 	// DefaultBranch overrides what epic and bead branches are cut from. Leave
 	// it unset and the branch is read out of the repository itself; set it
 	// only when the repository disagrees with what origin advertises.
-	DefaultBranch string         `yaml:"defaultBranch,omitempty"`
+	DefaultBranch string `yaml:"defaultBranch,omitempty"`
+	// VerifyCommand is what an agent runs before declaring a stage done. Unset,
+	// it is the repository's own bin/ci, which must exist: a repository that
+	// cannot say how it is verified gets no work dispatched into it.
+	VerifyCommand string         `yaml:"verifyCommand,omitempty"`
 	Shipment      ShipmentConfig `yaml:"shipment,omitempty"`
 }
 

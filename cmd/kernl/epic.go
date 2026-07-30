@@ -82,9 +82,13 @@ func runEpic(v verbContext, args []string) error {
 		return err
 	}
 
-	a, err := app.NewApp(cfg)
+	// The repository is resolved before the app is built, because the tracker
+	// is a property of the repository and the backend is chosen at
+	// construction. Resolving it afterwards only ever changed the path handed
+	// to each call, never the implementation receiving it.
+	a, err := appForSelectedRepo(cfg, "epic "+args[0], args[1:])
 	if err != nil {
-		return wrapLoud("creating app", err)
+		return err
 	}
 
 	return runEpicWithApp(a, v.configPath, args, nil)
@@ -381,6 +385,28 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		out(fmt.Sprintf("base branch: %s\n", baseBranch))
 	}
 
+	// How this repository is verified is its own fact too, and a repository
+	// that cannot state one gets no work dispatched into it: an agent with no
+	// check to run declares itself done having proved nothing.
+	verifyCommand, err := epic.ResolveVerifyCommand(repoPath, repoEntry.VerifyCommand)
+	if err != nil {
+		return err
+	}
+	out(fmt.Sprintf("verify with: %s\n", verifyCommand))
+
+	// Which tracker this repository uses, and how an agent standing in a
+	// worktree reaches it, are facts about the repository too - and the one
+	// the stage prompts state in prose.
+	trackerManager, err := backend.ResolveMemoryManager(repoPath, repoEntry.MemoryManager)
+	if err != nil {
+		return err
+	}
+	trackerCommand, err := backend.TrackerInvocation(trackerManager, repoPath)
+	if err != nil {
+		return err
+	}
+	out(fmt.Sprintf("tracker: %s\n", trackerCommand))
+
 	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, baseBranch, gitRunForWM, wtUpdateDesc)
 	if gitRunForWM != nil {
 		if _, err := wm.EnsureEpicBranch(epicID); err != nil {
@@ -427,6 +453,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 				Worktree:        in.Worktree,
 				SessionID:       in.SessionID,
 				AgentStateStore: stateStore,
+				VerifyCommand:   verifyCommand,
+				TrackerCommand:  trackerCommand,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
@@ -472,7 +500,11 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		return werr
 	}
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
-	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, baseBranch, epicWorktree, stateStore, plan, out); err != nil {
+	if err := driveEpic(context.Background(), epicDrive{
+		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
+		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree,
+		StateStore: stateStore, Shipment: plan, Out: out,
+	}); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
@@ -556,10 +588,33 @@ func resolveShipmentPlan(repoEntry config.RepoEntry, dryRun bool, out func(strin
 	return plan, nil
 }
 
+// epicDrive is everything driving the epic bead through its tail needs.
+type epicDrive struct {
+	App            *app.App
+	Epic           *epic.Epic
+	EpicID         string
+	RepoPath       string
+	BaseBranch     string
+	VerifyCommand  string
+	TrackerCommand string
+	Worktree       string
+	StateStore     *workflow.AgentStateStore
+	Shipment       shipmentPlan
+	Out            func(string)
+}
+
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
-func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, baseBranch, epicWorktree string, stateStore *workflow.AgentStateStore, plan shipmentPlan, out func(string)) error {
+func driveEpic(ctx context.Context, d epicDrive) error {
+	// Named locals for the body below, which predates the struct. The struct
+	// exists for the call sites: five of these are strings, and a positional
+	// list of five adjacent strings is one transposition away from driving the
+	// wrong repository with the right branch name.
+	a, ep, epicID, repoPath := d.App, d.Epic, d.EpicID, d.RepoPath
+	baseBranch, epicWorktree := d.BaseBranch, d.Worktree
+	stateStore, plan, out := d.StateStore, d.Shipment, d.Out
+
 	epicBead, err := a.Backend.Get(epicID, repoPath)
 	if err != nil || epicBead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
@@ -590,28 +645,31 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 			out(fmt.Sprintf("[%s] epic %s [stage %d] %s\n", ts, epicID, stage, state))
 			a.EpicEvents.Publish(epic.EpicEvent{Type: epic.BeadStateChanged, EpicID: ep.ID, BeadID: epicID, Detail: state, Time: time.Now().Unix()})
 		},
-		BuildPrompt: func(bead *backend.Bead, activeState string, wf backend.WorkflowDescriptor, rp, wt string) string {
-			switch activeState {
+		VerifyCommand:  d.VerifyCommand,
+		TrackerCommand: d.TrackerCommand,
+		BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
+			switch in.State {
 			case "integration":
-				children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, rp)
+				children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
 				cs := make([]prompt.Child, 0, len(children))
 				for _, c := range children {
 					cs = append(cs, prompt.Child{ID: c.ID, Branch: "kernl/" + c.ID})
 				}
 				s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
-					EpicID: epicID, EpicTitle: bead.Title,
+					EpicID: epicID, EpicTitle: in.Bead.Title,
 					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch, Children: cs,
+					VerifyCommand: in.VerifyCommand, TrackerCommand: in.TrackerCommand,
 				})
 				if perr != nil {
-					return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
+					return app.BuildBeadStagePrompt(in)
 				}
 				return s
 			case "shipment":
 				s, perr := prompt.RenderShipment(prompt.ShipmentInput{
-					EpicID: epicID, EpicTitle: bead.Title,
+					EpicID: epicID, EpicTitle: in.Bead.Title,
 					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch,
 					RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
-					RepoSlug: plan.Destination.RepoSlug,
+					RepoSlug: plan.Destination.RepoSlug, TrackerCommand: in.TrackerCommand,
 				})
 				if perr != nil {
 					// Falling back to the generic prompt here would drop the
@@ -622,7 +680,7 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 				}
 				return s
 			default:
-				return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
+				return app.BuildBeadStagePrompt(in)
 			}
 		},
 	})

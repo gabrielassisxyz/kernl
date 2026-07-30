@@ -678,6 +678,5 @@ func TestBdCliBackendMarkTerminalUsesAppendNotesForReason(t *testing.T) {
 	}
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
-}
+// shellQuote now lives in registry.go, where the tracker invocation that goes
+// into prompt text needs it for real.

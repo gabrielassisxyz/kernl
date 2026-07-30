@@ -68,13 +68,35 @@ func (a *App) SetAutoClassify(enabled bool) {
 	a.autoClassify = enabled
 }
 
+// NewApp builds the application around the first registered repository. The
+// server is single-repo by design and this is its constructor.
 func NewApp(cfg *config.Config) (*App, error) {
 	if len(cfg.Registry.Repos) == 0 {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered in config registry - at least one repo path is required - Fix: add a repo to registry.repos in kernl.yaml")
 	}
+	return NewAppForRepo(cfg, cfg.Registry.Repos[0].Path)
+}
 
-	repoPath := cfg.Registry.Repos[0].Path
-	be := backend.NewBdCliBackend(repoPath)
+// NewAppForRepo builds the application around a named repository, with the
+// backend that repository's tracker requires.
+//
+// The orchestrator verbs call this, because which repository they act on is a
+// per-invocation answer (--repo) and the tracker is a property of that answer.
+// It used to be neither: the backend was constructed once, always as bd, always
+// from repos[0] - so --repo changed the path handed to each call and never the
+// implementation receiving it, and naming a br repository ran bd against it.
+func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
+	if len(cfg.Registry.Repos) == 0 {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered in config registry - at least one repo path is required - Fix: add a repo to registry.repos in kernl.yaml")
+	}
+	if repoPath == "" {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no repository named for this app - Fix: pass a registered registry.repos[].path")
+	}
+
+	be, err := backend.AutoRouteFromConfig(cfg, repoPath)
+	if err != nil {
+		return nil, err
+	}
 
 	tm := terminal.NewTerminalManager(
 		terminal.WithMaxSessions(cfg.Orchestrator.MaxConcurrentBeads),
