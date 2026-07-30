@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,11 +66,23 @@ func BrDatabasePath(repoPath string) (string, error) {
 // brError is br's failure envelope. br prints it as JSON on stdout and exits
 // non-zero, so a caller that only checks the exit code loses the reason.
 type brError struct {
-	Error *struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-		Hint    string `json:"hint"`
-	} `json:"error"`
+	Error *brErrorBody `json:"error"`
+}
+
+type brErrorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+	Hint    string `json:"hint"`
+}
+
+// brValue renders a flag and its value as one argument.
+//
+// br's parser reads a value beginning with "-" as the next flag and exits 2 -
+// so a bead whose description or comment body starts with a dash aborts the
+// run. The `--flag=value` form has no such ambiguity, and neither does a
+// positional after `--`, which is why the positional call sites use that.
+func brValue(flag, value string) string {
+	return flag + "=" + value
 }
 
 // run executes one br command against a repository and returns its stdout.
@@ -88,20 +101,52 @@ func (b *BrCliBackend) run(ctx context.Context, repoPath string, args ...string)
 	cmd.Stderr = &stderr
 	stdout, runErr := cmd.Output()
 
-	// br reports failures as a JSON envelope on stdout, which is more precise
-	// than the exit status, so it is preferred whenever it parses.
-	var envelope brError
-	if json.Unmarshal(stdout, &envelope) == nil && envelope.Error != nil {
+	payload, envelope := splitBrOutput(stdout)
+	// br's own reason is more precise than the exit status, so it wins whenever
+	// there is one.
+	if envelope != nil {
 		hint := ""
-		if envelope.Error.Hint != "" {
-			hint = " - Hint: " + envelope.Error.Hint
+		if envelope.Hint != "" {
+			hint = " - Hint: " + envelope.Hint
 		}
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br %s: %s: %s%s", strings.Join(args, " "), envelope.Error.Code, envelope.Error.Message, hint)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br %s: %s: %s%s", strings.Join(args, " "), envelope.Code, envelope.Message, hint)
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
 	}
-	return stdout, nil
+	return payload, nil
+}
+
+// splitBrOutput separates the command's result from br's error envelope.
+//
+// stdout can carry more than one JSON document: `br close` on an already-closed
+// issue prints its per-issue result AND then an error envelope, back to back.
+// Decoding the whole buffer at once fails on the trailing document, so the
+// envelope went undetected and the caller got the exit status with an empty
+// stderr instead of "NOTHING_TO_DO: all 1 issue(s) skipped".
+//
+// Only a document whose top level is {"error": {...}} counts, so a result that
+// merely contains the word error somewhere is not mistaken for a failure.
+func splitBrOutput(stdout []byte) ([]byte, *brErrorBody) {
+	decoder := json.NewDecoder(bytes.NewReader(stdout))
+	var payload []byte
+	for {
+		var doc json.RawMessage
+		if err := decoder.Decode(&doc); err != nil {
+			break
+		}
+		var envelope brError
+		if json.Unmarshal(doc, &envelope) == nil && envelope.Error != nil {
+			return payload, envelope.Error
+		}
+		if payload == nil {
+			payload = doc
+		}
+	}
+	if payload == nil {
+		return stdout, nil
+	}
+	return payload, nil
 }
 
 // brIssue is br's issue object. Snake_case throughout, and absent keys rather
@@ -229,24 +274,24 @@ func (b *BrCliBackend) List(filters *BeadListFilters, repoPath string) ([]Bead, 
 
 	// --limit defaults to 50, which would silently truncate any epic with more
 	// children than that. 0 is unlimited.
-	args := []string{"list", "--limit", "0"}
+	args := []string{"list", "--limit=0"}
 	if filters != nil {
 		if filters.State != "" {
-			args = append(args, "--status", filters.State)
+			args = append(args, brValue("--status", filters.State))
 		} else {
 			args = append(args, "--all")
 		}
 		if filters.Type != "" {
-			args = append(args, "--type", filters.Type)
+			args = append(args, brValue("--type", filters.Type))
 		}
 		if filters.Label != "" {
-			args = append(args, "--label", filters.Label)
+			args = append(args, brValue("--label", filters.Label))
 		}
 		if filters.Assignee != "" {
-			args = append(args, "--assignee", filters.Assignee)
+			args = append(args, brValue("--assignee", filters.Assignee))
 		}
 		if filters.Priority != 0 {
-			args = append(args, "--priority", strconv.Itoa(filters.Priority))
+			args = append(args, brValue("--priority", strconv.Itoa(filters.Priority)))
 		}
 	} else {
 		args = append(args, "--all")
@@ -272,7 +317,7 @@ func (b *BrCliBackend) listChildren(filters *BeadListFilters, repoPath string) (
 	// the opposite question and returns the epic's own parents, which for an
 	// epic is nothing at all: zero children, and a run that reports success
 	// having done no work.
-	out, err := b.run(context.Background(), repoPath, "dep", "list", filters.Parent, "--direction", "up", "--type", "parent-child")
+	out, err := b.run(context.Background(), repoPath, "dep", "list", filters.Parent, "--direction=up", "--type=parent-child")
 	if err != nil {
 		return nil, err
 	}
@@ -351,31 +396,31 @@ func (b *BrCliBackend) ListReady(filters *BeadListFilters, repoPath string) ([]B
 func (b *BrCliBackend) Update(id string, input UpdateBeadInput, repoPath string) error {
 	args := []string{"update", id}
 	if input.Title != "" {
-		args = append(args, "--title", input.Title)
+		args = append(args, brValue("--title", input.Title))
 	}
 	if input.Description != "" {
-		args = append(args, "--description", input.Description)
+		args = append(args, brValue("--description", input.Description))
 	}
 	if input.Type != "" {
-		args = append(args, "--type", input.Type)
+		args = append(args, brValue("--type", input.Type))
 	}
 	if input.State != "" {
-		args = append(args, "--status", input.State)
+		args = append(args, brValue("--status", input.State))
 	}
 	if input.Priority != nil {
-		args = append(args, "--priority", strconv.Itoa(*input.Priority))
+		args = append(args, brValue("--priority", strconv.Itoa(*input.Priority)))
 	}
 	if input.Assignee != "" {
-		args = append(args, "--assignee", input.Assignee)
+		args = append(args, brValue("--assignee", input.Assignee))
 	}
 	if input.Acceptance != "" {
-		args = append(args, "--acceptance", input.Acceptance)
+		args = append(args, brValue("--acceptance", input.Acceptance))
 	}
 	if input.Notes != "" {
-		args = append(args, "--notes", input.Notes)
+		args = append(args, brValue("--notes", input.Notes))
 	}
 	for _, l := range input.Labels {
-		args = append(args, "--add-label", l)
+		args = append(args, brValue("--add-label", l))
 	}
 	if len(args) == 2 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: update of %s asks for no change - Fix: populate at least one field of UpdateBeadInput", id)
@@ -404,13 +449,13 @@ func (b *BrCliBackend) setLabels(id string, labels []string, repoPath string) er
 	}
 	for _, existing := range current.Labels {
 		if !wanted[existing] {
-			if _, err := b.run(context.Background(), repoPath, "label", "remove", id, existing); err != nil {
+			if _, err := b.run(context.Background(), repoPath, "label", "remove", id, "--", existing); err != nil {
 				return err
 			}
 		}
 	}
 	for _, l := range labels {
-		if _, err := b.run(context.Background(), repoPath, "label", "add", id, l); err != nil {
+		if _, err := b.run(context.Background(), repoPath, "label", "add", id, "--", l); err != nil {
 			return err
 		}
 	}
@@ -420,7 +465,7 @@ func (b *BrCliBackend) setLabels(id string, labels []string, repoPath string) er
 func (b *BrCliBackend) Close(id string, reason string, repoPath string) (*TerminalState, error) {
 	args := []string{"close", id}
 	if reason != "" {
-		args = append(args, "--reason", reason)
+		args = append(args, brValue("--reason", reason))
 	}
 	out, err := b.run(context.Background(), repoPath, args...)
 	if err != nil {
@@ -437,9 +482,9 @@ func (b *BrCliBackend) Close(id string, reason string, repoPath string) (*Termin
 }
 
 func (b *BrCliBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {
-	args := []string{"update", id, "--status", targetState}
+	args := []string{"update", id, brValue("--status", targetState)}
 	if reason != "" {
-		args = append(args, "--notes", reason)
+		args = append(args, brValue("--notes", reason))
 	}
 	if _, err := b.run(context.Background(), repoPath, args...); err != nil {
 		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: mark terminal %s -> %s: %w", id, targetState, err)
@@ -460,7 +505,7 @@ func (b *BrCliBackend) AddDependency(blockerID string, blockedID string, repoPat
 func (b *BrCliBackend) ListDependencies(id string, repoPath string, options *DependencyListOptions) ([]BeadDependency, error) {
 	args := []string{"dep", "list", id}
 	if options != nil && options.Type != "" {
-		args = append(args, "--type", options.Type)
+		args = append(args, brValue("--type", options.Type))
 	}
 	out, err := b.run(context.Background(), repoPath, args...)
 	if err != nil {
@@ -486,7 +531,7 @@ func (b *BrCliBackend) ListDependencies(id string, repoPath string, options *Dep
 }
 
 func (b *BrCliBackend) Comment(id string, body string, repoPath string) error {
-	_, err := b.run(context.Background(), repoPath, "comments", "add", id, body)
+	_, err := b.run(context.Background(), repoPath, "comments", "add", id, "--", body)
 	return err
 }
 

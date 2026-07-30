@@ -201,7 +201,7 @@ func TestBrCliListByParent(t *testing.T) {
 	// Getting the direction wrong returns the epic's own parents - nothing -
 	// and the run reports success having executed no work.
 	joined := strings.Join(fake.calledWith(), "\n")
-	if !strings.Contains(joined, "--direction up") {
+	if !strings.Contains(joined, "--direction=up") {
 		t.Error("children must come from the reverse lookup (--direction up)")
 	}
 	// The children must arrive with their edges, or the DAG is a flat list and
@@ -252,7 +252,7 @@ func TestBrCliListUnwrapsTheObjectEnvelope(t *testing.T) {
 		t.Fatalf("got %+v", beads)
 	}
 	// --limit defaults to 50, which would drop the tail of any larger epic.
-	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "--limit 0") {
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "--limit=0") {
 		t.Error("list must ask for every row, not br's default page of 50")
 	}
 }
@@ -264,7 +264,7 @@ func TestBrCliUpdateStatus(t *testing.T) {
 	if err := NewBrCliBackend(repo).Update("kb-1", UpdateBeadInput{State: "implementation"}, repo); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "--status implementation") {
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "--status=implementation") {
 		t.Errorf("update must set the status, calls: %v", fake.calledWith())
 	}
 }
@@ -297,13 +297,13 @@ func TestBrCliSetLabelsReplacesRatherThanAdds(t *testing.T) {
 	}
 
 	joined := strings.Join(fake.calledWith(), "\n")
-	if !strings.Contains(joined, "label remove kb-1 wf:state:implementation") {
+	if !strings.Contains(joined, "label remove kb-1 -- wf:state:implementation") {
 		t.Errorf("the stale state label must be removed, calls:\n%s", joined)
 	}
-	if !strings.Contains(joined, "label add kb-1 wf:state:implementation_review") {
+	if !strings.Contains(joined, "label add kb-1 -- wf:state:implementation_review") {
 		t.Errorf("the new state label must be added, calls:\n%s", joined)
 	}
-	if strings.Contains(joined, "label remove kb-1 wf:profile:worker") {
+	if strings.Contains(joined, "label remove kb-1 -- wf:profile:worker") {
 		t.Errorf("a label that is still wanted must not be removed, calls:\n%s", joined)
 	}
 }
@@ -343,7 +343,7 @@ func TestBrCliComment(t *testing.T) {
 	if err := NewBrCliBackend(repo).Comment("kb-1", "stage done", repo); err != nil {
 		t.Fatalf("Comment: %v", err)
 	}
-	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "comments add kb-1 stage done") {
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "comments add kb-1 -- stage done") {
 		t.Errorf("calls: %v", fake.calledWith())
 	}
 }
@@ -365,6 +365,70 @@ func TestBrCliSurfacesBrsErrorEnvelope(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error must carry br's own reason %q, got: %v", want, err)
 		}
+	}
+}
+
+// br's parser reads a value beginning with "-" as the next flag and exits 2,
+// so a bead whose description starts with a dash - or a comment body that does
+// - would abort the stage rather than be recorded.
+func TestBrCliPassesValuesThatLookLikeFlags(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"update kb-1":  `[{"id":"kb-1"}]`,
+		"comments add": `{"id":1}`,
+	})
+	be := NewBrCliBackend(repo)
+
+	if err := be.Update("kb-1", UpdateBeadInput{Notes: "--dash notes"}, repo); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if err := be.Comment("kb-1", "--force is a comment", repo); err != nil {
+		t.Fatalf("Comment: %v", err)
+	}
+
+	joined := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(joined, "--notes=--dash notes") {
+		t.Errorf("a flag value must be passed as --flag=value, calls:\n%s", joined)
+	}
+	if !strings.Contains(joined, "comments add kb-1 -- --force is a comment") {
+		t.Errorf("a positional value must be passed after --, calls:\n%s", joined)
+	}
+}
+
+// br can print two JSON documents back to back: `close` on an already-closed
+// issue emits its per-issue result and then the error envelope. Decoding the
+// whole buffer at once fails on the trailing document, so the envelope went
+// unseen and the caller got a bare exit status with an empty stderr.
+func TestBrCliFindsAnErrorEnvelopeAfterAResult(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"close kb-1": `{"closed":[],"skipped":[{"id":"kb-1","reason":"already closed"}]}
+{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped","hint":"All specified issues were already closed or not found."}}`,
+	})
+
+	_, err := NewBrCliBackend(repo).Close("kb-1", "shipped", repo)
+	if err == nil {
+		t.Fatal("expected br's reason to surface")
+	}
+	if !strings.Contains(err.Error(), "NOTHING_TO_DO") {
+		t.Errorf("error must carry br's own code, got: %v", err)
+	}
+}
+
+// A result that merely mentions an error is not a failure; only a document
+// whose top level is {"error": {...}} is.
+func TestBrCliDoesNotMistakeAnErrorFieldForAFailure(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"show kb-1": `[{"id":"kb-1","title":"fix the error envelope","status":"open"}]`,
+	})
+
+	bead, err := NewBrCliBackend(repo).Get("kb-1", repo)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if bead.Title != "fix the error envelope" {
+		t.Errorf("got %+v", bead)
 	}
 }
 
