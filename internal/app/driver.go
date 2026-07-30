@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/adapter"
@@ -114,7 +115,13 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 
 	dialect := adapter.ResolveDialect(input.Command)
-	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), true)
+	// RunBead always dispatches one-shot: input.Args is built by BuildStageArgs,
+	// which calls adapter.BuildPromptModeArgs - the cli-arg/one-shot shape
+	// (`-p <prompt>`, `exec <prompt>`, ...) - never the interactive transport
+	// (stream-json over stdin, JSON-RPC, HTTP server). Passing interactive=true
+	// here would hand out a capability profile promising a delivery channel
+	// this invocation never opens.
+	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), false)
 
 	envSlice := envMapToSlice(input.Env)
 	cwd := input.Cwd
@@ -169,6 +176,15 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 	w.start()
 
+	// Drain stdout/stderr to EOF before reaping the process. exec.Cmd's
+	// StdoutPipe/StderrPipe are closed by Wait() as soon as it sees the
+	// process exit; calling Wait() first (as this used to) races that close
+	// against the goroutines still reading the final buffered lines, which
+	// can silently drop the very event (e.g. claude's "result") that fires
+	// onTurnEnded - so a stalled stage becomes indistinguishable from a
+	// stage that never needed a nudge.
+	r.WaitDrained()
+
 	exitErr := proc.Wait()
 	exitCode := exitCodeFromErr(exitErr)
 
@@ -192,6 +208,20 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		resultSessionID = sessionID
 	}
 
+	// A follow-up refused for lack of a delivery channel (SupportsFollowUp
+	// false) means the stage could not be nudged out of a stuck state. An
+	// exit-zero exit code from the agent process does not make that stage
+	// successful - report the refusal as the run's own failure so the
+	// caller (DriveBeadToTerminal) halts instead of evaluating the exit
+	// gate and advancing the bead on a stage nobody actually finished.
+	if followUpErr := w.followUpError(); followUpErr != nil {
+		return RunBeadResult{
+			SessionID:  resultSessionID,
+			FinalState: finalState,
+			Success:    false,
+		}, followUpErr
+	}
+
 	return RunBeadResult{
 		SessionID:  resultSessionID,
 		FinalState: finalState,
@@ -209,6 +239,29 @@ type sessionPump struct {
 
 	stopCh chan struct{}
 	done   chan struct{}
+
+	mu          sync.Mutex
+	followUpErr error
+}
+
+// followUpError reports the most recent hard failure from the take-loop's
+// follow-up gate (set by handleTurnEnded when terminal.HandleTakeLoopTurnEnded
+// returns a non-nil error), so RunBead can surface it after the run instead
+// of only the boolean handleTurnEnded returns to SetOnTurnEnded - that bool
+// already carries a different meaning (whether to keep stdin open) and can't
+// also carry "this run must be reported as failed."
+func (p *sessionPump) followUpError() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.followUpErr
+}
+
+func (p *sessionPump) setFollowUpError(err error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.followUpErr == nil {
+		p.followUpErr = err
+	}
 }
 
 func (p *sessionPump) start() {
@@ -272,6 +325,8 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 		},
 		TakeIteration:    &terminal.IterationCounter{Value: 1},
 		FollowUpAttempts: &terminal.FollowUpCounter{},
+		Dialect:          p.runtime.Dialect(),
+		Capabilities:     p.runtime.Capabilities(),
 	}
 
 	deps := terminal.FollowUpDeps{
@@ -284,7 +339,11 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 		LeaseChecker: &terminal.DefaultLeaseHealthChecker{},
 	}
 
-	return terminal.HandleTakeLoopTurnEnded(ctx, deps)
+	proceed, err := terminal.HandleTakeLoopTurnEnded(ctx, deps)
+	if err != nil {
+		p.setFollowUpError(err)
+	}
+	return proceed
 }
 
 func exitCodeFromErr(err error) int {

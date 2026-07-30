@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
@@ -145,6 +146,93 @@ func TestDriverRecordsTheAllowlistTheNudgeMustReuse(t *testing.T) {
 	}
 	if rec.OpencodeConfigPath != stageAllowlist {
 		t.Errorf("OpencodeConfigPath = %q, want the allowlist the dispatch ran under %q", rec.OpencodeConfigPath, stageAllowlist)
+	}
+}
+
+// TestSessionPumpRefusesFollowUpForOneShotClaude is a narrow unit test on
+// sessionPump.handleTurnEnded in isolation: a SessionRuntime built the way
+// RunBead always builds one - dialect resolved from the command,
+// interactive=false because RunBead only ever dispatches one-shot - must
+// produce a TakeLoopContext whose capabilities refuse a follow-up loudly,
+// AND that refusal must land on the pump where RunBead can find it after the
+// run. TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged below is the
+// end-to-end proof through the real spawn/drain/RunBead path; this one is
+// kept alongside it because it isolates the gate itself from the drain
+// timing.
+func TestSessionPumpRefusesFollowUpForOneShotClaude(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	scm := newTestSCM()
+	scm.Connect("kb-1-claude")
+
+	dialect := adapter.ResolveDialect("claude")
+	runtime := session.NewSessionRuntimeWithCapabilities("kb-1", "/repo", string(dialect), false)
+
+	pump := &sessionPump{
+		scm:       scm,
+		runtime:   runtime,
+		sessionID: "kb-1-claude",
+		beadID:    "kb-1",
+		repoPath:  "/repo",
+		backend:   be,
+	}
+
+	if proceed := pump.handleTurnEnded("turn_ended"); proceed {
+		t.Error("expected handleTurnEnded to return false when the dialect has no follow-up path")
+	}
+
+	err := pump.followUpError()
+	if err == nil {
+		t.Fatal("expected the refusal to be recorded on the pump so RunBead can report it as a failure")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") || !strings.Contains(err.Error(), "claude") {
+		t.Errorf("expected the recorded error to carry KERNL DISPATCH FAILURE and name claude, got: %v", err)
+	}
+
+	buffer := scm.GetBuffer("kb-1-claude")
+	found := false
+	for _, evt := range buffer {
+		if evt.Type == "stderr" && strings.Contains(evt.Data, "KERNL DISPATCH FAILURE") && strings.Contains(evt.Data, "claude") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a KERNL DISPATCH FAILURE banner naming claude in the event buffer, got: %+v", buffer)
+	}
+}
+
+// TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged drives the full
+// RunBead path: real spawn (fakeSpawner), real SessionRuntime.Start/
+// WaitDrained/Dispose, real sessionPump. Claude emits "result" (its
+// turn-ending event) and exits zero while the bead is left in an active,
+// non-terminal state, so the take-loop tries to nudge it and finds the
+// dialect has no follow-up path. RunBead must report that as a failure -
+// an exit-zero agent process is not the same thing as a stage that actually
+// finished, and DriveBeadToTerminal only halts on a non-nil error or
+// Success=false (internal/app/drive_bead.go), never on a log line.
+//
+// This exercises the WaitDrained fix for the drain race directly: before
+// that fix, proc.Wait() (fakeProcess.Wait() here returns immediately) raced
+// the goroutine still reading the "result" line, and cancellation from
+// Dispose() usually won - see the inversion check in the PR description for
+// the failure mode this reproduces.
+func TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	spawn := &fakeSpawner{script: "{\"type\":\"result\"}\n"}
+	scm := newTestSCM()
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: scm, LogDir: t.TempDir()})
+
+	res, err := d.RunBead(context.Background(), RunBeadInput{
+		BeadID: "kb-1", RepoPath: t.TempDir(), Command: "claude", AgentName: "claude",
+	})
+
+	if err == nil {
+		t.Fatal("expected RunBead to return an error when the dialect cannot be nudged")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") || !strings.Contains(err.Error(), "claude") {
+		t.Errorf("expected the error to carry KERNL DISPATCH FAILURE and name claude, got: %v", err)
+	}
+	if res.Success {
+		t.Error("expected Success=false - an exit-zero agent that could not be nudged did not finish the stage")
 	}
 }
 

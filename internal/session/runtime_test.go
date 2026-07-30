@@ -30,19 +30,19 @@ func (p *pipeWriter) String() string {
 	return string(p.data)
 }
 
-func TestCapabilitiesForDialect_Claude(t *testing.T) {
-	caps := CapabilitiesForDialect("claude", false)
+func TestCapabilitiesForDialect_ClaudeInteractive(t *testing.T) {
+	caps := CapabilitiesForDialect("claude", true)
 	if !caps.Interactive {
-		t.Error("claude should be interactive")
+		t.Error("claude interactive should be interactive")
 	}
 	if caps.PromptTransport != TransportStdioStreamJSON {
 		t.Errorf("expected stdin-stream-json, got %s", caps.PromptTransport)
 	}
 	if !caps.SupportsFollowUp {
-		t.Error("claude should support follow-up")
+		t.Error("claude interactive should support follow-up")
 	}
 	if !caps.SupportsAskUserAutoResp {
-		t.Error("claude should support AskUser auto-response")
+		t.Error("claude interactive should support AskUser auto-response")
 	}
 	if caps.StdinDrainPolicy != DrainCloseAfterResult {
 		t.Errorf("expected close-after-result, got %s", caps.StdinDrainPolicy)
@@ -50,8 +50,31 @@ func TestCapabilitiesForDialect_Claude(t *testing.T) {
 	if caps.ResultDetection != ResultDetectionTypeResult {
 		t.Errorf("expected type-result, got %s", caps.ResultDetection)
 	}
-	if caps.SupportsInteractive {
-		t.Error("claude doesn't have an interactive variant override")
+}
+
+// TestCapabilitiesForDialect_ClaudeOneShot pins the profile actually used by
+// the take-loop: claude dispatched with `-p <prompt>` on the CLI arg
+// (adapter.BuildClaudePromptModeArgs), which never opens the stdin-stream-json
+// channel the interactive profile relies on for a follow-up.
+func TestCapabilitiesForDialect_ClaudeOneShot(t *testing.T) {
+	caps := CapabilitiesForDialect("claude", false)
+	if caps.Interactive {
+		t.Error("claude one-shot should not be interactive")
+	}
+	if caps.PromptTransport != TransportCLIArg {
+		t.Errorf("expected cli-arg, got %s", caps.PromptTransport)
+	}
+	if caps.SupportsFollowUp {
+		t.Error("claude one-shot should not support follow-up - -p <prompt> never opens a channel to deliver one")
+	}
+	if caps.SupportsAskUserAutoResp {
+		t.Error("claude one-shot should not support AskUser auto-response - no stdin to write to")
+	}
+	if caps.StdinDrainPolicy != DrainNeverOpened {
+		t.Errorf("expected never-opened, got %s", caps.StdinDrainPolicy)
+	}
+	if !caps.SupportsInteractive {
+		t.Error("claude supports interactive mode")
 	}
 }
 
@@ -585,6 +608,77 @@ func TestSessionRuntime_OnTurnEndedCallback(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Error("onTurnEnded was not called")
+	}
+}
+
+// TestSessionRuntime_WaitDrainedBlocksUntilReadersFinish pins the mechanism a
+// caller like RunBead depends on to avoid the exec.Cmd StdoutPipe/StderrPipe
+// race: WaitDrained must not return before both readStdout and readStderr
+// have consumed their stream to EOF.
+func TestSessionRuntime_WaitDrainedBlocksUntilReadersFinish(t *testing.T) {
+	r := newTestRuntime("claude", false)
+
+	ctx := context.Background()
+	stdout := strings.NewReader(`{"type":"result"}` + "\n")
+	stderr := strings.NewReader("")
+
+	r.Start(ctx, stdout, stderr)
+
+	drained := make(chan struct{})
+	go func() {
+		r.WaitDrained()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitDrained did not return after both readers reached EOF")
+	}
+}
+
+// TestSessionRuntime_WaitDrainedHappensAfterOnTurnEnded pins the ordering
+// guarantee the take-loop's follow-up gate depends on: readStdout runs
+// onTurnEnded synchronously before it returns, so by the time WaitDrained
+// unblocks, any turn-ending event in the stream has already been handled.
+// A caller that reaps the process (proc.Wait()) only after WaitDrained can
+// therefore trust that a follow-up refusal, if any, has already been
+// recorded - this is what makes the RunBead-level fix for a dialect with no
+// follow-up path deterministic instead of racing process exit.
+func TestSessionRuntime_WaitDrainedHappensAfterOnTurnEnded(t *testing.T) {
+	r := newTestRuntime("claude", false)
+
+	var mu sync.Mutex
+	var turnEndedCalled bool
+	r.SetOnTurnEnded(func(reason string) bool {
+		mu.Lock()
+		turnEndedCalled = true
+		mu.Unlock()
+		return false
+	})
+
+	ctx := context.Background()
+	stdout := strings.NewReader(`{"type":"result"}` + "\n")
+	stderr := strings.NewReader("")
+
+	r.Start(ctx, stdout, stderr)
+
+	drained := make(chan struct{})
+	go func() {
+		r.WaitDrained()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitDrained did not return")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !turnEndedCalled {
+		t.Error("expected onTurnEnded to have already run by the time WaitDrained returned")
 	}
 }
 
