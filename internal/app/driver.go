@@ -44,11 +44,18 @@ type RunBeadInput struct {
 	// Cwd is the working directory for the spawned agent process. Defaults to
 	// RepoPath when empty. Set this to the bead's isolated worktree so the
 	// agent edits files in isolation while bd reads/writes stay on the repo.
-	Cwd       string
-	Command   string
-	Args      []string
-	Env       map[string]string
-	AgentName string
+	Cwd     string
+	Command string
+	// Args are the operator's extra flags from settings.agents.<id>.args.
+	// The prompt-carrying shape itself is built per-dialect by BuildStageArgs.
+	Args []string
+	// Model is passed to the CLI in whatever way its dialect expects
+	// (--model, -m, -c model="..."), which is why it travels as a value
+	// rather than pre-baked into Args.
+	Model        string
+	ApprovalMode string
+	Env          map[string]string
+	AgentName    string
 	// SessionID is the opencode session to resume via -s. When non-empty
 	// the driver passes it through appendOpencodeStageFlags so the agent
 	// reconnects to its existing conversation context instead of starting

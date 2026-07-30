@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
@@ -96,7 +97,9 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	if err != nil {
 		return fmt.Errorf("nudge: resolve agent for %s: %w", rec.BeadID, err)
 	}
-	agentInput.Args = appendOpencodeStageFlags(agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
+	agentInput.Command, agentInput.Args = BuildStageArgs(
+		adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
+		agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
 	agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, rec.RepoPath)
 	agentInput.BeadID = rec.BeadID
 	agentInput.RepoPath = rec.RepoPath
