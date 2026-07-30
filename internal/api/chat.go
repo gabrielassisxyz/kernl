@@ -105,7 +105,7 @@ func postChatMessageHandler(a *app.App) http.HandlerFunc {
 
 		var body struct {
 			Content     string `json:"content"`
-			ScopeNodeID string `json:"scope_node_id"`
+			ScopeNodeID string `json:"scopeNodeId"`
 			// DraftActions is the routing the user has on screen while triaging a
 			// capture. It rides along with the message because the LLM runs from
 			// the persisted session (the SSE stream), not from this request: a

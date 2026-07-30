@@ -3,11 +3,11 @@
     <div class="absolute -left-[21px] top-4 w-2.5 h-2.5 bg-status-passed rounded-full border-2 border-surface"></div>
     <div class="flex flex-col gap-1">
       <div class="flex items-center gap-component text-mono-data font-mono-data">
-        <span class="text-text-muted">{{ formatTime(decision.created_at) }}</span>
+        <span class="text-text-muted">{{ formatTime(decision.createdAt) }}</span>
         <span class="text-text-faint">ACTION:</span>
         <span class="text-text-primary">{{ decision.context }}</span>
-        <span v-if="decision.related_ids && decision.related_ids.length" class="text-status-passed">
-          [{{ decision.related_ids.join(', ') }}]
+        <span v-if="decision.relatedIds && decision.relatedIds.length" class="text-status-passed">
+          [{{ decision.relatedIds.join(', ') }}]
         </span>
       </div>
       <div class="font-body text-body text-text-primary mt-1">

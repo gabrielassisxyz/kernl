@@ -41,7 +41,7 @@ describe('InboxDaPanel', () => {
 
     const body = bodyOf(message!)
     expect(body.content).toBe('why a task?')
-    expect(body.scope_node_id).toBe('c1')
+    expect(body.scopeNodeId).toBe('c1')
     expect(body.draftActions).toEqual(draft)
   })
 

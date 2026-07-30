@@ -72,8 +72,10 @@ func TestPostMessageAndGetSession(t *testing.T) {
 	}
 	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
-	// Post message.
-	body := `{"content":"hello","scope_node_id":""}`
+	// Post message. scopeNodeId is non-empty here so the assertion below is
+	// load-bearing for the request field's tag: an empty value would come back
+	// out the same whether or not the request body was decoded at all.
+	body := `{"content":"hello","scopeNodeId":"c1"}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(body))
 	msgReq.Header.Set("Content-Type", "application/json")
 	msgW := httptest.NewRecorder()
@@ -96,6 +98,9 @@ func TestPostMessageAndGetSession(t *testing.T) {
 	}
 	if cs.Messages[0].Content != "hello" {
 		t.Errorf("content = %q, want hello", cs.Messages[0].Content)
+	}
+	if cs.DerivedScopeNodeID != "c1" {
+		t.Errorf("derivedScopeNodeId = %q, want c1", cs.DerivedScopeNodeID)
 	}
 }
 
@@ -122,7 +127,7 @@ func TestChatEventsSSE(t *testing.T) {
 	}
 	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
-	msgBody := `{"content":"hello","scope_node_id":""}`
+	msgBody := `{"content":"hello","scopeNodeId":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
 	msgReq.Header.Set("Content-Type", "application/json")
 	msgW := httptest.NewRecorder()
@@ -169,7 +174,7 @@ func TestChatEventsSSE_SendsCorrectEventSequence(t *testing.T) {
 	}
 	_ = json.Unmarshal(createW.Body.Bytes(), &createRes)
 
-	msgBody := `{"content":"hello","scope_node_id":""}`
+	msgBody := `{"content":"hello","scopeNodeId":""}`
 	msgReq := httptest.NewRequest("POST", "/api/chat/sessions/"+createRes.ID+"/messages", strings.NewReader(msgBody))
 	msgReq.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(httptest.NewRecorder(), msgReq)
