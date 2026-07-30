@@ -242,7 +242,7 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 		},
 	}
 	scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
-	driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawnFn, SCM: scm})
+	driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawnFn, SCM: scm, LogDir: t.TempDir()})
 	pools := map[string]config.PoolConfig{
 		"implementation":        {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
 		"planning":              {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},

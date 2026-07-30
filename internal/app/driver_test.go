@@ -129,7 +129,7 @@ func TestDriverRecordsTheAllowlistTheNudgeMustReuse(t *testing.T) {
 		onExit: func() { be.state["kb-1"] = "done" },
 	}
 	nudges := session.NewNudgeRegistry()
-	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), NudgeRegistry: nudges})
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), NudgeRegistry: nudges, LogDir: t.TempDir()})
 
 	stageAllowlist := filepath.Join(t.TempDir(), "opencode-kb-1-implementation.json")
 	if _, err := d.RunBead(context.Background(), RunBeadInput{
@@ -148,13 +148,38 @@ func TestDriverRecordsTheAllowlistTheNudgeMustReuse(t *testing.T) {
 	}
 }
 
+// An empty LogDir used to fall back to deriving one from os.Getenv("HOME")
+// inside openStageLogs, which made agent stdout/stderr logs land in the
+// operator's real ~/.kernl/logs from any caller (test or otherwise) that
+// forgot to set it. It must fail loud instead, naming the field that fixes
+// it, rather than spawn the agent under an unconfigured log path.
+func TestDriverRunBeadFailsLoudWithoutLogDir(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "ready_for_implementation"}}
+	spawn := &fakeSpawner{script: "{\"type\":\"session_idle\"}\n"}
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM()})
+
+	_, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), Command: "opencode", AgentName: "opencode"})
+	if err == nil {
+		t.Fatal("expected a loud refusal rather than a run with no log directory")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "DriverDeps.LogDir") {
+		t.Errorf("error must name the field that fixes it (DriverDeps.LogDir), got: %v", err)
+	}
+	if spawn.spawned {
+		t.Error("driver must refuse before spawning the agent process")
+	}
+}
+
 func TestDriverRunBeadAdvancesViaTakeLoop(t *testing.T) {
 	be := &fakeBackend{state: map[string]string{"kb-1": "ready_for_implementation"}}
 	spawn := &fakeSpawner{
 		script: "{\"type\":\"output\",\"content\":\"ok\"}\n{\"type\":\"session_idle\"}\n",
 		onExit: func() { be.state["kb-1"] = "done" },
 	}
-	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM()})
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), LogDir: t.TempDir()})
 	res, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), Command: "opencode", AgentName: "opencode"})
 	if err != nil {
 		t.Fatalf("RunBead: %v", err)
