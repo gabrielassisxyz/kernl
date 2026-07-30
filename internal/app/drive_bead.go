@@ -52,6 +52,12 @@ type DriveBeadDeps struct {
 	// structural, because an agent told not to publish can still decide that
 	// publishing is what the instruction meant.
 	StopBeforeState string
+	// StateDir is the directory kernl writes a run's own control files into -
+	// the opencode allowlist and its per-stage specializations. It is passed
+	// in rather than derived from the home directory here, because a function
+	// deep in the dispatch loop that resolves its own paths writes into the
+	// operator's real state directory from every unit test that reaches it.
+	StateDir string
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -269,7 +275,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			agentInput.Env = make(map[string]string)
 		}
 		if adapter.ResolveDialect(agentInput.Command) == adapter.DialectOpenCode {
-			if cfgErr := applyOpencodePermissions(agentInput.Env, deps.Config, deps.BeadID, activeState, wf.Stages); cfgErr != nil {
+			if cfgErr := applyOpencodePermissions(agentInput.Env, deps.Config, deps.StateDir, deps.BeadID, activeState, wf.Stages); cfgErr != nil {
 				return RunBeadResult{FinalState: bead.State, Success: false}, cfgErr
 			}
 		}
@@ -413,17 +419,16 @@ func filterOutLabelPrefix(labels []string, prefix string) []string {
 // was several screens away from the rejections it caused.
 //
 // An OPENCODE_CONFIG the caller set explicitly wins and is left alone.
-func applyOpencodePermissions(env map[string]string, cfg *config.Config, beadID, stage string, stages map[string]backend.StageContract) error {
+func applyOpencodePermissions(env map[string]string, cfg *config.Config, kernlDir, beadID, stage string, stages map[string]backend.StageContract) error {
 	if _, exists := env["OPENCODE_CONFIG"]; exists {
 		return nil
+	}
+	if kernlDir == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for bead %s, so kernl has nowhere of its own to write the agent's allowlist - Fix: set DriveBeadDeps.StateDir (app.DefaultStateDir() outside tests)", beadID)
 	}
 	var configured string
 	if cfg != nil {
 		configured = cfg.Orchestrator.OpencodeConfigPath
-	}
-	kernlDir, err := kernlStateDir()
-	if err != nil {
-		return err
 	}
 	basePath, err := resolveOpencodeBaseConfig(configured, kernlDir)
 	if err != nil {
@@ -443,9 +448,11 @@ func applyOpencodePermissions(env map[string]string, cfg *config.Config, beadID,
 	return nil
 }
 
-// kernlStateDir is the directory kernl owns for files that belong to a run but
-// not to the repository being worked on.
-func kernlStateDir() (string, error) {
+// DefaultStateDir is the directory kernl owns for files that belong to a run
+// but not to the repository being worked on. It is resolved at the process
+// boundary and passed down, never re-derived mid-dispatch: a unit test that
+// reached the derivation wrote into the operator's real ~/.kernl.
+func DefaultStateDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve the home directory kernl keeps its state in - %w - Fix: set HOME, or set orchestrator.opencodeConfigPath in kernl.yaml to an explicit path", err)

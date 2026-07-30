@@ -146,6 +146,7 @@ func TestDriveWorker_StopsAtAwaitingIntegration(t *testing.T) {
 	})
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree},
 		Config:   newDriveTestConfig(),
@@ -186,6 +187,7 @@ func TestDriveWorker_BlocksWhenImplementationSkipsCommit(t *testing.T) {
 	})
 
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   &silentDriver{},
 		Config:   newDriveTestConfig(),
@@ -250,6 +252,7 @@ func TestDriveEpic_ReachesAwaitingPRReview(t *testing.T) {
 	})
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   &artifactDriver{be: be, epicID: "kernl-e1", worktree: worktree},
 		Config:   newDriveTestConfig(),
@@ -296,6 +299,7 @@ func TestDriveEpic_BlocksWhenShipmentSkipsPR(t *testing.T) {
 	noPR := &noPRDriver{artifactDriver: drv}
 
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   noPR,
 		Config:   newDriveTestConfig(),
@@ -333,6 +337,7 @@ func TestDriveEpic_BlocksOnIntegrationConflict(t *testing.T) {
 
 	// Driver exits zero on integration but leaves NO marker commit.
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   &silentDriver{},
 		Config:   newDriveTestConfig(),

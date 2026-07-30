@@ -257,6 +257,9 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	return &app.App{
 		Backend: be,
 		Driver:  driver,
+		// The allowlist kernl writes for a dispatched agent lands here, not in
+		// the operator's real ~/.kernl.
+		StateDir: t.TempDir(),
 		Config: &config.Config{
 			Settings: config.Settings{
 				Agents: map[string]config.AgentConfig{

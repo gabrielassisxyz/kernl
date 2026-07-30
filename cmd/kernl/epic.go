@@ -28,11 +28,6 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
-// execGitRun shells out to `git -C <dir> <args...>` and returns stdout.
-// Used by WorktreeManager so each bead gets a real isolated git worktree
-// (not just an empty mkdir'd directory, which leaves agents nothing to
-// edit and was the cause of multiple "stuck at state" failures during
-// the kernl-npp MVP run on 2026-05-17).
 // epicGitRunner hands back the git executor for a repository, and refuses a
 // path that is not one.
 //
@@ -426,6 +421,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 				Backend:         a.Backend,
 				Driver:          a.Driver,
 				Config:          a.Config,
+				StateDir:        a.StateDir,
 				BeadID:          in.BeadID,
 				RepoPath:        repoPath,
 				Worktree:        in.Worktree,
@@ -583,6 +579,7 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 		Backend:         a.Backend,
 		Driver:          a.Driver,
 		Config:          a.Config,
+		StateDir:        a.StateDir,
 		BeadID:          epicID,
 		RepoPath:        repoPath,
 		Worktree:        epicWorktree,

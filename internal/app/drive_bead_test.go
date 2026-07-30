@@ -144,6 +144,7 @@ func TestDriveBead_OrchestratorAdvancesAfterAgentSuccess(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir:  t.TempDir(),
 		Backend:   be,
 		Driver:    driver,
 		Config:    newDriveTestConfig(),
@@ -173,6 +174,7 @@ func TestDriveBead_GateDefaultIsAgentExitZero(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir:  t.TempDir(),
 		Backend:   be,
 		Driver:    driver,
 		Config:    newDriveTestConfig(),
@@ -202,6 +204,7 @@ func TestDriveBead_AgentBdUpdateAttemptDoesNotDoubleAdvance(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir:  t.TempDir(),
 		Backend:   be,
 		Driver:    driver,
 		Config:    newDriveTestConfig(),
@@ -233,6 +236,7 @@ func TestDriveBeadToTerminal_LoopsThroughMultipleStages(t *testing.T) {
 
 	var stages []string
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   driver,
 		Config:   newDriveTestConfig(),
@@ -264,6 +268,7 @@ func TestDriveBeadToTerminal_TerminalStateShortCircuits(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   driver,
 		Config:   newDriveTestConfig(),
@@ -289,6 +294,7 @@ func TestDriveBeadToTerminal_AwaitingIntegrationIsGate(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   driver,
 		Config:   newDriveTestConfig(),
@@ -314,6 +320,7 @@ func TestDriveBeadToTerminal_BlockedReturnsFalse(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   driver,
 		Config:   newDriveTestConfig(),
@@ -341,6 +348,7 @@ func TestDriveBead_StageCommentRecorded(t *testing.T) {
 	driver := &scriptedDriver{be: be}
 
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir:  t.TempDir(),
 		Backend:   be,
 		Driver:    driver,
 		Config:    newDriveTestConfig(),
@@ -382,6 +390,7 @@ func TestDriveBeadToTerminal_UnknownStateTriggersDispatchFailure(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir: t.TempDir(),
 		Backend:  be,
 		Driver:   driver,
 		Config:   newDriveTestConfig(),
@@ -523,6 +532,7 @@ print(json.dumps({"context_payload": new_payload}))
 
 	worktreeDir := t.TempDir()
 	_, err = DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir:        t.TempDir(),
 		Backend:         be,
 		Driver:          driver,
 		Config:          newDriveTestConfig(),
@@ -627,6 +637,7 @@ print(json.dumps({"context_payload": new_payload}))
 
 		worktreeDir := t.TempDir()
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -666,6 +677,7 @@ print(json.dumps({"context_payload": new_payload}))
 
 		worktreeDir := t.TempDir()
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -704,6 +716,7 @@ print(json.dumps({"context_payload": new_payload}))
 
 		worktreeDir := t.TempDir()
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -739,6 +752,7 @@ func TestDriveBead_NilGuardRegression(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		StateDir:        t.TempDir(),
 		Backend:         be,
 		Driver:          driver,
 		Config:          newDriveTestConfig(),
@@ -825,6 +839,7 @@ sys.exit(1)
 		store, _ := workflow.NewAgentStateStore(storeDir)
 
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -899,6 +914,7 @@ time.sleep(5)
 		store, _ := workflow.NewAgentStateStore(storeDir)
 
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -962,6 +978,7 @@ sys.stdout.write("A" * 70000)
 		store, _ := workflow.NewAgentStateStore(storeDir)
 
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -1026,6 +1043,7 @@ sys.exit(1)
 		store, _ := workflow.NewAgentStateStore(storeDir)
 
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:        t.TempDir(),
 			Backend:         be,
 			Driver:          driver,
 			Config:          newDriveTestConfig(),
@@ -1059,6 +1077,7 @@ sys.exit(1)
 
 		driver := &scriptedDriver{be: be}
 		res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+			StateDir:  t.TempDir(),
 			Backend:   be,
 			Driver:    driver,
 			Config:    newDriveTestConfig(),
