@@ -120,12 +120,11 @@ func TestEpicAbortClosesChildrenThenEpic(t *testing.T) {
 	}
 	repoPath := t.TempDir()
 	wtRoot := t.TempDir()
-	agentDir := t.TempDir()
-	t.Setenv("HOME", agentDir)
 
 	a := &app.App{
-		Backend: be,
-		Config:  &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: repoPath}}}, Orchestrator: config.OrchestratorConfig{WorktreeRoot: wtRoot}},
+		Backend:  be,
+		StateDir: t.TempDir(),
+		Config:   &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: repoPath}}}, Orchestrator: config.OrchestratorConfig{WorktreeRoot: wtRoot}},
 	}
 
 	var outLines []string
@@ -163,9 +162,9 @@ func TestEpicAbort_CleansWorktreesAndAgentState(t *testing.T) {
 	}
 	repoPath := t.TempDir()
 	wtRoot := t.TempDir()
-	agentDir := filepath.Join(t.TempDir(), ".kernl", "agentstate")
+	stateDir := t.TempDir()
+	agentDir := filepath.Join(stateDir, "agentstate")
 	_ = os.MkdirAll(agentDir, 0o755)
-	t.Setenv("HOME", filepath.Dir(filepath.Dir(agentDir)))
 
 	// Seed worktree paths.
 	_ = os.MkdirAll(filepath.Join(wtRoot, "e1", "c1"), 0o755)
@@ -181,7 +180,8 @@ func TestEpicAbort_CleansWorktreesAndAgentState(t *testing.T) {
 	_ = store.Save("e1", workflow.AgentRuntime{})
 
 	a := &app.App{
-		Backend: be,
+		Backend:  be,
+		StateDir: stateDir,
 		Config: &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{{Path: repoPath}}},
 			Orchestrator: config.OrchestratorConfig{WorktreeRoot: wtRoot}},
 	}

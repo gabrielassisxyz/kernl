@@ -31,11 +31,11 @@ type App struct {
 	Graph         *graph.Graph
 
 	// StateDir is where kernl writes files that belong to a run rather than to
-	// the repository being worked on - today, the allowlist a dispatched agent
-	// runs under. It is resolved once here, at the process boundary, so no
-	// function inside the dispatch loop resolves a home directory of its own:
-	// the ones that did wrote into the operator's real ~/.kernl from every
-	// unit test that reached them.
+	// the repository being worked on - the opencode allowlist a dispatched
+	// agent runs under, and the agent state store beneath it. It is resolved
+	// once here, at the process boundary, so no function inside the dispatch
+	// loop resolves a home directory of its own: the ones that did wrote into
+	// the operator's real ~/.kernl from every unit test that reached them.
 	StateDir string
 
 	// ConfigPath is the kernl.yaml this process loaded. The settings API needs it
@@ -106,12 +106,18 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 	scm := session.NewSessionConnectionManager(provider, nil)
 	nudges := session.NewNudgeRegistry()
 
+	stateDir, err := DefaultStateDir()
+	if err != nil {
+		return nil, err
+	}
+
 	spawn := execSpawnFunc
 	driver := NewSessionDriver(DriverDeps{
 		Backend:       be,
 		Spawn:         spawn,
 		SCM:           scm,
 		NudgeRegistry: nudges,
+		LogDir:        filepath.Join(stateDir, "logs"),
 	})
 
 	graphDBPath := cfg.Vault.Root
@@ -135,11 +141,6 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opening graph: %w", err)
-	}
-
-	stateDir, err := DefaultStateDir()
-	if err != nil {
-		return nil, err
 	}
 
 	return &App{

@@ -222,7 +222,7 @@ func TestRunBeadCmdInvokesDriver(t *testing.T) {
 	be := &testBackend{state: map[string]string{"kb-1": "ready_for_implementation"}}
 	spawner := &testSpawner{}
 	a := testAppForBeadRun(t, be)
-	a.Driver = app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawner.Spawn, SCM: testSCM()})
+	a.Driver = app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawner.Spawn, SCM: testSCM(), LogDir: t.TempDir()})
 
 	err := runBeadWithApp(a, []string{"run", "kb-1"})
 	if err != nil {

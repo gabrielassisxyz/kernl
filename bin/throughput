@@ -1,0 +1,289 @@
+#!/usr/bin/env bash
+# Mines commit and pull-request history across the repositories the maintainer
+# actually ships from, to establish a throughput baseline BEFORE an orchestrated
+# agent pipeline is in daily use. Nothing measures "code shipped per week" today,
+# and once the pipeline starts producing commits, the "before" period is gone -
+# it cannot be reconstructed from memory. Git history itself is retroactive, so
+# the baseline can be built now, against the tree as it already stands.
+#
+#   bin/throughput collect                  mine every repo, write raw rows to local/throughput/
+#   bin/throughput report [--by week|month|repo]   render an aggregated view FROM those rows
+#
+# Two CSVs, ONE ROW PER COMMIT and ONE ROW PER PULL REQUEST, each carrying its own
+# timestamp - never a pre-summed weekly bucket. Aggregation destroys grain that
+# cannot be recovered without re-mining, and the interesting questions (a single
+# outlier week, day-of-week effects, "what happened the week the pipeline landed")
+# are not known yet. `report` computes weekly/monthly/per-repository views FROM
+# these rows, on demand; it never rewrites them.
+#
+# Attribution - splitting these numbers into orchestrator-produced versus
+# hand-produced - does NOT exist yet. No column for it below, and none should be
+# faked with a `Kernl-Run:`-style trailer written into a target repository's
+# commits or PR bodies: these are published repositories that carry no tool
+# signatures, and a trailer would leak the machinery into a public diff - the
+# same mistake as leaking internal artifacts into a public PR. When attribution
+# work happens, it is a join on kernl's own run records, computed here, writing
+# nothing back into the repositories mined below.
+#
+# Merge commits are excluded from commits.csv: git suppresses their diff by
+# default, so they would land as zero-stat rows duplicating the merge event
+# already captured, per PR, in prs.csv.
+#
+# This is a maintainer measurement script. It stays out of the kernl binary
+# until it earns its way in - no Go command, no CLI verb, no cmd/kernl wiring.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+OUT_DIR="$REPO_ROOT/local/throughput"
+COMMITS_CSV="$OUT_DIR/commits.csv"
+PRS_CSV="$OUT_DIR/prs.csv"
+REFS_CSV="$OUT_DIR/repos.csv"
+
+# Repositories this baseline covers. Fixed list, not a config file: this script
+# measures the maintainer's own three active repos, not an arbitrary target set.
+REPOS=(
+    "$HOME/repositories/kernl"
+    "$HOME/repositories/archeion"
+    "$HOME/repositories/daytrace"
+)
+
+usage() {
+    cat >&2 <<EOF
+throughput - commit/PR throughput baseline, mined from git and gh
+
+  throughput collect                mine each repo in REPOS, write raw rows to
+                                     local/throughput/{commits,prs}.csv, and the
+                                     ref each repo was mined from to repos.csv
+  throughput report [--by MODE]     aggregate the raw rows for reading
+                                     MODE: week (default) | month | repo
+
+Repositories mined:
+$(printf '  %s\n' "${REPOS[@]}")
+
+A repository that does not exist on this machine is warned about and skipped,
+not treated as a fatal error.
+EOF
+}
+
+warn() { printf 'throughput: %s\n' "$1" >&2; }
+
+# One row per commit: repo,sha,author_date,files_changed,insertions,deletions
+mine_commits() {
+    local path="$1" name="$2" ref="$3"
+    # --no-merges is deliberate, not an omission: git suppresses a merge commit's own
+    # diff by default, so --numstat has nothing to report for it, and the lines it
+    # merged are already counted on the commits that introduced them. Including merge
+    # commits here would only add zero-stat rows that inflate the commit count for no
+    # signal - the merge EVENT itself is what prs.csv's merged_at already captures.
+    git -C "$path" log "$ref" --no-merges --pretty=format:'@@C@@%x1f%H%x1f%aI' --numstat 2>/dev/null | awk -v repo="$name" '
+        function emit() {
+            if (sha != "") printf "%s,%s,%s,%d,%d,%d\n", repo, sha, date, files, ins, del
+        }
+        /^@@C@@/ {
+            emit()
+            split($0, parts, "\x1f")
+            sha = parts[2]; date = parts[3]
+            files = 0; ins = 0; del = 0
+            next
+        }
+        NF >= 3 {
+            files++
+            if ($1 != "-") ins += $1
+            if ($2 != "-") del += $2
+        }
+        END { emit() }
+    '
+}
+
+# One row per PR: repo,number,state,created_at,merged_at,closed_at,additions,deletions,changed_files,lead_time_hours
+PR_FETCH_LIMIT=1000
+
+mine_prs() {
+    local path="$1" name="$2"
+    if ! command -v gh >/dev/null 2>&1; then
+        warn "gh not installed - skipping PR data for $name"
+        return 0
+    fi
+    local prs_json
+    if ! prs_json=$(cd "$path" && gh pr list --state all --limit "$PR_FETCH_LIMIT" \
+            --json number,state,createdAt,mergedAt,closedAt,additions,deletions,changedFiles 2>&1); then
+        warn "gh pr list failed for $name - skipping PR data ($prs_json)"
+        return 0
+    fi
+    # gh exits 0 whether it returned everything or hit --limit and stopped there - a
+    # count equal to the cap is indistinguishable from "the repo happens to have
+    # exactly this many PRs" unless we say so ourselves. This tool is meant to be
+    # re-run for years, so silently dropping the older half of PR history the day the
+    # cap is crossed would corrupt the baseline without a single visible symptom.
+    local pr_count; pr_count="$(jq 'length' <<<"$prs_json")"
+    if [ "$pr_count" -eq "$PR_FETCH_LIMIT" ]; then
+        warn "TRUNCATED: $name returned exactly $PR_FETCH_LIMIT pull requests (the --limit cap) - older PRs are almost certainly missing from prs.csv. Raise PR_FETCH_LIMIT in bin/throughput."
+    fi
+    jq -r --arg repo "$name" '
+        .[] | [
+            $repo,
+            (.number | tostring),
+            .state,
+            .createdAt,
+            (.mergedAt // ""),
+            (.closedAt // ""),
+            (.additions | tostring),
+            (.deletions | tostring),
+            (.changedFiles | tostring),
+            (if .mergedAt then (((.mergedAt | fromdateiso8601) - (.createdAt | fromdateiso8601)) / 3600 | tostring) else "" end)
+        ] | join(",")
+    ' <<<"$prs_json"
+}
+
+# Mining bare HEAD makes the baseline depend on whatever happens to be checked out -
+# a repo left on an old feature branch would omit recent default-branch commits and
+# count unintegrated ones instead, so the same repository could yield a different
+# number on every run with nothing in the data explaining why. Resolve the repo's
+# OWN default branch instead of assuming a name (master and main are both in play
+# across these repos) and prefer the remote-tracking ref, so the mined history is
+# what is actually published upstream, not a possibly-stale local branch.
+resolve_ref() {
+    local path="$1" name
+    name="$(git -C "$path" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+    if [ -n "$name" ] && git -C "$path" rev-parse --verify -q "origin/$name" >/dev/null 2>&1; then
+        printf 'origin/%s' "$name"
+        return 0
+    fi
+    # No usable origin/HEAD (no remote, or it was never fetched) - fall back to the
+    # local branch of that same name, then to whatever is actually checked out.
+    if [ -n "$name" ] && git -C "$path" rev-parse --verify -q "$name" >/dev/null 2>&1; then
+        printf '%s' "$name"
+        return 0
+    fi
+    git -C "$path" symbolic-ref --short HEAD 2>/dev/null || echo "HEAD"
+}
+
+cmd_collect() {
+    mkdir -p "$OUT_DIR"
+    echo "repo,sha,author_date,files_changed,insertions,deletions" > "$COMMITS_CSV"
+    echo "repo,number,state,created_at,merged_at,closed_at,additions,deletions,changed_files,lead_time_hours" > "$PRS_CSV"
+    echo "repo,ref_mined,mined_at" > "$REFS_CSV"
+
+    local repo name ref
+    for repo in "${REPOS[@]}"; do
+        name="$(basename "$repo")"
+        if [ ! -d "$repo" ]; then
+            warn "$repo not found on this machine - skipping"
+            continue
+        fi
+        if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
+            warn "$repo exists but is not a git repository - skipping"
+            continue
+        fi
+        # An empty repository (freshly `git init`'d, or a real one somehow with no
+        # commits) passes the git-dir check above but has no HEAD to log - `git log`
+        # then exits non-zero and set -e would kill the whole collection over one
+        # repo. Requirement 2 already treats a missing repo as a skip, not a fatal
+        # error; a commit-less one is the same class of thing.
+        if ! git -C "$repo" rev-parse --verify -q HEAD >/dev/null 2>&1; then
+            warn "$repo has no commits yet - skipping"
+            continue
+        fi
+        ref="$(resolve_ref "$repo")"
+        echo "==> mining $name @ $ref" >&2
+        mine_commits "$repo" "$name" "$ref" >> "$COMMITS_CSV"
+        mine_prs "$repo" "$name" >> "$PRS_CSV"
+        printf '%s,%s,%s\n' "$name" "$ref" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$REFS_CSV"
+    done
+
+    echo "wrote $(($(wc -l < "$COMMITS_CSV") - 1)) commit rows to $COMMITS_CSV" >&2
+    echo "wrote $(($(wc -l < "$PRS_CSV") - 1)) PR rows to $PRS_CSV" >&2
+    echo "ref mined per repo recorded in $REFS_CSV" >&2
+}
+
+# Reduces a raw CSV (minus header) to one bucket key per row, on stdout.
+# MODE week/month key off $date_col via GNU `date -f -` (one process for the whole
+# file, not one per row); MODE repo keys off the repo column directly - no date
+# parsing needed, since a per-repository view collapses time entirely.
+#
+# --utc is load-bearing, not cosmetic: `date` otherwise converts each timestamp to
+# the process's local timezone before computing the week/month, so the exact same
+# commits.csv would bucket differently on a machine set to UTC than on one set to,
+# say, Pacific/Kiritimati - the raw rows keep their own offsets (that is the point
+# of storing raw), but a week boundary has to be pinned to ONE zone to be a stable,
+# comparable unit at all. UTC is arbitrary but fixed; cmd_report says so on stderr.
+bucket_keys() {
+    local body="$1" date_col="$2" mode="$3"
+    case "$mode" in
+        week)  cut -d, -f"$date_col" "$body" | date --utc -f - +%G-W%V ;;
+        month) cut -d, -f"$date_col" "$body" | date --utc -f - +%Y-%m ;;
+        repo)  cut -d, -f1 "$body" ;;
+        *) warn "unknown --by mode: $mode (want week|month|repo)"; exit 2 ;;
+    esac
+}
+
+cmd_report() {
+    local mode="week"
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --by) mode="${2:-}"; shift 2 ;;
+            *) warn "unknown report argument: $1"; exit 2 ;;
+        esac
+    done
+    case "$mode" in week|month|repo) ;; *) warn "unknown --by mode: $mode (want week|month|repo)"; exit 2 ;; esac
+
+    [ -f "$COMMITS_CSV" ] && [ -f "$PRS_CSV" ] || {
+        warn "no raw data yet - run 'bin/throughput collect' first"
+        exit 1
+    }
+    [ "$mode" = "repo" ] || warn "buckets computed in UTC"
+
+    local work; work="$(mktemp -d)"
+    # Double-quoted so $work expands NOW, into the trap string itself: the trap fires
+    # after this function returns, by which point "work" (a local) is out of scope,
+    # and set -u would reject a live reference to it at that point.
+    trap "rm -rf '$work'" EXIT
+
+    tail -n +2 "$COMMITS_CSV" > "$work/commits_body.csv"
+    tail -n +2 "$PRS_CSV" > "$work/prs_body.csv"
+    awk -F, '$5 != ""' "$work/prs_body.csv" > "$work/prs_merged_body.csv"
+
+    # bucket,files,insertions,deletions - one line per commit
+    paste -d, \
+        <(bucket_keys "$work/commits_body.csv" 3 "$mode") \
+        <(cut -d, -f4,5,6 "$work/commits_body.csv") \
+        > "$work/commits_bucket.csv"
+
+    # bucket - one line per PR opened
+    bucket_keys "$work/prs_body.csv" 4 "$mode" > "$work/prs_opened_bucket.csv"
+
+    # bucket,lead_time_hours - one line per PR merged
+    paste -d, \
+        <(bucket_keys "$work/prs_merged_body.csv" 5 "$mode") \
+        <(cut -d, -f10 "$work/prs_merged_body.csv") \
+        > "$work/prs_merged_bucket.csv"
+
+    {
+        printf 'BUCKET\tCOMMITS\tFILES\t+LINES\t-LINES\tPRS_OPENED\tPRS_MERGED\tAVG_LEAD_H\n'
+        awk -F, -v cf="$work/commits_bucket.csv" -v of="$work/prs_opened_bucket.csv" -v mf="$work/prs_merged_bucket.csv" '
+            FILENAME == cf {
+                commits[$1]++; files[$1] += $2; ins[$1] += $3; del[$1] += $4; keys[$1] = 1; next
+            }
+            FILENAME == of {
+                opened[$1]++; keys[$1] = 1; next
+            }
+            FILENAME == mf {
+                merged[$1]++; leadsum[$1] += $2; keys[$1] = 1; next
+            }
+            END {
+                for (k in keys) {
+                    avg = (merged[k] > 0) ? leadsum[k] / merged[k] : 0
+                    printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", \
+                        k, commits[k] + 0, files[k] + 0, ins[k] + 0, del[k] + 0, opened[k] + 0, merged[k] + 0, avg
+                }
+            }
+        ' "$work/commits_bucket.csv" "$work/prs_opened_bucket.csv" "$work/prs_merged_bucket.csv" | sort
+    } | column -t -s "$(printf '\t')"
+}
+
+case "${1:-}" in
+    collect)      cmd_collect ;;
+    report)       shift; cmd_report "$@" ;;
+    ""|-h|--help) usage ;;
+    *)            echo "unknown subcommand: $1" >&2; usage; exit 2 ;;
+esac
