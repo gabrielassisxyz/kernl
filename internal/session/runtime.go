@@ -61,6 +61,7 @@ type SessionRuntime struct {
 	lastTurnError     string
 	tokenLogger       TokenUsageLogger
 	capturedSessionID string
+	drainWG           sync.WaitGroup
 }
 
 func NewSessionRuntime(beadID, repoPath string) *SessionRuntime {
@@ -157,10 +158,29 @@ func (r *SessionRuntime) Start(ctx context.Context, stdout, stderr io.Reader) co
 	r.lastStdoutAt = &now
 	r.mu.Unlock()
 
-	go r.readStdout(ctx, stdout)
-	go r.readStderr(ctx, stderr)
+	r.drainWG.Add(2)
+	go func() {
+		defer r.drainWG.Done()
+		r.readStdout(ctx, stdout)
+	}()
+	go func() {
+		defer r.drainWG.Done()
+		r.readStderr(ctx, stderr)
+	}()
 
 	return ctx
+}
+
+// WaitDrained blocks until the stdout and stderr readers have both returned
+// (stream EOF, or ctx cancellation/timeout - never local Dispose/Stop, which
+// callers must not invoke before this returns). Callers spawning a real
+// child process via exec.Cmd.StdoutPipe/StderrPipe must call this before
+// Process.Wait(): Cmd.Wait() closes those pipes as soon as it sees the
+// process exit, and reading from them concurrently with that close can
+// silently drop the last buffered line - exactly the line carrying the
+// turn-ending event (e.g. claude's "result") that onTurnEnded depends on.
+func (r *SessionRuntime) WaitDrained() {
+	r.drainWG.Wait()
 }
 
 func (r *SessionRuntime) Stop() {

@@ -611,6 +611,77 @@ func TestSessionRuntime_OnTurnEndedCallback(t *testing.T) {
 	}
 }
 
+// TestSessionRuntime_WaitDrainedBlocksUntilReadersFinish pins the mechanism a
+// caller like RunBead depends on to avoid the exec.Cmd StdoutPipe/StderrPipe
+// race: WaitDrained must not return before both readStdout and readStderr
+// have consumed their stream to EOF.
+func TestSessionRuntime_WaitDrainedBlocksUntilReadersFinish(t *testing.T) {
+	r := newTestRuntime("claude", false)
+
+	ctx := context.Background()
+	stdout := strings.NewReader(`{"type":"result"}` + "\n")
+	stderr := strings.NewReader("")
+
+	r.Start(ctx, stdout, stderr)
+
+	drained := make(chan struct{})
+	go func() {
+		r.WaitDrained()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitDrained did not return after both readers reached EOF")
+	}
+}
+
+// TestSessionRuntime_WaitDrainedHappensAfterOnTurnEnded pins the ordering
+// guarantee the take-loop's follow-up gate depends on: readStdout runs
+// onTurnEnded synchronously before it returns, so by the time WaitDrained
+// unblocks, any turn-ending event in the stream has already been handled.
+// A caller that reaps the process (proc.Wait()) only after WaitDrained can
+// therefore trust that a follow-up refusal, if any, has already been
+// recorded - this is what makes the RunBead-level fix for a dialect with no
+// follow-up path deterministic instead of racing process exit.
+func TestSessionRuntime_WaitDrainedHappensAfterOnTurnEnded(t *testing.T) {
+	r := newTestRuntime("claude", false)
+
+	var mu sync.Mutex
+	var turnEndedCalled bool
+	r.SetOnTurnEnded(func(reason string) bool {
+		mu.Lock()
+		turnEndedCalled = true
+		mu.Unlock()
+		return false
+	})
+
+	ctx := context.Background()
+	stdout := strings.NewReader(`{"type":"result"}` + "\n")
+	stderr := strings.NewReader("")
+
+	r.Start(ctx, stdout, stderr)
+
+	drained := make(chan struct{})
+	go func() {
+		r.WaitDrained()
+		close(drained)
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitDrained did not return")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !turnEndedCalled {
+		t.Error("expected onTurnEnded to have already run by the time WaitDrained returned")
+	}
+}
+
 func TestSessionRuntime_OnTurnEndedPreventClose(t *testing.T) {
 	r := newTestRuntime("claude", true)
 	pw := &pipeWriter{}

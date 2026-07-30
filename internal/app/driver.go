@@ -164,6 +164,15 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 	w.start()
 
+	// Drain stdout/stderr to EOF before reaping the process. exec.Cmd's
+	// StdoutPipe/StderrPipe are closed by Wait() as soon as it sees the
+	// process exit; calling Wait() first (as this used to) races that close
+	// against the goroutines still reading the final buffered lines, which
+	// can silently drop the very event (e.g. claude's "result") that fires
+	// onTurnEnded - so a stalled stage becomes indistinguishable from a
+	// stage that never needed a nudge.
+	r.WaitDrained()
+
 	exitErr := proc.Wait()
 	exitCode := exitCodeFromErr(exitErr)
 
