@@ -64,6 +64,39 @@ registry:
 	}
 }
 
+// A tracker doctor cannot name is reported as unresolved. It used to fall back
+// to bd, so an operator who mistyped the key got a green `bd` and a run that
+// executed something else.
+func TestDoctorReportsATrackerItCannotName(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "kernl.yaml")
+	content := []byte("settings:\n  agents:\n    stub:\n      command: stub\n  pools: {}\nregistry:\n  repos:\n    - path: /repo/one\n      memoryManager: beadz\n")
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	looked := map[string]bool{}
+	look := func(name string) (string, error) {
+		looked[name] = true
+		return "/usr/bin/" + name, nil
+	}
+
+	rep := Run(Deps{LookPath: look, ConfigPath: cfgPath, GoVersion: "go1.26"})
+
+	check := rep.Check("tracker")
+	if check == nil {
+		t.Fatal("a repo whose tracker cannot be resolved must produce a check")
+	}
+	if check.OK {
+		t.Error("an unresolvable tracker must not be reported as healthy")
+	}
+	if !strings.Contains(check.Detail, "beadz") {
+		t.Errorf("the detail must name the value that could not be resolved, got %q", check.Detail)
+	}
+	if looked["bd"] {
+		t.Error("a mistyped memoryManager must not silently become bd")
+	}
+}
+
 func writeValidConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

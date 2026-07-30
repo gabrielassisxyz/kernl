@@ -141,10 +141,14 @@ func configCheck(path string) (Check, *config.Config) {
 // requiredBinary is one CLI the configuration would execute, and who asked
 // for it.
 type requiredBinary struct {
-	name     string
-	usedBy   string
-	fix      string
-	advisory bool
+	name   string
+	usedBy string
+	fix    string
+	// resolveErr is set when the configuration does not say which binary this
+	// is. The check then reports that, rather than checking a binary picked by
+	// a default - which is a check that passes about the wrong program.
+	resolveErr string
+	advisory   bool
 }
 
 // configuredBinaries lists the CLIs this configuration names: the tracker
@@ -173,11 +177,30 @@ func configuredBinaries(cfg *config.Config, orchestrating bool) []requiredBinary
 	}
 
 	for _, repo := range cfg.Registry.Repos {
+		// Resolved exactly as a run resolves it, so doctor cannot report one
+		// tracker healthy while the run executes another.
+		mm, err := backend.ResolveMemoryManager(repo.Path, repo.MemoryManager)
+		if err == nil {
+			var bin string
+			bin, err = backend.TrackerBinary(mm)
+			if err == nil {
+				add(requiredBinary{
+					name:     bin,
+					usedBy:   "repo " + repo.Path,
+					fix:      "install the tracker CLI, or correct registry.repos[].memoryManager in kernl.yaml",
+					advisory: !orchestrating,
+				})
+				continue
+			}
+		}
+		// A tracker that cannot be named is reported as the unresolved check
+		// it is. Naming a binary anyway would check the wrong one and pass.
 		add(requiredBinary{
-			name:     backend.TrackerBinary(repo.MemoryManager),
-			usedBy:   "repo " + repo.Path,
-			fix:      "install the tracker CLI, or correct registry.repos[].memoryManager in kernl.yaml",
-			advisory: !orchestrating,
+			name:       "tracker",
+			usedBy:     "repo " + repo.Path,
+			fix:        "set registry.repos[].memoryManager in kernl.yaml to the tracker this repository uses",
+			advisory:   !orchestrating,
+			resolveErr: err.Error(),
 		})
 	}
 
@@ -203,6 +226,13 @@ func binaryChecks(bins []requiredBinary, lookPath func(string) (string, error)) 
 	checks := make([]Check, 0, len(bins))
 	for _, b := range bins {
 		check := Check{Name: b.name, OK: true, Advisory: b.advisory}
+		if b.resolveErr != "" {
+			check.OK = false
+			check.Detail = fmt.Sprintf("cannot tell which tracker CLI %s needs: %s", b.usedBy, b.resolveErr)
+			check.Fix = b.fix
+			checks = append(checks, check)
+			continue
+		}
 		if _, err := lookPath(b.name); err != nil {
 			check.OK = false
 			check.Detail = fmt.Sprintf("%s not found in PATH (needed by %s)", b.name, b.usedBy)

@@ -29,16 +29,44 @@ var knownMemoryManagers = []memoryManagerImpl{
 	{Type: MemoryManagerBeads, Label: "Beads", MarkerDirectory: ".beads", Binary: "bd", Precedence: 1},
 }
 
-// TrackerBinary names the CLI a memory manager drives. An unrecognized (or
-// empty) manager resolves the same way DetectMemoryManager does, so preflight
-// checks the binary a run would actually execute.
-func TrackerBinary(mm string) string {
+// ResolveMemoryManager answers which tracker a repository is worked with, and
+// is the only place that answers it. Preflight used to read the configured
+// value alone while the run fell back to detection, so with the key unset the
+// two disagreed: doctor reported one tracker healthy and the run executed
+// another.
+//
+// The configured value wins, because it is the one thing checkable before
+// anything runs. Unset falls back to what is on disk. Neither producing an
+// answer is a failure rather than a default: with more than one tracker
+// storing under the same marker, a guess is a run against the wrong database.
+func ResolveMemoryManager(repoPath, configured string) (MemoryManagerType, error) {
+	if configured != "" {
+		for _, impl := range knownMemoryManagers {
+			if string(impl.Type) == configured {
+				return impl.Type, nil
+			}
+		}
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: repo %s declares memoryManager %q, which is not a tracker kernl knows - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", repoPath, configured, strings.Join(knownMemoryManagerTypes(), ", "))
+	}
+	return DetectMemoryManager(repoPath), nil
+}
+
+// TrackerBinary names the CLI a memory manager drives.
+func TrackerBinary(mm MemoryManagerType) (string, error) {
 	for _, impl := range knownMemoryManagers {
-		if string(impl.Type) == mm {
-			return impl.Binary
+		if impl.Type == mm {
+			return impl.Binary, nil
 		}
 	}
-	return TrackerBinary(string(MemoryManagerBeads))
+	return "", fmt.Errorf("KERNL DISPATCH FAILURE: no tracker CLI is registered for memory manager %q - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", mm, strings.Join(knownMemoryManagerTypes(), ", "))
+}
+
+func knownMemoryManagerTypes() []string {
+	types := make([]string, len(knownMemoryManagers))
+	for i, impl := range knownMemoryManagers {
+		types[i] = string(impl.Type)
+	}
+	return types
 }
 
 func IsKnownMemoryManagerType(value string) bool {
