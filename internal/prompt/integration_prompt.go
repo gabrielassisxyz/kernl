@@ -26,6 +26,9 @@ type IntegrationInput struct {
 	// used to be `go build ./...`, which is a fact about kernl and means
 	// nothing in a repository that is not written in Go.
 	VerifyCommand string
+	// TrackerCommand is how this repository's tracker is typed from inside a
+	// worktree. The literal "bd" was a fact about kernl too.
+	TrackerCommand string
 }
 
 const integrationTemplate = `You are the kernl integration agent for epic {{.EpicID}}: "{{.EpicTitle}}".
@@ -43,7 +46,7 @@ Procedure:
 2. For each child in the listed order:
    a. git merge --no-ff {{"{{.Branch}}"}}
    b. On conflict: read the conflict markers; resolve safely using the full context of the epic and child descriptions, then git add the resolved files and git commit. If you cannot converge within your follow-up budget, write
-      "merge_outcome: merge_conflict" and "merge_conflict_at: {{"{{.Branch}}"}}" to the epic bead description (via bd update) and STOP.
+      "merge_outcome: merge_conflict" and "merge_conflict_at: {{"{{.Branch}}"}}" to the epic bead description (via {{.TrackerCommand}} update) and STOP.
    Resolving a conflict means writing code, and this repository's conventions are the ones that apply to it: read AGENTS.md in your worktree (or CONTRIBUTING.md, or the README) before you write any. Nothing about how any other project works applies here.
 3. After all merges succeed, verify the combined tree with this repository's own check:
    {{.VerifyCommand}}
@@ -71,6 +74,9 @@ func RenderIntegration(in IntegrationInput) (string, error) {
 	}
 	if in.VerifyCommand == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: integration prompt has no verify command, so the merged tree would be handed on unchecked - Fix: resolve it with epic.ResolveVerifyCommand before dispatch")
+	}
+	if in.TrackerCommand == "" {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: integration prompt has no tracker command, so a conflict would be reported by running nothing - Fix: resolve it with backend.TrackerInvocation before dispatch")
 	}
 	var buf bytes.Buffer
 	if err := integrationTmpl.Execute(&buf, integrationView{IntegrationInput: in, Outcomes: merge.All()}); err != nil {

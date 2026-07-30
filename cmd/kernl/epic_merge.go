@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
@@ -72,6 +73,19 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 	}
 	out(fmt.Sprintf("verify with: %s\n", verifyCommand))
 
+	// Which tracker this repository uses, and how an agent standing in a
+	// worktree reaches it, are facts about the repository too - and the one
+	// the stage prompts state in prose.
+	trackerManager, err := backend.ResolveMemoryManager(repoPath, repoEntry.MemoryManager)
+	if err != nil {
+		return err
+	}
+	trackerCommand, err := backend.TrackerInvocation(trackerManager, repoPath)
+	if err != nil {
+		return err
+	}
+	out(fmt.Sprintf("tracker: %s\n", trackerCommand))
+
 	wm := epic.NewWorktreeManager(a.Config.Orchestrator.WorktreeRoot, repoPath, baseBranch, execGitRun, nil)
 	if _, err := wm.EnsureEpicBranch(epicID); err != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot ensure epic branch for %s: %w", epicID, err)
@@ -89,7 +103,7 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 
 	return driveEpic(context.Background(), epicDrive{
 		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
-		BaseBranch: baseBranch, VerifyCommand: verifyCommand, Worktree: epicWorktree,
+		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree,
 		StateStore: stateStore, Shipment: plan, Out: out,
 	})
 }

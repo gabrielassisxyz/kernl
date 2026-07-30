@@ -19,14 +19,15 @@ func TestDriveBeadToTerminal_RefusesAnEmptyVerifyCommand(t *testing.T) {
 		driver := &scriptedDriver{be: be}
 
 		_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-			StateDir:      t.TempDir(),
-			VerifyCommand: verifyCommand,
-			Backend:       be,
-			Driver:        driver,
-			Config:        newDriveTestConfig(),
-			BeadID:        "kb-1",
-			RepoPath:      "/tmp/repo",
-			Worktree:      "/tmp/worktree",
+			TrackerCommand: "bd",
+			StateDir:       t.TempDir(),
+			VerifyCommand:  verifyCommand,
+			Backend:        be,
+			Driver:         driver,
+			Config:         newDriveTestConfig(),
+			BeadID:         "kb-1",
+			RepoPath:       "/tmp/repo",
+			Worktree:       "/tmp/worktree",
 		})
 
 		if err == nil {
@@ -50,6 +51,7 @@ func TestDriveBeadToTerminal_StopBeforeStateDoesNotDispatchThatStage(t *testing.
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
 		StateDir:        t.TempDir(),
 		VerifyCommand:   "bin/ci",
 		Backend:         be,
@@ -89,6 +91,7 @@ func TestDriveBeadToTerminal_StopBeforeStateAlsoStopsWhenAlreadyInIt(t *testing.
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
 		StateDir:        t.TempDir(),
 		VerifyCommand:   "bin/ci",
 		Backend:         be,
@@ -119,14 +122,15 @@ func TestDriveBeadToTerminal_EmptyStopBeforeStateDrivesNormally(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		StateDir:      t.TempDir(),
-		VerifyCommand: "bin/ci",
-		Backend:       be,
-		Driver:        driver,
-		Config:        newDriveTestConfig(),
-		BeadID:        "kb-1",
-		RepoPath:      "/tmp/repo",
-		Worktree:      "/tmp/worktree",
+		TrackerCommand: "bd",
+		StateDir:       t.TempDir(),
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         driver,
+		Config:         newDriveTestConfig(),
+		BeadID:         "kb-1",
+		RepoPath:       "/tmp/repo",
+		Worktree:       "/tmp/worktree",
 	})
 
 	if err != nil {

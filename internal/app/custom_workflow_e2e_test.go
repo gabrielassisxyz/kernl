@@ -86,6 +86,7 @@ func TestCustomWorkflow_E2E_AE1(t *testing.T) {
 
 	// 6. Drive the bead! Since qa is stage 2 (after planning), we run up to 2 stages
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
 		StateDir:        t.TempDir(),
 		VerifyCommand:   "bin/ci",
 		Backend:         be,
@@ -192,6 +193,7 @@ func TestCustomWorkflow_E2E_AE2(t *testing.T) {
 
 	// 6. Drive the bead! Stage 2 is qa, where it will crash
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
 		StateDir:        t.TempDir(),
 		VerifyCommand:   "bin/ci",
 		Backend:         be,

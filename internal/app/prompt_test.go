@@ -18,7 +18,7 @@ func TestBuildBeadStagePrompt_IncludesStageInstruction(t *testing.T) {
 		Type:        "task",
 	}
 
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "implementation", Stages: nil, RepoPath: "/home/user/repo", Worktree: "/home/user/.kernl/worktrees/epic/kernl-eci", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "implementation", Stages: nil, RepoPath: "/home/user/repo", Worktree: "/home/user/.kernl/worktrees/epic/kernl-eci", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
 	mustContain := []string{
 		"kernl-eci",
@@ -38,7 +38,7 @@ func TestBuildBeadStagePrompt_IncludesStageInstruction(t *testing.T) {
 
 func TestBuildBeadStagePrompt_OmitsEndOfStageProtocol(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
 	if strings.Contains(prompt, "END-OF-STAGE PROTOCOL") {
 		t.Errorf("prompt must not contain END-OF-STAGE PROTOCOL:\n%s", prompt)
@@ -48,11 +48,27 @@ func TestBuildBeadStagePrompt_OmitsEndOfStageProtocol(t *testing.T) {
 	}
 }
 
+// The tracker the prompt forbids mutating is the repository's, not kernl's.
+func TestBuildBeadStagePrompt_NamesTheRepositorysOwnTracker(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "planning", RepoPath: "/repo", Worktree: "/wt",
+		VerifyCommand: "bin/ci", TrackerCommand: "br --db /repo/.beads/beads.db",
+	})
+
+	if !strings.Contains(prompt, "`br --db /repo/.beads/beads.db update`") {
+		t.Errorf("prompt must forbid mutating the tracker this repository uses:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "`bd update`") {
+		t.Error("prompt must not name kernl's own tracker in someone else's repository")
+	}
+}
+
 func TestBuildBeadStagePrompt_ForbidsBdMutation(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Test bead", Description: "do the thing"}
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
-	if !strings.Contains(prompt, "Do not run `bd update`, `bd close`, or `bd open`") {
+	if !strings.Contains(prompt, "Do not run `bd update`, `bd close`, or `bd reopen`") {
 		t.Error("prompt must forbid bd mutation")
 	}
 	if !strings.Contains(prompt, "The orchestrator advances the bead") {
@@ -62,7 +78,7 @@ func TestBuildBeadStagePrompt_ForbidsBdMutation(t *testing.T) {
 
 func TestBuildBeadStagePrompt_TerminalStageOmitsBdUpdate(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Last stage", Description: "do the thing"}
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "shipment_review", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "shipment_review", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
 	if strings.Contains(prompt, "bd -C") {
 		t.Errorf("terminal stage should not include `bd update` instruction; got:\n%s", prompt)
@@ -139,7 +155,7 @@ func TestBuildBeadStagePrompt_RendersStageContract(t *testing.T) {
 		},
 	}
 
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: stages, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: stages, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
 	mustContain := []string{
 		"Decompose the bead into an actionable plan.",
@@ -169,7 +185,7 @@ func TestBuildBeadStagePrompt_BeadIsInputNotInstruction(t *testing.T) {
 		},
 	}
 
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: stages, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "planning", Stages: stages, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
 	if strings.Contains(prompt, "## Steps") || strings.Contains(prompt, "## Instructions") {
 		t.Errorf("contract prompt must not contain Steps/Instructions heading. Bead data should appear under 'Bead data':\n%s", prompt)
@@ -190,7 +206,7 @@ func TestBuildBeadStagePrompt_FallbackWhenNoStageBlock(t *testing.T) {
 		Acceptance:  "work is done",
 	}
 
-	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "implementation", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"})
+	prompt := BuildBeadStagePrompt(StagePromptInput{Bead: bead, State: "implementation", Stages: nil, RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"})
 
 	if !strings.Contains(prompt, "do the work") {
 		t.Errorf("fallback prompt must contain description; got:\n%s", prompt)
@@ -210,7 +226,7 @@ func TestBuildBeadStagePrompt_CarriesNothingAboutKernlsOwnStack(t *testing.T) {
 	bead := &backend.Bead{ID: "arch-c9k", Title: "Fix canonical URL handling"}
 	prompt := BuildBeadStagePrompt(StagePromptInput{
 		Bead: bead, State: "implementation", RepoPath: "/repo", Worktree: "/wt",
-		VerifyCommand: "bin/ci",
+		VerifyCommand: "bin/ci", TrackerCommand: "bd",
 	})
 
 	for _, banned := range []string{
@@ -243,7 +259,7 @@ func TestBuildBeadStagePrompt_CarriesNothingAboutKernlsOwnStack(t *testing.T) {
 // claude or codex it is an instruction about a rejection they cannot produce.
 func TestBuildBeadStagePrompt_OpencodeNoteIsOpencodeOnly(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Test bead"}
-	base := StagePromptInput{Bead: bead, State: "implementation", RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci"}
+	base := StagePromptInput{Bead: bead, State: "implementation", RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd"}
 
 	opencode := base
 	opencode.Dialect = adapter.DialectOpenCode

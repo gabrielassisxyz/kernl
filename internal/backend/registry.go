@@ -76,6 +76,34 @@ func TrackerBinary(mm MemoryManagerType) (string, error) {
 	return "", fmt.Errorf("KERNL DISPATCH FAILURE: no tracker CLI is registered for memory manager %q - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", mm, strings.Join(knownMemoryManagerTypes(), ", "))
 }
 
+// TrackerInvocation is how an agent working in a worktree types this
+// repository's tracker: the binary plus whatever it takes to reach the store
+// from outside the repository.
+//
+// It exists because the stage prompts name the tracker in prose, and naming it
+// is not enough. br discovers its database by walking up from the working
+// directory and every dispatched agent works inside a worktree under
+// ~/.kernl/worktrees, so a bare `br update` there answers "Beads not
+// initialized" - the run's own bookkeeping silently stops happening.
+//
+// bd is left bare deliberately. It reaches its store from a worktree unaided -
+// the live run's logs show `bd update` succeeding from one - and pinning it
+// would be changing a path that works to match one that did not.
+func TrackerInvocation(mm MemoryManagerType, repoPath string) (string, error) {
+	bin, err := TrackerBinary(mm)
+	if err != nil {
+		return "", err
+	}
+	if mm != MemoryManagerBeadsRust {
+		return bin, nil
+	}
+	dbPath, err := BrDatabasePath(repoPath)
+	if err != nil {
+		return "", err
+	}
+	return bin + " --db " + dbPath, nil
+}
+
 func knownMemoryManagerTypes() []string {
 	types := make([]string, len(knownMemoryManagers))
 	for i, impl := range knownMemoryManagers {
