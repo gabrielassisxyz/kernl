@@ -2,6 +2,12 @@
 #
 # Copy this file to kernl.yaml and fill in your agents and repos.
 # Run `kernl doctor` to validate.
+#
+# Kernl reads ./kernl.yaml by default, so a run from any other directory needs
+# --config <path>. To drop the flag for good, export the path once:
+#   export KERNL_CONFIG=/absolute/path/to/kernl.yaml
+# Precedence: --config beats $KERNL_CONFIG beats ./kernl.yaml. Keep the paths
+# below absolute; they are used as written, never resolved against the cwd.
 
 settings:
   # Agents are the AI workers that Kernl dispatches to.

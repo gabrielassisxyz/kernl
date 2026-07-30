@@ -16,6 +16,11 @@ func TestLoadCLIConfigMissingFileTeachesRecovery(t *testing.T) {
 	if !strings.Contains(msg, "Fix:") || !strings.Contains(msg, "--config") {
 		t.Errorf("missing-config error must name the Fix and --config, got: %v", msg)
 	}
+	// --config fixes one invocation; KERNL_CONFIG fixes every following one,
+	// and a caller who cannot see it re-types the flag forever.
+	if !strings.Contains(msg, "KERNL_CONFIG") {
+		t.Errorf("missing-config error must name KERNL_CONFIG as the permanent fix, got: %v", msg)
+	}
 	if strings.Count(msg, "KERNL DISPATCH FAILURE") != 1 {
 		t.Errorf("marker must appear exactly once, got: %v", msg)
 	}
