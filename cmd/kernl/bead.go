@@ -159,18 +159,6 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", beadID, repoPath, err)
 	}
 
-	// --dry-run must stop before the stage is entered, not spawn the agent
-	// and ask it to hold back - an agent told not to publish can still decide
-	// that publishing is what the instruction meant. Returning here, before
-	// any of the checks or filesystem work below, is what containment means
-	// for a single bead: nothing is created, removed or resolved, so there is
-	// nothing for a dry run to have side effects on. wm.Add in particular
-	// auto-cleans an existing worktree path, so reaching it even once on the
-	// --dry-run path would discard whatever a previous real run left there.
-	if dryRun {
-		return app.RunBeadResult{FinalState: bead.State, Success: true}, nil
-	}
-
 	if err := refuseEpicManagedBead(bead); err != nil {
 		return app.RunBeadResult{}, err
 	}
@@ -219,13 +207,10 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 
 	// Resolved from the app's own StateDir rather than the home directory
 	// here: a function that derives its own path writes into the operator's
-	// real ~/.kernl from every unit test that reaches it.
+	// real ~/.kernl from every unit test that reaches it. This is a string
+	// check, not a write - safe to run, and worth running, under --dry-run.
 	if strings.TrimSpace(a.StateDir) == "" {
 		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for bead %s, so kernl has nowhere of its own to write run state - Fix: set App.StateDir (app.DefaultStateDir() outside tests)", beadID)
-	}
-	stateStore, err := workflow.NewAgentStateStore(filepath.Join(a.StateDir, "agentstate"))
-	if err != nil {
-		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore for bead %s: %w", beadID, err)
 	}
 
 	// updateDesc records an epic's branch on the epic bead itself; a
@@ -235,11 +220,36 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	// Grouped under its own ID rather than a parent epic's: bead run dispatches
 	// exactly one bead, so there is no epic branch to layer it onto and no
 	// sibling dependency branches to merge in (refuseEpicManagedBead above
-	// already refused a bead that has either).
+	// already refused a bead that has either). wm.Path only joins strings -
+	// os.Stat only reads - so this check runs under --dry-run too: a dry run
+	// that cannot see this refusal coming would report success for a real run
+	// that is about to fail.
 	worktreePath := wm.Path(beadID, beadID)
 	if info, statErr := os.Stat(worktreePath); statErr == nil && info.IsDir() {
 		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: a worktree for bead %s already exists at %s - bead run does not resume a bead into an existing worktree, and Add would force-recreate it, discarding whatever is there - Fix: remove %s by hand if it is safe to discard, or if this bead is mid-workflow after a previous run, continue it manually in that worktree", beadID, worktreePath, worktreePath)
 	}
+
+	// --dry-run stops here, immediately before the first write. Everything
+	// above this line is validation: reads, git plumbing that mutates
+	// nothing, and the two checks just above (a string comparison and an
+	// os.Stat). A dry run has to actually run that validation to mean
+	// anything - one that skips straight to "success" would report a clean
+	// run for a bead epic run would refuse, or a worktree it would have
+	// destroyed. Everything below writes: NewAgentStateStore creates a
+	// directory, wm.Add creates or (were it reached with a path already
+	// there) force-recreates a worktree, and DriveBeadToTerminal dispatches a
+	// real agent. None of it may run under --dry-run - an agent told not to
+	// publish can still decide that publishing is what the instruction meant,
+	// so containment has to be structural, not a request made to the agent.
+	if dryRun {
+		return app.RunBeadResult{FinalState: bead.State, Success: true}, nil
+	}
+
+	stateStore, err := workflow.NewAgentStateStore(filepath.Join(a.StateDir, "agentstate"))
+	if err != nil {
+		return app.RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore for bead %s: %w", beadID, err)
+	}
+
 	worktree, err := wm.Add(beadID, beadID, nil)
 	if err != nil {
 		return app.RunBeadResult{}, err

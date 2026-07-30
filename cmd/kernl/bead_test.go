@@ -284,7 +284,9 @@ func TestRunBeadDispatchAssemblesPromptWorktreeAndArgv(t *testing.T) {
 
 // TestRunBeadDispatchDryRunStopsBeforeDispatch proves --dry-run means the run
 // stops before entering the stage, not "spawn the agent and ask it to hold
-// back": the fake driver must never be called at all.
+// back": the fake driver must never be called at all, and
+// workflow.NewAgentStateStore - the first write in runBeadDispatch - must
+// never run either, so no agentstate directory appears under StateDir.
 func TestRunBeadDispatchDryRunStopsBeforeDispatch(t *testing.T) {
 	be := &testBackend{state: map[string]string{"kb-3": "ready_for_implementation"}}
 	driver := &fakeBeadDriver{}
@@ -300,6 +302,51 @@ func TestRunBeadDispatchDryRunStopsBeforeDispatch(t *testing.T) {
 	}
 	if res.FinalState != "ready_for_implementation" {
 		t.Errorf("dry-run must stop at the bead's own current state, got %q", res.FinalState)
+	}
+	if _, statErr := os.Stat(filepath.Join(a.StateDir, "agentstate")); !os.IsNotExist(statErr) {
+		t.Errorf("dry-run must not create the agentstate directory (workflow.NewAgentStateStore is the first write past the dry-run return), stat err=%v", statErr)
+	}
+}
+
+// TestRunBeadDispatchDryRunRefusesAnEpicChild proves --dry-run validates
+// rather than rubber-stamping: a dry run against a bead a real run would
+// refuse must refuse too, not report success for a run that would fail the
+// moment --dry-run was dropped.
+func TestRunBeadDispatchDryRunRefusesAnEpicChild(t *testing.T) {
+	be := &testBackend{
+		state:   map[string]string{"kb-12": "ready_for_implementation"},
+		parents: map[string]string{"kb-12": "kb-epic"},
+	}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	_, err := runBeadDispatch(a, driver, "kb-12", repoEntry, true)
+	if err == nil {
+		t.Fatal("expected dry-run to refuse a bead that belongs to an epic, the same as a real run would")
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching, got %d driver calls", len(driver.calls))
+	}
+}
+
+// TestRunBeadDispatchDryRunRefusesUnresolvedShipmentDestination is the
+// dry-run counterpart of TestRunBeadDispatchRefusesUnresolvedShipmentDestinationUpFront:
+// resolveBeadShipmentDestination is a read (a git remote lookup), so a dry
+// run performs it too and must refuse the same way a real run would.
+func TestRunBeadDispatchDryRunRefusesUnresolvedShipmentDestination(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-13": "ready_for_implementation"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	withUnresolvableShipment(t)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	_, err := runBeadDispatch(a, driver, "kb-13", repoEntry, true)
+	if err == nil {
+		t.Fatal("expected dry-run to refuse an unresolvable shipment destination, the same as a real run would")
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("must refuse before dispatching, got %d driver calls", len(driver.calls))
 	}
 }
 
@@ -331,6 +378,11 @@ func seedExistingWorktree(t *testing.T, a *app.App, beadID string) string {
 // writing no tracker state - the single most destructive thing this flag
 // could do, under the name people reach for specifically to avoid side
 // effects.
+//
+// The existing-worktree check is a read (os.Stat), so a dry run runs it too -
+// the same as a real run would - and must refuse for the same reason: a dry
+// run that answered "success" for an input a real run would refuse answers
+// nothing. Either way, the worktree itself must come out untouched.
 func TestRunBeadDispatchDryRunNeverTouchesAnExistingWorktree(t *testing.T) {
 	be := &testBackend{state: map[string]string{"kb-7": "ready_for_implementation"}}
 	driver := &fakeBeadDriver{}
@@ -338,8 +390,9 @@ func TestRunBeadDispatchDryRunNeverTouchesAnExistingWorktree(t *testing.T) {
 	repoEntry := a.Config.Registry.Repos[0]
 	marker := seedExistingWorktree(t, a, "kb-7")
 
-	if _, err := runBeadDispatch(a, driver, "kb-7", repoEntry, true); err != nil {
-		t.Fatalf("dry-run must not error: %v", err)
+	_, err := runBeadDispatch(a, driver, "kb-7", repoEntry, true)
+	if err == nil {
+		t.Fatal("expected dry-run to refuse an existing worktree, the same as a real run would")
 	}
 	if _, statErr := os.Stat(marker); statErr != nil {
 		t.Fatalf("dry-run discarded the existing worktree: %v", statErr)
