@@ -82,6 +82,15 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) bool {
 		return false
 	}
 
+	if !ctx.Capabilities.SupportsFollowUp {
+		slog.Error(fmt.Sprintf(
+			"%s KERNL DISPATCH FAILURE: refusing follow-up for bead=%s state=%s - dialect %q has no follow-up/resume path",
+			tag, ctx.BeadID, state, ctx.Dialect,
+		))
+		emitFollowUpUnsupportedBanner(ctx, ctx.BeadID, state, ctx.Dialect)
+		return false
+	}
+
 	count := RecordFollowUpProgress(ctx.FollowUpAttempts, state)
 	if count > MaxFollowUpsPerState {
 		slog.Warn(fmt.Sprintf(
@@ -148,6 +157,17 @@ func emitFollowUpCapBanner(ctx *TakeLoopContext, beadID, state string, count int
 		Content: fmt.Sprintf(
 			"\x1b[31m--- Take-loop follow-up cap reached: knot %s stuck in state %s after %d consecutive follow-up prompts. Closing session so the take loop can reassess. ---\x1b[0m\n",
 			beadID, state, count,
+		),
+	})
+}
+
+func emitFollowUpUnsupportedBanner(ctx *TakeLoopContext, beadID, state, dialect string) {
+	ctx.PushEvent(session.TerminalEvent{
+		Type:   "stderr",
+		BeadID: beadID,
+		Content: fmt.Sprintf(
+			"\x1b[31mKERNL DISPATCH FAILURE: refusing follow-up for bead %s in state %s - dialect %q has no follow-up/resume path (SupportsFollowUp=false). Fix: give %q a resume mechanism (e.g. claude --resume, a captured codex thread id) and declare it in internal/session/capabilities.go before relying on take-loop nudges for it.\x1b[0m\n",
+			beadID, state, dialect, dialect,
 		),
 	})
 }

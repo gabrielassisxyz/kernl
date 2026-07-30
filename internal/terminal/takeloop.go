@@ -67,6 +67,16 @@ type TakeLoopContext struct {
 	FollowUpAttempts         *FollowUpCounter
 	MemoryManagerType        string
 	ClaimedAt                *time.Time
+	// Dialect names the agent CLI dialect this session is running (e.g.
+	// "claude", "codex"), used only to name the offending dialect in a
+	// KERNL DISPATCH FAILURE when Capabilities.SupportsFollowUp is false.
+	Dialect string
+	// Capabilities is the dialect's capability profile for the transport this
+	// session was actually dispatched with (one-shot vs interactive). The
+	// take-loop consults Capabilities.SupportsFollowUp before attempting a
+	// follow-up so it never promises a nudge over a channel the running
+	// process doesn't listen on.
+	Capabilities session.DialectCapabilities
 }
 
 type IterationCounter struct {

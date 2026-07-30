@@ -36,6 +36,11 @@ func makeFollowUpCtx(overrides ...func(*TakeLoopContext)) *TakeLoopContext {
 		KnotsLeaseStep:           "implementation",
 	}
 	ctx := NewTakeLoopContext(entry, &backend.Bead{ID: "bead-6881"}, "/tmp/kernl-test")
+	// Default to a dialect that can follow up so the pre-existing
+	// happy-path tests below don't have to know about capability gating;
+	// tests exercising the gate itself override this explicitly.
+	ctx.Dialect = "claude"
+	ctx.Capabilities = session.DialectCapabilities{SupportsFollowUp: true}
 	ctx.WorkflowsByID = map[string]*backend.WorkflowDescriptor{}
 	ctx.FallbackWorkflow = &backend.WorkflowDescriptor{
 		ID:             "default",
@@ -338,6 +343,75 @@ func TestHandleTakeLoopTurnEnded_LeaseHealthBlocksFollowUp(t *testing.T) {
 	}
 	if len(stderrEvents) == 0 || !containsAll(stderrEvents[0].Content, "KERNL DISPATCH FAILURE") {
 		t.Error("expected dispatch failure banner for dead lease")
+	}
+}
+
+// TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport pins the
+// take-loop's own gate: it must consult SupportsFollowUp itself and refuse
+// before ever calling SendUserTurn, rather than relying on SendUserTurn to
+// fail closed for the wrong reason (or not fail at all).
+func TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport(t *testing.T) {
+	dialects := []string{"codex", "copilot", "opencode", "gemini", "claude"}
+	for _, dialect := range dialects {
+		t.Run(dialect, func(t *testing.T) {
+			var stderrEvents []session.TerminalEvent
+			ctx := makeFollowUpCtx(func(ctx *TakeLoopContext) {
+				ctx.Dialect = dialect
+				ctx.Capabilities = session.CapabilitiesForDialect(dialect, false)
+				ctx.PushEvent = func(evt session.TerminalEvent) {
+					if evt.Type == "stderr" {
+						stderrEvents = append(stderrEvents, evt)
+					}
+				}
+			})
+			sent := false
+			deps := FollowUpDeps{
+				GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+					return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
+				},
+				SendUserTurn: func(prompt, source string) bool { sent = true; return true },
+				LeaseChecker: &mockLeaseChecker{healthy: true},
+			}
+
+			result := HandleTakeLoopTurnEnded(ctx, deps)
+
+			if result {
+				t.Error("expected false when dialect has no follow-up support")
+			}
+			if sent {
+				t.Errorf("expected SendUserTurn never called for one-shot %s", dialect)
+			}
+			if len(stderrEvents) == 0 || !containsAll(stderrEvents[0].Content, "KERNL DISPATCH FAILURE", dialect) {
+				t.Errorf("expected dispatch failure banner naming dialect %q, got: %v", dialect, stderrEvents)
+			}
+		})
+	}
+}
+
+// TestHandleTakeLoopTurnEnded_ClaudeInteractiveStillFollowsUp guards against
+// over-correcting: claude's *interactive* profile (stream-json over stdin)
+// still supports a follow-up, only the one-shot `-p <prompt>` dispatch doesn't.
+func TestHandleTakeLoopTurnEnded_ClaudeInteractiveStillFollowsUp(t *testing.T) {
+	ctx := makeFollowUpCtx(func(ctx *TakeLoopContext) {
+		ctx.Dialect = "claude"
+		ctx.Capabilities = session.CapabilitiesForDialect("claude", true)
+	})
+	sent := false
+	deps := FollowUpDeps{
+		GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+			return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
+		},
+		SendUserTurn: func(prompt, source string) bool { sent = true; return true },
+		LeaseChecker: &mockLeaseChecker{healthy: true},
+	}
+
+	result := HandleTakeLoopTurnEnded(ctx, deps)
+
+	if !result {
+		t.Error("expected true when claude interactive supports follow-up")
+	}
+	if !sent {
+		t.Error("expected SendUserTurn to be called for claude interactive")
 	}
 }
 
