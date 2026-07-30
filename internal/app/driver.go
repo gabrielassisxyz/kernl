@@ -103,7 +103,13 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 
 	dialect := adapter.ResolveDialect(input.Command)
-	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), true)
+	// RunBead always dispatches one-shot: input.Args is built by BuildStageArgs,
+	// which calls adapter.BuildPromptModeArgs - the cli-arg/one-shot shape
+	// (`-p <prompt>`, `exec <prompt>`, ...) - never the interactive transport
+	// (stream-json over stdin, JSON-RPC, HTTP server). Passing interactive=true
+	// here would hand out a capability profile promising a delivery channel
+	// this invocation never opens.
+	r := session.NewSessionRuntimeWithCapabilities(input.BeadID, input.RepoPath, string(dialect), false)
 
 	envSlice := envMapToSlice(input.Env)
 	cwd := input.Cwd
@@ -261,6 +267,8 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 		},
 		TakeIteration:    &terminal.IterationCounter{Value: 1},
 		FollowUpAttempts: &terminal.FollowUpCounter{},
+		Dialect:          p.runtime.Dialect(),
+		Capabilities:     p.runtime.Capabilities(),
 	}
 
 	deps := terminal.FollowUpDeps{

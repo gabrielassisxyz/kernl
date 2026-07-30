@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
@@ -145,6 +146,52 @@ func TestDriverRecordsTheAllowlistTheNudgeMustReuse(t *testing.T) {
 	}
 	if rec.OpencodeConfigPath != stageAllowlist {
 		t.Errorf("OpencodeConfigPath = %q, want the allowlist the dispatch ran under %q", rec.OpencodeConfigPath, stageAllowlist)
+	}
+}
+
+// TestSessionPumpRefusesFollowUpForOneShotClaude proves the wiring end to
+// end at the layer that actually owns it (sessionPump.handleTurnEnded): a
+// SessionRuntime built the way RunBead always builds one - dialect resolved
+// from the command, interactive=false because RunBead only ever dispatches
+// one-shot - must produce a TakeLoopContext whose capabilities refuse a
+// follow-up loudly, instead of silently calling SendUserTurn over a channel
+// this dispatch never opened.
+//
+// This calls handleTurnEnded directly rather than driving it through a real
+// spawn: the spawn path hands the NDJSON parse and the turn-ended callback to
+// a background goroutine racing the main goroutine's Dispose(), so asserting
+// on scm events after RunBead returns would be asserting on a race, not on
+// the behavior under test.
+func TestSessionPumpRefusesFollowUpForOneShotClaude(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	scm := newTestSCM()
+	scm.Connect("kb-1-claude")
+
+	dialect := adapter.ResolveDialect("claude")
+	runtime := session.NewSessionRuntimeWithCapabilities("kb-1", "/repo", string(dialect), false)
+
+	pump := &sessionPump{
+		scm:       scm,
+		runtime:   runtime,
+		sessionID: "kb-1-claude",
+		beadID:    "kb-1",
+		repoPath:  "/repo",
+		backend:   be,
+	}
+
+	if proceed := pump.handleTurnEnded("turn_ended"); proceed {
+		t.Error("expected handleTurnEnded to return false when the dialect has no follow-up path")
+	}
+
+	buffer := scm.GetBuffer("kb-1-claude")
+	found := false
+	for _, evt := range buffer {
+		if evt.Type == "stderr" && strings.Contains(evt.Data, "KERNL DISPATCH FAILURE") && strings.Contains(evt.Data, "claude") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a KERNL DISPATCH FAILURE banner naming claude in the event buffer, got: %+v", buffer)
 	}
 }
 

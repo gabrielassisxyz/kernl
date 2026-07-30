@@ -117,6 +117,15 @@ func (r *SessionRuntime) SetDialect(dialect string) {
 	r.dialect = dialect
 }
 
+// Dialect returns the dialect this runtime was constructed with (e.g.
+// "claude", "codex"), used by the take-loop to name the offending dialect in
+// a KERNL DISPATCH FAILURE when it has no follow-up path.
+func (r *SessionRuntime) Dialect() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.dialect
+}
+
 func (r *SessionRuntime) SetStdin(w io.Writer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
