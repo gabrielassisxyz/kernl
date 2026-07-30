@@ -124,7 +124,10 @@ func configCheck(path string) (Check, *config.Config) {
 		return Check{
 			Name:   "config",
 			Detail: fmt.Sprintf("config file not found: %s", path),
-			Fix:    fmt.Sprintf("copy kernl.yaml.example to %s and fill in your agents", path),
+			// Two different users hit this: one has no config yet, one has one
+			// somewhere else and is running from the wrong directory. Naming only
+			// the first sends the second off to create a duplicate.
+			Fix: fmt.Sprintf("copy kernl.yaml.example to %s and fill in your agents, or export KERNL_CONFIG=<path> if you already have a config elsewhere", path),
 		}, nil
 	}
 	cfg, err := config.Load(path)

@@ -302,6 +302,27 @@ Key ideas:
 - `server.port` controls the API and UI port.
 - `vault.root` enables markdown-vault indexing and graph integration.
 
+### Where Kernl looks for the config
+
+Every verb resolves the config file the same way, first match wins:
+
+1. `--config <path>` (or `-c`), the per-invocation override.
+2. `$KERNL_CONFIG`, an absolute path to your `kernl.yaml`.
+3. `kernl.yaml` in the current working directory.
+
+The third is the default, and it is why a bare `kernl` run outside the directory
+holding your config fails. Export the second one to make Kernl callable from
+anywhere:
+
+```bash
+export KERNL_CONFIG="$HOME/projects/example/kernl.yaml"
+```
+
+Keep the paths inside the config absolute (`registry.repos[].path`, `vault.root`).
+The loader passes them through as written, so a relative one silently follows
+whatever directory you happened to run from, which is the failure this variable
+exists to avoid.
+
 ## Architecture
 
 ```text
