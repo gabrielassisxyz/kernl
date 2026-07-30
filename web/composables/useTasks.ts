@@ -86,7 +86,9 @@ export function useTasks() {
     if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
   }
 
-  async function update(id: string, patch: { title?: string }): Promise<void> {
+  // An omitted key leaves the field alone; `description: ""` clears it, which
+  // the PATCH handler distinguishes with a pointer field.
+  async function update(id: string, patch: { title?: string; description?: string }): Promise<void> {
     const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

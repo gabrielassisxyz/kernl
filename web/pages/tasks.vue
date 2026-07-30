@@ -100,6 +100,7 @@
       @set-status="changeStatus"
       @set-due-date="changeDueDate"
       @set-title="changeTitle"
+      @set-description="changeDescription"
       @delete="askDelete"
     />
 
@@ -244,6 +245,12 @@ async function changeDueDate(id: string, dueDate: string) {
 async function changeTitle(id: string, title: string) {
   await update(id, { title })
   if (selected.value?.id === id) selected.value = { ...selected.value, title }
+  reload()
+}
+
+async function changeDescription(id: string, description: string) {
+  await update(id, { description })
+  if (selected.value?.id === id) selected.value = { ...selected.value, description }
   reload()
 }
 
