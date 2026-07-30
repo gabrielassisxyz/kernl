@@ -355,7 +355,7 @@ func CanonicalStageContracts() map[string]StageContract {
 				"repo state (read-only)",
 			},
 			OutputArtifact: StageArtifact{
-				Path: ".kernl/<bead_id>/plan.md",
+				Path: "<artifact_dir>/plan.md",
 			},
 			ForbiddenPaths: []string{
 				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
@@ -366,42 +366,37 @@ func CanonicalStageContracts() map[string]StageContract {
 			Inputs: []string{
 				"bead.description",
 				"bead.acceptance",
-				".kernl/<bead_id>/plan.md",
+				"<artifact_dir>/plan.md",
 			},
 			OutputArtifact: StageArtifact{
-				Path:        ".kernl/<bead_id>/plan-review.md",
+				Path:        "<artifact_dir>/plan-review.md",
 				MustEndWith: "VERDICT: PASS",
 			},
 			ForbiddenPaths: []string{
 				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
-				".kernl/**/plan.md",
 			},
 		},
 		"implementation": {
 			Role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan.",
 			Inputs: []string{
 				"bead.acceptance",
-				".kernl/<bead_id>/plan.md",
-				".kernl/<bead_id>/plan-review.md",
+				"<artifact_dir>/plan.md",
+				"<artifact_dir>/plan-review.md",
 			},
 			OutputArtifact: StageArtifact{
 				Kind:         "commits",
 				CommitMarker: "stage: implementation",
-			},
-			ForbiddenPaths: []string{
-				".kernl/**/plan.md",
-				".kernl/**/plan-review.md",
 			},
 		},
 		"implementation_review": {
 			Role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict.",
 			Inputs: []string{
 				"bead.acceptance",
-				".kernl/<bead_id>/plan.md",
+				"<artifact_dir>/plan.md",
 				"implementation commits",
 			},
 			OutputArtifact: StageArtifact{
-				Path:        ".kernl/<bead_id>/implementation-review.md",
+				Path:        "<artifact_dir>/implementation-review.md",
 				MustEndWith: "VERDICT: PASS",
 			},
 			ForbiddenPaths: []string{
@@ -419,10 +414,6 @@ func CanonicalStageContracts() map[string]StageContract {
 				Kind:         "commits",
 				CommitMarker: "stage: integration",
 			},
-			ForbiddenPaths: []string{
-				".kernl/**/plan.md",
-				".kernl/**/plan-review.md",
-			},
 		},
 		"integration_review": {
 			Role: "Review the integration. Verify merge conflicts are resolved, no regressions are introduced, and the combined codebase meets quality gates.",
@@ -432,7 +423,7 @@ func CanonicalStageContracts() map[string]StageContract {
 				"test results",
 			},
 			OutputArtifact: StageArtifact{
-				Path:        ".kernl/<bead_id>/integration-review.md",
+				Path:        "<artifact_dir>/integration-review.md",
 				MustEndWith: "VERDICT: PASS",
 			},
 			ForbiddenPaths: []string{
@@ -443,7 +434,7 @@ func CanonicalStageContracts() map[string]StageContract {
 			Role: "Prepare the bead for final merge. Create the pull request, write the PR description with stage summary, and ensure all CI checks are green.",
 			Inputs: []string{
 				"bead.acceptance",
-				"all stage artifacts in .kernl/<bead_id>/",
+				"all stage artifacts in <artifact_dir>/",
 			},
 			OutputArtifact: StageArtifact{
 				Kind:         "commits",
@@ -451,8 +442,6 @@ func CanonicalStageContracts() map[string]StageContract {
 			},
 			ForbiddenPaths: []string{
 				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",
-				".kernl/**/plan.md",
-				".kernl/**/plan-review.md",
 			},
 		},
 		"shipment_review": {
@@ -460,10 +449,10 @@ func CanonicalStageContracts() map[string]StageContract {
 			Inputs: []string{
 				"bead.acceptance",
 				"PR description",
-				"all stage artifacts in .kernl/<bead_id>/",
+				"all stage artifacts in <artifact_dir>/",
 			},
 			OutputArtifact: StageArtifact{
-				Path:        ".kernl/<bead_id>/shipment-review.md",
+				Path:        "<artifact_dir>/shipment-review.md",
 				MustEndWith: "VERDICT: PASS",
 			},
 			ForbiddenPaths: []string{

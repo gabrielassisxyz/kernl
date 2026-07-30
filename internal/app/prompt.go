@@ -33,6 +33,12 @@ type StagePromptInput struct {
 	// "bd" was written into these strings when kernl was the only repository
 	// the orchestrator ever ran against.
 	TrackerCommand string
+	// ArtifactDir is where kernl writes this bead's exit-gate artifacts -
+	// absolute, and deliberately outside Worktree, so a stage's own
+	// `git add <files>` can never sweep kernl's control files into the
+	// target repository's commits. A stage contract's Path/Inputs entries
+	// that use the <artifact_dir> placeholder are expanded against it.
+	ArtifactDir string
 }
 
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
@@ -46,8 +52,8 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 	fmt.Fprintf(&b, "# Bead %s - %s\n\n", in.Bead.ID, in.Bead.Title)
 
 	renderRole(&b, hasContract, contract)
-	renderInputs(&b, hasContract, contract, in.Bead.ID)
-	renderOutput(&b, hasContract, contract, in.Bead.ID)
+	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
+	renderOutput(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderForbidden(&b, hasContract, contract, in.TrackerCommand)
 	renderOperatingRules(&b, in.VerifyCommand, in.Dialect)
 
@@ -80,19 +86,19 @@ func renderRole(b *strings.Builder, hasContract bool, contract backend.StageCont
 	b.WriteString("Complete this stage's work and stop.\n\n")
 }
 
-func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID string) {
+func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID, artifactDir string) {
 	if !hasContract || len(contract.Inputs) == 0 {
 		return
 	}
 	b.WriteString("## Inputs available to you\n\n")
 	for _, inp := range contract.Inputs {
-		resolved := strings.ReplaceAll(inp, "<bead_id>", beadID)
+		resolved := backend.ResolveArtifactPath(inp, beadID, artifactDir)
 		fmt.Fprintf(b, "- %s\n", resolved)
 	}
-	b.WriteString("\nSome inputs may not exist this run - e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. NEVER search for a missing input outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
+	b.WriteString("\nSome inputs may not exist this run - e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. An input path outside your worktree is kernl's own artifact directory for this bead, named above as an absolute path - it is allowed. NEVER search for a missing input anywhere else outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
 }
 
-func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID string) {
+func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID, artifactDir string) {
 	if !hasContract {
 		return
 	}
@@ -102,7 +108,12 @@ func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageCo
 	}
 	b.WriteString("## Required output\n\n")
 	if artifact.Path != "" {
-		resolved := strings.ReplaceAll(artifact.Path, "<bead_id>", beadID)
+		// The destination may be outside your worktree (kernl's own
+		// artifact directory) - resolved to an absolute path here, not left
+		// relative, because your cwd is the worktree and a relative path
+		// would write the file back into it, exactly the leak this
+		// directory exists to prevent.
+		resolved := backend.ResolveArtifactPath(artifact.Path, beadID, artifactDir)
 		fmt.Fprintf(b, "Write the following file: `%s`\n", resolved)
 	}
 	if artifact.Kind == "commits" && artifact.CommitMarker != "" {

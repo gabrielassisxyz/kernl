@@ -62,6 +62,31 @@ func TestRenderIntegration_Content(t *testing.T) {
 	}
 }
 
+// TestRenderIntegration_NamesEachChildsOwnArtifactDir proves the rendered
+// prompt tells the integration agent where to find EACH CHILD's own
+// exit-gate artifacts (plan.md, review verdicts) - not the epic's own
+// directory, and not silence. Before artifacts moved outside the worktree,
+// a child's artifacts arrived for free when its branch was merged; now they
+// never travel in a commit, so the only way the integration agent can read
+// them is a path named explicitly here.
+func TestRenderIntegration_NamesEachChildsOwnArtifactDir(t *testing.T) {
+	in := sampleIntegrationInput()
+	in.Children = []prompt.Child{
+		{ID: "c1", Branch: "feat/c1", WorktreePath: "/tmp/c1", ArtifactDir: "/home/user/.kernl/run/e1/c1"},
+		{ID: "c2", Branch: "feat/c2", WorktreePath: "/tmp/c2", ArtifactDir: "/home/user/.kernl/run/e1/c2"},
+	}
+
+	out, err := prompt.RenderIntegration(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/home/user/.kernl/run/e1/c1", "/home/user/.kernl/run/e1/c2"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("integration prompt missing child artifact dir %q\n---\n%s\n---", want, out)
+		}
+	}
+}
+
 func TestRenderIntegration_EmptyBranches(t *testing.T) {
 	cases := []prompt.IntegrationInput{
 		{EpicID: "e1", EpicTitle: "x", EpicBranch: "", BaseBranch: "master"},

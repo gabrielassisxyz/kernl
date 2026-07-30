@@ -255,6 +255,45 @@ func TestBuildBeadStagePrompt_CarriesNothingAboutKernlsOwnStack(t *testing.T) {
 	}
 }
 
+// The exit-gate artifact directory lives outside the worktree (see
+// resolveArtifactDir in drive_bead.go). The agent's cwd is the worktree, so
+// a relative path in the prompt would write the file straight back into it -
+// exactly the leak PR #40 on archeion shipped. The prompt must name the
+// absolute artifact directory instead.
+func TestBuildBeadStagePrompt_OutputArtifactIsAbsoluteOutsideWorktree(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Add dark mode"}
+	artifactDir := "/home/user/.kernl/run/epic-1/kb-1"
+
+	stages := map[string]backend.StageContract{
+		"planning": {
+			Role: "Decompose the bead into an actionable plan.",
+			Inputs: []string{
+				"bead.title",
+				"<artifact_dir>/plan.md",
+			},
+			OutputArtifact: backend.StageArtifact{
+				Path: "<artifact_dir>/plan.md",
+			},
+		},
+	}
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "planning", Stages: stages, RepoPath: "/repo", Worktree: "/repo-worktree/kb-1",
+		VerifyCommand: "bin/ci", TrackerCommand: "bd", ArtifactDir: artifactDir,
+	})
+
+	wantPath := artifactDir + "/plan.md"
+	if !strings.Contains(prompt, wantPath) {
+		t.Errorf("prompt must name the absolute artifact path %q\n---\n%s\n---", wantPath, prompt)
+	}
+	if strings.Contains(prompt, "<artifact_dir>") {
+		t.Errorf("prompt must not leak the raw <artifact_dir> placeholder:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Write the following file: `.kernl/") {
+		t.Errorf("prompt must not point the agent back inside the worktree:\n%s", prompt)
+	}
+}
+
 // The external_directory note describes one CLI's permission model. Sent to
 // claude or codex it is an instruction about a rejection they cannot produce.
 func TestBuildBeadStagePrompt_OpencodeNoteIsOpencodeOnly(t *testing.T) {

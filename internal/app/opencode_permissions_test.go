@@ -38,7 +38,7 @@ func TestForbiddenPathsRejectedAtSandbox(t *testing.T) {
 		},
 	}
 
-	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, worktree, "kb-1", "planning", stages)
+	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, worktree, "kb-1", "planning", "", stages)
 	if err != nil {
 		t.Fatalf("writeStageOpencodeConfig: %v", err)
 	}
@@ -68,6 +68,81 @@ func TestForbiddenPathsRejectedAtSandbox(t *testing.T) {
 	}
 }
 
+// Exit-gate artifacts now live outside the worktree, in a directory scoped
+// to one bead. opencode auto-rejects any external_directory path that is not
+// explicitly allowed, so without this rule every write a stage contract
+// requires there would be rejected - the coupling this bead's own report
+// flags: moving the artifact directory would otherwise leave the allowlist
+// pointing nowhere the agent can actually reach.
+func TestStageSpecializationAllowsExternalDirectoryForArtifactDir(t *testing.T) {
+	dir := t.TempDir()
+	staticCfgPath := filepath.Join(dir, "opencode-config.json")
+	data, _ := json.MarshalIndent(opencodeConfig{
+		Permission: opencodePermission{
+			Edit:              "allow",
+			ExternalDirectory: map[string]string{"/tmp/**": "allow"},
+		},
+	}, "", "  ")
+	_ = os.WriteFile(staticCfgPath, data, 0644)
+
+	artifactDir := filepath.Join(dir, "artifacts", "epic-1", "kb-1")
+	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-1", "planning", artifactDir, nil)
+	if err != nil {
+		t.Fatalf("writeStageOpencodeConfig: %v", err)
+	}
+
+	raw, _ := os.ReadFile(cfgPath)
+	var cfg opencodeConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("parse stage config: %v", err)
+	}
+	extMap, ok := cfg.Permission.ExternalDirectory.(map[string]any)
+	if !ok {
+		t.Fatalf("expected external_directory to be a map, got %T", cfg.Permission.ExternalDirectory)
+	}
+	if extMap[filepath.Join(artifactDir, "**")] != "allow" {
+		t.Errorf("expected the artifact dir to be allowed, got %v", extMap)
+	}
+	// The operator's own rule must survive the specialization.
+	if extMap["/tmp/**"] != "allow" {
+		t.Errorf("expected the pre-existing /tmp/** rule to survive, got %v", extMap)
+	}
+}
+
+// An empty artifactDir (a caller that has not resolved one - e.g. no
+// contract, or a dialect other than opencode never reaching this path) must
+// not touch external_directory at all, matching "minimal path correction,
+// not an expanded scope."
+func TestStageSpecializationLeavesExternalDirectoryAloneWithoutArtifactDir(t *testing.T) {
+	dir := t.TempDir()
+	staticCfgPath := filepath.Join(dir, "opencode-config.json")
+	data, _ := json.MarshalIndent(opencodeConfig{
+		Permission: opencodePermission{
+			Edit:              "allow",
+			ExternalDirectory: map[string]string{"/tmp/**": "allow"},
+		},
+	}, "", "  ")
+	_ = os.WriteFile(staticCfgPath, data, 0644)
+
+	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-1", "planning", "", nil)
+	if err != nil {
+		t.Fatalf("writeStageOpencodeConfig: %v", err)
+	}
+
+	raw, _ := os.ReadFile(cfgPath)
+	var cfg opencodeConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("parse stage config: %v", err)
+	}
+	extMap, ok := cfg.Permission.ExternalDirectory.(map[string]any)
+	if !ok {
+		t.Fatalf("expected external_directory to be a map, got %T", cfg.Permission.ExternalDirectory)
+	}
+	if len(extMap) != 1 || extMap["/tmp/**"] != "allow" {
+		t.Errorf("expected only the pre-existing /tmp/** rule, got %v", extMap)
+	}
+}
+
 func TestForbiddenPathsEmptyWhenNoContract(t *testing.T) {
 	dir := t.TempDir()
 	staticCfgPath := filepath.Join(dir, "opencode-config.json")
@@ -76,7 +151,7 @@ func TestForbiddenPathsEmptyWhenNoContract(t *testing.T) {
 
 	outDir := filepath.Join(dir, "run", "kb-1")
 
-	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, outDir, "kb-1", "implementation", nil)
+	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, outDir, "kb-1", "implementation", "", nil)
 	if err != nil {
 		t.Fatalf("writeStageOpencodeConfig: %v", err)
 	}
@@ -116,7 +191,7 @@ func TestStageSpecializationKeepsTheConfiguredEditPolicy(t *testing.T) {
 		"implementation": {ForbiddenPaths: []string{".kernl/**/plan.md"}},
 	}
 
-	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-2", "implementation", stages)
+	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-2", "implementation", "", stages)
 	if err != nil {
 		t.Fatalf("writeStageOpencodeConfig: %v", err)
 	}
@@ -149,7 +224,7 @@ func TestStageSpecializationRefusesAnEditPolicyItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-3", "implementation",
+	_, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-3", "implementation", "",
 		map[string]backend.StageContract{"implementation": {ForbiddenPaths: []string{"**/*.go"}}})
 	if err == nil {
 		t.Fatal("expected a loud failure rather than dropping the configured edit policy")

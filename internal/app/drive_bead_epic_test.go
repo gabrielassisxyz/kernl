@@ -99,11 +99,15 @@ func (b *epicFakeBackend) Capabilities() backend.BackendCapabilities {
 
 // workerArtifactDriver simulates a worker child agent that produces each
 // stage's exit-gate output: a "stage: implementation" marker commit, then a
-// PASS verdict artifact for implementation_review.
+// PASS verdict artifact for implementation_review. The verdict is written to
+// the same artifact directory kernl itself resolves (StateDir/run/<epic>/
+// <bead>/, not the worktree), so the driver mirrors what applyOpencodePermissions
+// would tell the agent to do.
 type workerArtifactDriver struct {
 	be       *epicFakeBackend
 	beadID   string
 	worktree string
+	stateDir string
 }
 
 func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
@@ -115,7 +119,7 @@ func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBe
 			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
 		}
 	case "implementation_review":
-		dir := filepath.Join(d.worktree, ".kernl", d.beadID)
+		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 		_ = os.MkdirAll(dir, 0o755)
 		_ = os.WriteFile(filepath.Join(dir, "implementation-review.md"), []byte("code matches the plan\n\nVERDICT: PASS"), 0o644)
 	}
@@ -145,12 +149,13 @@ func TestDriveWorker_StopsAtAwaitingIntegration(t *testing.T) {
 		ProfileID: "worker",
 	})
 
+	stateDir := t.TempDir()
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand: "bd",
-		StateDir:       t.TempDir(),
+		StateDir:       stateDir,
 		VerifyCommand:  "bin/ci",
 		Backend:        be,
-		Driver:         &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree},
+		Driver:         &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree, stateDir: stateDir},
 		Config:         newDriveTestConfig(),
 		BeadID:         "kernl-c1",
 		RepoPath:       t.TempDir(),
@@ -205,11 +210,14 @@ func TestDriveWorker_BlocksWhenImplementationSkipsCommit(t *testing.T) {
 }
 
 // artifactDriver simulates an agent that produces each epic stage's exit-gate
-// artifact, keyed on the bead's current (already-advanced) state.
+// artifact, keyed on the bead's current (already-advanced) state. The verdict
+// is written to the same artifact directory kernl itself resolves
+// (StateDir/run/<epic>/<bead>/, not the worktree).
 type artifactDriver struct {
 	be       *epicFakeBackend
 	epicID   string
 	worktree string
+	stateDir string
 }
 
 func (d *artifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
@@ -221,7 +229,7 @@ func (d *artifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResu
 			return RunBeadResult{Success: false}, fmt.Errorf("integration commit: %v: %s", err, out)
 		}
 	case "integration_review":
-		dir := filepath.Join(d.worktree, ".kernl", d.epicID)
+		dir := filepath.Join(d.stateDir, "run", d.epicID, d.epicID)
 		_ = os.MkdirAll(dir, 0o755)
 		_ = os.WriteFile(filepath.Join(dir, "integration-review.md"), []byte("merge looks coherent\n\nVERDICT: PASS"), 0o644)
 	case "shipment":
@@ -255,12 +263,13 @@ func TestDriveEpic_ReachesAwaitingPRReview(t *testing.T) {
 		ProfileID: "epic",
 	})
 
+	stateDir := t.TempDir()
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand: "bd",
-		StateDir:       t.TempDir(),
+		StateDir:       stateDir,
 		VerifyCommand:  "bin/ci",
 		Backend:        be,
-		Driver:         &artifactDriver{be: be, epicID: "kernl-e1", worktree: worktree},
+		Driver:         &artifactDriver{be: be, epicID: "kernl-e1", worktree: worktree, stateDir: stateDir},
 		Config:         newDriveTestConfig(),
 		BeadID:         "kernl-e1",
 		RepoPath:       t.TempDir(),
@@ -301,12 +310,13 @@ func TestDriveEpic_BlocksWhenShipmentSkipsPR(t *testing.T) {
 	})
 
 	// Driver creates integration + review artifacts but NEVER writes pr_url.
-	drv := &artifactDriver{be: be, epicID: "kernl-e2", worktree: worktree}
+	stateDir := t.TempDir()
+	drv := &artifactDriver{be: be, epicID: "kernl-e2", worktree: worktree, stateDir: stateDir}
 	noPR := &noPRDriver{artifactDriver: drv}
 
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand: "bd",
-		StateDir:       t.TempDir(),
+		StateDir:       stateDir,
 		VerifyCommand:  "bin/ci",
 		Backend:        be,
 		Driver:         noPR,

@@ -482,6 +482,39 @@ func TestAutonomousLookupHonorsConfigPath(t *testing.T) {
 	}
 }
 
+// TestBuildIntegrationChildren_UsesEachChildsOwnArtifactDir proves the
+// integration prompt's child list points each child at ITS OWN artifact
+// directory, not the epic's - the two share a run root
+// (<StateDir>/run/<epicID>/) but are otherwise distinct subdirectories.
+// Before exit-gate artifacts moved outside the worktree, a child's plan and
+// review verdicts arrived for free once its branch was merged; now the
+// integration agent has no other way to reach a sibling's artifacts.
+func TestBuildIntegrationChildren_UsesEachChildsOwnArtifactDir(t *testing.T) {
+	epicArtifactDir := "/home/user/.kernl/run/e1/e1"
+	children := []backend.Bead{
+		{ID: "c1"},
+		{ID: "c2"},
+	}
+
+	cs := buildIntegrationChildren(children, epicArtifactDir)
+	if len(cs) != 2 {
+		t.Fatalf("expected 2 children, got %d", len(cs))
+	}
+
+	want := map[string]string{
+		"c1": "/home/user/.kernl/run/e1/c1",
+		"c2": "/home/user/.kernl/run/e1/c2",
+	}
+	for _, c := range cs {
+		if c.ArtifactDir != want[c.ID] {
+			t.Errorf("child %s ArtifactDir = %q, want %q", c.ID, c.ArtifactDir, want[c.ID])
+		}
+		if c.ArtifactDir == epicArtifactDir {
+			t.Errorf("child %s must not be pointed at the epic's own artifact dir %q", c.ID, epicArtifactDir)
+		}
+	}
+}
+
 func TestConfirmShapeNeverAutoConfirmsOnEOF(t *testing.T) {
 	err := confirmShape(strings.NewReader(""), func(string) {}, "shape-x")
 	if err == nil || !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
