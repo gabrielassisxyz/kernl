@@ -15,13 +15,13 @@ import (
 
 type DecisionResponse struct {
 	ID         string    `json:"id"`
-	CreatedAt  time.Time `json:"created_at"`
+	CreatedAt  time.Time `json:"createdAt"`
 	Title      string    `json:"title"`
 	Body       string    `json:"body"`
 	Context    string    `json:"context"`
 	Outcome    string    `json:"outcome"`
 	Tags       []string  `json:"tags"`
-	RelatedIDs []string  `json:"related_ids"`
+	RelatedIDs []string  `json:"relatedIds"`
 }
 
 func RegisterAuditRoutes(mux *http.ServeMux, a *app.App) {

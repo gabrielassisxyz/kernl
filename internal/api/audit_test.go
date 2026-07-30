@@ -89,4 +89,19 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	if len(res[0].RelatedIDs) != 1 {
 		t.Errorf("expected 1 related ID, got %d", len(res[0].RelatedIDs))
 	}
+
+	// Decoding into DecisionResponse above passes regardless of the tag names,
+	// since encoding/json matches struct field names too; the raw keys are the
+	// only thing that proves the wire format is camelCase.
+	var rawRes []map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &rawRes); err != nil {
+		t.Fatalf("failed to decode raw response: %v", err)
+	}
+	if len(rawRes) != 1 {
+		t.Fatalf("expected 1 raw decision, got %d", len(rawRes))
+	}
+	assertJSONKeys(t, rawRes[0],
+		[]string{"id", "createdAt", "title", "body", "context", "outcome", "tags", "relatedIds"},
+		[]string{"CreatedAt", "RelatedIDs", "created_at", "related_ids"},
+	)
 }
