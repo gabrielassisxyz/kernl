@@ -49,14 +49,23 @@ var entityFolders = map[string]string{
 // deleted is a different condition (the reconciler's), and conflating the two
 // would have this sweep write a file that a note_paths row already claims.
 func Missing(ctx context.Context, tx querier) ([]Orphan, error) {
+	// NOT EXISTS, not a LEFT JOIN with a NULL test. The join asks the question per
+	// EDGE and this one has to be asked per ENTITY: an entity that lost a companion
+	// once and has a live one now carries two describes edges, the join emits a row
+	// for each, and the row for the dead one has a NULL companion that passes a
+	// "no companion" filter. That false positive made the sweep offer to write a
+	// second companion for an entity that already had one, so re-running it would
+	// have duplicated exactly what it exists to repair.
 	rows, err := tx.Query(`
 		SELECT n.id, n.type, n.title, n.attrs
 		FROM nodes n
-		LEFT JOIN edges e ON e.dst = n.id AND e.label = ?
-		LEFT JOIN nodes cn ON cn.id = e.src AND cn.type = 'note' AND cn.deleted_at IS NULL
 		WHERE n.type IN ('task', 'project', 'bookmark')
 		  AND n.deleted_at IS NULL
-		  AND cn.id IS NULL
+		  AND NOT EXISTS (
+		    SELECT 1 FROM edges e
+		    JOIN nodes cn ON cn.id = e.src AND cn.type = 'note' AND cn.deleted_at IS NULL
+		    WHERE e.dst = n.id AND e.label = ?
+		  )
 		ORDER BY n.created_at`, EdgeLabel)
 	if err != nil {
 		return nil, fmt.Errorf("companion: scan for missing companions: %w", err)
