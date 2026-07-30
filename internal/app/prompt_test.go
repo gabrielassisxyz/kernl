@@ -312,3 +312,75 @@ func TestBuildBeadStagePrompt_OpencodeNoteIsOpencodeOnly(t *testing.T) {
 		t.Error("claude must not be told about opencode's permission model")
 	}
 }
+
+// TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections
+// proves the rendered implementation prompt tells the agent where to write
+// the decision record (as an absolute path outside the worktree, for the
+// same reason as any other output artifact) and names all four required
+// sections - the parseable shape the decision_record exit gate checks for.
+func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Add dark mode"}
+	artifactDir := "/home/user/.kernl/run/epic-1/kb-1"
+
+	stages := map[string]backend.StageContract{
+		"implementation": {
+			Role: "Implement the plan.",
+			OutputArtifact: backend.StageArtifact{
+				Kind:         "commits",
+				CommitMarker: "stage: implementation",
+			},
+			DecisionRecord: backend.StageArtifact{
+				Path: "<artifact_dir>/decision-record.md",
+			},
+		},
+	}
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "implementation", Stages: stages, RepoPath: "/repo", Worktree: "/repo-worktree/kb-1",
+		VerifyCommand: "bin/ci", TrackerCommand: "bd", ArtifactDir: artifactDir,
+	})
+
+	wantPath := artifactDir + "/decision-record.md"
+	if !strings.Contains(prompt, wantPath) {
+		t.Errorf("prompt must name the absolute decision record path %q\n---\n%s\n---", wantPath, prompt)
+	}
+	for _, heading := range []string{"## Decision", "## Options Considered", "## Trade-offs", "## Rationale"} {
+		if !strings.Contains(prompt, heading) {
+			t.Errorf("prompt missing required section heading %q\n---\n%s\n---", heading, prompt)
+		}
+	}
+	if strings.Contains(prompt, "<artifact_dir>") {
+		t.Errorf("prompt must not leak the raw <artifact_dir> placeholder:\n%s", prompt)
+	}
+	// The fifth field of a full decision record (impact on using the tool)
+	// is out of scope for this stage: it is written later, by a different
+	// actor. The prompt must not ask the implementer for it.
+	if strings.Contains(prompt, "## Impact") {
+		t.Error("prompt must not ask the implementer for the impact-on-usage section")
+	}
+}
+
+// TestBuildBeadStagePrompt_DecisionRecord_OmittedWhenNotDeclared proves the
+// section is only rendered for stages whose contract actually sets
+// DecisionRecord - a stage like "planning" that never requires one must not
+// carry this instruction.
+func TestBuildBeadStagePrompt_DecisionRecord_OmittedWhenNotDeclared(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Add dark mode"}
+	stages := map[string]backend.StageContract{
+		"planning": {
+			Role: "Decompose the bead into an actionable plan.",
+			OutputArtifact: backend.StageArtifact{
+				Path: "<artifact_dir>/plan.md",
+			},
+		},
+	}
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "planning", Stages: stages, RepoPath: "/repo", Worktree: "/wt",
+		VerifyCommand: "bin/ci", TrackerCommand: "bd", ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	if strings.Contains(prompt, "## Decision record") {
+		t.Errorf("planning stage must not carry decision record instructions:\n%s", prompt)
+	}
+}
