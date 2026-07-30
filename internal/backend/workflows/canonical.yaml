@@ -81,6 +81,10 @@ owners:
   integration_review: agent
   shipment: agent
   shipment_review: agent
+exit_gates:
+  implementation:
+    type: decision_record
+    path: "<artifact_dir>/decision-record.md"
 stages:
   planning:
     role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code."
@@ -111,7 +115,7 @@ stages:
       - "**/*.py"
       - "**/*.rs"
   implementation:
-    role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan."
+    role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan. Before writing any code, enumerate the options for every decision the plan left open - a choice between approaches, a new dependency, a changed default - and write the decision record below with the winner and why it won. Write the record first: a record written after the code is a justification, not a decision."
     inputs:
       - "bead.acceptance"
       - "<artifact_dir>/plan.md"
@@ -119,6 +123,8 @@ stages:
     output_artifact:
       kind: "commits"
       commit_marker: "stage: implementation"
+    decision_record:
+      path: "<artifact_dir>/decision-record.md"
   implementation_review:
     role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict."
     inputs:

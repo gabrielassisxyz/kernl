@@ -245,6 +245,21 @@ exit_gates:
     type: "artifact_verdict"
     path: ".kernl/<bead_id>/implementation-review.md"
 `,
+		"decision_record.path": `
+id: legacy_wf
+stages:
+  implementation:
+    role: "Implement"
+    decision_record:
+      path: ".kernl/<bead_id>/decision-record.md"
+`,
+		"decision_record exit gate path": `
+id: legacy_wf
+exit_gates:
+  implementation:
+    type: "decision_record"
+    path: ".kernl/<bead_id>/decision-record.md"
+`,
 	}
 
 	for name, yamlText := range cases {

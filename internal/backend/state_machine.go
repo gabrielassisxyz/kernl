@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 type StepPhase string
@@ -100,6 +102,18 @@ type profileConfig struct {
 	ExitGates map[string]WorkflowExitGate
 }
 
+// canonicalImplementationExitGates gates the canonical pipeline's
+// "implementation" state on the decision record described in
+// CanonicalStageContracts. It is wired only onto "autopilot_with_pr" - the
+// profile canonical.yaml mirrors - and deliberately not onto "autopilot"
+// (TestEvaluateExitGate_Total pins "autopilot" as carrying no exit gates at
+// all) nor onto "epic"/"worker" (their "implementation" state already
+// carries its own commit_marker gate, and EvaluateExitGate checks exactly
+// one gate per state - combining the two is a different, unrequested change).
+var canonicalImplementationExitGates = map[string]WorkflowExitGate{
+	"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+}
+
 var builtinProfiles = []profileConfig{
 	{
 		ID:                       "epic",
@@ -181,6 +195,7 @@ var builtinProfiles = []profileConfig{
 		ImplementationReviewMode: "required",
 		Output:                   "pr",
 		Owners:                   agentOwners,
+		ExitGates:                canonicalImplementationExitGates,
 	},
 	{
 		ID:                       "semiauto",
@@ -682,9 +697,128 @@ func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, 
 			return false, "description_missing: " + gate.Path
 		}
 		return true, ""
+	case "decision_record":
+		// Unlike artifact_exists/artifact_verdict, this gate reads the
+		// file's structure, not just its existence or its last line - an
+		// empty file satisfies artifact_exists but must not satisfy this
+		// one (that gap is why this gate type exists at all).
+		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
+			return false, "artifact_dir_unset: " + gate.Path
+		}
+		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return false, "artifact_missing: " + abs
+		}
+		missing := missingDecisionRecordSections(string(data))
+		if len(missing) > 0 {
+			// Names which sections are missing, not just that the document
+			// is malformed: an agent told "invalid" cannot fix it, one told
+			// "missing: trade_offs" can.
+			return false, "decision_record_missing_sections: " + strings.Join(missing, ", ")
+		}
+		return true, ""
 	default:
 		return true, ""
 	}
+}
+
+// decisionRecordSection names one of the four fixed parts a decision record
+// must carry (AGENTS.md SS2, "Comprehension Debt"): what was being decided,
+// the options weighed, their trade-offs, and why the winner won.
+//
+// A fifth part exists in the full record - the decision's impact on using
+// the tool - and is deliberately NOT checked here. It is written by a
+// different actor (the run's composer) at a different time (run close),
+// never by the implementer at decision time; a gate that demanded it here
+// would block every bead before that actor ever runs. Do not "complete" this
+// list by adding it.
+type decisionRecordSection struct {
+	key     string // snake identifier used in the gate's failure reason
+	heading string // markdown heading text the stage prompt asks for
+}
+
+var decisionRecordSections = []decisionRecordSection{
+	{key: "decision", heading: "Decision"},
+	{key: "options_considered", heading: "Options Considered"},
+	{key: "trade_offs", heading: "Trade-offs"},
+	{key: "rationale", heading: "Rationale"},
+}
+
+var decisionRecordHeadingRe = regexp.MustCompile(`(?m)^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$`)
+
+// normalizeDecisionHeading collapses a markdown heading to lowercase
+// alphanumerics separated by single spaces, so "Trade-offs", "Trade offs"
+// and "TRADE OFFS" all match the same required section - the parser does not
+// require the agent to reproduce the heading text byte-for-byte.
+func normalizeDecisionHeading(s string) string {
+	var b strings.Builder
+	atSpace := true
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+			atSpace = false
+		case !atSpace:
+			b.WriteRune(' ')
+			atSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func decisionRecordSectionKeyByHeading() map[string]string {
+	m := make(map[string]string, len(decisionRecordSections))
+	for _, s := range decisionRecordSections {
+		m[normalizeDecisionHeading(s.heading)] = s.key
+	}
+	return m
+}
+
+// missingDecisionRecordSections returns the canonical keys of the required
+// sections that are absent, or present but empty, from a decision record's
+// markdown content. Any markdown heading - required or not - closes the
+// previous section, so an unrelated heading the implementer adds (e.g. a
+// "## Context" preamble) cannot be folded into a required section's body.
+func missingDecisionRecordSections(content string) []string {
+	byHeading := decisionRecordSectionKeyByHeading()
+	lines := strings.Split(content, "\n")
+
+	type headingHit struct {
+		key       string
+		bodyStart int
+	}
+	var hits []headingHit
+	for i, line := range lines {
+		m := decisionRecordHeadingRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		hits = append(hits, headingHit{key: byHeading[normalizeDecisionHeading(m[1])], bodyStart: i + 1})
+	}
+
+	found := make(map[string]bool, len(decisionRecordSections))
+	for i, h := range hits {
+		if h.key == "" {
+			continue
+		}
+		bodyEnd := len(lines)
+		if i+1 < len(hits) {
+			bodyEnd = hits[i+1].bodyStart - 1
+		}
+		body := strings.TrimSpace(strings.Join(lines[h.bodyStart:bodyEnd], "\n"))
+		if body != "" {
+			found[h.key] = true
+		}
+	}
+
+	var missing []string
+	for _, s := range decisionRecordSections {
+		if !found[s.key] {
+			missing = append(missing, s.key)
+		}
+	}
+	return missing
 }
 
 func ResolveStepForWorkflow(state string, wf WorkflowDescriptor) (*ResolvedStep, error) {
@@ -869,6 +1003,9 @@ func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string
 		if strings.Contains(stage.OutputArtifact.Path, legacyInWorktreeArtifactPrefix) {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q output_artifact.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is written outside the worktree", name, stage.OutputArtifact.Path)
 		}
+		if strings.Contains(stage.DecisionRecord.Path, legacyInWorktreeArtifactPrefix) {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q decision_record.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the record is written outside the worktree", name, stage.DecisionRecord.Path)
+		}
 		for _, inp := range stage.Inputs {
 			if strings.Contains(inp, legacyInWorktreeArtifactPrefix) {
 				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q input %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is read from outside the worktree", name, inp)
@@ -876,7 +1013,7 @@ func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string
 		}
 	}
 	for state, gate := range exitGates {
-		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
+		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" && gate.Type != "decision_record" {
 			// commit_marker and description_contains Path values are marker
 			// text and description substrings, not filesystem paths - a
 			// ".kernl/" substring there means nothing.
