@@ -33,6 +33,32 @@ import (
 // (not just an empty mkdir'd directory, which leaves agents nothing to
 // edit and was the cause of multiple "stuck at state" failures during
 // the kernl-npp MVP run on 2026-05-17).
+// epicGitRunner hands back the git executor for a repository, and refuses a
+// path that is not one.
+//
+// The refusal used to be a silent downgrade: a failed `rev-parse` left the
+// worktree manager with no git executor, which skipped base-branch resolution,
+// skipped the epic branch, and created each bead's "worktree" as an empty
+// mkdir'd directory. A run against a mistyped registry.repos[].path therefore
+// dispatched agents into empty folders and reported nothing wrong - the exact
+// shape of failure the fail-loud rule exists for, on the one config value that
+// decides which repository the whole run acts on.
+//
+// It is a variable because the no-git worktree mode is real, but only as a
+// test fixture. Overriding this is how a test asks for it; production has no
+// path to it.
+var epicGitRunner = func(repoPath string) (epic.GitRunner, error) {
+	if _, err := execGitRun(repoPath, "rev-parse", "--git-dir"); err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: %s is not a git repository, so there is nothing to cut branches or worktrees from - %w - Fix: correct registry.repos[].path in kernl.yaml, or run `git init` there", repoPath, err)
+	}
+	return execGitRun, nil
+}
+
+// execGitRun shells out to `git -C <dir> <args...>` and returns stdout.
+// Used by WorktreeManager so each bead gets a real isolated git worktree
+// (not just an empty mkdir'd directory, which leaves agents nothing to
+// edit and was the cause of multiple "stuck at state" failures during
+// the kernl-npp MVP run on 2026-05-17).
 func execGitRun(dir string, args ...string) (string, error) {
 	cmdArgs := append([]string{"-C", dir}, args...)
 	out, err := exec.Command("git", cmdArgs...).CombinedOutput()
@@ -337,9 +363,9 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	// repo -- hermetic tests use t.TempDir() which is not a git repo, and
 	// the worktree manager already has a no-git mkdir-only fallback for
 	// that case.
-	var gitRunForWM func(dir string, args ...string) (string, error)
-	if _, err := execGitRun(repoPath, "rev-parse", "--git-dir"); err == nil {
-		gitRunForWM = execGitRun
+	gitRunForWM, err := epicGitRunner(repoPath)
+	if err != nil {
+		return err
 	}
 	// Wire updateDesc so worktree creation stores the path in runstate.
 	wtUpdateDesc := func(beadID string, fn func(string) string) error {
