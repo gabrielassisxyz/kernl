@@ -56,8 +56,24 @@ type RegistryConfig struct {
 }
 
 type RepoEntry struct {
-	Path          string `yaml:"path"`
-	MemoryManager string `yaml:"memoryManager"`
+	Path          string         `yaml:"path"`
+	MemoryManager string         `yaml:"memoryManager"`
+	Shipment      ShipmentConfig `yaml:"shipment,omitempty"`
+}
+
+// ShipmentConfig declares where a repository is allowed to publish. It has no
+// safe default, so the zero value denies: the empty allow-list refuses to push
+// at all. Shipment is the only stage that acts outside the machine, and it must
+// be told it may.
+type ShipmentConfig struct {
+	// AllowedRemotes lists the git remotes shipment may push to, in any of the
+	// usual spellings (scp-like, https, ssh://, or host/owner/repo). The push
+	// destination and the reported pull request are both checked against it.
+	AllowedRemotes []string `yaml:"allowedRemotes,omitempty"`
+	// Remote names the git remote to push to. It is resolved to a URL before
+	// dispatch and handed to the agent verbatim, so nothing about the
+	// destination is left for the agent to work out on its own.
+	Remote string `yaml:"remote,omitempty"`
 }
 
 type ServerConfig struct {
