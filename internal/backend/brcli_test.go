@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 // fakeBr is a br binary that records the argv it was called with and replies
@@ -63,6 +65,37 @@ func brRepo(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+// The tracker follows the repository. Routing used to be decided once, always
+// as bd, so naming a br repository handed its path to a backend that runs bd.
+func TestAutoRouteFromConfigFollowsTheRepositorysTracker(t *testing.T) {
+	br := brRepo(t)
+	bd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(bd, ".beads", "embeddeddolt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{Registry: config.RegistryConfig{Repos: []config.RepoEntry{
+		{Path: bd, MemoryManager: "beads"},
+		{Path: br, MemoryManager: "br"},
+	}}}
+
+	first, err := AutoRouteFromConfig(cfg, bd)
+	if err != nil {
+		t.Fatalf("AutoRouteFromConfig(bd): %v", err)
+	}
+	if _, ok := first.(*BdCliBackend); !ok {
+		t.Errorf("a beads repo must route to the bd backend, got %T", first)
+	}
+
+	// The second registered repository is the one repos[0] used to hide.
+	second, err := AutoRouteFromConfig(cfg, br)
+	if err != nil {
+		t.Fatalf("AutoRouteFromConfig(br): %v", err)
+	}
+	if _, ok := second.(*BrCliBackend); !ok {
+		t.Errorf("a br repo must route to the br backend, got %T", second)
+	}
 }
 
 func TestBrDatabasePath(t *testing.T) {

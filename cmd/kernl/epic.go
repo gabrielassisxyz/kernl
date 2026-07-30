@@ -82,9 +82,13 @@ func runEpic(v verbContext, args []string) error {
 		return err
 	}
 
-	a, err := app.NewApp(cfg)
+	// The repository is resolved before the app is built, because the tracker
+	// is a property of the repository and the backend is chosen at
+	// construction. Resolving it afterwards only ever changed the path handed
+	// to each call, never the implementation receiving it.
+	a, err := appForSelectedRepo(cfg, "epic "+args[0], args[1:])
 	if err != nil {
-		return wrapLoud("creating app", err)
+		return err
 	}
 
 	return runEpicWithApp(a, v.configPath, args, nil)
