@@ -6,6 +6,10 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/dispatch"
+	"github.com/gabrielassisxyz/kernl/internal/shipment"
 )
 
 // beadSubcommands splits the verb in two on a real boundary. `run` drives an
@@ -61,7 +65,12 @@ func runBeadCmd(a *app.App, args []string) error {
 	if len(a.Config.Registry.Repos) == 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
 	}
-	repoPath := a.Config.Registry.Repos[0].Path
+	repoEntry := a.Config.Registry.Repos[0]
+	repoPath := repoEntry.Path
+
+	if err := refuseUnverifiedShipment(a, beadID, repoEntry); err != nil {
+		return err
+	}
 
 	input, err := app.ResolveAgentForBead(a.Config, a.Backend, beadID, repoPath)
 	if err != nil {
@@ -84,5 +93,29 @@ func runBeadCmd(a *app.App, args []string) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s exited with error, final state %s", beadID, res.FinalState)
 	}
 
+	return nil
+}
+
+// refuseUnverifiedShipment stops `bead run` from dispatching the shipment stage
+// unless the repository has declared, and kernl has verified, where it may
+// publish.
+//
+// bead run is a second door into the same stage: it resolves an agent and
+// spawns it directly, without the epic driver's pre-dispatch check, its prompt,
+// or its --dry-run. Containing one entry point and not the other contains
+// nothing, and this is the stage that opened a public pull request nobody asked
+// for.
+func refuseUnverifiedShipment(a *app.App, beadID string, repoEntry config.RepoEntry) error {
+	bead, err := a.Backend.Get(beadID, repoEntry.Path)
+	if err != nil || bead == nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", beadID, repoEntry.Path, err)
+	}
+	wf := backend.ResolveWorkflow(bead)
+	if dispatch.DerivePoolKey(&wf, bead.State) != "shipment" {
+		return nil
+	}
+	if _, err := shipment.ResolveDestination(repoEntry.Path, repoEntry.Shipment.Remote, repoEntry.Shipment.AllowedRemotes, nil); err != nil {
+		return err
+	}
 	return nil
 }

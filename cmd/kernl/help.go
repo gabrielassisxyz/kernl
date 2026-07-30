@@ -116,20 +116,30 @@ the others drive the orchestrator locally.`,
 			{
 				Name:    "run",
 				Summary: "Execute an epic's bead graph in parallel",
-				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] <epic-id>",
+				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--dry-run] <epic-id>",
 				Details: "{{flags}}",
 				Flags: []commandFlag{
 					{Name: "--workflow", Value: "<path>", Description: "Use a custom workflow YAML instead of the default profile"},
 					{Name: "--autonomous", Description: "Let the DA infer the workflow shape without prompting"},
 					{Name: "--interactive", Description: "With --autonomous: confirm the inferred shape first"},
+					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
 				},
 			},
 			{
 				Name:    "merge",
 				Summary: "(Re-)run only the epic-level integration stages",
-				Usage:   "kernl epic merge <epic-id>",
+				Usage:   "kernl epic merge [--dry-run] <epic-id>",
 				Details: `Drives the epic bead through integration -> integration_review -> shipment.
-Use it to recover a blocked epic; it does not run the children.`,
+Use it to recover a blocked epic; it does not run the children.
+
+Shipment pushes to the remote declared in registry.repos[].shipment.allowedRemotes
+and refuses any other. With no allow-list configured it refuses to push at all;
+use --dry-run to stop before shipment.
+
+{{flags}}`,
+				Flags: []commandFlag{
+					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+				},
 			},
 			{
 				Name:    "abort",

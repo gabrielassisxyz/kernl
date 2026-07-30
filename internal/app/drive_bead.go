@@ -43,6 +43,12 @@ type DriveBeadDeps struct {
 	BuildPrompt func(bead *backend.Bead, activeState string, wf backend.WorkflowDescriptor, repoPath, worktree string) string
 	// AgentStateStore holds the context-store handle.
 	AgentStateStore *workflow.AgentStateStore
+	// StopBeforeState halts the loop rather than entering the named state,
+	// leaving the bead in the state before it so a later run resumes cleanly.
+	// This is how --dry-run contains shipment: containment has to be
+	// structural, because an agent told not to publish can still decide that
+	// publishing is what the instruction meant.
+	StopBeforeState string
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -90,6 +96,11 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: bead.State, Success: false}, nil
 		}
 
+		if deps.StopBeforeState != "" && bead.State == deps.StopBeforeState {
+			slog.Info("DRIVE_TRACE return stop-before", "bead", deps.BeadID, "iter", i, "state", bead.State)
+			return RunBeadResult{FinalState: bead.State, Success: true}, nil
+		}
+
 		if deps.Log != nil {
 			deps.Log(i, bead.State)
 		}
@@ -98,6 +109,13 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		activeState := bead.State
 		if runtime.IsAgentClaimable {
 			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
+			// Stop before claiming, not after: claiming would leave the bead
+			// sitting inside the stage it never ran, which is the stranded
+			// state a resume has to be reset out of by hand.
+			if ok && deps.StopBeforeState != "" && nextState == deps.StopBeforeState {
+				slog.Info("DRIVE_TRACE return stop-before", "bead", deps.BeadID, "iter", i, "state", bead.State, "next", nextState)
+				return RunBeadResult{FinalState: bead.State, Success: true}, nil
+			}
 			if ok {
 				newLabels := filterOutLabelPrefix(bead.Labels, "wf:state:")
 				newLabels = append(newLabels, "wf:state:"+nextState)
@@ -233,6 +251,13 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			prompt = deps.BuildPrompt(bead, activeState, wf, deps.RepoPath, deps.Worktree)
 		} else {
 			prompt = BuildBeadStagePrompt(bead, activeState, wf.Stages, deps.RepoPath, deps.Worktree)
+		}
+		// An agent spawned with no prompt does whatever it infers from the
+		// working directory, which is the worst possible reading of "the stage
+		// produced nothing". A prompt builder that declined must stop the run.
+		if strings.TrimSpace(prompt) == "" {
+			return RunBeadResult{FinalState: bead.State, Success: false},
+				fmt.Errorf("KERNL DISPATCH FAILURE: empty prompt for bead %s at state %s - Fix: the stage prompt builder returned nothing; check the preceding error for why it declined", deps.BeadID, activeState)
 		}
 		agentInput.Args = appendOpencodeStageFlags(agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, deps.RepoPath)

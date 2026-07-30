@@ -261,7 +261,9 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
 	var guiURLPrinted bool
-	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e"}, func(line string) {
+	// --dry-run because this test is about executor wiring, not publishing: a
+	// hermetic test must never reach the one stage that acts outside the machine.
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--dry-run", "e"}, func(line string) {
 		if strings.Contains(line, "GUI ") && strings.Contains(line, "http://") {
 			guiURLPrinted = true
 		}
@@ -277,7 +279,7 @@ func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 func TestEpicRunBlockedPrintsNextStep(t *testing.T) {
 	fakeApp := testAppWithDiamondEpic(t, epicRunFailSpawn)
 	var out strings.Builder
-	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "e"}, func(l string) { out.WriteString(l + "\n") })
+	err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--dry-run", "e"}, func(l string) { out.WriteString(l + "\n") })
 	if err == nil {
 		t.Fatal("expected error when bead fails")
 	}

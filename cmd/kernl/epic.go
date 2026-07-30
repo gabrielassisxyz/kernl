@@ -19,10 +19,12 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
 	"github.com/gabrielassisxyz/kernl/internal/prompt"
 	"github.com/gabrielassisxyz/kernl/internal/runstate"
+	"github.com/gabrielassisxyz/kernl/internal/shipment"
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
@@ -165,6 +167,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	var workflowFlagSeen bool
 	var autonomous bool
 	var interactive bool
+	var dryRun bool
 	var remainingArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -190,11 +193,13 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			autonomous = true
 		} else if arg == "--interactive" {
 			interactive = true
+		} else if arg == "--dry-run" {
+			dryRun = true
 		} else if strings.HasPrefix(arg, "-") {
 			// A mistyped flag must not silently become the epic ID (it used
 			// to swallow --autonomous typos and run non-autonomous).
-			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive",
-				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive"}))
+			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive, --dry-run",
+				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive", "--dry-run"}))
 		} else {
 			remainingArgs = append(remainingArgs, arg)
 		}
@@ -211,7 +216,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		return fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
 	}
 	epicID := remainingArgs[0]
-	repoPath := a.Config.Registry.Repos[0].Path
+	repoEntry := a.Config.Registry.Repos[0]
+	repoPath := repoEntry.Path
 
 	// U1: Config and CLI flags for autonomous mode. The lookup honors the
 	// global --config flag (it used to hardcode "kernl.yaml", silently
@@ -338,6 +344,16 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		}
 	}
 
+	// Settle the publish destination before the executor spawns anything, so a
+	// run that would be refused at shipment is refused now rather than after
+	// every child has been implemented and reviewed. It sits after argument and
+	// workflow validation on purpose: a flag typo must still report itself as a
+	// flag typo.
+	plan, err := resolveShipmentPlan(repoEntry, dryRun, out)
+	if err != nil {
+		return err
+	}
+
 	doneSet := resumePlan.DoneSet()
 	// Collect session IDs for beads that have a recorded session.
 	sessionResumes := make(map[string]string)
@@ -411,7 +427,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		return werr
 	}
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
-	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, out); err != nil {
+	if err := driveEpic(context.Background(), a, ep, epicID, repoPath, epicWorktree, stateStore, plan, out); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
 	}
@@ -466,10 +482,39 @@ func setWFLabel(labels []string, prefix, value string) []string {
 	return append(out, prefix+value)
 }
 
+// shipmentPlan carries the verified answer to "where does this run publish?"
+// through the epic driver: the destination checked before dispatch, the
+// allow-list the reported pull request is checked against afterwards, and
+// whether shipment runs at all.
+type shipmentPlan struct {
+	Destination shipment.Destination
+	Allowed     []string
+	DryRun      bool
+}
+
+// resolveShipmentPlan settles where a run may publish before a single agent is
+// spawned. A run that would be refused at shipment is refused now, rather than
+// after the agent work that precedes it; --dry-run is how the rest of the
+// pipeline is exercised while that configuration is still missing.
+func resolveShipmentPlan(repoEntry config.RepoEntry, dryRun bool, out func(string)) (shipmentPlan, error) {
+	plan := shipmentPlan{Allowed: repoEntry.Shipment.AllowedRemotes, DryRun: dryRun}
+	if dryRun {
+		out("dry-run: the run stops before shipment - nothing is pushed and no pull request is opened\n")
+		return plan, nil
+	}
+	dest, err := shipment.ResolveDestination(repoEntry.Path, repoEntry.Shipment.Remote, repoEntry.Shipment.AllowedRemotes, nil)
+	if err != nil {
+		return shipmentPlan{}, err
+	}
+	plan.Destination = dest
+	out(fmt.Sprintf("shipment destination: %s (%s)\n", dest.RemoteName, dest.RemoteURL))
+	return plan, nil
+}
+
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
-func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, epicWorktree string, stateStore *workflow.AgentStateStore, out func(string)) error {
+func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath, epicWorktree string, stateStore *workflow.AgentStateStore, plan shipmentPlan, out func(string)) error {
 	epicBead, err := a.Backend.Get(epicID, repoPath)
 	if err != nil || epicBead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
@@ -480,6 +525,11 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to ready_for_integration: %w", epicID, err)
 	}
 
+	stopBefore := ""
+	if plan.DryRun {
+		stopBefore = "shipment"
+	}
+
 	res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
 		Backend:         a.Backend,
 		Driver:          a.Driver,
@@ -488,6 +538,7 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 		RepoPath:        repoPath,
 		Worktree:        epicWorktree,
 		AgentStateStore: stateStore,
+		StopBeforeState: stopBefore,
 		Log: func(stage int, state string) {
 			ts := time.Now().Format("15:04:05")
 			out(fmt.Sprintf("[%s] epic %s [stage %d] %s\n", ts, epicID, stage, state))
@@ -513,9 +564,15 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 				s, perr := prompt.RenderShipment(prompt.ShipmentInput{
 					EpicID: epicID, EpicTitle: bead.Title,
 					EpicBranch: "feat/" + epicID, BaseBranch: "master",
+					RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
+					RepoSlug: plan.Destination.RepoSlug,
 				})
 				if perr != nil {
-					return app.BuildBeadStagePrompt(bead, activeState, wf.Stages, rp, wt)
+					// Falling back to the generic prompt here would drop the
+					// verified destination and hand the agent the ambiguity
+					// back. The stage does not run without one.
+					out(fmt.Sprintf("KERNL DISPATCH FAILURE: cannot render the shipment prompt for epic %s: %v\n", epicID, perr))
+					return ""
 				}
 				return s
 			default:
@@ -529,6 +586,48 @@ func driveEpic(ctx context.Context, a *app.App, ep *epic.Epic, epicID, repoPath,
 	if !res.Success {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s integration stopped at %q", epicID, res.FinalState)
 	}
+	if err := verifyPublishedPullRequest(a, epicID, repoPath, plan); err != nil {
+		return err
+	}
 	out(fmt.Sprintf("epic %s → %s\n", epicID, res.FinalState))
 	return nil
+}
+
+// verifyPublishedPullRequest checks, after shipment has run, that the pull
+// request it reported lives on an allowed repository.
+//
+// The pre-dispatch check fixes the destination; this one catches the agent
+// routing around it. That is not hypothetical: the run that motivated this code
+// was pointed at a clone whose origin was a local path, found the public
+// upstream reachable through it, and opened a real pull request there. The
+// shipment exit gate already requires a "pr_url:" line, so the evidence is
+// sitting in the epic description by the time this runs.
+func verifyPublishedPullRequest(a *app.App, epicID, repoPath string, plan shipmentPlan) error {
+	if plan.DryRun {
+		return nil
+	}
+	epicBead, err := a.Backend.Get(epicID, repoPath)
+	if err != nil || epicBead == nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot re-read epic %s to verify where it published: %w", epicID, err)
+	}
+	prURL := workflow.GetPRURL(epicBead.Description)
+	if prURL == "" {
+		// No pull request means shipment did not reach that far; the stage's
+		// own outcome reporting owns that case.
+		return nil
+	}
+	checkErr := shipment.CheckPullRequestAllowed(prURL, plan.Allowed)
+	if checkErr == nil {
+		return nil
+	}
+
+	// The drive loop advances the bead as soon as the exit gate passes, so by
+	// the time this runs the epic already reads as awaiting_pr_review. Leaving
+	// it there would make the tracker say the run succeeded while the CLI says
+	// it published somewhere it may not - and the tracker is what the next
+	// session reads. Block it, and say so if that itself fails.
+	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: string(workflow.StatusBlocked)}, repoPath); err != nil {
+		return fmt.Errorf("%w - and the epic could not be marked blocked (%v), so its state still reads as a successful run: fix it by hand", checkErr, err)
+	}
+	return fmt.Errorf("%w - epic %s marked blocked", checkErr, epicID)
 }
