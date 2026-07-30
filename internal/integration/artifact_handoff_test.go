@@ -114,24 +114,28 @@ func (b *artifactHandoffBackend) Capabilities() backend.BackendCapabilities {
 type artifactWritingDriver struct {
 	worktree   string
 	beadID     string
+	stateDir   string
 	calls      int
 	writePlans bool
+}
+
+// artifactDir mirrors resolveArtifactDir in internal/app/drive_bead.go: this
+// bead has no parent, so it is its own epic scope, and plan.md now lives
+// under StateDir/run/<bead>/<bead>/, outside the worktree entirely.
+func (d *artifactWritingDriver) artifactDir() string {
+	return filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 }
 
 func (d *artifactWritingDriver) RunBead(ctx context.Context, in app.RunBeadInput) (app.RunBeadResult, error) {
 	d.calls++
 	if d.writePlans && d.calls == 1 {
-		kernlDir := filepath.Join(d.worktree, ".kernl", d.beadID)
-		if err := os.MkdirAll(kernlDir, 0755); err != nil {
-			return app.RunBeadResult{}, fmt.Errorf("mkdir .kernl: %w", err)
+		dir := d.artifactDir()
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return app.RunBeadResult{}, fmt.Errorf("mkdir artifact dir: %w", err)
 		}
-		planPath := filepath.Join(kernlDir, "plan.md")
+		planPath := filepath.Join(dir, "plan.md")
 		if err := os.WriteFile(planPath, []byte("## Bead Plan\n\n- Task 1\n- Task 2\n"), 0644); err != nil {
 			return app.RunBeadResult{}, fmt.Errorf("write plan.md: %w", err)
-		}
-		gitAdd := exec.Command("git", "-C", d.worktree, "add", "-A")
-		if out, err := gitAdd.CombinedOutput(); err != nil {
-			return app.RunBeadResult{}, fmt.Errorf("git add -A: %w\n%s", err, string(out))
 		}
 		gitCommit := exec.Command("git", "-C", d.worktree, "commit", "-m", "planning stage artifact", "--allow-empty")
 		if out, err := gitCommit.CombinedOutput(); err != nil {
@@ -192,14 +196,16 @@ func TestArtifactHandoff_PlanningArtifactWrittenAndCommented(t *testing.T) {
 		ProfileID: "autopilot",
 	}
 
+	stateDir := t.TempDir()
 	driver := &artifactWritingDriver{
 		worktree:   worktreeDir,
 		beadID:     "kb-1",
+		stateDir:   stateDir,
 		writePlans: true,
 	}
 
 	_, err := app.DriveBeadToTerminal(context.Background(), app.DriveBeadDeps{
-		StateDir:       t.TempDir(),
+		StateDir:       stateDir,
 		TrackerCommand: "bd",
 		VerifyCommand:  "bin/ci",
 		Backend:        be,
@@ -214,9 +220,16 @@ func TestArtifactHandoff_PlanningArtifactWrittenAndCommented(t *testing.T) {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
 	}
 
-	planPath := filepath.Join(worktreeDir, ".kernl", "kb-1", "plan.md")
+	// The planning artifact lives outside the worktree entirely - inside it
+	// is exactly the location a stage's own `git add <files>` can sweep into
+	// the target repository's commits, which is the defect this directory
+	// move exists to close.
+	planPath := filepath.Join(driver.artifactDir(), "plan.md")
 	if _, err := os.Stat(planPath); os.IsNotExist(err) {
 		t.Fatalf("planning artifact not found at %q after DriveBeadToTerminal", planPath)
+	}
+	if strings.HasPrefix(planPath, worktreeDir) {
+		t.Fatalf("planning artifact %q must not be inside the worktree %q", planPath, worktreeDir)
 	}
 
 	be.mu.Lock()
@@ -231,8 +244,8 @@ func TestArtifactHandoff_PlanningArtifactWrittenAndCommented(t *testing.T) {
 	for _, c := range comments {
 		if strings.Contains(c.Body, "stage: planning") {
 			foundPlanningComment = true
-			if !strings.Contains(c.Body, "artifact: .kernl/kb-1/plan.md") {
-				t.Errorf("planning comment missing artifact path:\n%s", c.Body)
+			if !strings.Contains(c.Body, "artifact: "+planPath) {
+				t.Errorf("planning comment missing artifact path %q:\n%s", planPath, c.Body)
 			}
 			if !strings.Contains(c.Body, "agent: opencode") {
 				t.Errorf("planning comment missing agent:\n%s", c.Body)

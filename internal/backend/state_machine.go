@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -125,7 +126,7 @@ var builtinProfiles = []profileConfig{
 			// integration agent must leave a marker commit on the epic branch.
 			"integration": {Type: "commit_marker", Path: "stage: integration"},
 			// integration_review agent must write a PASS verdict artifact.
-			"integration_review": {Type: "artifact_verdict", Path: ".kernl/<bead_id>/integration-review.md"},
+			"integration_review": {Type: "artifact_verdict", Path: "<artifact_dir>/integration-review.md"},
 			// shipment agent must record the opened PR URL in the epic description.
 			"shipment": {Type: "description_contains", Path: "pr_url:"},
 		},
@@ -160,7 +161,7 @@ var builtinProfiles = []profileConfig{
 			// to awaiting_integration (see kernl-gc7j post-mortem).
 			"implementation": {Type: "commit_marker", Path: "stage: implementation"},
 			// implementation_review agent must write a PASS verdict artifact.
-			"implementation_review": {Type: "artifact_verdict", Path: ".kernl/<bead_id>/implementation-review.md"},
+			"implementation_review": {Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"},
 		},
 	},
 	{
@@ -551,36 +552,124 @@ func ForwardTransitionTarget(currentState string, wf WorkflowDescriptor) (string
 	return "", false
 }
 
-// EvaluateExitGate decides whether a bead may advance past fromState after its
-// agent exited zero. beadDescription is the bead's current description (read
-// fresh after the agent ran) so description-based gates can inspect markers the
-// agent wrote there. An empty/unknown gate type passes (legacy agent_exit_zero).
-func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID, beadDescription string) (passed bool, reason string) {
-	gate, ok := wf.ExitGates[fromState]
+// ExitGateContext is everything EvaluateExitGate needs to judge one stage's
+// exit. It replaced a five-string positional call that was about to grow a
+// sixth (artifact directory) and seventh (base SHA) parameter - a struct
+// keeps the call site self-describing instead of a wall of same-typed
+// strings that differ only by argument position.
+type ExitGateContext struct {
+	// FromState is the workflow state the agent just ran in.
+	FromState string
+	// WorktreePath is the bead's git worktree. commit_marker scans it for
+	// the stage's own commits; a gate.Path that does not use the
+	// <artifact_dir> placeholder (a custom workflow's own worktree-relative
+	// file, or the pre-existing ".kernl/<bead_id>/..." convention) also
+	// resolves relative to it.
+	WorktreePath string
+	// ArtifactDir is where kernl writes exit-gate artifacts for this bead -
+	// absolute, and deliberately outside WorktreePath, so a stage's own
+	// `git add <files>` can never sweep kernl's control files into the
+	// target repository's commits (archeion PR #40 shipped
+	// .kernl/<bead>/*.md this way). A gate.Path using <artifact_dir>
+	// resolves against it instead of the worktree.
+	ArtifactDir string
+	BeadID      string
+	// BeadDescription is the bead's current description, read fresh after
+	// the agent ran, so description_contains gates see markers the agent
+	// just wrote there.
+	BeadDescription string
+	// BaseSHA is the worktree HEAD captured before the agent was dispatched.
+	// commit_marker scopes its scan to BaseSHA..HEAD so it only sees commits
+	// this stage produced. Empty means no pre-dispatch capture happened;
+	// commit_marker fails rather than falling back to scanning the whole
+	// branch, which is how an ancestor commit (a sibling merge, the base
+	// branch's own history) used to satisfy a gate the stage never earned.
+	BaseSHA string
+}
+
+// ResolveArtifactPath expands the <bead_id> and <artifact_dir> placeholders
+// used in a stage contract's or exit gate's Path/Inputs strings. It is pure
+// text substitution - a string with neither placeholder (e.g. "bead.title",
+// a descriptive Inputs entry) comes back unchanged, so callers can run every
+// entry through it without first checking whether it names a real file.
+func ResolveArtifactPath(raw, beadID, artifactDir string) string {
+	resolved := strings.ReplaceAll(raw, "<bead_id>", beadID)
+	return strings.ReplaceAll(resolved, "<artifact_dir>", artifactDir)
+}
+
+// ResolveArtifactFSPath turns a stage contract's or exit gate's Path into the
+// real file it names on disk. A path using <artifact_dir> already resolves to
+// an absolute location outside the worktree once substituted. A path that
+// does not - the pre-existing ".kernl/<bead_id>/..." convention, or a custom
+// workflow's own worktree-relative file such as
+// examples/custom-workflow's "qa_verdict.txt" - keeps resolving relative to
+// the worktree, exactly as it always has, so nothing that predates the
+// <artifact_dir> placeholder changes behavior.
+func ResolveArtifactFSPath(raw, beadID, worktreePath, artifactDir string) string {
+	if strings.Contains(raw, "<artifact_dir>") {
+		return ResolveArtifactPath(raw, beadID, artifactDir)
+	}
+	return filepath.Join(worktreePath, ResolveArtifactPath(raw, beadID, artifactDir))
+}
+
+// EvaluateExitGate decides whether a bead may advance past ctx.FromState
+// after its agent exited zero. An empty/unknown gate type passes (legacy
+// agent_exit_zero).
+func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, reason string) {
+	gate, ok := wf.ExitGates[ctx.FromState]
 	if !ok || gate.Type == "" || gate.Type == "agent_exit_zero" {
 		return true, ""
 	}
 	switch gate.Type {
 	case "artifact_exists":
-		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
-		abs := filepath.Join(worktreePath, resolved)
+		// A <artifact_dir> path with no ArtifactDir would substitute to an
+		// empty string and resolve against the filesystem root - looking
+		// like a real (missing) path instead of the unresolvable one it is.
+		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
+			return false, "artifact_dir_unset: " + gate.Path
+		}
+		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
-			return false, "artifact_missing: " + resolved
+			return false, "artifact_missing: " + abs
 		}
 		return true, ""
 	case "artifact_verdict":
-		resolved := strings.ReplaceAll(gate.Path, "<bead_id>", beadID)
-		abs := filepath.Join(worktreePath, resolved)
+		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
+			return false, "artifact_dir_unset: " + gate.Path
+		}
+		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		data, err := os.ReadFile(abs)
 		if err != nil {
-			return false, "artifact_missing: " + resolved
+			return false, "artifact_missing: " + abs
 		}
 		if !strings.HasSuffix(strings.TrimSpace(string(data)), "VERDICT: PASS") {
-			return false, "verdict_not_pass: " + resolved
+			return false, "verdict_not_pass: " + abs
 		}
 		return true, ""
 	case "commit_marker":
-		out, err := exec.Command("git", "-C", worktreePath, "log", "-n", "200", "--format=%B").CombinedOutput()
+		if ctx.BaseSHA == "" {
+			return false, "commit_marker_unscoped: " + gate.Path
+		}
+		// `git log <base>..HEAD` means "reachable from HEAD, not reachable
+		// from base" - it does NOT require base to be an ancestor of HEAD.
+		// If the worktree's history was rewritten under the run (the agent
+		// reset or rebased onto a line of history that already contains the
+		// marker), that range still evaluates and can admit the marker from
+		// an unrelated commit while the stage itself produced nothing -
+		// the original defect, reached through a different door. Requiring
+		// ancestry first closes it.
+		ancestorOut, err := exec.Command("git", "-C", ctx.WorktreePath, "merge-base", "--is-ancestor", ctx.BaseSHA, "HEAD").CombinedOutput()
+		if err != nil {
+			var exitErr *exec.ExitError
+			if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+				// Exit code 1 from --is-ancestor is a clean negative answer,
+				// not a broken command: base resolved fine, it just is not
+				// reachable from HEAD anymore.
+				return false, "commit_marker_history_rewritten: base " + ctx.BaseSHA + " is not an ancestor of HEAD"
+			}
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(ancestorOut))
+		}
+		out, err := exec.Command("git", "-C", ctx.WorktreePath, "log", "--format=%B", ctx.BaseSHA+"..HEAD").CombinedOutput()
 		if err != nil {
 			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(out))
 		}
@@ -589,7 +678,7 @@ func EvaluateExitGate(wf WorkflowDescriptor, fromState, worktreePath, beadID, be
 		}
 		return true, ""
 	case "description_contains":
-		if !strings.Contains(beadDescription, gate.Path) {
+		if !strings.Contains(ctx.BeadDescription, gate.Path) {
 			return false, "description_missing: " + gate.Path
 		}
 		return true, ""
@@ -751,6 +840,50 @@ func ValidateStages(stages map[string]StageContract) error {
 			}
 		default:
 			return fmt.Errorf("KERNL DISPATCH FAILURE: %s unknown stage kind %q", name, stage.Kind)
+		}
+	}
+	return nil
+}
+
+// legacyInWorktreeArtifactPrefix is the pre-fix convention for exit-gate
+// artifacts: a path rooted inside the bead's own worktree. Kernl's own
+// .gitignore covers .kernl/, but the target repository's does not, so an
+// artifact written there and then committed - a stage's own
+// `git add <files>`, or a workflow definition that predates this fix -
+// travels straight into that repository's own commits (the defect PR #40 on
+// archeion made public). A workflow that still names this location is not
+// "the old convention still supported": nothing consumes it as a fallback,
+// so honoring it silently would mean teaching every workflow written from
+// an unmigrated example the same bug this project exists to close.
+const legacyInWorktreeArtifactPrefix = ".kernl/"
+
+// ValidateArtifactPaths rejects any stage OutputArtifact/Inputs entry, or
+// filesystem-based exit gate Path, that still names the legacy in-worktree
+// ".kernl/" location instead of the <artifact_dir> placeholder. Called from
+// workflow resolution (LoadWorkflowYAML) so a workflow definition written
+// before the artifact directory moved outside the worktree fails loud,
+// naming the offending stage, instead of quietly reproducing the defect
+// that move fixed.
+func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string]WorkflowExitGate) error {
+	for name, stage := range stages {
+		if strings.Contains(stage.OutputArtifact.Path, legacyInWorktreeArtifactPrefix) {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q output_artifact.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is written outside the worktree", name, stage.OutputArtifact.Path)
+		}
+		for _, inp := range stage.Inputs {
+			if strings.Contains(inp, legacyInWorktreeArtifactPrefix) {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q input %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is read from outside the worktree", name, inp)
+			}
+		}
+	}
+	for state, gate := range exitGates {
+		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
+			// commit_marker and description_contains Path values are marker
+			// text and description substrings, not filesystem paths - a
+			// ".kernl/" substring there means nothing.
+			continue
+		}
+		if strings.Contains(gate.Path, legacyInWorktreeArtifactPrefix) {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the gate checks outside the worktree", state, gate.Path)
 		}
 	}
 	return nil

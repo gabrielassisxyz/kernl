@@ -19,7 +19,7 @@ stages:
       - bead.title
       - bead.description
     output_artifact:
-      path: ".kernl/<bead_id>/plan.md"
+      path: "<artifact_dir>/plan.md"
     forbidden_paths:
       - "**/*.go"
       - "**/*.ts"
@@ -48,7 +48,7 @@ stages:
 	if len(contract.Inputs) != 2 {
 		t.Errorf("expected 2 inputs, got %d", len(contract.Inputs))
 	}
-	if contract.OutputArtifact.Path != ".kernl/<bead_id>/plan.md" {
+	if contract.OutputArtifact.Path != "<artifact_dir>/plan.md" {
 		t.Errorf("expected artifact path, got %q", contract.OutputArtifact.Path)
 	}
 	if len(contract.ForbiddenPaths) != 2 {
@@ -211,6 +211,61 @@ stages:
 		t.Fatal("expected error when subprocess stage is missing script/command")
 	} else if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE: bad_stage") {
 		t.Errorf("expected stage name 'bad_stage' in dispatch error: %v", err)
+	}
+}
+
+// TestLoadWorkflow_LegacyInWorktreeArtifactPathRejects proves a workflow
+// definition that still names the pre-fix ".kernl/<bead_id>/..." location
+// fails at load time instead of being silently honored - honoring it would
+// mean every workflow written from an unmigrated example keeps writing
+// kernl's own control files into the target repository's commits, which is
+// exactly the defect the artifact directory move closed.
+func TestLoadWorkflow_LegacyInWorktreeArtifactPathRejects(t *testing.T) {
+	cases := map[string]string{
+		"output_artifact.path": `
+id: legacy_wf
+stages:
+  planning:
+    role: "Plan"
+    output_artifact:
+      path: ".kernl/<bead_id>/plan.md"
+`,
+		"inputs entry": `
+id: legacy_wf
+stages:
+  plan_review:
+    role: "Review"
+    inputs:
+      - ".kernl/<bead_id>/plan.md"
+`,
+		"exit gate path": `
+id: legacy_wf
+exit_gates:
+  implementation_review:
+    type: "artifact_verdict"
+    path: ".kernl/<bead_id>/implementation-review.md"
+`,
+	}
+
+	for name, yamlText := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "workflow.yaml")
+			if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := LoadWorkflowYAML(path)
+			if err == nil {
+				t.Fatal("expected LoadWorkflowYAML to reject a legacy in-worktree .kernl/ artifact path")
+			}
+			if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+				t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), "<artifact_dir>") {
+				t.Errorf("error must name <artifact_dir> as the fix, got: %v", err)
+			}
+		})
 	}
 }
 

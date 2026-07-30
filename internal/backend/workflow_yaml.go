@@ -47,6 +47,9 @@ func LoadWorkflowYAML(path string) (WorkflowDescriptor, error) {
 	if err := ValidateStages(wd.Stages); err != nil {
 		return WorkflowDescriptor{}, err
 	}
+	if err := ValidateArtifactPaths(wd.Stages, wd.ExitGates); err != nil {
+		return WorkflowDescriptor{}, err
+	}
 
 	return wd, nil
 }

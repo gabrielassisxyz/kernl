@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1137,4 +1138,164 @@ sys.exit(1)
 			t.Errorf("expected zero agent calls for blocked bead, got %d", driver.calls)
 		}
 	})
+}
+
+// TestResolveArtifactDir_OutsideWorktree proves exit-gate artifacts resolve
+// outside the worktree kernl hands to the agent - the fix for PR #40 on
+// archeion, where .kernl/<bead>/*.md ended up published in a target
+// repository's diff because the old artifact directory was a subdirectory
+// of the worktree.
+func TestResolveArtifactDir_OutsideWorktree(t *testing.T) {
+	worktree := filepath.Join(t.TempDir(), "worktree")
+	stateDir := t.TempDir()
+
+	dir, err := resolveArtifactDir(stateDir, "epic-1", "kb-1")
+	if err != nil {
+		t.Fatalf("resolveArtifactDir: %v", err)
+	}
+	if strings.HasPrefix(dir, worktree) {
+		t.Errorf("artifact dir %q must not be inside the worktree %q", dir, worktree)
+	}
+	if !strings.HasPrefix(dir, stateDir) {
+		t.Errorf("artifact dir %q must be under StateDir %q", dir, stateDir)
+	}
+	if want := filepath.Join(stateDir, "run", "epic-1", "kb-1"); dir != want {
+		t.Errorf("artifact dir = %q, want %q", dir, want)
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Errorf("resolveArtifactDir must create the directory it returns: %v", err)
+	}
+}
+
+func TestResolveArtifactDir_FailsLoudWithoutStateDir(t *testing.T) {
+	_, err := resolveArtifactDir("", "epic-1", "kb-1")
+	if err == nil {
+		t.Fatal("expected a loud failure when StateDir is empty")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") || !strings.Contains(err.Error(), "StateDir") {
+		t.Errorf("error must name the field that fixes it, got: %v", err)
+	}
+}
+
+// TestResolveArtifactDir_RefusesPathTraversal proves a bead whose id or
+// parent id is not a single safe path segment is refused outright, rather
+// than being cleaned by filepath.Join into a directory outside StateDir.
+// epicID and beadID are tracker data - in the scenario this project is
+// built for, the tracker belongs to a repository kernl does not own - so an
+// unvalidated "../../../.." would collapse the artifact directory toward
+// filesystem root, and the opencode external_directory rule built from it
+// (see writeStageOpencodeConfig) would then grant access to everything.
+func TestResolveArtifactDir_RefusesPathTraversal(t *testing.T) {
+	stateDir := t.TempDir()
+
+	unsafe := []string{
+		"..", ".", "", "../../../..", "a/../../b", "sub/dir", `sub\dir`, "/abs",
+	}
+
+	for _, epicID := range unsafe {
+		t.Run("epicID="+epicID, func(t *testing.T) {
+			dir, err := resolveArtifactDir(stateDir, epicID, "kb-1")
+			if err == nil {
+				t.Fatalf("expected refusal for unsafe epic id %q, got dir %q", epicID, dir)
+			}
+			if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+				t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+			}
+			// The error quotes the id with %q, which itself escapes a
+			// literal backslash - compare against the same quoting rather
+			// than the raw id so a backslash-containing case isn't a false
+			// negative here.
+			if !strings.Contains(err.Error(), fmt.Sprintf("%q", epicID)) {
+				t.Errorf("error must name the offending id %q, got: %v", epicID, err)
+			}
+			if dir != "" {
+				t.Errorf("a refused id must not return any directory, got %q", dir)
+			}
+		})
+	}
+
+	for _, beadID := range unsafe {
+		t.Run("beadID="+beadID, func(t *testing.T) {
+			dir, err := resolveArtifactDir(stateDir, "epic-1", beadID)
+			if err == nil {
+				t.Fatalf("expected refusal for unsafe bead id %q, got dir %q", beadID, dir)
+			}
+			if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+				t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+			}
+			if dir != "" {
+				t.Errorf("a refused id must not return any directory, got %q", dir)
+			}
+		})
+	}
+
+	// The worst case named in review: a genuinely malicious id pair must
+	// never collapse to StateDir itself or above it.
+	dir, err := resolveArtifactDir(stateDir, "../../../..", ".")
+	if err == nil {
+		t.Fatalf("expected refusal for a traversal pair, got dir %q", dir)
+	}
+}
+
+// TestResolveArtifactDir_RefusalEmitsNoOpencodePermission proves that when
+// the artifact directory is refused, DriveBeadToTerminal stops before ever
+// dispatching an agent or writing a permission file - the refusal is the
+// only observable effect, not a permission rule computed from a bad path.
+func TestResolveArtifactDir_RefusalEmitsNoOpencodePermission(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-traversal"] = &backend.Bead{
+		ID:        "kb-traversal",
+		ParentID:  "../../../../etc",
+		State:     "planning",
+		ProfileID: "autopilot",
+	}
+
+	driver := &scriptedDriver{be: be}
+	stateDir := t.TempDir()
+
+	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand: "bd",
+		StateDir:       stateDir,
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         driver,
+		Config:         newDriveTestConfig(),
+		BeadID:         "kb-traversal",
+		RepoPath:       "/tmp/repo",
+		Worktree:       "/tmp/worktree",
+		MaxStages:      16,
+	})
+	if err == nil {
+		t.Fatal("expected DriveBeadToTerminal to refuse a bead with an unsafe parent id")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if driver.calls != 0 {
+		t.Errorf("expected zero agent dispatches for a refused artifact dir, got %d", driver.calls)
+	}
+	// No opencode-*.json should exist anywhere under StateDir: the
+	// permission grant is never computed for a refused directory.
+	var foundConfig []string
+	_ = filepath.WalkDir(stateDir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasPrefix(d.Name(), "opencode-") {
+			foundConfig = append(foundConfig, path)
+		}
+		return nil
+	})
+	if len(foundConfig) != 0 {
+		t.Errorf("expected no opencode permission files to be written, found: %v", foundConfig)
+	}
+}
+
+func TestEpicIDFor_FallsBackToBeadIDWithNoParent(t *testing.T) {
+	standalone := &backend.Bead{ID: "kb-1"}
+	if got := epicIDFor(standalone); got != "kb-1" {
+		t.Errorf("epicIDFor(no parent) = %q, want kb-1", got)
+	}
+
+	child := &backend.Bead{ID: "kb-2", ParentID: "epic-1"}
+	if got := epicIDFor(child); got != "epic-1" {
+		t.Errorf("epicIDFor(with parent) = %q, want epic-1", got)
+	}
 }
