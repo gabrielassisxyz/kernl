@@ -96,6 +96,11 @@ orchestrator:
   # maxConcurrentBeads: 5
   # Path to the SQLite run-state database (default: ~/.kernl/runstate.db).
   # runStatePath: /home/me/.kernl/runstate.db
+  # The permission allowlist handed to a dispatched opencode agent. Unset,
+  # kernl writes and uses ~/.kernl/opencode-config.json, which you can then
+  # edit. Set it and the file must exist: a path that was named and is missing
+  # is a mistake, not a request for the default.
+  # opencodeConfigPath: /home/me/.config/kernl/opencode-config.json
 
 # Server block for the HTTP API + monitoring GUI.
 server:

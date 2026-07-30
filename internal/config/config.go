@@ -94,6 +94,11 @@ type OrchestratorConfig struct {
 	MaxConcurrentBeads int    `yaml:"maxConcurrentBeads,omitempty"`
 	RunStatePath       string `yaml:"runStatePath,omitempty"`
 	StageRetryAttempts int    `yaml:"stageRetryAttempts,omitempty"`
+	// OpencodeConfigPath overrides the permission allowlist handed to a
+	// dispatched opencode agent. It is deliberately not defaulted here: unset
+	// means kernl writes and uses its own file, while a path that is set and
+	// missing is an operator mistake that must fail loud rather than fall back.
+	OpencodeConfigPath string `yaml:"opencodeConfigPath,omitempty"`
 }
 
 type SweepConfig struct {

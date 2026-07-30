@@ -100,7 +100,17 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	agentInput.Command, agentInput.Args = BuildStageArgs(
 		adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
 		agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
-	agentInput.Env = injectOpencodeConfigEnv(agentInput.Env, rec.RepoPath)
+	if agentInput.Env == nil {
+		agentInput.Env = map[string]string{}
+	}
+	if adapter.ResolveDialect(agentInput.Command) == adapter.DialectOpenCode {
+		// The follow-up resumes the same session under the same policy; a
+		// nudge that widened or narrowed the allowlist would be a different
+		// agent answering the same conversation.
+		if err := applyOpencodePermissions(agentInput.Env, a.Config, rec.BeadID, "", nil); err != nil {
+			return err
+		}
+	}
 	agentInput.BeadID = rec.BeadID
 	agentInput.RepoPath = rec.RepoPath
 	agentInput.Cwd = rec.Cwd
