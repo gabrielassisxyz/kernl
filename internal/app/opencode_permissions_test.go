@@ -94,6 +94,71 @@ func TestForbiddenPathsEmptyWhenNoContract(t *testing.T) {
 	}
 }
 
+// A stage specialization adds deny rules; it must never hand back a policy
+// wider than the one it started from. It used to rebuild the edit map from
+// `{"*": "allow"}`, so an operator who denied a path in their own allowlist got
+// it silently allowed again for every stage that had a contract.
+func TestStageSpecializationKeepsTheConfiguredEditPolicy(t *testing.T) {
+	dir := t.TempDir()
+	staticCfgPath := filepath.Join(dir, "opencode-config.json")
+	base := opencodeConfig{
+		Permission: opencodePermission{
+			Edit: map[string]string{"*": "allow", ".env": "deny", "secrets/**": "deny"},
+			Bash: "allow",
+		},
+	}
+	data, _ := json.MarshalIndent(base, "", "  ")
+	if err := os.WriteFile(staticCfgPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	stages := map[string]backend.StageContract{
+		"implementation": {ForbiddenPaths: []string{".kernl/**/plan.md"}},
+	}
+
+	cfgPath, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-2", "implementation", stages)
+	if err != nil {
+		t.Fatalf("writeStageOpencodeConfig: %v", err)
+	}
+
+	raw, _ := os.ReadFile(cfgPath)
+	var cfg opencodeConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("parse stage config: %v", err)
+	}
+	editMap, ok := cfg.Permission.Edit.(map[string]any)
+	if !ok {
+		t.Fatalf("expected edit permission to be a map, got %T", cfg.Permission.Edit)
+	}
+	for pattern, want := range map[string]string{
+		".env":              "deny",
+		"secrets/**":        "deny",
+		".kernl/**/plan.md": "deny",
+		"*":                 "allow",
+	} {
+		if editMap[pattern] != want {
+			t.Errorf("edit[%q] = %v, want %q", pattern, editMap[pattern], want)
+		}
+	}
+}
+
+func TestStageSpecializationRefusesAnEditPolicyItCannotRead(t *testing.T) {
+	dir := t.TempDir()
+	staticCfgPath := filepath.Join(dir, "opencode-config.json")
+	if err := os.WriteFile(staticCfgPath, []byte(`{"permission":{"edit":["allow"]}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := writeStageOpencodeConfig(staticCfgPath, filepath.Join(dir, "run"), "kb-3", "implementation",
+		map[string]backend.StageContract{"implementation": {ForbiddenPaths: []string{"**/*.go"}}})
+	if err == nil {
+		t.Fatal("expected a loud failure rather than dropping the configured edit policy")
+	}
+	if !strings.Contains(err.Error(), "permission.edit") {
+		t.Fatalf("error must name the field it could not read, got: %v", err)
+	}
+}
+
 // The allowlist used to be looked up at <target-repo>/orchestrator/…, a path
 // that only ever existed inside kernl. It is kernl's policy, so kernl owns the
 // file, and an operator who does name a path gets told when it is wrong.

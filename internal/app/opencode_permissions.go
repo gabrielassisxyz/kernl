@@ -2,7 +2,9 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
@@ -38,7 +40,10 @@ func writeStageOpencodeConfig(staticConfigPath, outDir, beadID, stage string, st
 		return "", err
 	}
 
-	editRules := map[string]string{"*": "allow"}
+	editRules, err := normalizeEditRules(baseCfg.Permission.Edit, staticConfigPath)
+	if err != nil {
+		return "", err
+	}
 	contract, hasContract := stages[stage]
 	if hasContract {
 		for _, fp := range contract.ForbiddenPaths {
@@ -60,6 +65,38 @@ func writeStageOpencodeConfig(staticConfigPath, outDir, beadID, stage string, st
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing stage config %s: %w", configPath, err)
 	}
 	return configPath, nil
+}
+
+// normalizeEditRules turns whatever the base allowlist says about edits into
+// the per-pattern map a stage specialization can add deny entries to.
+//
+// Specialization used to discard this and start from `{"*": "allow"}`, so an
+// operator who denied a path in their own allowlist got it allowed back the
+// moment a stage contract existed - a specialization that widens the policy it
+// specializes. opencode accepts either a bare verdict or a pattern map here, so
+// both are carried over; a shape that is neither fails rather than being
+// dropped, because the alternative is dispatching under a policy nobody wrote.
+func normalizeEditRules(edit any, sourcePath string) (map[string]string, error) {
+	switch v := edit.(type) {
+	case nil:
+		return map[string]string{"*": "allow"}, nil
+	case string:
+		return map[string]string{"*": v}, nil
+	case map[string]string:
+		return maps.Clone(v), nil
+	case map[string]any:
+		rules := make(map[string]string, len(v))
+		for pattern, verdict := range v {
+			s, ok := verdict.(string)
+			if !ok {
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opencode allowlist %s has permission.edit[%q] = %v, which is not a verdict string - Fix: make it \"allow\", \"ask\" or \"deny\"", sourcePath, pattern, verdict)
+			}
+			rules[pattern] = s
+		}
+		return rules, nil
+	default:
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opencode allowlist %s has a permission.edit of type %T, which is neither a verdict nor a pattern map - Fix: make it a string or an object of pattern -> verdict", sourcePath, edit)
+	}
 }
 
 // builtinOpencodeAllowlist is the permission policy kernl hands to a dispatched
@@ -85,6 +122,11 @@ func builtinOpencodeAllowlist() opencodeConfig {
 // ensureBuiltinOpencodeConfig writes kernl's own allowlist into dir on first
 // run and returns its path. An existing file is left alone: it is kernl's
 // default, but once written it is the operator's to edit.
+//
+// The create is O_EXCL rather than stat-then-write. Two beads of the same epic
+// dispatch concurrently, and a check followed by an unconditional write lets
+// the second one truncate a file the first had already customized - "written
+// once, never overwritten" has to be one operation to mean anything.
 func ensureBuiltinOpencodeConfig(dir string) (string, error) {
 	path := filepath.Join(dir, "opencode-config.json")
 	if _, err := os.Stat(path); err == nil {
@@ -97,7 +139,18 @@ func ensureBuiltinOpencodeConfig(dir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: marshaling kernl's opencode allowlist: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return path, nil
+		}
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing kernl's opencode allowlist %s: %w", path, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing kernl's opencode allowlist %s: %w", path, err)
+	}
+	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing kernl's opencode allowlist %s: %w", path, err)
 	}
 	return path, nil
