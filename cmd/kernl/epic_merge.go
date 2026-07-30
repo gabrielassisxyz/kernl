@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -95,7 +94,10 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 		return err
 	}
 
-	agentStateDir := filepath.Join(os.Getenv("HOME"), ".kernl", "agentstate")
+	if a.StateDir == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for epic %s, so kernl has nowhere of its own to keep agent state - Fix: set App.StateDir (app.DefaultStateDir() outside tests)", epicID)
+	}
+	agentStateDir := filepath.Join(a.StateDir, "agentstate")
 	stateStore, err := workflow.NewAgentStateStore(agentStateDir)
 	if err != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore: %w", err)

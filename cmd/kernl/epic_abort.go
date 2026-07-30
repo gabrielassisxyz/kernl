@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -86,7 +85,10 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 	}
 	out(fmt.Sprintf("worktrees for epic %s cleaned\n", epicID))
 
-	agentStateDir := filepath.Join(os.Getenv("HOME"), ".kernl", "agentstate")
+	if a.StateDir == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for epic %s, so kernl has nowhere of its own to purge agent state from - Fix: set App.StateDir (app.DefaultStateDir() outside tests)", epicID)
+	}
+	agentStateDir := filepath.Join(a.StateDir, "agentstate")
 	store, serr := workflow.NewAgentStateStore(agentStateDir)
 	if serr != nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating AgentStateStore: %w", serr)

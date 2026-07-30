@@ -28,6 +28,12 @@ type DriverDeps struct {
 	Spawn         SpawnFunc
 	SCM           *session.SessionConnectionManager
 	NudgeRegistry *session.NudgeRegistry
+	// LogDir is the base directory kernl writes per-bead per-agent stdout/stderr
+	// logs under. It is resolved once at the process boundary (app.DefaultStateDir()
+	// plus "logs") and passed in rather than derived here, because a function deep
+	// in the dispatch loop that resolves its own home directory wrote into the
+	// operator's real ~/.kernl/logs from every unit test that reached it.
+	LogDir string
 }
 
 // RunBeadInput tells the driver which bead to run and which agent to spawn.
@@ -79,6 +85,7 @@ type SessionDriver struct {
 	spawn   SpawnFunc
 	scm     *session.SessionConnectionManager
 	nudges  *session.NudgeRegistry
+	logDir  string
 }
 
 func NewSessionDriver(deps DriverDeps) *SessionDriver {
@@ -87,6 +94,7 @@ func NewSessionDriver(deps DriverDeps) *SessionDriver {
 		spawn:   deps.Spawn,
 		scm:     deps.SCM,
 		nudges:  deps.NudgeRegistry,
+		logDir:  deps.LogDir,
 	}
 }
 
@@ -101,6 +109,9 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 	if input.Command == "" {
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: RunBeadInput.Command empty for bead %s - Fix: resolve an agent from settings.pools before calling RunBead", input.BeadID)
+	}
+	if d.logDir == "" {
+		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: no log directory for bead %s, so kernl has nowhere of its own to write agent stdout/stderr logs - Fix: set DriverDeps.LogDir (app.DefaultStateDir() outside tests)", input.BeadID)
 	}
 
 	dialect := adapter.ResolveDialect(input.Command)
@@ -126,7 +137,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// always leave forensic breadcrumbs. Best-effort: if the log dir
 	// can't be created or files can't be opened, the agent still runs;
 	// the logs are diagnostic, not load-bearing.
-	stdoutLogPath, stderrLogPath, closeLogs := openStageLogs(input.BeadID, input.AgentName)
+	stdoutLogPath, stderrLogPath, closeLogs := openStageLogs(d.logDir, input.BeadID, input.AgentName)
 	stdout = io.TeeReader(stdout, stdoutLogPath.w)
 	stderr = io.TeeReader(stderr, stderrLogPath.w)
 	defer closeLogs()
@@ -354,10 +365,11 @@ type stageLog struct {
 var discardLog = stageLog{path: "(discarded - log open failed)", w: io.Discard}
 
 // openStageLogs opens per-bead per-agent stdout/stderr log files under
-// ~/.kernl/logs/<bead>/<timestamp>-<agent>.{stdout,stderr}.log. Always
-// returns usable stageLogs (real files or io.Discard) plus a single
-// close func the caller must defer.
-func openStageLogs(beadID, agentName string) (stageLog, stageLog, func()) {
+// <baseLogDir>/<bead>/<timestamp>-<agent>.{stdout,stderr}.log. baseLogDir is
+// resolved once at the process boundary (DriverDeps.LogDir) and never
+// re-derived here. Always returns usable stageLogs (real files or
+// io.Discard) plus a single close func the caller must defer.
+func openStageLogs(baseLogDir, beadID, agentName string) (stageLog, stageLog, func()) {
 	closers := []func() error{}
 	closeAll := func() {
 		for _, c := range closers {
@@ -365,7 +377,7 @@ func openStageLogs(beadID, agentName string) (stageLog, stageLog, func()) {
 		}
 	}
 
-	logDir := filepath.Join(os.Getenv("HOME"), ".kernl", "logs", beadID)
+	logDir := filepath.Join(baseLogDir, beadID)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		slog.Warn("agent log dir create failed; logs will be discarded",
 			"dir", logDir, "error", err)

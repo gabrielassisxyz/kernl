@@ -110,7 +110,7 @@ func testSCM() *session.SessionConnectionManager {
 func TestRunBeadCmdInvokesDriver(t *testing.T) {
 	be := &testBackend{state: map[string]string{"kb-1": "ready_for_implementation"}}
 	spawner := &testSpawner{}
-	d := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawner.Spawn, SCM: testSCM()})
+	d := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: spawner.Spawn, SCM: testSCM(), LogDir: t.TempDir()})
 	a := &app.App{
 		Backend: be,
 		Driver:  d,
