@@ -125,7 +125,10 @@ func Run(deps Deps) *Report {
 	} else if _, err := os.Stat(cfgPath); err != nil {
 		cfgOK = false
 		cfgDetail = fmt.Sprintf("config file not found: %s", cfgPath)
-		cfgFix = fmt.Sprintf("copy kernl.yaml.example to %s and fill in your agents", cfgPath)
+		// Two different users hit this: one has no config yet, one has one
+		// somewhere else and is running from the wrong directory. Naming only
+		// the first sends the second off to create a duplicate.
+		cfgFix = fmt.Sprintf("copy kernl.yaml.example to %s and fill in your agents, or export KERNL_CONFIG=<path> if you already have a config elsewhere", cfgPath)
 	} else if _, err := config.Load(cfgPath); err != nil {
 		cfgOK = false
 		cfgDetail = fmt.Sprintf("config invalid: %v", err)
