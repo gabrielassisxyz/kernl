@@ -390,6 +390,53 @@ func TestRunBeadDispatchCreatesAndClosesAWorkflowRun(t *testing.T) {
 	}
 }
 
+// TestRunBeadDispatchClosesFailedOnUnsuccessfulResultWithNilError is the
+// regression test for a run record that read "completed" for a dispatch the
+// CLI itself reported as failed: runBeadDispatch returns
+// app.DriveBeadToTerminal's result directly, and that function legitimately
+// signals failure two different ways - a non-nil error, or a nil error
+// paired with RunBeadResult.Success == false (an already-blocked bead, a
+// failed exit gate, a subprocess failure, an agent result that never reached
+// a terminal success state). Deriving the run's closing status from the
+// named err alone missed the second shape entirely. Here the bead starts
+// already blocked, the exact case DriveBeadToTerminal itself returns
+// (RunBeadResult{Success: false}, nil) for before it ever calls the driver.
+func TestRunBeadDispatchClosesFailedOnUnsuccessfulResultWithNilError(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-15": "blocked"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	res, err := runBeadDispatch(a, driver, "kb-15", repoEntry, false)
+	if err != nil {
+		t.Fatalf("runBeadDispatch: unexpected error for an already-blocked bead: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected an unsuccessful result for an already-blocked bead, got %+v", res)
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("an already-blocked bead must never reach the driver, got %d calls", len(driver.calls))
+	}
+
+	var runs []*nodes.WorkflowRun
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		runs, err = nodes.ListWorkflowRuns(context.Background(), tx, nodes.WorkflowRunFilter{})
+		return err
+	}); err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly 1 workflow_run node, got %d", len(runs))
+	}
+	if runs[0].Status != "failed" {
+		t.Errorf("Status = %q, want %q - a DriveBeadToTerminal result carrying Success == false with a nil error must still close the run as failed, not \"completed\"", runs[0].Status, "failed")
+	}
+	if !strings.Contains(runs[0].RunData, "blocked") {
+		t.Errorf("RunData does not carry a failure explanation naming the final state, got: %s", runs[0].RunData)
+	}
+}
+
 // TestRunBeadDispatchDryRunRefusesAnEpicChild proves --dry-run validates
 // rather than rubber-stamping: a dry run against a bead a real run would
 // refuse must refuse too, not report success for a run that would fail the

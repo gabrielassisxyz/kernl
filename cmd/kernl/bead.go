@@ -267,9 +267,20 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		return app.RunBeadResult{}, err
 	}
 	defer func() {
+		// DriveBeadToTerminal is returned directly below, and it legitimately
+		// reports failure two ways: a non-nil err, or a nil err with
+		// result.Success == false (an already-blocked bead, a failed exit
+		// gate, a subprocess failure, an agent result that never reached a
+		// terminal success state). Deriving status from err alone missed the
+		// second shape entirely - the run record read "completed" for a
+		// dispatch runBeadCmd was, in the same breath, reporting to the
+		// operator as KERNL DISPATCH FAILURE.
 		status, failure := "completed", ""
-		if err != nil {
+		switch {
+		case err != nil:
 			status, failure = "failed", err.Error()
+		case !result.Success:
+			status, failure = "failed", fmt.Sprintf("bead %s did not reach a successful terminal state - stopped at %q", beadID, result.FinalState)
 		}
 		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
 			Status:     status,
@@ -281,6 +292,15 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		}
 		if err != nil {
 			err = fmt.Errorf("%w - additionally, closing workflow run %s failed: %v", err, runID, closeErr)
+			return
+		}
+		if !result.Success {
+			// The dispatch itself already failed (result.Success == false)
+			// with no Go error to carry that fact past this defer - branching
+			// on err alone here would report only the close failure and lose
+			// the original one, and runBeadCmd's own "!res.Success" check
+			// never runs once err stops being nil.
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s did not reach a successful terminal state (stopped at %q), and its workflow run record %s also failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", beadID, result.FinalState, runID, closeErr)
 			return
 		}
 		// The dispatch itself succeeded; only the run record failed to
