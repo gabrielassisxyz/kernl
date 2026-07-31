@@ -142,6 +142,10 @@ assert_contains "$report_out" "CLASSIFICATION CAVEAT" \
     "cmd_report names the caveat instead of relying on print order"
 assert_contains "$report_out" "not AI-vs-human" \
     "cmd_report's caveat states this is an orchestrated-vs-supervised split, not AI-vs-human"
+assert_contains "$report_out" "squash-merged" \
+    "cmd_report's caveat names the squash-merge SHA undercount, not just the orchestrated-vs-supervised framing"
+assert_contains "$report_out" "COMMITS_ORCH systematically UNDERCOUNTS" \
+    "cmd_report's caveat says which column undercounts and that PRS_*_ORCH does not"
 
 # 3 commits total, 2 matched by SHA prefix (abc1234, def5678); repoA row.
 repo_line="$(printf '%s\n' "$report_out" | grep '^repoA' | head -n1)"

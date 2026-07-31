@@ -376,7 +376,12 @@ cmd_report() {
     printf 'before the ledger existed. That "hand-produced" bucket was NOT unassisted -\n'
     printf 'it is agent-assisted work driven from an interactive chat session. This is\n'
     printf 'an orchestrated-vs-supervised split, not AI-vs-human, and raw commit/line\n'
-    printf 'volume is a proxy that rewards churn as much as it rewards shipped value.\n\n'
+    printf 'volume is a proxy that rewards churn as much as it rewards shipped value.\n'
+    printf 'A squash-merged pull request rewrites its commits into a NEW SHA the ledger\n'
+    printf 'never saw, so COMMITS_ORCH systematically UNDERCOUNTS for any epic merged\n'
+    printf 'that way, while PRS_*_ORCH (matched by branch, not SHA) does not. A low\n'
+    printf 'commit count beside a high PR count is that mechanism, not a finding about\n'
+    printf 'how much the orchestrator actually produced.\n\n'
 
     {
         printf 'BUCKET\tCOMMITS\tCOMMITS_ORCH\tFILES\t+LINES\t-LINES\tPRS_OPENED\tPRS_OPENED_ORCH\tPRS_MERGED\tPRS_MERGED_ORCH\tAVG_LEAD_H\n'
