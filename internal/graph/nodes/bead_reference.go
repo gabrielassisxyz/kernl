@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -60,18 +61,49 @@ func (b BeadReference) FTSFields() FTSFields {
 	return FTSFields{Title: b.Title, Body: b.TrackerKind + " " + b.Repository}
 }
 
-// CreateBeadReference inserts a new bead reference node and returns its ID.
+// CreateBeadReference inserts a new bead reference node and returns its ID,
+// or is a no-op returning the existing id if one already exists.
 //
-// Unlike every other node type in this package, the ID is not optional and
-// is never generated: it must be the bead's own tracker id, because the
-// entire point of this node is to be the thing edges.Create finds when a
-// caller links a Decision to that bead. Callers check nodes.Exists first
-// (see app.WriteDecisionRecordNode) rather than calling this unconditionally
-// - a reference node is never updated once created, so a second call for the
-// same id would only be a wasted write, not a correction: there is nothing
-// on this node that a later call could have a more current answer for.
+// Unlike every other node type in this package, the ID is required and is
+// never generated: it must be the bead's own tracker id, because the entire
+// point of this node is to be the thing edges.Create finds when a caller
+// links a Decision to that bead. A caller supplying an empty ID, or leaving
+// Title, TrackerKind, or Repository empty, gets an error naming what is
+// missing rather than a node written with a blank stood in for it -
+// app.ensureBeadReferenceNode already checks this with a more actionable
+// message for the one caller that exists today, but that caller is not the
+// only thing standing between an empty BeadReference and the graph: this
+// check is the one a future caller cannot bypass by skipping that layer.
+//
+// The insert is atomic and idempotent (createNodeIfAbsent, INSERT OR
+// IGNORE) rather than a separate existence check followed by an
+// unconditional insert: every child bead of the same epic calls this for
+// the same epic id, so a check-then-insert here would race across the
+// separate *graph.Graph each caller opens - two callers observing absence
+// before either commits, with only one insert succeeding and the other
+// failing on the primary-key collision instead of both converging on
+// success. A reference node is never updated once created (nothing on it
+// ever needs a more current answer), so "already exists" is success at any
+// concurrency, not a conflict to reconcile.
 func CreateBeadReference(ctx context.Context, tx *graph.WriteTx, b BeadReference, author Author) (string, error) {
-	return createNode(ctx, tx, "bead_reference", b, author)
+	if b.ID == "" {
+		return "", fmt.Errorf("nodes.CreateBeadReference: id is required and must be the bead's own tracker id - it is never generated")
+	}
+	var missing []string
+	if b.Title == "" {
+		missing = append(missing, "title")
+	}
+	if b.TrackerKind == "" {
+		missing = append(missing, "tracker kind")
+	}
+	if b.Repository == "" {
+		missing = append(missing, "repository")
+	}
+	if len(missing) > 0 {
+		return "", fmt.Errorf("nodes.CreateBeadReference: bead %s: missing %s", b.ID, strings.Join(missing, ", "))
+	}
+	id, _, err := createNodeIfAbsent(ctx, tx, "bead_reference", b, author)
+	return id, err
 }
 
 // GetBeadReference fetches a single bead reference by ID.
