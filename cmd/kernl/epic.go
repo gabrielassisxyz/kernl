@@ -879,11 +879,13 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 					}
 					return s
 				case "shipment":
+					prBodyPath := backend.ResolveArtifactPath("<artifact_dir>/pr-body.md", epicID, in.ArtifactDir)
 					s, perr := prompt.RenderShipment(prompt.ShipmentInput{
 						EpicID: epicID, EpicTitle: in.Bead.Title,
 						EpicBranch: "feat/" + epicID, BaseBranch: baseBranch,
 						RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
 						RepoSlug: plan.Destination.RepoSlug, TrackerCommand: in.TrackerCommand,
+						PRBodyPath: prBodyPath,
 					})
 					if perr != nil {
 						// Falling back to the generic prompt here would drop the
