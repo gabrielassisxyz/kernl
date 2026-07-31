@@ -14,7 +14,7 @@ import (
 // absent on purpose - it drives a local agent and is handled in bead.go - but
 // every diagnostic below suggests against the full beadSubcommands set, so a
 // user who typos `run` is still pointed at it.
-var beadAPISubcommandNames = []string{"list", "get", "create", "set", "close", "mark-terminal", "rollback", "refine-scope"}
+var beadAPISubcommandNames = []string{"list", "get", "create", "set", "close", "mark-terminal", "rollback", "refine-scope", "revert-decision"}
 
 // beadAPISubcommands documents the API half of `bead`; help.go splices it into
 // the `bead` entry next to `run`.
@@ -95,6 +95,25 @@ route fails loud. The verb exists for backends that do.`,
 		Details: `At least one of the three is required. Each one you pass replaces that
 field wholesale.`,
 	},
+	{
+		Name:    "revert-decision",
+		Summary: "Revert a decision and reopen the bead with it as a constraint",
+		Usage:   "kernl bead revert-decision <bead-id> --state <state> --reason <text> [--decision <id>] --yes [--json]",
+		Details: `Requires --yes: this rewinds the bead back to --state so its stages run
+again. --reason is required - it becomes part of the constraint the next
+implementer reads, so a fresh implementer cannot silently re-derive the
+decision that was just reverted.
+
+--decision names which recorded decision is being reverted. It can be
+omitted when the bead carries exactly one decision that has not already
+been reverted; with more than one, or none, the command fails and names
+what to pass.
+
+The decision's own reasoning (title, context, outcome) is read out of the
+graph and prepended onto the bead's description - not retyped by hand -
+because the value of recording a decision structurally is that it does not
+need to be remembered a second time to revert it.`,
+	},
 }
 
 // beadView is the subset of the API's bead object the terminal listing shows.
@@ -139,6 +158,8 @@ func runBeadAPI(v verbContext, args []string) error {
 		return runBeadTerminal(v, asJSON, rest, "mark-terminal")
 	case "rollback":
 		return runBeadTerminal(v, asJSON, rest, "rollback")
+	case "revert-decision":
+		return runBeadRevertDecision(v, asJSON, rest)
 	default:
 		return runBeadRefineScope(v, asJSON, rest)
 	}
@@ -351,6 +372,66 @@ func runBeadRefineScope(v verbContext, asJSON bool, args []string) error {
 		return emitJSON(v.stdout(), raw)
 	}
 	fmt.Fprintf(v.stdout(), "Refined scope of bead %s\n", id)
+	return nil
+}
+
+// runBeadRevertDecision serves the decision model's §6 middle row as one
+// operator-visible operation: reverting a decision and reopening the bead
+// that made it, so the pool cannot silently re-derive the same answer. See
+// app.RevertDecisionAndReopenBead for why this is composed server-side
+// rather than left as two calls this command could invoke out of order.
+func runBeadRevertDecision(v verbContext, asJSON bool, args []string) error {
+	confirmed, rest := parseBoolFlag(args, "--yes")
+	state, _, rest, err := takeFlag("bead revert-decision", rest, "--state")
+	if err != nil {
+		return err
+	}
+	decisionID, _, rest, err := takeFlag("bead revert-decision", rest, "--decision")
+	if err != nil {
+		return err
+	}
+	reason, _, rest, err := takeFlag("bead revert-decision", rest, "--reason")
+	if err != nil {
+		return err
+	}
+	if err := rejectUnknownFlags("bead revert-decision", rest); err != nil {
+		return err
+	}
+	id, err := singleBeadID("bead revert-decision", rest)
+	if err != nil {
+		return err
+	}
+	if state == "" {
+		return usagef("KERNL DISPATCH FAILURE: bead revert-decision requires --state - run: kernl bead revert-decision %s --state <state> --reason <text> --yes", id)
+	}
+	if reason == "" {
+		return usagef("KERNL DISPATCH FAILURE: bead revert-decision requires --reason - it becomes the constraint the next implementer reads - run: kernl bead revert-decision %s --state %s --reason <text> --yes", id, state)
+	}
+	if !confirmed {
+		fmt.Fprintf(v.stdout(), "Would revert the decision on bead %s and rewind it to state %q with reason %q, discarding the progress recorded after that state. Re-run with --yes to confirm.\n", id, state, reason)
+		return refusedWithoutYes("bead revert-decision")
+	}
+	body := map[string]any{"targetState": state, "reason": reason}
+	if decisionID != "" {
+		body["decisionId"] = decisionID
+	}
+	raw, err := beadAPICall(v, func(ctx context.Context, c *apiClient) (json.RawMessage, error) {
+		return c.post(ctx, "/api/beads/"+url.PathEscape(id)+"/revert-decision", body)
+	})
+	if err != nil {
+		return err
+	}
+	if asJSON {
+		return emitJSON(v.stdout(), raw)
+	}
+	var result struct {
+		DecisionID  string `json:"decisionId"`
+		TargetState string `json:"targetState"`
+	}
+	if err := decodeInto(raw, "POST /api/beads/{id}/revert-decision", &result); err != nil {
+		return err
+	}
+	fmt.Fprintf(v.stdout(), "Reverted decision %s and moved bead %s to %s\n", result.DecisionID, id, result.TargetState)
 	return nil
 }
 
