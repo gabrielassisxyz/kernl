@@ -3,6 +3,7 @@ package sweep
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -89,7 +90,11 @@ func (s *Sweeper) Tick() error {
 
 func (s *Sweeper) processEpic(e Epic) {
 	if e.PRURL == "" {
-		s.report(fmt.Sprintf("WARN sweep: epic %s in awaiting_pr_review without pr_url - skipping", e.ID))
+		// Not a WARN: "WARN" is what the stderr-only messages in this file
+		// use, and this line goes to ReportHook (stdout in the CLI) so it
+		// can explain an otherwise-empty run. Keeping the WARN prefix on a
+		// stdout line would make the prefix stop meaning "check stderr".
+		s.report(fmt.Sprintf("sweep: epic %s has no pr_url yet - skipping until the shipment stage writes one", e.ID))
 		return
 	}
 	s.mu.Lock()
@@ -139,38 +144,49 @@ func (s *Sweeper) closeAll(e Epic, reason string) {
 	}
 
 	// Track what actually closed, not what was attempted: a receipt that
-	// counts a failed child as closed is worse than no receipt at all.
-	closedChildren := 0
+	// counts a failed child as closed is worse than no receipt at all. The
+	// failing ids are collected (not just counted) so the receipt names
+	// them directly instead of pointing at a WARN on a different stream -
+	// the receipt goes through ReportHook (stdout in the CLI), the WARN
+	// stays on log (stderr), and "see above" is not true across streams.
+	var failedChildren []string
 	for _, c := range e.Children {
 		if err := s.b.Close(c, reason); err != nil {
 			log.Printf("WARN sweep: failed to close child %s: %v", c, err)
+			failedChildren = append(failedChildren, c)
 			continue
 		}
-		closedChildren++
 	}
 
-	epicClosed := true
+	var epicErr error
 	if err := s.b.Close(e.ID, reason); err != nil {
 		log.Printf("WARN sweep: failed to close epic %s: %v", e.ID, err)
-		epicClosed = false
+		epicErr = err
 	}
 
-	s.report(closeReceipt(e.ID, closedChildren, len(e.Children), epicClosed, reason))
+	closedChildren := len(e.Children) - len(failedChildren)
+	s.report(closeReceipt(e.ID, closedChildren, len(e.Children), failedChildren, epicErr, reason))
 }
 
 // closeReceipt renders the outcome of closeAll with the same detail the
 // dry-run preview gives (epic, child count) plus the reason that justified
-// the close. It reports actual counts, since this is the only path a
-// previous run had zero output on success and the operator could not tell
-// a full sweep from a no-op without checking the tracker directly.
-func closeReceipt(epicID string, closedChildren, totalChildren int, epicClosed bool, reason string) string {
-	if !epicClosed {
-		return fmt.Sprintf("sweep: epic %s NOT closed (see WARN above), %d/%d children closed - reason: %s",
-			epicID, closedChildren, totalChildren, reason)
+// the close. It reports actual counts and names the specific children that
+// failed and the epic's own close error inline, rather than referring the
+// reader to "the WARN above": the receipt and the WARN land on different
+// streams (stdout vs stderr) with no guaranteed ordering between them, so a
+// cross-stream position reference can point at a line the reader never
+// sees.
+func closeReceipt(epicID string, closedChildren, totalChildren int, failedChildren []string, epicErr error, reason string) string {
+	childDetail := fmt.Sprintf("%d/%d children closed", closedChildren, totalChildren)
+	if len(failedChildren) > 0 {
+		childDetail += fmt.Sprintf(" (failed: %s)", strings.Join(failedChildren, ", "))
 	}
-	if closedChildren < totalChildren {
-		return fmt.Sprintf("sweep: closed epic %s, %d/%d children closed (%d failed, see WARN above) - reason: %s",
-			epicID, closedChildren, totalChildren, totalChildren-closedChildren, reason)
+
+	if epicErr != nil {
+		return fmt.Sprintf("sweep: epic %s NOT closed (%v), %s - reason: %s", epicID, epicErr, childDetail, reason)
+	}
+	if len(failedChildren) > 0 {
+		return fmt.Sprintf("sweep: closed epic %s, %s - reason: %s", epicID, childDetail, reason)
 	}
 	return fmt.Sprintf("sweep: closed epic %s and %d children - reason: %s", epicID, totalChildren, reason)
 }

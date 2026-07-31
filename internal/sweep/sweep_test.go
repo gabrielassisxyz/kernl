@@ -194,6 +194,39 @@ func TestSweep_PartialCloseFailure_ReportsActualCount(t *testing.T) {
 	if !strings.Contains(reports[0], "1/2 children closed") {
 		t.Fatalf("receipt should reflect only 1 of 2 children actually closed, got %q", reports[0])
 	}
+	// The receipt must name which child failed, not point at a WARN on a
+	// different stream (the WARN is stderr, the receipt is stdout in the
+	// CLI, and nothing orders one before the other).
+	if !strings.Contains(reports[0], "failed: c1") {
+		t.Fatalf("receipt should name the failed child id directly, got %q", reports[0])
+	}
+	if strings.Contains(reports[0], "WARN above") || strings.Contains(reports[0], "see WARN") {
+		t.Fatalf("receipt should not refer to a WARN on another stream, got %q", reports[0])
+	}
+}
+
+func TestSweep_EpicCloseFailure_ReceiptNamesTheError(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}},
+		failIDs: map[string]error{"e1": errors.New("tracker locked")},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	// The epic's own close error must be readable from the receipt alone,
+	// since the WARN carrying it lands on a different stream.
+	if !strings.Contains(reports[0], "e1") || !strings.Contains(reports[0], "tracker locked") {
+		t.Fatalf("receipt should embed the epic close error, got %q", reports[0])
+	}
 }
 
 func TestSweep_MissingPRURL_ReportsSkipThroughHook(t *testing.T) {
@@ -206,6 +239,12 @@ func TestSweep_MissingPRURL_ReportsSkipThroughHook(t *testing.T) {
 	}
 	if len(reports) != 1 || !strings.Contains(reports[0], "e1") {
 		t.Fatalf("expected a skip report naming epic e1, got %v", reports)
+	}
+	// This line goes to stdout via ReportHook. A "WARN" prefix is reserved
+	// for the stderr-only log lines in this package; keeping it here would
+	// make the prefix stop meaning "this is on stderr".
+	if strings.Contains(reports[0], "WARN") {
+		t.Fatalf("skip report on stdout should not carry the WARN prefix reserved for stderr, got %q", reports[0])
 	}
 }
 
