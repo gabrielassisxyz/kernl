@@ -238,8 +238,10 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 	bead := BeadRef{ID: "kb-child-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
 	epic := BeadRef{ID: "kb-epic-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
 
+	runID := seedRunWithBeads(t, g, "epic bead", []BeadRef{bead, epic})
+
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
@@ -275,8 +277,14 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 	if !srcs[epic.ID] {
 		t.Errorf("no has_decision edge from epic %s to decision %s", epic.ID, id)
 	}
-	if len(in) != 2 {
-		t.Errorf("expected exactly 2 incoming has_decision edges, got %d: %+v", len(in), in)
+	// The run is the third source: a decision is linked to the run that
+	// produced it by an edge, which is what scopes ComposeRunReport's
+	// traversal to one run instead of to a bead's whole history.
+	if !srcs[runID] {
+		t.Errorf("no has_decision edge from run %s to decision %s", runID, id)
+	}
+	if len(in) != 3 {
+		t.Errorf("expected exactly 3 incoming has_decision edges, got %d: %+v", len(in), in)
 	}
 
 	// Criterion 6: the node id is the bead's own tracker id, and a
@@ -338,11 +346,17 @@ func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
 
-	firstID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	// The retry is the SAME run retrying, which is the shape the convergence
+	// is for. A different run is deliberately a different Decision node -
+	// decisionRecordNodeID folds the run id into the hash - so seeding a
+	// second run here would be testing the opposite property.
+	runID := seedRunWithBeads(t, g, "epic bead", []BeadRef{bead, epic})
+
+	firstID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode (first attempt): %v", err)
 	}
-	secondID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	secondID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode (retry): %v", err)
 	}
@@ -379,8 +393,8 @@ func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("edges.Incoming: %v", err)
 	}
-	if len(in) != 2 {
-		t.Errorf("has_decision edge count = %d after 2 identical writes, want 2 (one bead, one epic)", len(in))
+	if len(in) != 3 {
+		t.Errorf("has_decision edge count = %d after 2 identical writes, want 3 (one run, one bead, one epic)", len(in))
 	}
 }
 
@@ -389,8 +403,10 @@ func TestWriteDecisionRecordNode_SameBeadAndEpicWritesOneEdge(t *testing.T) {
 	ctx := context.Background()
 	bead := BeadRef{ID: "kb-standalone-1", Title: "standalone bead", TrackerKind: "bd", RepoPath: "/repo"}
 
+	runID := seedRunWithBeads(t, g, "standalone bead", []BeadRef{bead})
+
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, bead)
+	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, bead, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
@@ -403,8 +419,10 @@ func TestWriteDecisionRecordNode_SameBeadAndEpicWritesOneEdge(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("edges.Incoming: %v", err)
 	}
-	if len(in) != 1 {
-		t.Errorf("expected 1 edge when bead and epic are the same node, got %d: %+v", len(in), in)
+	// The bead-and-epic collapse to one edge; the run's own edge is always
+	// its own, so a standalone bead run still leaves exactly two.
+	if len(in) != 2 {
+		t.Errorf("expected 2 edges (run + the collapsed bead/epic) when bead and epic are the same node, got %d: %+v", len(in), in)
 	}
 
 	var refCount int
@@ -436,8 +454,10 @@ func TestWriteDecisionRecordNode_NeverSeenBeadSucceeds(t *testing.T) {
 	bead := BeadRef{ID: "kb-never-seen-1", Title: "never seen before", TrackerKind: "br", RepoPath: "/repo"}
 	epic := BeadRef{ID: "kb-never-seen-epic-1", Title: "epic, also never seen", TrackerKind: "br", RepoPath: "/repo"}
 
+	runID := seedRunWithBeads(t, g, "epic, also never seen", []BeadRef{bead, epic})
+
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
@@ -610,8 +630,16 @@ func TestWriteDecisionRecordNode_PartialFailureRollsBackEverything(t *testing.T)
 	bead := BeadRef{ID: "kb-partial-1", Title: "bead", TrackerKind: "bd", RepoPath: "/repo"}
 	epic := BeadRef{ID: "kb-epic-partial-1", TrackerKind: "bd", RepoPath: "/repo"} // Title missing on purpose
 
+	// The run is seeded against an unrelated bead on purpose. Seeding it with
+	// this test's own bead would create that bead's reference node in an
+	// earlier, already-committed transaction, and the survivor count below
+	// would then be counting that rather than a failed rollback.
+	runID := seedRunWithBeads(t, g, "partial", []BeadRef{
+		{ID: "kb-unrelated-partial-1", Title: "unrelated", TrackerKind: "bd", RepoPath: "/repo"},
+	})
+
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	_, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	_, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
 	if err == nil {
 		t.Fatal("expected an error: the epic BeadRef is missing a title")
 	}
@@ -664,8 +692,13 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
 		},
 	}
+	runID := seedRunAtPath(t, graphPath, "epic bead", []BeadRef{
+		{ID: beadID, Title: "child bead", TrackerKind: "bd", RepoPath: "/repo"},
+		{ID: epicID, Title: "epic bead", TrackerKind: "bd", RepoPath: "/repo"},
+	})
+
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: artifactDir, BeadID: beadID}
-	deps := DriveBeadDeps{Config: cfg, Backend: be, RepoPath: "/repo", TrackerCommand: "bd"}
+	deps := DriveBeadDeps{Config: cfg, Backend: be, RepoPath: "/repo", TrackerCommand: "bd", RunID: runID}
 
 	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, deps, be.beads[beadID], epicID, be.beads[epicID].Title); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
@@ -867,6 +900,11 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 		t.Fatalf("WriteFile: %v", err)
 	}
 
+	runID := seedRunAtPath(t, graphPath, "epic bead", []BeadRef{
+		{ID: "kb-2", Title: "child bead", TrackerKind: "bd", RepoPath: "/tmp/repo"},
+		{ID: "kb-epic-2", Title: "epic bead", TrackerKind: "bd", RepoPath: "/tmp/repo"},
+	})
+
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand:  "bd",
@@ -879,6 +917,7 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 		RepoPath:        "/tmp/repo",
 		Worktree:        "/tmp/worktree",
 		MaxStages:       16,
+		RunID:           runID,
 		HeadSHAResolver: fakeHeadSHAResolver{sha: "deadbeef"},
 	})
 	if err != nil {
@@ -995,6 +1034,11 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 		t.Fatalf("store.Save: %v", err)
 	}
 
+	runID := seedRunAtPath(t, graphPath, "epic bead", []BeadRef{
+		{ID: "kb-sub-1", Title: "sub bead", TrackerKind: "bd", RepoPath: "/tmp/repo"},
+		{ID: "kb-epic-sub-1", Title: "epic bead", TrackerKind: "bd", RepoPath: "/tmp/repo"},
+	})
+
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand:  "bd",
@@ -1008,6 +1052,7 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 		Worktree:        t.TempDir(),
 		AgentStateStore: store,
 		MaxStages:       16,
+		RunID:           runID,
 		HeadSHAResolver: fakeHeadSHAResolver{sha: "deadbeef"},
 	})
 	if err != nil {

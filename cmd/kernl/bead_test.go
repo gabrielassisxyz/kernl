@@ -714,3 +714,38 @@ func TestRunBeadMissingID(t *testing.T) {
 		t.Fatal("expected error for missing bead ID")
 	}
 }
+
+// TestRunBeadDispatchEscalatesAnUnwritableReport is the boundary of the
+// deliberate fail-loud exception around the composer. An unresolved field 4
+// is swallowed on purpose - the mayor being unreachable must not fail a run
+// whose code is already committed. A report file that does not exist at all
+// is a different failure: the operator judges a run by reading one, and
+// exiting 0 with only a stderr warning hands them a success they cannot
+// check.
+//
+// The report path is made unwritable by pre-creating report.md as a
+// directory, which fails os.WriteFile with EISDIR while leaving every other
+// step of the dispatch working - a permission-bit trick would additionally
+// have to be skipped under root.
+func TestRunBeadDispatchEscalatesAnUnwritableReport(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-16": "ready_for_implementation"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	blocked := filepath.Join(a.StateDir, "run", "kb-16", "report.md")
+	if err := os.MkdirAll(blocked, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	res, err := runBeadDispatch(a, driver, "kb-16", repoEntry, false)
+	if !res.Success {
+		t.Fatalf("the dispatch itself must succeed; only the report is unwritable, got %+v", res)
+	}
+	if err == nil {
+		t.Fatal("a run whose report could not be written must not report plain success")
+	}
+	if !strings.Contains(err.Error(), "run report") {
+		t.Errorf("the error must say it was the report that failed, got: %v", err)
+	}
+}

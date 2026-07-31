@@ -115,18 +115,27 @@ func decisionFromRecordSections(sections map[string]string, now time.Time) nodes
 }
 
 // decisionRecordNodeID derives a stable node ID from exactly the facts that
-// make two writes "the same decision": which bead, which epic, and the four
-// section bodies themselves. A re-run of the same bead against the same
-// record - the normal shape of a retry after Backend.Update fails following
-// a successful graph write, see WriteDecisionRecordNode - hashes to the same
-// ID and so converges on the one existing node instead of minting a fresh
-// UUID and a fresh set of edges for every attempt. Genuinely different
-// content (a real second decision, or the same bead revisiting the stage
-// with a rewritten record) hashes to a different ID and gets its own node,
-// same as it would with a random one.
-func decisionRecordNodeID(beadID, epicID string, sections map[string]string) string {
+// make two writes "the same decision": which run, which bead, which epic,
+// and the four section bodies themselves. A re-run of the same bead against
+// the same record within the same run - the normal shape of a retry after
+// Backend.Update fails following a successful graph write, see
+// WriteDecisionRecordNode - hashes to the same ID and so converges on the
+// one existing node instead of minting a fresh UUID and a fresh set of
+// edges for every attempt.
+//
+// runID is folded into the hash, not just recorded as an edge, so that two
+// DIFFERENT runs can never converge on the same Decision node even when a
+// bead somehow revisits the same stage with byte-identical content (a
+// reverted-and-reopened bead per the decision model's §6, a fix-up bead). If
+// the ID were content-only, such a case would silently re-link a decision
+// that already belongs to an earlier run's report onto a second run,
+// reintroducing exactly the cross-run leak WriteDecisionRecordNode's own doc
+// comment on the run edge exists to prevent. Genuinely different content
+// (a real second decision) hashes to a different ID and gets its own node
+// regardless.
+func decisionRecordNodeID(runID, beadID, epicID string, sections map[string]string) string {
 	h := sha256.New()
-	_, _ = io.WriteString(h, "bead:"+beadID+"\x00epic:"+epicID+"\x00")
+	_, _ = io.WriteString(h, "run:"+runID+"\x00bead:"+beadID+"\x00epic:"+epicID+"\x00")
 	for _, key := range decisionRecordRequiredKeys {
 		_, _ = io.WriteString(h, key+":"+sections[key]+"\x00")
 	}
@@ -229,34 +238,58 @@ func ensureBeadReferenceNode(ctx context.Context, tx *graph.WriteTx, ref BeadRef
 }
 
 // WriteDecisionRecordNode creates a Decision node from a decision record's
-// extracted sections and links it to the bead and (when different) the epic
-// it was written for via edges.EdgeTypeHasDecision, all inside one write
-// transaction - a node with no link back to the work it explains is not
-// meaningfully queryable later, so the two are written together or not at
-// all.
+// extracted sections and links it to the run, the bead, and (when different)
+// the epic it was written for, all via edges.EdgeTypeHasDecision and all
+// inside one write transaction - a node with no link back to the work it
+// explains is not meaningfully queryable later, so all of it is written
+// together or not at all.
 //
-// edges.Create requires both endpoints to already exist as node rows, and
-// orchestrator bead/epic ids are never otherwise mirrored into this graph
+// runID is mandatory and fails loud when empty, rather than degrading to a
+// bead-and-epic-only write: this project's only production caller
+// (recordDecisionIfGateType, via DriveBeadDeps.RunID) always has one, since
+// both `epic run` and `bead run` open a workflow run before ever driving a
+// bead, and a decision written with no run edge would be permanently
+// unreachable to app.ComposeRunReport's own traversal (workflow_run
+// --has_decision--> decision, one hop from the run) - silently losing part
+// of the record the run's report exists to surface.
+// EdgeTypeHasDecision is reused for the run edge rather than a new type: the
+// direction convention is already "the container points at the contained",
+// and a run containing a decision is the same relation a bead containing one
+// is.
+//
+// edges.Create requires every endpoint to already exist as a node row.
+// Orchestrator bead/epic ids are never otherwise mirrored into this graph
 // (nodes.Task and nodes.Project are a distinct, human-authored concept - see
-// task.go's own doc comment). bead and epic (a reference-node stub, not the
-// bead's full tracker state - see nodes.BeadReference) supply exactly what
-// is needed to bring both endpoints into existence via
-// ensureBeadReferenceNode before either edge is attempted.
+// task.go's own doc comment), so bead and epic (reference-node stubs, not
+// the bead's full tracker state - see nodes.BeadReference) supply exactly
+// what is needed to bring those two endpoints into existence via
+// ensureBeadReferenceNode before their edges are attempted. The run node is
+// different: it is a real nodes.WorkflowRun row StartWorkflowRun already
+// created, never a stub minted here, so a runID that does not name an
+// existing run node fails the same way any other broken reference would.
 //
-// The Decision node ID is content-addressed (decisionRecordNodeID), and the
-// reference node creates, the Decision create, and the edge creates are all
-// skipped when they already exist (nodes.Exists, ensureBeadReferenceNode,
+// The Decision node ID is content-addressed over the run id, bead id, epic
+// id, and the four section bodies (decisionRecordNodeID) - folding runID
+// into the hash, not just recording it as an edge, is what makes two
+// different runs structurally unable to ever converge on the same Decision
+// node; see that function's own doc comment. The reference node creates,
+// the Decision create, and the edge creates are all skipped when they
+// already exist (nodes.Exists, ensureBeadReferenceNode,
 // ensureHasDecisionEdge) - a caller that retries this same call for the same
-// bead and the same record (DriveBeadToTerminal does, whenever the graph
-// write itself succeeds but the bead's state update fails afterward and the
-// run is retried) converges on one of each rather than accumulating one per
-// attempt.
+// run, the same bead, and the same record (DriveBeadToTerminal does,
+// whenever the graph write itself succeeds but the bead's state update
+// fails afterward and the same run is retried) converges on one of each
+// rather than accumulating one per attempt.
 //
 // Exported so a test proving the audit API surfaces this path's output (see
 // internal/api/audit.go) can call the real write path instead of re-deriving
 // fixture data by hand.
-func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[string]string, bead, epic BeadRef) (string, error) {
-	id := decisionRecordNodeID(bead.ID, epic.ID, sections)
+func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[string]string, bead, epic BeadRef, runID string) (string, error) {
+	if runID == "" {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing decision record node for bead %s: no workflow run id was supplied - Fix: this is a caller bug (DriveBeadDeps.RunID must be set from what StartWorkflowRun returned before DriveBeadToTerminal runs), not a config value to change", bead.ID)
+	}
+
+	id := decisionRecordNodeID(runID, bead.ID, epic.ID, sections)
 	author := nodes.Author{Name: "kernl-dispatch"}
 
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
@@ -279,6 +312,9 @@ func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[s
 			if _, err := nodes.CreateDecision(ctx, tx, d, author); err != nil {
 				return err
 			}
+		}
+		if err := ensureHasDecisionEdge(ctx, tx, runID, id, author); err != nil {
+			return err
 		}
 		if err := ensureHasDecisionEdge(ctx, tx, bead.ID, id, author); err != nil {
 			return err
@@ -377,6 +413,6 @@ func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor
 	}
 	defer g.Close()
 
-	_, err = WriteDecisionRecordNode(ctx, g, sections, beadRef, epicRef)
+	_, err = WriteDecisionRecordNode(ctx, g, sections, beadRef, epicRef, deps.RunID)
 	return err
 }

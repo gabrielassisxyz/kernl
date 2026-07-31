@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -57,6 +59,16 @@ type LLMImpactComposer struct {
 }
 
 // ComposeImpact implements ImpactComposer.
+//
+// A response that is empty only after trimming (whitespace, or a single
+// newline) is treated as a failure, not as "the composer ran and had
+// nothing to add": CompleteChat itself already rejects a raw-empty
+// completion as an error rather than a valid zero-length answer, and a
+// model that answered with nothing but whitespace is exhibiting the same
+// failure (truncation, a refusal with no text), not making the deliberate
+// judgment call *""* is reserved for. Persisting it as "" would tell a
+// later reader the composer looked at this decision and had nothing to
+// say, which is not what happened.
 func (c LLMImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact) (string, error) {
 	p := prompt.RenderImpactOnUse(prompt.ImpactOnUseInput{
 		DecisionTitle:     in.DecisionTitle,
@@ -71,8 +83,41 @@ func (c LLMImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(text), nil
+	return nonEmptyCompletion(text)
 }
+
+// nonEmptyCompletion rejects a response that is only whitespace.
+//
+// dispatch.CompleteChat already refuses a completion that is the empty
+// string, but it checks before trimming, so "   \n" reaches here. Passing
+// that through would trim to "" and be persisted as a pointer to the empty
+// string - which in this design means the composer ran and deliberately had
+// nothing to add (see nodes.Decision.ImpactOnUse). A model answering
+// whitespace decided nothing of the sort; it truncated or refused. Treating
+// it as a failure puts it in the awaiting path, where an absent answer
+// belongs, and matches how CompleteChat already treats an empty one.
+//
+// Split out from ComposeImpact so this rule is testable without a network
+// call: everything above it in that method reaches an HTTP endpoint, which
+// a unit test may not do (AGENTS.md §4).
+func nonEmptyCompletion(text string) (string, error) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return "", fmt.Errorf("the model's response was empty after trimming whitespace")
+	}
+	return trimmed, nil
+}
+
+// impactComposeTimeout bounds a single ComposeImpact call. context.Background()
+// has no deadline of its own, and dispatch.CompleteChat's http.DefaultClient
+// carries none either, so without this an endpoint that accepts the
+// connection and never answers hangs the whole run close forever: no report,
+// no CloseWorkflowRun, no error, no exit - strictly worse than the
+// unreachable-mayor case this design otherwise already tolerates. 60 seconds
+// is generous for a 2-4 sentence completion and short enough that one dead
+// endpoint costs the operator under a minute of an otherwise-finished run,
+// not an indefinite hang.
+const impactComposeTimeout = 60 * time.Second
 
 // BeadRunOutcome is one bead a run drove and the terminal state it landed
 // on. ComposeRunReport has no tracker client of its own, so the caller
@@ -84,26 +129,28 @@ type BeadRunOutcome struct {
 	FinalState string
 }
 
-// ComposeRunReportInput carries everything ComposeRunReport needs: which run
-// to report on, the composer to hand field 4 to (nil when no LLM is
-// configured for this run), and the header/summary facts kernl already holds
-// and writes deterministically. Only DecisionImpact ever reaches Composer -
-// these facts do not, per §5 of the decision model this implements: the
-// composer supplies the translation, never the technical record.
+// ComposeRunReportInput carries everything ComposeRunReport needs. RunID is
+// the only way it locates its subject: the run's entry point, repository and
+// base branch are read back from the workflow_run node itself
+// (StartWorkflowRun already wrote them), not re-supplied here, so this
+// cannot drift from what the run actually recorded. Status/FinishedAt/Beads
+// are NOT yet on that node when this runs - ComposeRunReport is called
+// before CloseWorkflowRun writes them - so those remain the caller's own,
+// freshly-observed facts.
+//
+// Only DecisionImpact ever reaches Composer - none of these facts do, per §5
+// of the decision model this implements: the composer supplies the
+// translation, never the technical record.
 type ComposeRunReportInput struct {
 	Graph    *graph.Graph
 	Composer ImpactComposer
 
-	RunID      string
-	EntryPoint string
-	RepoPath   string
-	BaseBranch string
+	RunID string
 	// Status is the run's terminal status, exactly as the caller is about to
 	// pass to CloseWorkflowRun ("completed" or "failed") - the report is
 	// composed before the run record closes, so this is the caller's own
 	// verdict, not a value read back from the graph.
 	Status     string
-	StartedAt  time.Time
 	FinishedAt time.Time
 	Beads      []BeadRunOutcome
 
@@ -117,31 +164,34 @@ type ComposeRunReportInput struct {
 	EpicID   string
 }
 
-// runDecision is one decision reachable from a run's beads, paired with the
-// title of whichever bead reference the traversal reached it through - the
-// bead name a report reader needs beside the decision, and BeadReference
-// never carries that in the Decision node itself.
+// runDecision is one decision belonging to a run, paired with the title of
+// the bead it was recorded against - the bead name a report reader needs
+// beside the decision, and BeadReference never carries that in the Decision
+// node itself.
 type runDecision struct {
 	decision  *nodes.Decision
 	beadTitle string
 }
 
-// ComposeRunReport is the run-close composer: it finds every decision the
-// run's beads recorded, asks the mayor (in.Composer) to write field 4 for
+// ComposeRunReport is the run-close composer: it finds every decision
+// belonging to the run, asks the mayor (in.Composer) to write field 4 for
 // whichever ones do not already have it, writes a genuine answer back onto
 // the Decision node, and renders one Markdown report for the whole run.
 //
-// The mayor being unreachable - no llm.provider configured, or the call
-// itself failing - never fails this function and never writes "" in place
-// of a real answer: an unresolved field 4 stays nil on the node (see
-// nodes.Decision.ImpactOnUse's own doc comment on why nil and "" must stay
-// distinguishable) and the report says plainly, for that decision, that it
-// is awaiting the composer and why. This is a deliberate exception to
-// AGENTS.md §2's fail-loud rule: by the time a run closes, code is already
-// committed and the tracker is already updated, so halting the close over a
-// prose field would fail a run that, in every way that matters, succeeded.
-// Everything else here - an unopened graph, a broken traversal, a report
-// that cannot be written to disk - is a genuine bug and still fails loud.
+// The mayor being unreachable - no llm.provider configured, the call itself
+// failing, or the call outliving impactComposeTimeout - never fails this
+// function and never writes "" in place of a real answer: an unresolved
+// field 4 stays nil on the node (see nodes.Decision.ImpactOnUse's own doc
+// comment on why nil and "" must stay distinguishable) and the report says
+// plainly, for that decision, that it is awaiting the composer and why.
+// This is a deliberate exception to AGENTS.md §2's fail-loud rule: by the
+// time a run closes, code is already committed and the tracker is already
+// updated, so halting the close over a prose field would fail a run that,
+// in every way that matters, succeeded. Everything else here - an unopened
+// graph, an unknown run id, a broken traversal, a report that cannot be
+// written to disk - is a genuine bug and still fails loud: the caller is
+// expected to surface that error as a real dispatch failure, not swallow it
+// the way an unresolved field 4 is swallowed.
 func ComposeRunReport(ctx context.Context, in ComposeRunReportInput) (string, error) {
 	if in.Graph == nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no graph is open, so run %s's report cannot find its decisions - Fix: this is an App wiring bug (App.Graph must be set by NewAppForRepo/NewApp), not a config value to change", in.RunID)
@@ -150,78 +200,108 @@ func ComposeRunReport(ctx context.Context, in ComposeRunReportInput) (string, er
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: composing a run report with no run id")
 	}
 
+	var wr *nodes.WorkflowRun
 	var found []runDecision
 	if err := in.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var err error
+		wr, err = nodes.GetWorkflowRun(ctx, tx, in.RunID)
+		if err != nil {
+			return err
+		}
 		found, err = findRunDecisions(ctx, tx, in.RunID)
 		return err
 	}); err != nil {
+		if errors.Is(err, graph.ErrNotFound) {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: composing a report for run %s: no such workflow run exists in the graph - Fix: this is a caller bug (RunID must be exactly what StartWorkflowRun returned for this dispatch), not a config value to change", in.RunID)
+		}
 		return "", err
 	}
 
-	fields := make([]decisionReportFields, 0, len(found))
-	for _, rd := range found {
-		impact := resolveImpactField(ctx, in.Graph, in.Composer, in.RepoPath, rd.decision, rd.beadTitle)
-		fields = append(fields, buildDecisionReportFields(rd.decision, impact))
+	var rd runData
+	if err := json.Unmarshal([]byte(wr.RunData), &rd); err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: run %s's stored run data does not parse as JSON: %w - Fix: this indicates StartWorkflowRun wrote a malformed blob, a bug to fix there, not a value to paper over here", in.RunID, err)
 	}
 
-	return writeRunReport(in.StateDir, in.EpicID, renderRunReport(in, fields))
+	fields := make([]decisionReportFields, 0, len(found))
+	for _, r := range found {
+		impact := resolveImpactField(ctx, in.Graph, in.Composer, rd.RepoPath, r.decision, r.beadTitle)
+		fields = append(fields, buildDecisionReportFields(r.decision, impact))
+	}
+
+	return writeRunReport(in.StateDir, in.EpicID, renderRunReport(in, rd, fields))
 }
 
-// findRunDecisions walks workflow_run --ran_bead--> bead_reference
-// --has_decision--> decision - the traversal the decision model's §4.4/§5
-// prescribes, and the only one this package uses to locate a run's
-// decisions. Re-deriving them any other way (e.g. scanning every Decision
-// node for a matching bead id) would silently diverge from what
-// WriteDecisionRecordNode actually wrote, and could pick up a decision that
-// merely shares a bead id with a different run.
+// findRunDecisions walks the single edge WriteDecisionRecordNode creates
+// from a run to each decision it recorded (workflow_run --has_decision-->
+// decision), rather than the two-hop path through the run's beads a
+// bead_reference node's own EdgeTypeHasDecision edges would suggest.
 //
-// WriteDecisionRecordNode links both a child bead and its epic to the same
-// Decision node; since epic run's own bead list includes the epic itself,
-// the traversal can reach one decision through two of the run's own beads.
-// seen deduplicates so the report lists each decision once, keyed to
-// whichever bead's edge reached it first (edges.Outgoing's own deterministic
-// ordering).
+// bead_reference nodes are persistent and shared across every run that ever
+// touches that tracker id - that is the whole point of the bridge - so
+// has_decision edges accumulate on one forever, across runs. Reaching
+// decisions through a bead would mean a resumed or re-dispatched run over
+// the same bead picks up every decision any earlier run ever recorded
+// against it, and reports them as its own - the run stops being the report's
+// unit. The direct run edge scopes a decision to exactly the run that
+// produced it, by construction: decisionRecordNodeID folds the run id into
+// the Decision node's own id, so two different runs cannot even converge on
+// the same node for byte-identical content, let alone share one by
+// traversal.
 func findRunDecisions(ctx context.Context, tx *graph.ReadTx, runID string) ([]runDecision, error) {
-	ranBead, err := edges.Outgoing(ctx, tx, runID, edges.WithType(edges.EdgeTypeRanBead))
+	hasDecision, err := edges.Outgoing(ctx, tx, runID, edges.WithType(edges.EdgeTypeHasDecision))
 	if err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing beads run %s drove: %w", runID, err)
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing decisions for run %s: %w", runID, err)
 	}
 
-	var out []runDecision
-	seen := map[string]bool{}
-	for _, be := range ranBead {
-		hasDecision, err := edges.Outgoing(ctx, tx, be.Dst, edges.WithType(edges.EdgeTypeHasDecision))
+	out := make([]runDecision, 0, len(hasDecision))
+	for _, de := range hasDecision {
+		d, err := nodes.GetDecision(ctx, tx, de.Dst)
 		if err != nil {
-			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing decisions for bead %s: %w", be.Dst, err)
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: reading decision %s for run %s: %w", de.Dst, runID, err)
 		}
-		for _, de := range hasDecision {
-			if seen[de.Dst] {
-				continue
-			}
-			seen[de.Dst] = true
-
-			d, err := nodes.GetDecision(ctx, tx, de.Dst)
-			if err != nil {
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: reading decision %s for run %s: %w", de.Dst, runID, err)
-			}
-			ref, err := nodes.GetBeadReference(ctx, tx, be.Dst)
-			if err != nil {
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: reading bead reference %s for run %s: %w", be.Dst, runID, err)
-			}
-			out = append(out, runDecision{decision: d, beadTitle: ref.Title})
+		beadTitle, err := beadTitleForDecision(ctx, tx, de.Dst, runID)
+		if err != nil {
+			return nil, err
 		}
+		out = append(out, runDecision{decision: d, beadTitle: beadTitle})
 	}
 	return out, nil
+}
+
+// beadTitleForDecision recovers which bead a decision was recorded against,
+// for the report's "Bead:" context handed to the composer.
+// WriteDecisionRecordNode links a decision to its run AND to the bead (and,
+// when different, the epic) that produced it, all via EdgeTypeHasDecision;
+// this walks those same incoming edges and returns the title of the first
+// one that is not the run itself. When bead and epic are the same tracker id
+// (a standalone bead run) there is only one candidate; when they differ,
+// either is an accurate answer to "which bead" and the choice between them
+// is not a behavior this function pins down.
+func beadTitleForDecision(ctx context.Context, tx *graph.ReadTx, decisionID, runID string) (string, error) {
+	in, err := edges.Incoming(ctx, tx, decisionID, edges.WithType(edges.EdgeTypeHasDecision))
+	if err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: reading bead links for decision %s: %w", decisionID, err)
+	}
+	for _, e := range in {
+		if e.Src == runID {
+			continue
+		}
+		ref, err := nodes.GetBeadReference(ctx, tx, e.Src)
+		if err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: reading bead reference %s for decision %s: %w", e.Src, decisionID, err)
+		}
+		return ref.Title, nil
+	}
+	return "", nil
 }
 
 // resolveImpactField answers field 4 for one decision's report entry, and is
 // the only place that decides between a real answer and the "awaiting"
 // placeholder. It never returns an error: every failure mode (no composer
-// configured, the composer erroring, the graph write failing) is folded into
-// the placeholder text, plus a warning to stderr naming what happened - see
-// ComposeRunReport's own doc comment for why this path must never halt the
-// run.
+// configured, the composer erroring or timing out, the graph write failing)
+// is folded into the placeholder text, plus a warning to stderr naming what
+// happened - see ComposeRunReport's own doc comment for why this path must
+// never halt the run.
 func resolveImpactField(ctx context.Context, g *graph.Graph, composer ImpactComposer, repoPath string, d *nodes.Decision, beadTitle string) string {
 	if d.ImpactOnUse != nil {
 		if *d.ImpactOnUse == "" {
@@ -243,13 +323,22 @@ func resolveImpactField(ctx context.Context, g *graph.Graph, composer ImpactComp
 // non-empty reason means text is empty and the decision's ImpactOnUse was
 // deliberately left nil, per the "never write \"\" on a failure" rule this
 // unit exists to enforce.
+//
+// The composer call runs under its own bounded context
+// (impactComposeTimeout), not the caller's ctx directly: this is the one
+// call in the whole close path that leaves the process (an HTTP request to
+// whatever kernl.yaml names), and it is the only one with no deadline of its
+// own otherwise - see impactComposeTimeout's doc comment. A timed-out call
+// is just another composer error and lands in the same awaiting path.
 func composeAndPersistImpact(ctx context.Context, g *graph.Graph, composer ImpactComposer, repoPath string, d *nodes.Decision, beadTitle string) (text, reason string) {
 	if composer == nil {
 		return "", "no LLM provider is configured for this run - set llm.provider in kernl.yaml to enable field 4"
 	}
 
 	options, tradeOffs, _ := SplitDecisionBody(d.Body)
-	impact, err := composer.ComposeImpact(ctx, DecisionImpact{
+	composeCtx, cancel := context.WithTimeout(ctx, impactComposeTimeout)
+	defer cancel()
+	impact, err := composer.ComposeImpact(composeCtx, DecisionImpact{
 		DecisionTitle:     d.Title,
 		DecisionContext:   d.Context,
 		OptionsConsidered: options,
@@ -304,24 +393,25 @@ func buildDecisionReportFields(d *nodes.Decision, impactOnUse string) decisionRe
 }
 
 // renderRunReport composes the report's prose from facts kernl already
-// holds (the header and the summary) plus each decision's five resolved
-// fields. Only the decisions' field 4 ever passed through an LLM; everything
-// else here is written deterministically, per ComposeRunReport's own doc
-// comment on why the header and summary are never sent to the composer to be
-// prettified.
-func renderRunReport(in ComposeRunReportInput, fields []decisionReportFields) string {
+// holds - the header (partly read back from the run node itself, via rd;
+// partly the caller's own close-time facts, via in) and the summary - plus
+// each decision's five resolved fields. Only the decisions' field 4 ever
+// passed through an LLM; everything else here is written deterministically,
+// per ComposeRunReport's own doc comment on why the header and summary are
+// never sent to the composer to be prettified.
+func renderRunReport(in ComposeRunReportInput, rd runData, fields []decisionReportFields) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "# Run Report: %s\n\n", in.RunID)
-	fmt.Fprintf(&b, "- **Entry point:** %s\n", in.EntryPoint)
-	fmt.Fprintf(&b, "- **Repository:** %s\n", in.RepoPath)
-	if in.BaseBranch != "" {
-		fmt.Fprintf(&b, "- **Base branch:** %s\n", in.BaseBranch)
+	fmt.Fprintf(&b, "- **Entry point:** %s\n", rd.EntryPoint)
+	fmt.Fprintf(&b, "- **Repository:** %s\n", rd.RepoPath)
+	if rd.BaseBranch != "" {
+		fmt.Fprintf(&b, "- **Base branch:** %s\n", rd.BaseBranch)
 	}
 	fmt.Fprintf(&b, "- **Status:** %s\n", in.Status)
-	fmt.Fprintf(&b, "- **Started:** %s\n", in.StartedAt.Format(time.RFC3339))
+	fmt.Fprintf(&b, "- **Started:** %s\n", rd.StartedAt.Format(time.RFC3339))
 	fmt.Fprintf(&b, "- **Finished:** %s\n", in.FinishedAt.Format(time.RFC3339))
-	fmt.Fprintf(&b, "- **Duration:** %s\n\n", in.FinishedAt.Sub(in.StartedAt).Truncate(time.Second).String())
+	fmt.Fprintf(&b, "- **Duration:** %s\n\n", in.FinishedAt.Sub(rd.StartedAt).Truncate(time.Second).String())
 
 	b.WriteString("## Summary\n\n")
 	if len(in.Beads) == 0 {

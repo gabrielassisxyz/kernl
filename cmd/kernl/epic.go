@@ -486,11 +486,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			Graph:      a.Graph,
 			Composer:   impactComposer,
 			RunID:      runID,
-			EntryPoint: "epic run",
-			RepoPath:   repoPath,
-			BaseBranch: baseBranch,
 			Status:     status,
-			StartedAt:  runStartedAt,
 			FinishedAt: finishedAt,
 			Beads:      beadRunOutcomes(a.Backend, repoPath, runBeads),
 			StateDir:   a.StateDir,
@@ -507,18 +503,29 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			FinishedAt: finishedAt,
 			Failure:    failure,
 		})
-		if closeErr == nil {
-			return
-		}
-		if err != nil {
+		switch {
+		case closeErr == nil:
+		case err != nil:
 			err = fmt.Errorf("%w - additionally, closing workflow run %s failed: %v", err, runID, closeErr)
-			return
+		default:
+			// The dispatch itself succeeded; only the run record failed to
+			// close. Reporting that as a plain success would leave a run stuck
+			// at "running" with no report ever composed for it, and nothing
+			// short of reading this error would reveal that happened.
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", epicID, runID, closeErr)
 		}
-		// The dispatch itself succeeded; only the run record failed to
-		// close. Reporting that as a plain success would leave a run stuck
-		// at "running" with no report ever composed for it, and nothing
-		// short of reading this error would reveal that happened.
-		err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", epicID, runID, closeErr)
+
+		// A report that could not be written is escalated only when the run
+		// would otherwise report plain success. An unresolved field 4 is
+		// swallowed by design (ComposeRunReport's doc comment says why); a
+		// report file that does not exist at all is not the same thing,
+		// because the operator judges a run by reading one. When the run
+		// already failed, the stderr warning above is the record and
+		// escalating would only overwrite a more specific failure with a
+		// vaguer one.
+		if reportErr != nil && err == nil {
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its run report could not be written: %w", epicID, reportErr)
+		}
 	}()
 
 	doneSet := resumePlan.DoneSet()
@@ -552,6 +559,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 				AgentStateStore: stateStore,
 				VerifyCommand:   verifyCommand,
 				TrackerCommand:  trackerCommand,
+				RunID:           runID,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
@@ -599,7 +607,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
 	if err := driveEpic(context.Background(), epicDrive{
 		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
-		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree,
+		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree, RunID: runID,
 		StateStore: stateStore, Shipment: plan, Out: out,
 	}); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
@@ -717,6 +725,10 @@ type epicDrive struct {
 	StateStore     *workflow.AgentStateStore
 	Shipment       shipmentPlan
 	Out            func(string)
+	// RunID is the same workflow run the children ran under: integration and
+	// shipment are stages of that one run, not a second one, so a decision
+	// recorded here belongs to the same report as a child's.
+	RunID string
 }
 
 // buildIntegrationChildren pairs each child bead with its own artifact
@@ -780,6 +792,7 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 		},
 		VerifyCommand:  d.VerifyCommand,
 		TrackerCommand: d.TrackerCommand,
+		RunID:          d.RunID,
 		BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
 			switch in.State {
 			case "integration":

@@ -28,6 +28,27 @@ var wellFormedAuditFixtureSections = map[string]string{
 	"rationale":          "Matches the existing closed edge-type set.",
 }
 
+// seedAuditRun creates the workflow run a decision record now has to belong
+// to, through the same StartWorkflowRun the CLI call sites use rather than a
+// hand-built node, so this fixture cannot drift from what a real dispatch
+// writes.
+func seedAuditRun(t *testing.T, g *graph.Graph, beads []app.BeadRef) string {
+	t.Helper()
+	runID, err := app.StartWorkflowRun(context.Background(), g, app.StartWorkflowRunInput{
+		EntryPoint:     "epic run",
+		Title:          "audit fixture run",
+		WorkflowName:   "worker",
+		Beads:          beads,
+		RepoPath:       "/repo",
+		TrackerCommand: "br --db '/repo/.beads/beads.db'",
+		StartedAt:      time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("StartWorkflowRun: %v", err)
+	}
+	return runID
+}
+
 func TestAuditDecisionsHandler(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
@@ -37,7 +58,8 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	// reference nodes itself - no stand-in seeding needed.
 	bead := app.BeadRef{ID: "kb-1", Title: "bead", TrackerKind: "br", RepoPath: "/repo"}
 	epic := app.BeadRef{ID: "kb-epic-1", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
-	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, bead, epic); err != nil {
+	runID := seedAuditRun(t, g, []app.BeadRef{bead, epic})
+	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, bead, epic, runID); err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
 
@@ -97,8 +119,12 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	if got.ImpactOnUse != nil {
 		t.Errorf("ImpactOnUse = %q, want nil (awaiting the composer)", *got.ImpactOnUse)
 	}
-	if len(got.RelatedIDs) != 2 {
-		t.Fatalf("expected 2 related IDs (bead + epic), got %d: %v", len(got.RelatedIDs), got.RelatedIDs)
+	// Three, not two: a decision is linked to the run that produced it as
+	// well as to its bead and epic, which is what scopes a run's report to
+	// its own decisions. relatedIds carries every has_decision source, so
+	// the run appears here too.
+	if len(got.RelatedIDs) != 3 {
+		t.Fatalf("expected 3 related IDs (run + bead + epic), got %d: %v", len(got.RelatedIDs), got.RelatedIDs)
 	}
 	relatedSet := map[string]bool{}
 	for _, id := range got.RelatedIDs {
@@ -106,6 +132,9 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	}
 	if !relatedSet["kb-1"] || !relatedSet["kb-epic-1"] {
 		t.Errorf("RelatedIDs = %v, want both kb-1 and kb-epic-1", got.RelatedIDs)
+	}
+	if !relatedSet[runID] {
+		t.Errorf("RelatedIDs = %v, want the run %s among them", got.RelatedIDs, runID)
 	}
 
 	// Decoding into DecisionResponse above passes regardless of the tag names,
@@ -139,6 +168,7 @@ func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
 	ctx := context.Background()
 
 	bead := app.BeadRef{ID: "kb-many", Title: "bead", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedAuditRun(t, g, []app.BeadRef{bead})
 
 	const seeded = 101 // one more than decisionsPageLimit
 	for i := 0; i < seeded; i++ {
@@ -148,7 +178,7 @@ func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
 			"trade_offs":         wellFormedAuditFixtureSections["trade_offs"],
 			"rationale":          wellFormedAuditFixtureSections["rationale"],
 		}
-		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, bead, bead); err != nil {
+		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, bead, bead, runID); err != nil {
 			t.Fatalf("WriteDecisionRecordNode(%d): %v", i, err)
 		}
 	}
