@@ -172,7 +172,16 @@ running 'kernl serve'.`,
 			{
 				Name:    "run",
 				Summary: "Drive a single bead through its workflow",
-				Usage:   "kernl bead run [--repo <path|name>] <bead-id>",
+				Usage:   "kernl bead run [--dry-run] [--repo <path|name>] <bead-id>",
+				Details: `--dry-run validates everything it can without writing anything, then stops
+before the first change - the same refusal a real run would give, none of
+its side effects.
+
+{{flags}}`,
+				Flags: []commandFlag{
+					{Name: "--dry-run", Description: "Validate without dispatching; stop before the first write"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+				},
 			},
 		}, beadAPISubcommands...),
 	},
