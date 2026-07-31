@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
+
+	"github.com/gabrielassisxyz/kernl/internal/llmendpoint"
 )
 
 // OpenAIClient calls the OpenAI /v1/chat/completions endpoint.
@@ -23,13 +24,13 @@ func NewOpenAIClient(cfg LLMProviderConfig) (*OpenAIClient, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("OpenAI provider requires an API key")
 	}
-	baseURL := strings.TrimRight(cfg.Endpoint, "/")
-	if baseURL == "" {
-		baseURL = "https://api.openai.com"
-	}
 	model := cfg.Model
 	if model == "" {
 		model = "gpt-4o"
+	}
+	baseURL, err := llmendpoint.Base("openai", cfg.Endpoint)
+	if err != nil {
+		return nil, err
 	}
 	return &OpenAIClient{
 		apiKey:     cfg.APIKey,
@@ -55,7 +56,14 @@ func (c *OpenAIClient) Chat(ctx context.Context, messages []Message, tools []Too
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(bodyBytes))
+	// c.baseURL is already resolved (custom or provider default), so this
+	// only ever appends the fixed OpenAI request path onto it.
+	url, err := llmendpoint.Resolve("openai", c.baseURL, c.model)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
