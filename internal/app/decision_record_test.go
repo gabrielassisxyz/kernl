@@ -87,6 +87,54 @@ func TestSplitDecisionBody_RejectsBodyItDidNotBuild(t *testing.T) {
 	}
 }
 
+// TestSplitDecisionBody_FencedHeadingInOptionsIsNotABoundary is the review's
+// exact repro: the options-considered text quotes "## Trade-offs" inside a
+// fenced code example while discussing it. A naive strings.Index search for
+// the literal heading text finds that fenced occurrence first and truncates
+// the real options content there, handing the real separator (and
+// everything after it) to trade-offs instead. SplitDecisionBody must ignore
+// a heading inside a fence, exactly as the gate's own parser does.
+func TestSplitDecisionBody_FencedHeadingInOptionsIsNotABoundary(t *testing.T) {
+	options := "Preserve this example:\n\n" +
+		"```markdown\n## Trade-offs\nexample text\n```"
+	tradeOffs := "The real trade-off."
+
+	body := buildDecisionBody(options, tradeOffs)
+
+	gotOptions, gotTradeOffs, ok := SplitDecisionBody(body)
+	if !ok {
+		t.Fatalf("SplitDecisionBody could not split: %q", body)
+	}
+	if !strings.Contains(gotOptions, "```markdown") || !strings.Contains(gotOptions, "example text") {
+		t.Errorf("recovered options lost the fenced example: %q", gotOptions)
+	}
+	if gotTradeOffs != tradeOffs {
+		t.Errorf("recovered trade-offs = %q, want %q", gotTradeOffs, tradeOffs)
+	}
+}
+
+// TestSplitDecisionBody_InlineMentionOfHeadingTextIsNotABoundary covers the
+// review's other example: prose that mentions the heading text inline,
+// mid-line, rather than as a real heading. A substring search matches this
+// too; a real ATX/setext heading must start its own line.
+func TestSplitDecisionBody_InlineMentionOfHeadingTextIsNotABoundary(t *testing.T) {
+	options := "We considered naming it the literal `## Trade-offs` string but rejected that."
+	tradeOffs := "The real trade-off text."
+
+	body := buildDecisionBody(options, tradeOffs)
+
+	gotOptions, gotTradeOffs, ok := SplitDecisionBody(body)
+	if !ok {
+		t.Fatalf("SplitDecisionBody could not split: %q", body)
+	}
+	if gotOptions != options {
+		t.Errorf("recovered options = %q, want %q", gotOptions, options)
+	}
+	if gotTradeOffs != tradeOffs {
+		t.Errorf("recovered trade-offs = %q, want %q", gotTradeOffs, tradeOffs)
+	}
+}
+
 // --- recordDecisionIfGateType: no-op unless the gate is decision_record
 // (criterion 6, at the wiring boundary: nothing downstream fires for any
 // other gate type or a stage with no gate at all). ---
@@ -225,6 +273,58 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 	}
 	if len(in) != 2 {
 		t.Errorf("expected exactly 2 incoming has_decision edges, got %d: %+v", len(in), in)
+	}
+}
+
+// TestWriteDecisionRecordNode_RetryConvergesOnOneNode covers the case a
+// bare "write once" implementation gets wrong: the graph write succeeds and
+// commits, but the caller's own next step (advancing the bead's tracker
+// state) fails for an unrelated reason, and the whole run is retried from
+// the top. The retry re-reads the same decision-record.md and calls
+// WriteDecisionRecordNode again with identical sections, beadID and epicID.
+// A writer that mints a fresh random ID every call would leave two Decision
+// nodes and four has_decision edges behind for one real decision; this one
+// must converge on exactly one of each.
+func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	beadID, epicID := seedStandInNodes(t, g, "kb-retry-1", "kb-epic-retry-1")
+
+	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
+
+	firstID, err := WriteDecisionRecordNode(ctx, g, sections, beadID, epicID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (first attempt): %v", err)
+	}
+	secondID, err := WriteDecisionRecordNode(ctx, g, sections, beadID, epicID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (retry): %v", err)
+	}
+
+	if firstID != secondID {
+		t.Fatalf("retry minted a different node: first=%s second=%s", firstID, secondID)
+	}
+
+	var decisionCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'decision'`).Scan(&decisionCount)
+	}); err != nil {
+		t.Fatalf("counting decision nodes: %v", err)
+	}
+	if decisionCount != 1 {
+		t.Errorf("decision node count = %d after 2 identical writes, want 1", decisionCount)
+	}
+
+	var in []edges.Edge
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		in, err = edges.Incoming(ctx, tx, firstID, edges.WithType(edges.EdgeTypeHasDecision))
+		return err
+	}); err != nil {
+		t.Fatalf("edges.Incoming: %v", err)
+	}
+	if len(in) != 2 {
+		t.Errorf("has_decision edge count = %d after 2 identical writes, want 2 (one bead, one epic)", len(in))
 	}
 }
 

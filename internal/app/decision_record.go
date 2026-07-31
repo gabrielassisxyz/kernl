@@ -2,7 +2,10 @@ package app
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -48,19 +51,31 @@ func buildDecisionBody(optionsConsidered, tradeOffs string) string {
 
 // SplitDecisionBody is buildDecisionBody's inverse: it recovers the
 // options-considered and trade-offs text a Decision.Body built by this
-// package folded together, using the same heading boundary buildDecisionBody
-// wrote. ok is false for a Body that was not built by buildDecisionBody (the
-// headings are absent or out of order), which callers should treat as "not
-// individually recoverable" rather than guess at a split.
+// package folded together, using the same headings buildDecisionBody wrote.
+//
+// It re-parses Body with backend.DecisionRecordSectionBodies - the same
+// block-aware pass the decision_record gate itself runs - rather than
+// string-searching for the heading text. A naive strings.Index search finds
+// "## Trade-offs" anywhere in the text, including inside a fenced code
+// example the options text quotes verbatim, or as an inline mention in
+// prose; either one truncates the real options content and hands the real
+// separator's remainder to the wrong half. DecisionRecordSectionBodies
+// already knows a heading inside a fence or a comment is not a heading, and
+// that an ATX/setext heading must start its own line - exactly the
+// distinction this split needs, and exactly the distinction a hand-rolled
+// second parser would have to reinvent to get right.
+//
+// ok is false when Body does not parse into both parts (it was not built by
+// buildDecisionBody), which callers should treat as "not individually
+// recoverable" rather than guess at a split.
 func SplitDecisionBody(body string) (optionsConsidered, tradeOffs string, ok bool) {
-	optionsIdx := strings.Index(body, DecisionBodyOptionsHeading)
-	tradeOffsIdx := strings.Index(body, DecisionBodyTradeOffsHeading)
-	if optionsIdx == -1 || tradeOffsIdx == -1 || tradeOffsIdx <= optionsIdx {
+	sections := backend.DecisionRecordSectionBodies(body)
+	options, hasOptions := sections["options_considered"]
+	tradeOffsText, hasTradeOffs := sections["trade_offs"]
+	if !hasOptions || !hasTradeOffs {
 		return "", "", false
 	}
-	optionsConsidered = strings.TrimSpace(body[optionsIdx+len(DecisionBodyOptionsHeading) : tradeOffsIdx])
-	tradeOffs = strings.TrimSpace(body[tradeOffsIdx+len(DecisionBodyTradeOffsHeading):])
-	return optionsConsidered, tradeOffs, true
+	return options, tradeOffsText, true
 }
 
 // decisionTitleAndContext splits the record's "Decision" section (what was
@@ -100,30 +115,80 @@ func decisionFromRecordSections(sections map[string]string, now time.Time) nodes
 	}
 }
 
+// decisionRecordNodeID derives a stable node ID from exactly the facts that
+// make two writes "the same decision": which bead, which epic, and the four
+// section bodies themselves. A re-run of the same bead against the same
+// record - the normal shape of a retry after Backend.Update fails following
+// a successful graph write, see WriteDecisionRecordNode - hashes to the same
+// ID and so converges on the one existing node instead of minting a fresh
+// UUID and a fresh set of edges for every attempt. Genuinely different
+// content (a real second decision, or the same bead revisiting the stage
+// with a rewritten record) hashes to a different ID and gets its own node,
+// same as it would with a random one.
+func decisionRecordNodeID(beadID, epicID string, sections map[string]string) string {
+	h := sha256.New()
+	_, _ = io.WriteString(h, "bead:"+beadID+"\x00epic:"+epicID+"\x00")
+	for _, key := range decisionRecordRequiredKeys {
+		_, _ = io.WriteString(h, key+":"+sections[key]+"\x00")
+	}
+	return "decision-" + hex.EncodeToString(h.Sum(nil))
+}
+
+// ensureHasDecisionEdge creates a has_decision edge from src to dst unless
+// one already exists - the edges table carries no uniqueness constraint on
+// (src, dst, label), so an unconditional Create on every retry would mint a
+// duplicate edge each time even once the node itself is deduplicated.
+func ensureHasDecisionEdge(ctx context.Context, tx *graph.WriteTx, src, dst string, author nodes.Author) error {
+	exists, err := edges.Exists(ctx, tx, src, dst, edges.EdgeTypeHasDecision)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+	_, err = edges.Create(ctx, tx, edges.Edge{Src: src, Dst: dst, Type: edges.EdgeTypeHasDecision}, author)
+	return err
+}
+
 // WriteDecisionRecordNode creates a Decision node from a decision record's
 // extracted sections and links it to the bead and (when different) the epic
 // it was written for via edges.EdgeTypeHasDecision, all inside one write
 // transaction - a node with no link back to the work it explains is not
 // meaningfully queryable later, so the two are written together or not at
-// all. Exported so a test proving the audit API surfaces this path's output
-// (see internal/api/audit.go) can call the real write path instead of
-// re-deriving fixture data by hand.
+// all.
+//
+// The node ID is content-addressed (decisionRecordNodeID), and both the node
+// create and the edge creates are skipped when they already exist
+// (nodes.Exists, ensureHasDecisionEdge) - a caller that retries this same
+// call for the same bead and the same record (DriveBeadToTerminal does,
+// whenever the graph write itself succeeds but the bead's state update fails
+// afterward and the run is retried) converges on one node and its edges
+// rather than accumulating one of each per attempt.
+//
+// Exported so a test proving the audit API surfaces this path's output (see
+// internal/api/audit.go) can call the real write path instead of re-deriving
+// fixture data by hand.
 func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[string]string, beadID, epicID string) (string, error) {
-	d := decisionFromRecordSections(sections, time.Now())
+	id := decisionRecordNodeID(beadID, epicID, sections)
 	author := nodes.Author{Name: "kernl-dispatch"}
 
-	var id string
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		var err error
-		id, err = nodes.CreateDecision(ctx, tx, d, author)
+		exists, err := nodes.Exists(ctx, tx, id)
 		if err != nil {
 			return err
 		}
-		if _, err := edges.Create(ctx, tx, edges.Edge{Src: beadID, Dst: id, Type: edges.EdgeTypeHasDecision}, author); err != nil {
+		if !exists {
+			d := decisionFromRecordSections(sections, time.Now())
+			d.ID = id
+			if _, err := nodes.CreateDecision(ctx, tx, d, author); err != nil {
+				return err
+			}
+		}
+		if err := ensureHasDecisionEdge(ctx, tx, beadID, id, author); err != nil {
 			return err
 		}
 		if epicID != "" && epicID != beadID {
-			if _, err := edges.Create(ctx, tx, edges.Edge{Src: epicID, Dst: id, Type: edges.EdgeTypeHasDecision}, author); err != nil {
+			if err := ensureHasDecisionEdge(ctx, tx, epicID, id, author); err != nil {
 				return err
 			}
 		}
