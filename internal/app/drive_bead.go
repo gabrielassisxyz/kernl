@@ -290,6 +290,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 			}
 			if gatePassed {
+				// Mirrors a decision_record gate's record into the graph
+				// before the bead is allowed to move on - a no-op for every
+				// other gate type. Run before the state transition, not
+				// after: a bead must not advance past a stage whose
+				// reasoning failed to persist (see recordDecisionIfGateType).
+				if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps.Config, deps.BeadID, epicID); err != nil {
+					return RunBeadResult{FinalState: activeState, Success: false}, err
+				}
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 				if ok {
 					err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: nextState}, deps.RepoPath)
@@ -490,6 +498,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 		}
 		if gatePassed {
+			// Mirrors a decision_record gate's record into the graph before
+			// the bead is allowed to move on - a no-op for every other gate
+			// type. Run before the state transition, not after: a bead must
+			// not advance past a stage whose reasoning failed to persist
+			// (see recordDecisionIfGateType).
+			if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps.Config, deps.BeadID, epicID); err != nil {
+				return RunBeadResult{FinalState: activeState, Success: false}, err
+			}
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 			if ok {
 				err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: nextState}, deps.RepoPath)
