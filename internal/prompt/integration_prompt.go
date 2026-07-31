@@ -41,7 +41,7 @@ type IntegrationInput struct {
 
 const integrationTemplate = `You are the kernl integration agent for epic {{.EpicID}}: "{{.EpicTitle}}".
 
-Your job: merge each child branch into the epic branch in topological order, resolve any conflicts, verify the combined tree passes this repository's own check, and finish with a marker commit. Do NOT push and do NOT create a PR - that is the separate shipment stage.
+Your job: merge each child branch into the epic branch in topological order, resolve any conflicts, and verify the combined tree passes this repository's own check. Do NOT push and do NOT create a PR - that is the separate shipment stage.
 
 Inputs:
 - epic_branch: {{.EpicBranch}}
@@ -59,10 +59,7 @@ Procedure:
 3. After all merges succeed, verify the combined tree with this repository's own check:
    {{.VerifyCommand}}
    If it fails, the merge is not done: fix the combined tree and re-run it. Whatever this command checks is what "done" means here - do not substitute a check of your own.
-4. Finish with a marker commit whose message contains EXACTLY the literal "stage: integration", for example:
-   git commit --allow-empty -m "stage: integration: merged N child branches into {{.EpicBranch}}"
-   This marker commit is REQUIRED - an exit gate checks for it.
-5. Do NOT push to origin and do NOT open a pull request - the separate shipment stage handles pushing and the PR.
+4. Do NOT push to origin and do NOT open a pull request - the separate shipment stage handles pushing and the PR.
 
 The only merge_outcome the integration stage may write is "merge_conflict". For reference, the full merge_outcome enum is:{{range .Outcomes}}
   - {{.}}

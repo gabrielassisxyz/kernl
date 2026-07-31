@@ -569,7 +569,6 @@ id: multi_gate_wf
 exit_gates:
   implementation:
     - type: commit_marker
-      path: "stage: implementation"
     - type: decision_record
       path: "<artifact_dir>/decision-record.md"
 stages:
@@ -592,11 +591,47 @@ stages:
 	if len(gates) != 2 {
 		t.Fatalf("expected 2 exit gates on 'implementation', got %d: %+v", len(gates), gates)
 	}
-	if gates[0].Type != "commit_marker" || gates[0].Path != "stage: implementation" {
-		t.Errorf("gate 0 = %+v; want commit_marker/stage: implementation", gates[0])
+	if gates[0].Type != "commit_marker" || gates[0].Path != "" {
+		t.Errorf("gate 0 = %+v; want commit_marker with no path", gates[0])
 	}
 	if gates[1].Type != "decision_record" || gates[1].Path != "<artifact_dir>/decision-record.md" {
 		t.Errorf("gate 1 = %+v; want decision_record/<artifact_dir>/decision-record.md", gates[1])
+	}
+}
+
+// TestLoadWorkflow_CommitMarkerPathRejects proves a workflow YAML whose
+// commit_marker gate still sets a path fails loud at load, naming the fix -
+// the gate stopped reading commit message text (a leak of kernl's own
+// "stage: X" vocabulary into every target repository's history), so a path
+// left over from before that change would otherwise be silently ignored
+// instead of telling its author the check it configured no longer applies.
+func TestLoadWorkflow_CommitMarkerPathRejects(t *testing.T) {
+	yamlText := `
+id: stale_marker_wf
+exit_gates:
+  implementation:
+    - type: commit_marker
+      path: "stage: implementation"
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadWorkflowYAML(path)
+	if err == nil {
+		t.Fatal("expected LoadWorkflowYAML to reject a commit_marker gate that still sets a path")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if !strings.Contains(msg, "implementation") {
+		t.Errorf("error must name the offending state, got: %v", err)
+	}
+	if !strings.Contains(msg, "remove the path field") {
+		t.Errorf("error must say what to do about it, got: %v", err)
 	}
 }
 

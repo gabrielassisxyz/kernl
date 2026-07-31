@@ -115,7 +115,13 @@ func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageCo
 		return
 	}
 	artifact := contract.OutputArtifact
-	if artifact.Path == "" && artifact.Kind == "" {
+	// A "commits" stage (implementation, integration, shipment) used to also
+	// carry a required marker string for this section to print - the same
+	// vocabulary the commit_marker exit gate scanned commit messages for.
+	// Now that the gate only asks whether the stage left any new commit, kind
+	// alone has nothing left to instruct here: skip the section rather than
+	// print an empty "## Required output" header.
+	if artifact.Path == "" && artifact.MustEndWith == "" {
 		return
 	}
 	b.WriteString("## Required output\n\n")
@@ -127,9 +133,6 @@ func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageCo
 		// directory exists to prevent.
 		resolved := backend.ResolveArtifactPath(artifact.Path, beadID, artifactDir)
 		fmt.Fprintf(b, "Write the following file: `%s`\n", resolved)
-	}
-	if artifact.Kind == "commits" && artifact.CommitMarker != "" {
-		fmt.Fprintf(b, "Commit your work with the marker: `%s`\n", artifact.CommitMarker)
 	}
 	if artifact.MustEndWith != "" {
 		fmt.Fprintf(b, "The output must end with: `%s`\n", artifact.MustEndWith)

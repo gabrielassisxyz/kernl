@@ -326,8 +326,7 @@ func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections(t 
 		"implementation": {
 			Role: "Implement the plan.",
 			OutputArtifact: backend.StageArtifact{
-				Kind:         "commits",
-				CommitMarker: "stage: implementation",
+				Kind: "commits",
 			},
 			DecisionRecord: backend.StageArtifact{
 				Path: "<artifact_dir>/decision-record.md",

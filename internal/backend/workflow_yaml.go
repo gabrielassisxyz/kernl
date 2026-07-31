@@ -146,14 +146,16 @@ func nodeValueOrPlaceholder(node *yaml.Node, placeholder string) string {
 
 // yamlDoubleQuoted renders s as a double-quoted YAML scalar. The "Fix: write
 // it as" example embeds a value taken verbatim from the file under
-// diagnosis - and a real gate value can itself contain ": " (commit_marker's
-// own path is literally "stage: implementation"). Interpolated unquoted,
-// that reads as a second mapping key and the suggested fix does not parse
-// ("mapping values are not allowed here"); an actionable error that emits
-// invalid YAML is not actionable. Escaping is the minimum a double-quoted
-// YAML scalar needs: a backslash first (so an already-escaped sequence in s
-// is not double-unescaped by whatever re-parses this), then the quote that
-// would otherwise close the scalar early.
+// diagnosis - and a real gate value can itself contain ": " (a
+// description_contains substring an operator wrote as prose, or - before
+// commit_marker paths were retired - a value literally like
+// "stage: implementation"). Interpolated unquoted, that reads as a second
+// mapping key and the suggested fix does not parse ("mapping values are not
+// allowed here"); an actionable error that emits invalid YAML is not
+// actionable. Escaping is the minimum a double-quoted YAML scalar needs: a
+// backslash first (so an already-escaped sequence in s is not
+// double-unescaped by whatever re-parses this), then the quote that would
+// otherwise close the scalar early.
 func yamlDoubleQuoted(s string) string {
 	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
 	return `"` + escaped + `"`

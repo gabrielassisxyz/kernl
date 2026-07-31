@@ -128,6 +128,26 @@ nothing to do with what it verifies.
 Option 2 wins: the gate only checks structure, not content.
 `
 
+// commitRealChange writes relPath into worktree and commits it. The
+// commit_marker gate now requires the tree to actually differ from base, not
+// merely that a commit exists - `git commit --allow-empty` produces a commit
+// with an identical tree and must not satisfy it. Every driver below that
+// simulates a stage the gate is supposed to let through commits a real file
+// through this helper instead of `--allow-empty`, so these tests keep
+// exercising what a genuine implementer/integrator does.
+func commitRealChange(worktree, relPath, content, message string) error {
+	if err := os.WriteFile(filepath.Join(worktree, relPath), []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", relPath, err)
+	}
+	if out, err := exec.Command("git", "-C", worktree, "add", relPath).CombinedOutput(); err != nil {
+		return fmt.Errorf("git add %s: %w: %s", relPath, err, out)
+	}
+	if out, err := exec.Command("git", "-C", worktree, "commit", "-m", message).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w: %s", err, out)
+	}
+	return nil
+}
+
 // workerArtifactDriver simulates a worker child agent that produces each
 // stage's exit-gate output: a "stage: implementation" marker commit plus a
 // decision record, then a PASS verdict artifact for implementation_review.
@@ -145,9 +165,8 @@ func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBe
 	bd, _ := d.be.Get(d.beadID, "")
 	switch bd.State {
 	case "implementation":
-		cmd := exec.Command("git", "-C", d.worktree, "commit", "--allow-empty", "-m", "stage: implementation: did the work")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
+		if err := commitRealChange(d.worktree, "work.txt", "did the work\n", "stage: implementation: did the work"); err != nil {
+			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %w", err)
 		}
 		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 		_ = os.MkdirAll(dir, 0o755)
@@ -269,9 +288,8 @@ type markerOnlyDriver struct {
 }
 
 func (d *markerOnlyDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
-	cmd := exec.Command("git", "-C", d.worktree, "commit", "--allow-empty", "-m", "stage: implementation: did the work")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
+	if err := commitRealChange(d.worktree, "work.txt", "did the work\n", "stage: implementation: did the work"); err != nil {
+		return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %w", err)
 	}
 	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses"}, nil
 }
@@ -340,9 +358,8 @@ func (d *artifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResu
 		// above), so this driver must not manufacture one - doing so would
 		// make TestDriveEpic_ReachesAwaitingPRReview pass even if gate
 		// evaluation for that state were silently disabled.
-		cmd := exec.Command("git", "-C", d.worktree, "commit", "--allow-empty", "-m", "stage: integration: merged children")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			return RunBeadResult{Success: false}, fmt.Errorf("integration commit: %v: %s", err, out)
+		if err := commitRealChange(d.worktree, "merged.txt", "merged children\n", "stage: integration: merged children"); err != nil {
+			return RunBeadResult{Success: false}, fmt.Errorf("integration commit: %w", err)
 		}
 	case "integration_review":
 		dir := filepath.Join(d.stateDir, "run", d.epicID, d.epicID)
@@ -447,8 +464,8 @@ func TestDriveEpic_BlocksWhenShipmentSkipsPR(t *testing.T) {
 }
 
 // TestDriveEpic_BlocksOnIntegrationConflict proves the integration commit_marker
-// gate stops the epic when the merge agent fails to leave a "stage: integration"
-// commit (e.g. an unresolved merge conflict where it bailed).
+// gate stops the epic when the merge agent fails to leave any new commit
+// (e.g. an unresolved merge conflict where it bailed).
 func TestDriveEpic_BlocksOnIntegrationConflict(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")

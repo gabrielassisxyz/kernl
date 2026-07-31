@@ -74,8 +74,8 @@ func TestEpicProfile_LifecycleShape(t *testing.T) {
 	// TestEpicProfile_IntegrationCarriesNoDecisionRecordGate for why it does
 	// not also carry decision_record.
 	integrationGates := wf.ExitGates["integration"]
-	if len(integrationGates) != 1 || integrationGates[0].Type != "commit_marker" || integrationGates[0].Path != "stage: integration" {
-		t.Errorf("integration gates = %+v; want exactly one commit_marker/stage: integration", integrationGates)
+	if len(integrationGates) != 1 || integrationGates[0].Type != "commit_marker" || integrationGates[0].Path != "" {
+		t.Errorf("integration gates = %+v; want exactly one commit_marker with no path", integrationGates)
 	}
 	if g := wf.ExitGates["integration_review"]; len(g) != 1 || g[0].Type != "artifact_verdict" {
 		t.Errorf("integration_review gates = %+v; want exactly one artifact_verdict", g)
@@ -151,13 +151,13 @@ func TestWorkerProfile_StopsAtAwaitingIntegration(t *testing.T) {
 	}
 
 	// Exit gates stop a bead from advancing when it produced no real output:
-	// implementation needs a marker commit AND a decision record (the
+	// implementation needs a new commit AND a decision record (the
 	// criterion this bead exists to satisfy - see
 	// TestWorkerProfile_CarriesDecisionRecordGate below), the review needs a
 	// PASS verdict.
 	implGates := wf.ExitGates["implementation"]
-	if len(implGates) != 2 || implGates[0].Type != "commit_marker" || implGates[0].Path != "stage: implementation" {
-		t.Errorf("implementation gates = %+v; want [commit_marker/stage: implementation, decision_record/...]", implGates)
+	if len(implGates) != 2 || implGates[0].Type != "commit_marker" || implGates[0].Path != "" {
+		t.Errorf("implementation gates = %+v; want [commit_marker with no path, decision_record/...]", implGates)
 	}
 	if g := wf.ExitGates["implementation_review"]; len(g) != 1 || g[0].Type != "artifact_verdict" || g[0].Path != "<artifact_dir>/implementation-review.md" {
 		t.Errorf("implementation_review gates = %+v; want exactly one artifact_verdict/<artifact_dir>/implementation-review.md", g)
@@ -187,8 +187,8 @@ func TestWorkerProfile_CarriesDecisionRecordGate(t *testing.T) {
 		switch g.Type {
 		case "commit_marker":
 			hasCommitMarker = true
-			if g.Path != "stage: implementation" {
-				t.Errorf("commit_marker gate path = %q; want %q", g.Path, "stage: implementation")
+			if g.Path != "" {
+				t.Errorf("commit_marker gate path = %q; want empty (the gate no longer reads a marker string)", g.Path)
 			}
 		case "decision_record":
 			hasDecisionRecord = true
@@ -453,9 +453,7 @@ func TestEvaluateExitGate_MultipleGatesPerState(t *testing.T) {
 	}
 	markerCommit := func(t *testing.T, dir string) {
 		t.Helper()
-		if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "stage: implementation: did the work").CombinedOutput(); err != nil {
-			t.Fatalf("git commit: %v\n%s", err, out)
-		}
+		gitCommitWithChange(t, dir, "stage: implementation: did the work")
 	}
 
 	t.Run("both pass advances", func(t *testing.T) {
@@ -630,6 +628,30 @@ func gitCommit(t *testing.T, dir, message string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// gitCommitWithChange commits an actual tree change - the commit_marker
+// gate now requires one, on top of the commit's mere existence, so a test
+// proving the gate PASSES needs a real diff from parent, not the empty
+// commit gitCommit above produces. It overwrites the same file each call so
+// repeated calls in one test always have something new to commit (an
+// unchanged file would leave nothing staged and "git commit" would fail).
+func gitCommitWithChange(t *testing.T, dir, message string) string {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "work.txt"), []byte(message), 0o644); err != nil {
+		t.Fatalf("write work.txt: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", dir, "add", "work.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "commit", "-m", message).CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // commitMarkerOnlyWorkflow builds a minimal WorkflowDescriptor carrying only
 // the "implementation" state's commit_marker gate, so the commit_marker
 // tests below stay focused on that one gate's own behavior. worker's
@@ -640,7 +662,7 @@ func gitCommit(t *testing.T, dir, message string) string {
 func commitMarkerOnlyWorkflow() WorkflowDescriptor {
 	return WorkflowDescriptor{
 		ExitGates: map[string][]WorkflowExitGate{
-			"implementation": {{Type: "commit_marker", Path: "stage: implementation"}},
+			"implementation": {{Type: "commit_marker"}},
 		},
 	}
 }
@@ -667,12 +689,11 @@ func TestEvaluateExitGate_CommitMarkerScopedToBaseSHA(t *testing.T) {
 		t.Errorf("commit_marker must not pass on an ancestor marker outside BaseSHA..HEAD (reason=%q)", reason)
 	}
 
-	// The stage now produces its own marker commit after BaseSHA.
-	if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "stage: implementation: did the work").CombinedOutput(); err != nil {
-		t.Fatalf("git commit: %v\n%s", err, out)
-	}
+	// The stage now produces its own commit, with a real tree change, after
+	// BaseSHA.
+	gitCommitWithChange(t, dir, "stage: implementation: did the work")
 	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA}); !ok {
-		t.Errorf("commit_marker should pass once the stage's own commit carries the marker (reason=%q)", reason)
+		t.Errorf("commit_marker should pass once the stage's own commit lands after BaseSHA (reason=%q)", reason)
 	}
 }
 
@@ -754,6 +775,86 @@ func TestEvaluateExitGate_CommitMarkerRejectsRewrittenHistory(t *testing.T) {
 		t.Errorf("commit_marker must not pass when BaseSHA is not an ancestor of HEAD (reason=%q)", reason)
 	} else if !strings.Contains(reason, "history_rewritten") {
 		t.Errorf("reason should say the base SHA is no longer an ancestor, got %q", reason)
+	}
+}
+
+// TestEvaluateExitGate_CommitMarkerRequiresANewCommit proves the gate still
+// refuses a stage that never committed anything, even though BaseSHA
+// resolves cleanly and is a genuine ancestor of HEAD: HEAD never moved past
+// it, so the range is empty. This is part (a) of the original two-part
+// gate - the part the post-mortem exists to satisfy - now standing alone
+// after part (b) (matching a literal marker string in commit messages) was
+// removed for leaking kernl's own vocabulary into every target repository's
+// history.
+func TestEvaluateExitGate_CommitMarkerRequiresANewCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := commitMarkerOnlyWorkflow()
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	baseSHA := gitCommit(t, dir, "base: captured before dispatch")
+	// The stage runs and exits zero, but never commits: HEAD is still
+	// exactly BaseSHA.
+
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA})
+	if ok {
+		t.Fatal("commit_marker must not pass when the stage produced no new commit")
+	}
+	if !strings.Contains(reason, "commit_marker_missing") {
+		t.Errorf("reason should say no commit was produced, got %q", reason)
+	}
+}
+
+// TestEvaluateExitGate_CommitMarkerRejectsEmptyCommit proves the gate closes
+// the bypass both versions of it shared: `git commit --allow-empty` lands a
+// commit that is reachable from HEAD, not reachable from BaseSHA, and (under
+// the old check) can carry any message it likes - including the exact marker
+// string the old gate scanned for. The commit range is non-empty and
+// properly scoped, yet the tree never moved: that is not work, and the gate
+// must refuse it the same way it refuses no commit at all.
+func TestEvaluateExitGate_CommitMarkerRejectsEmptyCommit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := commitMarkerOnlyWorkflow()
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	baseSHA := gitCommit(t, dir, "base: captured before dispatch")
+	// Two empty commits after base: a non-empty, correctly-scoped range with
+	// zero tree change between base and HEAD.
+	gitCommit(t, dir, "checkpoint")
+	gitCommit(t, dir, "stage: implementation: did the work")
+
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA})
+	if ok {
+		t.Fatal("commit_marker must not pass on empty commits alone - the tree never changed")
+	}
+	if !strings.Contains(reason, "commit_marker_missing") {
+		t.Errorf("reason should say the stage left nothing, got %q", reason)
+	}
+}
+
+// TestEvaluateExitGate_CommitMarkerPassesWithoutMarkerText proves the gate no
+// longer cares what a commit's message says - only that one exists in range.
+// A commit carrying none of kernl's own vocabulary ("stage: implementation",
+// or any other literal string) now satisfies the gate exactly the same as
+// one that does, because nothing reads the message anymore.
+func TestEvaluateExitGate_CommitMarkerPassesWithoutMarkerText(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	wf := commitMarkerOnlyWorkflow()
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+	baseSHA := gitCommit(t, dir, "base: captured before dispatch")
+	gitCommitWithChange(t, dir, "did the work, no special marker text here")
+
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: dir, BeadID: "kb-1", BaseSHA: baseSHA}); !ok {
+		t.Errorf("commit_marker should pass on any new commit regardless of message text (reason=%q)", reason)
 	}
 }
 

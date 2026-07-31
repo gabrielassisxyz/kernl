@@ -122,7 +122,6 @@ stages:
       - "<artifact_dir>/plan-review.md"
     output_artifact:
       kind: "commits"
-      commit_marker: "stage: implementation"
     decision_record:
       path: "<artifact_dir>/decision-record.md"
   implementation_review:
@@ -147,7 +146,6 @@ stages:
       - "sibling bead artifacts"
     output_artifact:
       kind: "commits"
-      commit_marker: "stage: integration"
   integration_review:
     role: "Review the integration. Verify merge conflicts are resolved, no regressions are introduced, and the combined codebase meets quality gates."
     inputs:
@@ -169,7 +167,6 @@ stages:
       - "all stage artifacts in <artifact_dir>/"
     output_artifact:
       kind: "commits"
-      commit_marker: "stage: shipment"
     forbidden_paths:
       - "**/*.go"
       - "**/*.ts"

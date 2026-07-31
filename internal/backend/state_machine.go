@@ -153,12 +153,12 @@ var builtinProfiles = []profileConfig{
 		},
 		TerminalStates: []string{"awaiting_pr_review", "abandoned"},
 		ExitGates: map[string][]WorkflowExitGate{
-			// integration agent must leave a marker commit on the epic
-			// branch. It deliberately does NOT also carry decision_record:
-			// integration is a merge stage, not an implementer's stage - see
-			// canonicalImplementationExitGates for why that distinction
-			// matters here.
-			"integration": {{Type: "commit_marker", Path: "stage: integration"}},
+			// integration agent must leave at least one new commit on the
+			// epic branch. It deliberately does NOT also carry
+			// decision_record: integration is a merge stage, not an
+			// implementer's stage - see canonicalImplementationExitGates for
+			// why that distinction matters here.
+			"integration": {{Type: "commit_marker"}},
 			// integration_review agent must write a PASS verdict artifact.
 			"integration_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/integration-review.md"}},
 			// shipment agent must record the opened PR URL in the epic description.
@@ -190,16 +190,17 @@ var builtinProfiles = []profileConfig{
 		},
 		TerminalStates: []string{"awaiting_integration", "abandoned"},
 		ExitGates: map[string][]WorkflowExitGate{
-			// implementation agent must leave a marker commit in the worktree
-			// (without this gate a bead that produced no commits silently
-			// sails to awaiting_integration - see kernl-gc7j post-mortem) AND
-			// record the decisions behind the implementation, same as
-			// autopilot_with_pr's canonicalImplementationExitGates. The
-			// shared CanonicalStageContracts "implementation" entry already
-			// carries a matching DecisionRecord.Path, so no Stages override
-			// is needed here (contrast with epic's "integration" above).
+			// implementation agent must leave at least one new commit in the
+			// worktree (without this gate a bead that produced no commits
+			// silently sails to awaiting_integration - see kernl-gc7j
+			// post-mortem) AND record the decisions behind the
+			// implementation, same as autopilot_with_pr's
+			// canonicalImplementationExitGates. The shared
+			// CanonicalStageContracts "implementation" entry already carries
+			// a matching DecisionRecord.Path, so no Stages override is
+			// needed here (contrast with epic's "integration" above).
 			"implementation": {
-				{Type: "commit_marker", Path: "stage: implementation"},
+				{Type: "commit_marker"},
 				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
 			},
 			// implementation_review agent must write a PASS verdict artifact.
@@ -800,17 +801,25 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		}
 		return false, "verdict_not_pass: " + abs
 	case "commit_marker":
+		// This gate used to also require gate.Path - a literal string like
+		// "stage: implementation" - to appear in a commit message: proof the
+		// agent typed kernl's own vocabulary into the target repository's
+		// history. ValidateArtifactPaths now refuses to load a workflow
+		// whose commit_marker gate still sets a path, so nothing reaches
+		// here still expecting that check; what is left is the part that
+		// actually answers this gate's purpose - did the stage leave any new
+		// commit at all.
 		if ctx.BaseSHA == "" {
-			return false, "commit_marker_unscoped: " + gate.Path
+			return false, "commit_marker_unscoped: " + ctx.FromState
 		}
 		// `git log <base>..HEAD` means "reachable from HEAD, not reachable
 		// from base" - it does NOT require base to be an ancestor of HEAD.
 		// If the worktree's history was rewritten under the run (the agent
-		// reset or rebased onto a line of history that already contains the
-		// marker), that range still evaluates and can admit the marker from
-		// an unrelated commit while the stage itself produced nothing -
-		// the original defect, reached through a different door. Requiring
-		// ancestry first closes it.
+		// reset or rebased onto an unrelated line of history that already
+		// carries commits of its own), that range still evaluates and can
+		// admit a commit that has nothing to do with this stage while the
+		// stage itself produced nothing - the original defect, reached
+		// through a different door. Requiring ancestry first closes it.
 		ancestorOut, err := exec.Command("git", "-C", ctx.WorktreePath, "merge-base", "--is-ancestor", ctx.BaseSHA, "HEAD").CombinedOutput()
 		if err != nil {
 			var exitErr *exec.ExitError
@@ -822,13 +831,33 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 			}
 			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(ancestorOut))
 		}
-		out, err := exec.Command("git", "-C", ctx.WorktreePath, "log", "--format=%B", ctx.BaseSHA+"..HEAD").CombinedOutput()
+		// Only the commit hashes are needed - the range's emptiness is the
+		// entire question now, not what any commit in it says.
+		out, err := exec.Command("git", "-C", ctx.WorktreePath, "log", "--format=%H", ctx.BaseSHA+"..HEAD").CombinedOutput()
 		if err != nil {
 			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(out))
 		}
-		if !strings.Contains(string(out), gate.Path) {
-			return false, "commit_marker_missing: " + gate.Path
+		if strings.TrimSpace(string(out)) == "" {
+			return false, "commit_marker_missing: " + ctx.FromState
 		}
+		// A non-empty range is not proof of work by itself: `git commit
+		// --allow-empty` leaves the tree byte-for-byte identical to base
+		// while still landing a commit reachable from HEAD and not from
+		// base - the exact bypass the old marker-string check also missed
+		// (it only asked for a string in the message, never a change in the
+		// tree). `git diff --quiet` exits 0 when the two trees match and 1
+		// when they differ, so a clean 0 here means every commit in range
+		// was empty. That is the same answer commit_marker_missing already
+		// gives ("the stage left nothing"), not a new outcome.
+		diffOut, err := exec.Command("git", "-C", ctx.WorktreePath, "diff", "--quiet", ctx.BaseSHA, "HEAD").CombinedOutput()
+		if err == nil {
+			return false, "commit_marker_missing: " + ctx.FromState
+		}
+		var diffExitErr *exec.ExitError
+		if !errors.As(err, &diffExitErr) || diffExitErr.ExitCode() != 1 {
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(diffOut))
+		}
+		// Exit 1 is `git diff --quiet`'s clean "yes, they differ" answer.
 		return true, ""
 	case "description_contains":
 		if !strings.Contains(ctx.BeadDescription, gate.Path) {
@@ -1452,10 +1481,24 @@ func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string
 				}
 				continue
 			}
+			if gate.Type == "commit_marker" {
+				// A commit_marker gate no longer reads a marker string from
+				// commit messages - it only checks that the stage left a new
+				// commit, an ancestry-and-non-empty-range question with
+				// nothing left for a path to configure. A workflow that
+				// still sets one was written for the retired behavior and
+				// would silently get a gate that quietly stopped checking
+				// what its author asked for; refusing to load it is louder
+				// and cheaper than that surprise.
+				if gate.Path != "" {
+					return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q type commit_marker sets path %q, but commit_marker no longer reads a marker string from commit messages - it only checks that the stage left a new commit - Fix: remove the path field", state, gate.Path)
+				}
+				continue
+			}
 			if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
-				// commit_marker and description_contains Path values are marker
-				// text and description substrings, not filesystem paths - a
-				// ".kernl/" substring there means nothing.
+				// description_contains Path values are description
+				// substrings, not filesystem paths - a ".kernl/" substring
+				// there means nothing.
 				continue
 			}
 			if strings.Contains(gate.Path, legacyInWorktreeArtifactPrefix) {

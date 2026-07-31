@@ -783,7 +783,7 @@ func buildIntegrationChildren(children []backend.Bead, epicArtifactDir string) [
 // alone and let DriveBeadToTerminal resume from it.
 //
 // Writing the entry state unconditionally made the epic tail unresumable.
-// Once integration has produced its marker commit there is nothing left to
+// Once integration has already merged everything there is nothing left to
 // merge, so no NEW commit can exist, and the commit_marker gate refuses an
 // ancestor on purpose (it was hardened for exactly that). An epic rewound to
 // ready_for_integration therefore fails that gate forever, parks at blocked,

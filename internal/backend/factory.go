@@ -384,8 +384,7 @@ func CanonicalStageContracts() map[string]StageContract {
 				"<artifact_dir>/plan-review.md",
 			},
 			OutputArtifact: StageArtifact{
-				Kind:         "commits",
-				CommitMarker: "stage: implementation",
+				Kind: "commits",
 			},
 			DecisionRecord: StageArtifact{
 				Path: "<artifact_dir>/decision-record.md",
@@ -414,8 +413,7 @@ func CanonicalStageContracts() map[string]StageContract {
 				"sibling bead artifacts",
 			},
 			OutputArtifact: StageArtifact{
-				Kind:         "commits",
-				CommitMarker: "stage: integration",
+				Kind: "commits",
 			},
 		},
 		"integration_review": {
@@ -440,8 +438,7 @@ func CanonicalStageContracts() map[string]StageContract {
 				"all stage artifacts in <artifact_dir>/",
 			},
 			OutputArtifact: StageArtifact{
-				Kind:         "commits",
-				CommitMarker: "stage: shipment",
+				Kind: "commits",
 			},
 			ForbiddenPaths: []string{
 				"**/*.go", "**/*.ts", "**/*.py", "**/*.rs",

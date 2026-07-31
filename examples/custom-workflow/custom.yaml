@@ -125,7 +125,6 @@ stages:
       - "<artifact_dir>/plan.md"
     output_artifact:
       kind: "commits"
-      commit_marker: "stage: implementation"
   implementation_review:
     role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict."
     inputs:
@@ -148,7 +147,6 @@ stages:
       - "sibling bead artifacts"
     output_artifact:
       kind: "commits"
-      commit_marker: "stage: integration"
   integration_review:
     role: "Review the integration. Verify merge conflicts are resolved, no regressions are introduced, and the combined codebase meets quality gates."
     inputs:
@@ -170,7 +168,6 @@ stages:
       - "all stage artifacts in <artifact_dir>/"
     output_artifact:
       kind: "commits"
-      commit_marker: "stage: shipment"
     forbidden_paths:
       - "**/*.go"
       - "**/*.ts"
