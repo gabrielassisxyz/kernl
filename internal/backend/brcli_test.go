@@ -350,10 +350,13 @@ func TestBrCliUpdateWithNothingToChangeFailsLoud(t *testing.T) {
 // orchestrator actually drives (br, not knots) - the composite
 // revert-decision verb's "rewind" half would have failed loud on every real
 // run. This proves it now runs the same br update invocation MarkTerminal
-// already uses in production.
-func TestBrCliRewindUpdatesStatusAndNotes(t *testing.T) {
+// already uses in production for the status change.
+func TestBrCliRewindUpdatesStatus(t *testing.T) {
 	repo := brRepo(t)
-	fake := newFakeBr(t, map[string]string{"update kb-1": `[{"id":"kb-1","status":"ready_for_implementation"}]`})
+	fake := newFakeBr(t, map[string]string{
+		"show kb-1":   `[{"id":"kb-1","status":"implementation"}]`,
+		"update kb-1": `[{"id":"kb-1","status":"ready_for_implementation"}]`,
+	})
 
 	if err := NewBrCliBackend(repo).Rewind("kb-1", "ready_for_implementation", "wrong dependency chosen", repo); err != nil {
 		t.Fatalf("Rewind: %v", err)
@@ -364,6 +367,38 @@ func TestBrCliRewindUpdatesStatusAndNotes(t *testing.T) {
 	}
 	if !strings.Contains(calls, "--notes=wrong dependency chosen") {
 		t.Errorf("rewind must record the reason as notes, calls: %v", fake.calledWith())
+	}
+}
+
+// A bare `--notes <reason>` write replaces the field wholesale (same as
+// --description and --acceptance), and invariants for a br-backed bead live
+// entirely inside that one free-text field as an [Invariants] block. A
+// rewind - the mechanism revert-decision uses to reopen a bead - must not be
+// the thing that silently erases the scope/state invariants already
+// governing that bead; that is exactly the kind of silent constraint loss
+// this feature exists to prevent, delivered by the feature itself.
+func TestBrCliRewindPreservesInvariantsInNotes(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"show kb-1": `[{"id":"kb-1","status":"implementation","notes":"Existing prose note.\n\n[Invariants]\nScope: internal/api"}]`,
+	})
+
+	if err := NewBrCliBackend(repo).Rewind("kb-1", "ready_for_implementation", "wrong dependency chosen", repo); err != nil {
+		t.Fatalf("Rewind: %v", err)
+	}
+	// These three strings only ever appear as argv of the update call (the
+	// show call's args are just "show kb-1"), so a joined-log substring
+	// check unambiguously exercises what was sent to update, matching this
+	// file's existing convention for multi-call assertions.
+	calls := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(calls, "Existing prose note.") {
+		t.Errorf("rewind dropped the existing prose note, calls: %q", calls)
+	}
+	if !strings.Contains(calls, "[Invariants]") || !strings.Contains(calls, "Scope: internal/api") {
+		t.Errorf("rewind dropped the invariants block, calls: %q", calls)
+	}
+	if !strings.Contains(calls, "wrong dependency chosen") {
+		t.Errorf("rewind dropped the reason, calls: %q", calls)
 	}
 }
 

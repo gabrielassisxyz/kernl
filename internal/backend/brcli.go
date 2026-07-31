@@ -519,17 +519,24 @@ func (b *BrCliBackend) MarkTerminal(id string, targetState string, reason string
 // the mechanism a revert-and-reopen composite verb needs and that used to be
 // brUnimplemented here, which meant the composite verb's own half that talks
 // to the real tracker failed loud against every repository this orchestrator
-// actually drives (br, not knots). It runs the identical `br update
-// --status/--notes` invocation MarkTerminal already uses against production
-// - the same mechanism an operator already runs by hand (see the plan's
-// manual recovery recipe) - rather than inventing a second one.
+// actually drives (br, not knots). It runs the same `br update --status`
+// invocation MarkTerminal already uses against production - the same
+// mechanism an operator already runs by hand (see the plan's manual
+// recovery recipe) - rather than inventing a second one for the status
+// change. The notes half is not identical to MarkTerminal's: see
+// rewindNotes for why a bare `--notes <reason>` is not safe here.
 //
 // targetState must be a queue state (ready_for_*): rewinding into anything
 // else leaves the bead sitting in an active, non-queue state that nothing
 // ever dispatches from, which is a stuck bead wearing the appearance of a
 // successful rewind. KnotsBackend.Rewind already enforces exactly this for
 // the one backend that has a real Rewind implementation; this mirrors it
-// rather than leaving br as the one path with no such check.
+// rather than leaving br as the one path with no such check. This is a
+// necessary check but not a sufficient one - it only rejects targets with
+// the wrong shape, not a well-formed but nonexistent state (a typo inside
+// the ready_for_* family); the caller composing a revert is expected to
+// validate targetState against the bead's own resolved workflow states
+// before calling this, since br accepts any status string it is given.
 //
 // defaultState (dto.go) prefers a known workflow status over a stale
 // wf:state:* label, and targetState is always one of those known states
@@ -543,12 +550,46 @@ func (b *BrCliBackend) Rewind(id string, targetState string, reason string, repo
 	}
 	args := []string{"update", id, brValue("--status", targetState)}
 	if reason != "" {
-		args = append(args, brValue("--notes", reason))
+		notes, err := b.rewindNotes(id, repoPath, reason)
+		if err != nil {
+			return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind %s -> %s: reading current notes to preserve invariants: %w", id, targetState, err)
+		}
+		args = append(args, brValue("--notes", notes))
 	}
 	if _, err := b.run(context.Background(), repoPath, args...); err != nil {
 		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind %s -> %s: %w", id, targetState, err)
 	}
 	return nil
+}
+
+// rewindNotes composes the notes value Rewind writes, so a rewind reason
+// never destroys invariants already embedded in the bead's notes field.
+//
+// br has no separate storage for invariants: parseInvariantsFromNotes /
+// embedInvariantsInNotes (dto.go) exist because they live entirely inside
+// this one free-text field, extracted out into Bead.Invariants on read. A
+// bare `--notes <reason>` write - what MarkTerminal already does, and what
+// this function used to do - replaces the field wholesale (same as
+// --description and --acceptance) and silently drops whatever [Invariants]
+// block was there. This function is new in this change, unlike
+// MarkTerminal's pre-existing use of the same bare write, so it does not
+// inherit that gap: it reads the bead's current (already-split) notes and
+// invariants and re-embeds both before writing.
+func (b *BrCliBackend) rewindNotes(id, repoPath, reason string) (string, error) {
+	current, err := b.Get(id, repoPath)
+	if err != nil {
+		return "", err
+	}
+	if current == nil {
+		return reason, nil
+	}
+	prose := strings.TrimSpace(current.Notes)
+	if prose != "" {
+		prose = prose + "\n\n" + reason
+	} else {
+		prose = reason
+	}
+	return embedInvariantsInNotes(prose, current.Invariants), nil
 }
 
 // AddDependency records that blockedID waits on blockerID.
