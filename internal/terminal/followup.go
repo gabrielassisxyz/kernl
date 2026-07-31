@@ -70,12 +70,12 @@ type FollowUpDeps struct {
 // running agent because its turn ended while the bead is still stuck in an
 // active state. The bool return says whether stdin should stay open (true)
 // or be scheduled for close (false) - see SessionRuntime.handleTurnEnd. The
-// error return is a distinct, narrower signal: non-nil only when the dialect
-// has no way to ever receive a follow-up (Capabilities.SupportsFollowUp is
-// false), which the caller must propagate as a hard failure. Every other
-// false-with-nil-error case (terminal state, cap reached, lease unhealthy,
-// SendUserTurn failed) means "no follow-up right now", not "this run cannot
-// be trusted."
+// error return is a distinct, narrower signal: non-nil only when a follow-up
+// was genuinely needed (ctx.TurnFailed) and the dialect has no way to ever
+// receive one (Capabilities.SupportsFollowUp is false), which the caller
+// must propagate as a hard failure. Every other false-with-nil-error case
+// (terminal state, clean turn end, cap reached, lease unhealthy, SendUserTurn
+// failed) means "no follow-up right now", not "this run cannot be trusted."
 func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) (bool, error) {
 	tag := fmt.Sprintf("[terminal-manager] [%s] [take-loop]", ctx.ID)
 
@@ -93,6 +93,21 @@ func HandleTakeLoopTurnEnded(ctx *TakeLoopContext, deps FollowUpDeps) (bool, err
 	}
 
 	if !ctx.Capabilities.SupportsFollowUp {
+		if !ctx.TurnFailed {
+			// The turn ended cleanly (see TakeLoopContext.TurnFailed) - the
+			// bead simply hasn't been advanced yet, because that happens
+			// afterward when the driver evaluates the exit gate, not during
+			// the turn itself. There is nothing to nudge and nothing to
+			// refuse: halting here would report a stage that succeeded as a
+			// dispatch failure. PR #158 made this refusal a halting error
+			// for the real failure case below (a turn that ended without
+			// finishing, on a dialect that cannot be nudged) - keep that
+			// halt scoped to that case, or every successful one-shot stage
+			// trips it too.
+			ctx.FollowUpAttempts.Count = 0
+			ctx.FollowUpAttempts.LastState = state
+			return false, nil
+		}
 		dispatchErr := fmt.Errorf(
 			"KERNL DISPATCH FAILURE: refusing follow-up for bead %s in state %s - dialect %q has no follow-up/resume path (SupportsFollowUp=false) - Fix: give %q a resume mechanism (e.g. claude --resume, a captured codex thread id) and declare it in internal/session/capabilities.go before relying on take-loop nudges for it",
 			ctx.BeadID, state, ctx.Dialect, ctx.Dialect,

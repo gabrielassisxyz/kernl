@@ -381,7 +381,11 @@ func TestHandleTakeLoopTurnEnded_LeaseHealthBlocksFollowUp(t *testing.T) {
 // TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport pins the
 // take-loop's own gate: it must consult SupportsFollowUp itself and refuse
 // before ever calling SendUserTurn, rather than relying on SendUserTurn to
-// fail closed for the wrong reason (or not fail at all).
+// fail closed for the wrong reason (or not fail at all). ctx.TurnFailed=true
+// makes this the case the halt exists for: the turn genuinely didn't finish,
+// so a nudge is needed and none can be delivered. The companion test below,
+// TestHandleTakeLoopTurnEnded_CleanTurnEndSkipsRefusalForDialectsWithoutSupport,
+// pins the opposite outcome for a clean turn end on the very same dialects.
 func TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport(t *testing.T) {
 	dialects := []string{"codex", "copilot", "opencode", "gemini", "claude"}
 	for _, dialect := range dialects {
@@ -390,6 +394,7 @@ func TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport(t *testi
 			ctx := makeFollowUpCtx(func(ctx *TakeLoopContext) {
 				ctx.Dialect = dialect
 				ctx.Capabilities = session.CapabilitiesForDialect(dialect, false)
+				ctx.TurnFailed = true
 				ctx.PushEvent = func(evt session.TerminalEvent) {
 					if evt.Type == "stderr" {
 						stderrEvents = append(stderrEvents, evt)
@@ -421,6 +426,63 @@ func TestHandleTakeLoopTurnEnded_SkipsFollowUpForDialectsWithoutSupport(t *testi
 			}
 			if len(stderrEvents) == 0 || !containsAll(stderrEvents[0].Content, "KERNL DISPATCH FAILURE", dialect) {
 				t.Errorf("expected dispatch failure banner naming dialect %q, got: %v", dialect, stderrEvents)
+			}
+		})
+	}
+}
+
+// TestHandleTakeLoopTurnEnded_CleanTurnEndSkipsRefusalForDialectsWithoutSupport
+// is the regression this fix closes: PR #158 turned the no-follow-up-path
+// refusal into a halting error, but the bead is still in its active state on
+// every turn end - clean or not - because the exit gate only runs afterward.
+// Without ctx.TurnFailed, that made every successful one-shot stage look
+// identical to a genuinely stuck one and halt. ctx.TurnFailed left at its
+// zero value (false) here is exactly what a normal completion reports (see
+// TestSessionRuntime_ClaudeResultCleanIsNotError and the codex/gemini/
+// copilot/opencode "success" event tests in internal/session), so a
+// completed stage on any of these dialects must run through untouched: no
+// error, no banner, no attempted send.
+func TestHandleTakeLoopTurnEnded_CleanTurnEndSkipsRefusalForDialectsWithoutSupport(t *testing.T) {
+	dialects := []string{"codex", "copilot", "opencode", "gemini", "claude"}
+	for _, dialect := range dialects {
+		t.Run(dialect, func(t *testing.T) {
+			var stderrEvents []session.TerminalEvent
+			ctx := makeFollowUpCtx(func(ctx *TakeLoopContext) {
+				ctx.Dialect = dialect
+				ctx.Capabilities = session.CapabilitiesForDialect(dialect, false)
+				// ctx.TurnFailed intentionally left false: this is a clean
+				// turn end.
+				ctx.PushEvent = func(evt session.TerminalEvent) {
+					if evt.Type == "stderr" {
+						stderrEvents = append(stderrEvents, evt)
+					}
+				}
+			})
+			sent := false
+			deps := FollowUpDeps{
+				GetBead: func(beadID, repoPath string) (*backend.Bead, error) {
+					return &backend.Bead{ID: "bead-6881", State: "planning"}, nil
+				},
+				SendUserTurn: func(prompt, source string) bool { sent = true; return true },
+				LeaseChecker: &mockLeaseChecker{healthy: true},
+			}
+
+			result, err := HandleTakeLoopTurnEnded(ctx, deps)
+
+			if result {
+				t.Error("expected false: nothing to keep stdin open for on a clean, one-shot turn end")
+			}
+			if err != nil {
+				t.Errorf("expected no error for a clean turn end on dialect %q, got: %v", dialect, err)
+			}
+			if sent {
+				t.Errorf("expected SendUserTurn never called for one-shot %s on a clean turn end", dialect)
+			}
+			if len(stderrEvents) != 0 {
+				t.Errorf("expected no dispatch failure banner for a clean turn end, got: %+v", stderrEvents)
+			}
+			if ctx.FollowUpAttempts.Count != 0 {
+				t.Errorf("expected follow-up count reset to 0, got %d", ctx.FollowUpAttempts.Count)
 			}
 		})
 	}

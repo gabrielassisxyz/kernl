@@ -77,6 +77,17 @@ type TakeLoopContext struct {
 	// follow-up so it never promises a nudge over a channel the running
 	// process doesn't listen on.
 	Capabilities session.DialectCapabilities
+	// TurnFailed reports whether the turn that just ended was itself a
+	// failure or incomplete response, as observed directly from the
+	// dialect's own event stream (session.SessionRuntime.IsError()) - never
+	// a guess. At the moment a turn ends the bead is always still in its
+	// active state; it only advances afterward, when the driver evaluates
+	// the exit gate. So "bead not yet terminal" is true on every turn end,
+	// success or failure, and cannot by itself tell the two apart. TurnFailed
+	// is what can: HandleTakeLoopTurnEnded only enters the no-follow-up-path
+	// refusal when this is true, because a clean turn end has nothing to
+	// nudge and nothing to refuse.
+	TurnFailed bool
 }
 
 type IterationCounter struct {
