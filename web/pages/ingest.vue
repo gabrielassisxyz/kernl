@@ -312,6 +312,10 @@ const submitTrigger = async () => {
   if (!filePath) return
   showTriggerModal.value = false
   try {
+    // filePath and nodeId match internal/api/ingest.go's decode tags (see the
+    // matching note there). encoding/json leaves an unmatched field at its
+    // zero value with no error, so this key set and the server's tags must
+    // move together or the trigger silently does nothing.
     await $fetch('/api/ingest/trigger', {
       method: 'POST',
       body: { filePath, nodeId: triggerNodeId.value.trim() }

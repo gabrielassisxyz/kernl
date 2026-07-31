@@ -205,8 +205,10 @@ func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 		// contract. cmd/kernl's `ingest trigger` and web/pages/ingest.vue both
 		// post this exact shape (see the matching notes there); encoding/json
 		// leaves an unmatched field at its zero value with no error, so an
-		// uncoordinated rename on one side alone would silently post an empty
-		// file path instead of failing loud. Move all three together.
+		// uncoordinated rename on one side alone doesn't fail here: it decodes
+		// to "", returns 202, and only fails later inside the detached
+		// goroutine below, once ProcessFile can't open an empty path. Move all
+		// three together.
 		var body struct {
 			FilePath string `json:"filePath"`
 			NodeID   string `json:"nodeId"`
