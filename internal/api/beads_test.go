@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -13,12 +14,18 @@ import (
 
 type testBackend struct {
 	beads []backend.Bead
+
+	// lastRepoPath records the repoPath the routes actually passed to List,
+	// so a test can assert which repository a route queried without a real
+	// backend to inspect.
+	lastRepoPath string
 }
 
 func (b *testBackend) ListWorkflows(repoPath string) ([]backend.WorkflowDescriptor, error) {
 	return nil, nil
 }
 func (b *testBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
+	b.lastRepoPath = repoPath
 	return b.beads, nil
 }
 func (b *testBackend) ListReady(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
@@ -147,5 +154,83 @@ func TestCreateBeadHandler(t *testing.T) {
 
 	if w.Code != 201 {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestListBeadsHandlerQueriesAppRepoPath reproduces `epic run --repo
+// <target>`'s own GUI: the App is built for a repository that is not
+// registry.repos[0] (appForSelectedRepo/NewAppForRepo do exactly this for
+// --repo), and the bead routes must query that repository, not the
+// registry's first entry.
+func TestListBeadsHandlerQueriesAppRepoPath(t *testing.T) {
+	be := &testBackend{beads: []backend.Bead{{ID: "kb-1", Title: "first"}}}
+	a := &app.App{
+		Backend:  be,
+		Config:   testCfg(), // Registry.Repos[0].Path == "/tmp/test-repo"
+		RepoPath: "/tmp/other-repo",
+	}
+	r := NewRouter(a)
+	req := httptest.NewRequest("GET", "/api/beads", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if be.lastRepoPath != "/tmp/other-repo" {
+		t.Errorf("expected bead routes to query App.RepoPath %q, got %q", "/tmp/other-repo", be.lastRepoPath)
+	}
+}
+
+// TestListBeadsHandlerFailsLoudWithNoResolvableRepo covers the App that
+// bypassed NewApp/NewAppForRepo (both of which always set RepoPath) and
+// whose config also names no repository: there is nothing to fall back to,
+// and the route must report that plainly instead of panicking on an empty
+// registry.repos slice.
+func TestListBeadsHandlerFailsLoudWithNoResolvableRepo(t *testing.T) {
+	a := &app.App{
+		Backend: &testBackend{},
+		Config:  &config.Config{},
+	}
+	r := NewRouter(a)
+	req := httptest.NewRequest("GET", "/api/beads", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("expected KERNL DISPATCH FAILURE marker, got %s", w.Body.String())
+	}
+}
+
+// TestFailingBeadRoutesCoverPathsNotInAnyEnumeration proves the
+// unresolved-repository branch is a genuine catch-all rather than an
+// enumerated list of today's nine bead routes: it hits a nested path this
+// test file never names anywhere else and a method none of the real routes
+// register, and both still get the loud failure instead of ServeMux's
+// ordinary 404. An enumeration that happened to omit a route would fail
+// exactly this way - a 404, not the assertions below.
+func TestFailingBeadRoutesCoverPathsNotInAnyEnumeration(t *testing.T) {
+	a := &app.App{
+		Backend: &testBackend{},
+		Config:  &config.Config{},
+	}
+	r := NewRouter(a)
+
+	for _, req := range []*http.Request{
+		httptest.NewRequest("DELETE", "/api/beads/kb-1", nil),
+		httptest.NewRequest("GET", "/api/beads/kb-1/some-future-subroute", nil),
+	} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("%s %s: expected 500, got %d: %s", req.Method, req.URL.Path, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "KERNL DISPATCH FAILURE") {
+			t.Errorf("%s %s: expected KERNL DISPATCH FAILURE marker, got %s", req.Method, req.URL.Path, w.Body.String())
+		}
 	}
 }

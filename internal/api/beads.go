@@ -46,7 +46,11 @@ func (c *listBeadsCache) get(load func() ([]backend.Bead, error)) ([]backend.Bea
 }
 
 func RegisterBeadRoutes(mux *http.ServeMux, a *app.App) {
-	repoPath := a.Config.Registry.Repos[0].Path
+	repoPath, repoErr := resolveBeadsRepoPath(a)
+	if repoErr != nil {
+		registerFailingBeadRoutes(mux, repoErr)
+		return
+	}
 
 	listCache := &listBeadsCache{ttl: 2 * time.Second}
 
@@ -244,6 +248,65 @@ func RegisterBeadRoutes(mux *http.ServeMux, a *app.App) {
 			"targetState": result.TargetState,
 		})
 	})
+}
+
+// resolveBeadsRepoPath names the repository the bead routes must query.
+//
+// a.RepoPath is the repository app.NewAppForRepo built this App against -
+// the run these routes are actually serving, which is what `epic run
+// --repo <target>` needs its own GUI to show. The registry.repos[0]
+// fallback exists only for an App assembled directly (a bare struct
+// literal, as hand-built test Apps do) rather than through NewApp /
+// NewAppForRepo, both of which always set RepoPath; it matches `kernl
+// serve`'s existing single-repo behavior exactly.
+func resolveBeadsRepoPath(a *app.App) (string, error) {
+	if a.RepoPath != "" {
+		return a.RepoPath, nil
+	}
+	if a.Config != nil && len(a.Config.Registry.Repos) > 0 {
+		return a.Config.Registry.Repos[0].Path, nil
+	}
+	return "", fmt.Errorf("KERNL DISPATCH FAILURE: no repository resolved for the bead routes - App.RepoPath is unset and registry.repos is empty - Fix: add a repo to registry.repos in kernl.yaml, or build the App via app.NewAppForRepo")
+}
+
+// standardHTTPMethods is the fixed, closed set of HTTP methods a bead route
+// pattern is registered for - not a list of bead routes, which is the thing
+// registerFailingBeadRoutes deliberately avoids enumerating.
+var standardHTTPMethods = []string{"GET", "POST", "PATCH", "PUT", "DELETE"}
+
+// registerFailingBeadRoutes wires every bead route to a handler that reports
+// the unresolved repository, rather than letting each handler discover it
+// independently (and rather than reaching into a.Config.Registry.Repos[0]
+// unchecked, which panics on an empty slice). Fail Loud applies at the route
+// boundary: a client hitting any bead endpoint gets the same, actionable
+// error instead of a 404 for a route that silently never got its real
+// handler installed.
+//
+// Catch-all patterns, not an enumeration of the handlers RegisterBeadRoutes
+// registers below: an enumerated list here would be a second copy of that
+// one that has to be kept in step by hand, and the day a bead route is added
+// to one and not the other, it would 404 in this branch instead of reporting
+// the failure this function exists to make loud - silently, since nothing
+// would fail to compile or go red. "/api/beads" is the ServeMux exact match
+// for that one path; "/api/beads/" is its subtree match, catching every
+// route nested under it (today's {id}, close, mark-terminal, ... and
+// whatever is added later) with nothing to keep in sync. Both are
+// method-qualified because an unqualified pattern here (matching every
+// method) is ambiguous against routes.go's "GET /" file-server catch-all -
+// ServeMux refuses to register two patterns where neither is strictly more
+// specific than the other - so this ranges over HTTP methods instead, which
+// is a fixed, closed set and not a second copy of anything. This function
+// returns before RegisterBeadRoutes registers anything else, so there is no
+// pattern conflict between this catch-all and the real handlers.
+func registerFailingBeadRoutes(mux *http.ServeMux, err error) {
+	fail := func(w http.ResponseWriter, r *http.Request) {
+		slog.Error(err.Error())
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
+	for _, method := range standardHTTPMethods {
+		mux.HandleFunc(method+" /api/beads", fail)
+		mux.HandleFunc(method+" /api/beads/", fail)
+	}
 }
 
 // revertDecisionErrorStatus maps app.RevertDecisionAndReopenBead's error
