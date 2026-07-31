@@ -75,9 +75,17 @@ type WorkflowExitGate struct {
 }
 
 type StageContract struct {
-	Role           string          `json:"role"                     yaml:"role"`
-	Inputs         []string        `json:"inputs,omitempty"         yaml:"inputs,omitempty"`
-	OutputArtifact StageArtifact   `json:"outputArtifact"           yaml:"output_artifact"`
+	Role           string        `json:"role"                     yaml:"role"`
+	Inputs         []string      `json:"inputs,omitempty"         yaml:"inputs,omitempty"`
+	OutputArtifact StageArtifact `json:"outputArtifact"           yaml:"output_artifact"`
+	// DecisionRecord names a second, independent required output: a document
+	// (not commits, not a review verdict) that a stage's own architectural
+	// choices must be written into before the code that implements them. Zero
+	// value (empty Path) means the stage carries no such requirement - only
+	// "implementation" does today. Kept as its own field rather than folded
+	// into OutputArtifact because "implementation" already uses that field
+	// for its commit marker; a single artifact slot cannot describe both.
+	DecisionRecord StageArtifact   `json:"decisionRecord,omitempty" yaml:"decision_record,omitempty"`
 	ForbiddenPaths []string        `json:"forbiddenPaths,omitempty" yaml:"forbidden_paths,omitempty"`
 	Kind           string          `json:"kind,omitempty"           yaml:"kind,omitempty"`
 	Subprocess     *SubprocessSpec `json:"subprocess,omitempty"     yaml:"subprocess,omitempty"`

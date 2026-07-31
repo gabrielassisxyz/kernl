@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 type StepPhase string
@@ -100,6 +102,18 @@ type profileConfig struct {
 	ExitGates map[string]WorkflowExitGate
 }
 
+// canonicalImplementationExitGates gates the canonical pipeline's
+// "implementation" state on the decision record described in
+// CanonicalStageContracts. It is wired only onto "autopilot_with_pr" - the
+// profile canonical.yaml mirrors - and deliberately not onto "autopilot"
+// (TestEvaluateExitGate_Total pins "autopilot" as carrying no exit gates at
+// all) nor onto "epic"/"worker" (their "implementation" state already
+// carries its own commit_marker gate, and EvaluateExitGate checks exactly
+// one gate per state - combining the two is a different, unrequested change).
+var canonicalImplementationExitGates = map[string]WorkflowExitGate{
+	"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+}
+
 var builtinProfiles = []profileConfig{
 	{
 		ID:                       "epic",
@@ -181,6 +195,7 @@ var builtinProfiles = []profileConfig{
 		ImplementationReviewMode: "required",
 		Output:                   "pr",
 		Owners:                   agentOwners,
+		ExitGates:                canonicalImplementationExitGates,
 	},
 	{
 		ID:                       "semiauto",
@@ -682,9 +697,321 @@ func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, 
 			return false, "description_missing: " + gate.Path
 		}
 		return true, ""
+	case "decision_record":
+		// Unlike artifact_exists/artifact_verdict, this gate reads the
+		// file's structure, not just its existence or its last line - an
+		// empty file satisfies artifact_exists but must not satisfy this
+		// one (that gap is why this gate type exists at all).
+		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
+			return false, "artifact_dir_unset: " + gate.Path
+		}
+		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return false, "artifact_missing: " + abs
+		}
+		missing := missingDecisionRecordSections(string(data))
+		if len(missing) > 0 {
+			// Names which sections are missing, not just that the document
+			// is malformed: an agent told "invalid" cannot fix it, one told
+			// "missing: trade_offs" can.
+			return false, "decision_record_missing_sections: " + strings.Join(missing, ", ")
+		}
+		return true, ""
 	default:
 		return true, ""
 	}
+}
+
+// decisionRecordSection names one of the four fixed parts a decision record
+// must carry (AGENTS.md SS2, "Comprehension Debt"): what was being decided,
+// the options weighed, their trade-offs, and why the winner won.
+//
+// A fifth part exists in the full record - the decision's impact on using
+// the tool - and is deliberately NOT checked here. It is written by a
+// different actor (the run's composer) at a different time (run close),
+// never by the implementer at decision time; a gate that demanded it here
+// would block every bead before that actor ever runs. Do not "complete" this
+// list by adding it.
+type decisionRecordSection struct {
+	key     string // snake identifier used in the gate's failure reason
+	heading string // markdown heading text the stage prompt asks for
+}
+
+var decisionRecordSections = []decisionRecordSection{
+	{key: "decision", heading: "Decision"},
+	{key: "options_considered", heading: "Options Considered"},
+	{key: "trade_offs", heading: "Trade-offs"},
+	{key: "rationale", heading: "Rationale"},
+}
+
+// decisionRecordHeadingRe matches an ATX heading ("## Text", 1-6 hashes)
+// against a single already-comment-stripped line. It intentionally does not
+// require exactly two hashes - any level is accepted, matching how the rest
+// of this parser is level-agnostic.
+var decisionRecordHeadingRe = regexp.MustCompile(`^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$`)
+
+// setextEqualsRe and setextDashesRe match a setext heading's underline line
+// (CommonMark: one or more "=" makes the preceding paragraph an H1, one or
+// more "-" makes it an H2) once trimmed of surrounding whitespace.
+var setextEqualsRe = regexp.MustCompile(`^=+$`)
+var setextDashesRe = regexp.MustCompile(`^-+$`)
+
+// isThematicBreak reports whether a trimmed line is a markdown horizontal
+// rule: three or more of the same character from {-, *, _}, optionally
+// separated by whitespace. It exists so a section body consisting of nothing
+// but a presentation token does not read as content (review finding: "a
+// horizontal rule ... counts as content"), and so a "---" is not mistaken
+// for real paragraph text when deciding whether it is eligible to become a
+// setext heading's underline. Written as an explicit scan rather than a
+// regexp with a backreference, since Go's regexp package (RE2) does not
+// support backreferences.
+func isThematicBreak(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	for _, ch := range []byte{'-', '*', '_'} {
+		ok := true
+		count := 0
+		for i := 0; i < len(trimmed); i++ {
+			if trimmed[i] == ch {
+				count++
+				continue
+			}
+			if trimmed[i] == ' ' || trimmed[i] == '\t' {
+				continue
+			}
+			ok = false
+			break
+		}
+		if ok && count >= 3 {
+			return true
+		}
+	}
+	return false
+}
+
+// isAtxHeadingText reports whether a trimmed line reads as an ATX heading -
+// used both to recognize real ATX headings and to disqualify a line from
+// being reinterpreted as setext heading text (a line that already opens its
+// own heading block cannot also be "paragraph text" for the next line).
+func isAtxHeadingText(trimmed string) bool {
+	return decisionRecordHeadingRe.MatchString(trimmed)
+}
+
+// normalizeDecisionHeading collapses a markdown heading to lowercase
+// alphanumerics separated by single spaces, so "Trade-offs", "Trade offs"
+// and "TRADE OFFS" all match the same required section - the parser does not
+// require the agent to reproduce the heading text byte-for-byte.
+func normalizeDecisionHeading(s string) string {
+	var b strings.Builder
+	atSpace := true
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			b.WriteRune(r)
+			atSpace = false
+		case !atSpace:
+			b.WriteRune(' ')
+			atSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func decisionRecordSectionKeyByHeading() map[string]string {
+	m := make(map[string]string, len(decisionRecordSections))
+	for _, s := range decisionRecordSections {
+		m[normalizeDecisionHeading(s.heading)] = s.key
+	}
+	return m
+}
+
+// decisionRecordLine is one line of a decision record after block-context
+// resolution: fenced code blocks and HTML comments are tracked across line
+// boundaries so their content is never mistaken for a heading, and comment
+// interiors are blanked (not deleted, so line numbers stay aligned) so they
+// never count as section content either.
+type decisionRecordLine struct {
+	visible string // comment-stripped text; equals the raw line outside comments and fences
+	inFence bool   // true for a fence delimiter line or any line inside one
+}
+
+// classifyDecisionRecordLines walks a decision record's lines once, tracking
+// fenced-code-block state and HTML-comment state, and returns the
+// comment-stripped, fence-flagged view the rest of the parser reads instead
+// of the raw lines. This is the fix for two bypasses: a heading fenced as
+// example code, and a heading (or a section's entire body) hidden inside an
+// HTML comment - neither is a real, visible heading or a real, visible
+// section body, and the two amount to writing nothing while the file on disk
+// looks complete.
+func classifyDecisionRecordLines(lines []string) []decisionRecordLine {
+	fenceOpenRe := regexp.MustCompile("^[ \t]{0,3}(`{3,}|~{3,})")
+
+	out := make([]decisionRecordLine, len(lines))
+	inFence := false
+	var fenceChar byte
+	fenceLen := 0
+	inComment := false
+
+	for i, line := range lines {
+		if inFence {
+			out[i] = decisionRecordLine{visible: line, inFence: true}
+			leading := strings.TrimLeft(line, " \t")
+			if len(leading) >= fenceLen {
+				run := 0
+				for run < len(leading) && leading[run] == fenceChar {
+					run++
+				}
+				if run >= fenceLen && strings.TrimSpace(leading[run:]) == "" {
+					inFence = false
+				}
+			}
+			continue
+		}
+
+		if m := fenceOpenRe.FindString(line); m != "" {
+			marker := strings.TrimLeft(m, " \t")
+			fenceChar = marker[0]
+			fenceLen = len(marker)
+			inFence = true
+			out[i] = decisionRecordLine{visible: line, inFence: true}
+			continue
+		}
+
+		visible, stillOpen := stripHTMLCommentFromLine(line, inComment)
+		inComment = stillOpen
+		out[i] = decisionRecordLine{visible: visible, inFence: false}
+	}
+	return out
+}
+
+// stripHTMLCommentFromLine blanks any "<!-- ... -->" span on one line,
+// carrying comment state across the line boundary in both directions (a
+// comment opened here and closed later, or closed here having opened on an
+// earlier line). It handles more than one comment per line by design - a
+// single-line "<!-- a --> real text <!-- b -->" leaves only "real text".
+func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
+	var b strings.Builder
+	i := 0
+	for i < len(line) {
+		if inComment {
+			idx := strings.Index(line[i:], "-->")
+			if idx == -1 {
+				return b.String(), true
+			}
+			i += idx + len("-->")
+			inComment = false
+			continue
+		}
+		idx := strings.Index(line[i:], "<!--")
+		if idx == -1 {
+			b.WriteString(line[i:])
+			break
+		}
+		b.WriteString(line[i : i+idx])
+		i += idx + len("<!--")
+		inComment = true
+	}
+	return b.String(), inComment
+}
+
+// missingDecisionRecordSections returns the canonical keys of the required
+// sections that are absent, or present but empty, from a decision record's
+// markdown content. A markdown heading is either ATX ("## Text") or setext
+// (text immediately followed by an "===" or "---" underline); either kind -
+// required or not - closes the previous section, so an unrelated heading the
+// implementer adds (e.g. a "## Context" preamble) cannot be folded into a
+// required section's body. Headings inside a fenced code block or an HTML
+// comment are not recognized, and a section body left with nothing but a
+// horizontal rule or a comment does not count as content - see
+// classifyDecisionRecordLines and isThematicBreak.
+//
+// This is deliberately not a full CommonMark implementation: it recognizes
+// exactly the block constructs an agent's decision record realistically
+// contains or could use to fake one (fences, comments, ATX/setext headings,
+// horizontal rules), not the entire spec.
+func missingDecisionRecordSections(content string) []string {
+	content = strings.TrimPrefix(content, "\uFEFF") // UTF-8 BOM, if present
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	lines := strings.Split(content, "\n")
+	parsed := classifyDecisionRecordLines(lines)
+	byHeading := decisionRecordSectionKeyByHeading()
+
+	type headingHit struct {
+		key          string
+		headingStart int // first line belonging to the heading marker itself
+		bodyStart    int // first line after the heading marker
+	}
+	var hits []headingHit
+
+	for i := 0; i < len(parsed); i++ {
+		if parsed[i].inFence {
+			continue
+		}
+		trimmed := strings.TrimSpace(parsed[i].visible)
+
+		if trimmed != "" && (setextEqualsRe.MatchString(trimmed) || setextDashesRe.MatchString(trimmed)) {
+			if i > 0 && !parsed[i-1].inFence {
+				prevTrimmed := strings.TrimSpace(parsed[i-1].visible)
+				if prevTrimmed != "" && !isAtxHeadingText(prevTrimmed) && !isThematicBreak(prevTrimmed) &&
+					!setextEqualsRe.MatchString(prevTrimmed) && !setextDashesRe.MatchString(prevTrimmed) {
+					hits = append(hits, headingHit{
+						key:          byHeading[normalizeDecisionHeading(prevTrimmed)],
+						headingStart: i - 1,
+						bodyStart:    i + 1,
+					})
+					continue
+				}
+			}
+			// Not adjacent to eligible paragraph text: a run of 3+ is a
+			// thematic break, stripped from body content below; anything
+			// shorter is left as plain (non-heading) content - CommonMark's
+			// own handling of that edge case is genuinely ambiguous and it
+			// does not arise in a real decision record.
+			continue
+		}
+
+		if m := decisionRecordHeadingRe.FindStringSubmatch(parsed[i].visible); m != nil {
+			hits = append(hits, headingHit{
+				key:          byHeading[normalizeDecisionHeading(m[1])],
+				headingStart: i,
+				bodyStart:    i + 1,
+			})
+		}
+	}
+
+	found := make(map[string]bool, len(decisionRecordSections))
+	for i, h := range hits {
+		if h.key == "" {
+			continue
+		}
+		bodyEnd := len(parsed)
+		if i+1 < len(hits) {
+			bodyEnd = hits[i+1].headingStart
+		}
+		var visibleLines []string
+		for j := h.bodyStart; j < bodyEnd; j++ {
+			if !parsed[j].inFence && isThematicBreak(strings.TrimSpace(parsed[j].visible)) {
+				continue
+			}
+			visibleLines = append(visibleLines, parsed[j].visible)
+		}
+		body := strings.TrimSpace(strings.Join(visibleLines, "\n"))
+		if body != "" {
+			found[h.key] = true
+		}
+	}
+
+	var missing []string
+	for _, s := range decisionRecordSections {
+		if !found[s.key] {
+			missing = append(missing, s.key)
+		}
+	}
+	return missing
 }
 
 func ResolveStepForWorkflow(state string, wf WorkflowDescriptor) (*ResolvedStep, error) {
@@ -857,6 +1184,35 @@ func ValidateStages(stages map[string]StageContract) error {
 // an unmigrated example the same bug this project exists to close.
 const legacyInWorktreeArtifactPrefix = ".kernl/"
 
+// decisionRecordArtifactDirPlaceholder is the only anchor a decision_record
+// path may use. Unlike OutputArtifact/artifact_verdict/artifact_exists,
+// which may legitimately resolve relative to the worktree - a documented
+// pre-existing convention (see legacyInWorktreeArtifactPrefix) - a
+// decision_record path has no such fallback: the whole reason this artifact
+// lives outside the worktree is to keep it out of a stage's own
+// `git add <files>` in the target repository, so a path that resolves
+// inside the worktree (or escapes <artifact_dir> via "..") reproduces
+// exactly the leak <artifact_dir> exists to prevent (archeion PR #40).
+const decisionRecordArtifactDirPlaceholder = "<artifact_dir>"
+
+// validateDecisionRecordPathContained rejects a decision_record path that is
+// not anchored at <artifact_dir>, or that escapes it via ".." once
+// substituted. It resolves the placeholder against a fixed sentinel
+// directory instead of a real one, because at workflow-load time there is no
+// real ArtifactDir yet - only the shape of the path is being checked.
+func validateDecisionRecordPathContained(raw string) error {
+	prefix := decisionRecordArtifactDirPlaceholder + "/"
+	if !strings.HasPrefix(raw, prefix) {
+		return fmt.Errorf("must be anchored at %s/..., not resolve against the worktree", decisionRecordArtifactDirPlaceholder)
+	}
+	const sentinel = "/__kernl_artifact_dir__"
+	resolved := filepath.Clean(sentinel + strings.TrimPrefix(raw, decisionRecordArtifactDirPlaceholder))
+	if !strings.HasPrefix(resolved, sentinel+string(filepath.Separator)) {
+		return fmt.Errorf("must stay beneath %s after resolution, not escape it via \"..\"", decisionRecordArtifactDirPlaceholder)
+	}
+	return nil
+}
+
 // ValidateArtifactPaths rejects any stage OutputArtifact/Inputs entry, or
 // filesystem-based exit gate Path, that still names the legacy in-worktree
 // ".kernl/" location instead of the <artifact_dir> placeholder. Called from
@@ -864,10 +1220,26 @@ const legacyInWorktreeArtifactPrefix = ".kernl/"
 // before the artifact directory moved outside the worktree fails loud,
 // naming the offending stage, instead of quietly reproducing the defect
 // that move fixed.
+//
+// It additionally enforces two decision_record-specific invariants that the
+// other gate types do not need: the path must stay confined beneath
+// <artifact_dir> (validateDecisionRecordPathContained), and when both a
+// stage's decision_record.path and an exit gate's decision_record path name
+// the same state, they must agree - otherwise an implementer who writes
+// exactly what the prompt told it to write still fails the gate, because the
+// gate was checking a different file the whole time.
 func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string]WorkflowExitGate) error {
 	for name, stage := range stages {
 		if strings.Contains(stage.OutputArtifact.Path, legacyInWorktreeArtifactPrefix) {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q output_artifact.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is written outside the worktree", name, stage.OutputArtifact.Path)
+		}
+		if stage.DecisionRecord.Path != "" {
+			if strings.Contains(stage.DecisionRecord.Path, legacyInWorktreeArtifactPrefix) {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q decision_record.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the record is written outside the worktree", name, stage.DecisionRecord.Path)
+			}
+			if err := validateDecisionRecordPathContained(stage.DecisionRecord.Path); err != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q decision_record.path %q %s", name, stage.DecisionRecord.Path, err)
+			}
 		}
 		for _, inp := range stage.Inputs {
 			if strings.Contains(inp, legacyInWorktreeArtifactPrefix) {
@@ -876,6 +1248,15 @@ func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string
 		}
 	}
 	for state, gate := range exitGates {
+		if gate.Type == "decision_record" {
+			if err := validateDecisionRecordPathContained(gate.Path); err != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q %s", state, gate.Path, err)
+			}
+			if stage, ok := stages[state]; ok && stage.DecisionRecord.Path != "" && stage.DecisionRecord.Path != gate.Path {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q decision_record path %q disagrees with stage %q decision_record.path %q - Fix: make the two strings identical, so the agent is told to write exactly the file the gate reads", state, gate.Path, state, stage.DecisionRecord.Path)
+			}
+			continue
+		}
 		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
 			// commit_marker and description_contains Path values are marker
 			// text and description substrings, not filesystem paths - a

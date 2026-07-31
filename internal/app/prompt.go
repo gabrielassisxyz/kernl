@@ -54,6 +54,7 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 	renderRole(&b, hasContract, contract)
 	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderOutput(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
+	renderDecisionRecord(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderForbidden(&b, hasContract, contract, in.TrackerCommand)
 	renderOperatingRules(&b, in.VerifyCommand, in.Dialect)
 
@@ -123,6 +124,32 @@ func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageCo
 		fmt.Fprintf(b, "The output must end with: `%s`\n", artifact.MustEndWith)
 	}
 	b.WriteString("\n")
+}
+
+// renderDecisionRecord tells the agent about the second, independent
+// required output a stage's contract can declare via DecisionRecord: a
+// document, not commits and not a review verdict. Only stages that set it
+// (today, only "implementation") render this section.
+//
+// The four section headings named here are exactly what
+// missingDecisionRecordSections in internal/backend/state_machine.go looks
+// for (case-insensitively, punctuation-insensitively) - the prompt and the
+// gate must keep naming the same four things, or an agent that followed this
+// text to the letter would still fail the gate.
+func renderDecisionRecord(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID, artifactDir string) {
+	if !hasContract || contract.DecisionRecord.Path == "" {
+		return
+	}
+	resolved := backend.ResolveArtifactPath(contract.DecisionRecord.Path, beadID, artifactDir)
+	b.WriteString("## Decision record\n\n")
+	b.WriteString("Any decision this stage makes that was not already settled for you - a choice between approaches, a new dependency, a changed default, anything a future reader would ask \"why this and not that\" about - gets written down BEFORE you write the code for it, not after. A record written afterward is a justification, not a decision; the ordering is the point.\n\n")
+	fmt.Fprintf(b, "Enumerate the options you considered for each such decision, then write the following file: `%s`\n\n", resolved)
+	b.WriteString("It must contain all four of these sections as markdown headings, each followed by real, non-empty content:\n\n")
+	b.WriteString("- `## Decision` - what was being decided\n")
+	b.WriteString("- `## Options Considered` - the options you weighed\n")
+	b.WriteString("- `## Trade-offs` - what each option costs and gains\n")
+	b.WriteString("- `## Rationale` - why the winner won\n\n")
+	b.WriteString("Do not add a section about this record's impact on how the tool gets used day to day - that is written separately, later, by a different step, not by you.\n\n")
 }
 
 func renderForbidden(b *strings.Builder, hasContract bool, contract backend.StageContract, trackerCommand string) {

@@ -377,7 +377,7 @@ func CanonicalStageContracts() map[string]StageContract {
 			},
 		},
 		"implementation": {
-			Role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan.",
+			Role: "Implement the plan. Modify code to satisfy the acceptance criteria and the plan's subtasks. Do not modify the plan. Before writing any code, enumerate the options for every decision the plan left open - a choice between approaches, a new dependency, a changed default - and write the decision record below with the winner and why it won. Write the record first: a record written after the code is a justification, not a decision.",
 			Inputs: []string{
 				"bead.acceptance",
 				"<artifact_dir>/plan.md",
@@ -386,6 +386,9 @@ func CanonicalStageContracts() map[string]StageContract {
 			OutputArtifact: StageArtifact{
 				Kind:         "commits",
 				CommitMarker: "stage: implementation",
+			},
+			DecisionRecord: StageArtifact{
+				Path: "<artifact_dir>/decision-record.md",
 			},
 		},
 		"implementation_review": {
