@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -131,4 +132,64 @@ func TestAuditDecisionsHandler(t *testing.T) {
 		[]string{"id", "createdAt", "title", "body", "context", "outcome", "impactOnUse", "tags", "relatedIds"},
 		[]string{"CreatedAt", "RelatedIDs", "ImpactOnUse", "created_at", "related_ids", "impact_on_use"},
 	)
+
+	if got := w.Header().Get("X-Kernl-Truncated"); got != "false" {
+		t.Errorf("X-Kernl-Truncated = %q, want %q (1 decision, well under the page limit)", got, "false")
+	}
+}
+
+// TestAuditDecisionsHandler_TruncationIsSignaled proves the 100-row cap is
+// no longer silent now that this endpoint has a real writer: with more than
+// decisionsPageLimit records, the response still returns exactly the page
+// limit (out-of-scope pagination is not being built here), but
+// X-Kernl-Truncated tells a caller it is looking at the newest page rather
+// than the whole result set.
+func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := nodes.CreateTask(ctx, tx, nodes.Task{ID: "kb-many", Title: "bead"}, nodes.Author{Name: "test"})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seeding stand-in node: %v", err)
+	}
+
+	const seeded = 101 // one more than decisionsPageLimit
+	for i := 0; i < seeded; i++ {
+		sections := map[string]string{
+			"decision":           fmt.Sprintf("Decision number %d.", i),
+			"options_considered": wellFormedAuditFixtureSections["options_considered"],
+			"trade_offs":         wellFormedAuditFixtureSections["trade_offs"],
+			"rationale":          wellFormedAuditFixtureSections["rationale"],
+		}
+		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, "kb-many", "kb-many"); err != nil {
+			t.Fatalf("WriteDecisionRecordNode(%d): %v", i, err)
+		}
+	}
+
+	a := testApp()
+	a.Graph = g
+	r := NewRouter(a)
+
+	req := httptest.NewRequest("GET", "/api/audit/decisions", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var res []DecisionResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(res) != 100 {
+		t.Fatalf("expected exactly 100 decisions (the page limit), got %d", len(res))
+	}
+
+	if got := w.Header().Get("X-Kernl-Truncated"); got != "true" {
+		t.Errorf("X-Kernl-Truncated = %q, want %q (%d records seeded, only 100 returned)", got, "true", seeded)
+	}
 }
