@@ -122,7 +122,6 @@ result
 result-*
 
 scripts/
-update_binary.sh
 generate-env.sh
 run.sh
 
