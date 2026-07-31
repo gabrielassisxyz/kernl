@@ -148,15 +148,14 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 	}, nil
 }
 
-// graphDBFilePath resolves the single graph database file this process
-// reads and writes: the vault root when configured, else a fallback under
-// the user's home directory, both keyed on the same ".kernl-graph.db"
-// filename. It is a function, not inlined at each call site, because it is
-// called from two places (NewAppForRepo here and the decision-record write
-// path in decision_record.go) that must never derive this path differently -
-// a node written to one file and read back from another would look like the
-// write silently vanished.
-func graphDBFilePath(cfg *config.Config) (string, error) {
+// graphDBDir resolves the directory the graph database lives in: the vault
+// root when configured, else a fallback under the user's home directory.
+// Pure - it never touches the filesystem - so a caller that only needs to
+// know WHERE the database would be (relatedDecisionsForPrompt checks
+// whether it already exists, before deciding whether opening it is even
+// worth the side effect) is not forced to create that directory just to
+// find out.
+func graphDBDir(cfg *config.Config) (string, error) {
 	dir := cfg.Vault.Root
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -164,6 +163,22 @@ func graphDBFilePath(cfg *config.Config) (string, error) {
 			return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for graph db path default: %w", err)
 		}
 		dir = filepath.Join(home, ".kernl")
+	}
+	return dir, nil
+}
+
+// graphDBFilePath resolves the single graph database file this process
+// reads and writes, both keyed on the same ".kernl-graph.db" filename under
+// graphDBDir. It is a function, not inlined at each call site, because it is
+// called from three places (NewAppForRepo here, the decision-record write
+// path in decision_record.go, and relatedDecisionsForPrompt in
+// decision_relevance.go) that must never derive this path differently - a
+// node written to one file and read back from another would look like the
+// write silently vanished.
+func graphDBFilePath(cfg *config.Config) (string, error) {
+	dir, err := graphDBDir(cfg)
+	if err != nil {
+		return "", err
 	}
 	// Ensure the directory exists before SQLite tries to open the file there -
 	// otherwise the open fails with an opaque "unable to open database file"
