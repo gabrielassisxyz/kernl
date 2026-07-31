@@ -1,9 +1,9 @@
 package app
 
 import (
-	"regexp"
 	"strings"
 
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/review"
 )
 
@@ -27,37 +27,34 @@ type IntegrationRejection struct {
 	Question string
 }
 
-// integrationRejectionHeadingRe matches one ATX markdown heading line
-// ("## Text", 1-6 hashes) and captures its text. Deliberately simpler than
-// backend.DecisionRecordSectionBodies's fence/comment-aware parser: that
-// parser exists to resist an agent gaming a hard gate (a decision_record
-// exit gate that blocks the bead outright), where a heading hidden in a
-// fence or a comment must not count as real content. Here, a declaration
-// this parser cannot make sense of - for any reason, hidden or otherwise -
-// already resolves to nil, and nil already means "escalate to the operator"
-// (see ParseIntegrationRejection and DecideFixupAction). Escalating is the
-// safe fallback in both cases, so a second copy of that heavier parser would
-// buy nothing.
-var integrationRejectionHeadingRe = regexp.MustCompile(`(?m)^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$`)
+// integrationRejectionHeadingKeys are the only headings this parser
+// recognizes - anything else (an unrelated preamble, prose) still closes
+// the previous section but contributes nothing.
+var integrationRejectionHeadingKeys = map[string]string{
+	"classification":             "classification",
+	"what is wrong":              "what is wrong",
+	"fix-up acceptance criteria": "fix-up acceptance criteria",
+	"question for the operator":  "question for the operator",
+}
 
-// integrationRejectionSections splits content on its ATX headings and
-// returns each heading's body, keyed by the heading text lowercased and
-// trimmed - so "## Classification", "## classification " and "##
-// CLASSIFICATION" all key the same entry.
-func integrationRejectionSections(content string) map[string]string {
-	content = strings.ReplaceAll(content, "\r\n", "\n")
-	locs := integrationRejectionHeadingRe.FindAllStringSubmatchIndex(content, -1)
-	sections := make(map[string]string, len(locs))
-	for i, loc := range locs {
-		key := strings.ToLower(strings.TrimSpace(content[loc[2]:loc[3]]))
-		bodyStart := loc[1]
-		bodyEnd := len(content)
-		if i+1 < len(locs) {
-			bodyEnd = locs[i+1][0]
-		}
-		sections[key] = strings.TrimSpace(content[bodyStart:bodyEnd])
-	}
-	return sections
+// integrationRejectionSections splits content on its ATX/setext headings via
+// backend.MarkdownSectionsByHeading - fence and HTML-comment aware, the same
+// hardened distinction the decision_record exit gate already relies on - and
+// returns ok=false when either the split found two real headings for the
+// same key, or content is otherwise not decidable. A naive line-regexp
+// parser (this package's first draft) would recognize a heading hidden
+// inside a code fence or an HTML comment: a reviewer could write
+// "## Classification / decision" in plain view, then a later fenced example
+// containing "## Classification / fixup" - and the hidden one, appearing
+// later, would silently win. Being fence/comment-aware closes that: a hidden
+// heading is never a heading at all, and two REAL headings for the same key
+// are refused outright rather than resolved by "last one wins."
+func integrationRejectionSections(content string) (sections map[string]string, ok bool) {
+	sections, dupKey := backend.MarkdownSectionsByHeading(content, func(headingText string) (string, bool) {
+		key, recognized := integrationRejectionHeadingKeys[strings.ToLower(strings.TrimSpace(headingText))]
+		return key, recognized
+	})
+	return sections, dupKey == ""
 }
 
 // stripTrailingVerdictLine removes the gate's own trailing sentinel line
@@ -86,7 +83,13 @@ func stripTrailingVerdictLine(content string) string {
 // never guessed into "fixup"). See DecideFixupAction, the caller that acts
 // on this.
 func ParseIntegrationRejection(content string) *IntegrationRejection {
-	sections := integrationRejectionSections(stripTrailingVerdictLine(content))
+	sections, ok := integrationRejectionSections(stripTrailingVerdictLine(content))
+	if !ok {
+		// Two real headings claimed the same recognized key - which one is
+		// authoritative is not decidable content (see
+		// integrationRejectionSections's own doc comment).
+		return nil
+	}
 
 	kind, ok := review.Parse(strings.ToLower(strings.TrimSpace(sections["classification"])))
 	if !ok {
@@ -98,18 +101,33 @@ func ParseIntegrationRejection(content string) *IntegrationRejection {
 		return nil
 	}
 
+	acceptance := strings.TrimSpace(sections["fix-up acceptance criteria"])
+	question := strings.TrimSpace(sections["question for the operator"])
+
 	r := &IntegrationRejection{Kind: kind, WhatIsWrong: whatIsWrong}
 	switch kind {
 	case review.KindFixup:
-		r.Acceptance = strings.TrimSpace(sections["fix-up acceptance criteria"])
-		if r.Acceptance == "" {
+		// A document carrying both a fix-up's acceptance criteria AND a
+		// decision's question is contradictory - the reviewer declared
+		// fixup but also wrote down an open question, which is exactly the
+		// shape an ambiguous declaration takes. Refusing it rather than
+		// picking the declared Kind and ignoring the other section is what
+		// keeps "declared cleanly" meaning something.
+		if question != "" {
 			return nil
 		}
+		if acceptance == "" {
+			return nil
+		}
+		r.Acceptance = acceptance
 	case review.KindDecision:
-		r.Question = strings.TrimSpace(sections["question for the operator"])
-		if r.Question == "" {
+		if acceptance != "" {
 			return nil
 		}
+		if question == "" {
+			return nil
+		}
+		r.Question = question
 	}
 	return r
 }
