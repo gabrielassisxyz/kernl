@@ -690,6 +690,163 @@ func TestBrCliCreatePartialFailureCarriesTheCreatedBead(t *testing.T) {
 	}
 }
 
+func TestBrCliDelete(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"delete kb-1": `{"deleted":["kb-1"],"deleted_count":1,"dependencies_removed":0}`,
+	})
+
+	if err := NewBrCliBackend(repo).Delete("kb-1", repo); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "delete kb-1") {
+		t.Errorf("calls: %v", fake.calledWith())
+	}
+}
+
+// A dependent issue blocks `br delete` outright, but not through br's error
+// envelope: measured live, br exits 0 and reports "preview": true - a
+// description of what it WOULD delete with --cascade or --force, not what it
+// did. Reading only the exit code here reports a delete that never happened
+// as a success.
+func TestBrCliDeleteFailsLoudWhenBlockedByDependents(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"delete ep-1": `{"preview":true,"would_delete":["ep-1"],"cascade_delete":["kb-2"],"blocked_dependents":["kb-2"]}`,
+	})
+
+	err := NewBrCliBackend(repo).Delete("ep-1", repo)
+	if err == nil {
+		t.Fatal("a preview response means nothing was deleted; Delete must fail loud rather than report success")
+	}
+	if !strings.Contains(err.Error(), "kb-2") {
+		t.Errorf("error must name the blocking dependent, got: %v", err)
+	}
+}
+
+func TestBrCliDeleteFailsLoudWhenNothingReportedDeleted(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"delete kb-1": `{"deleted":[],"deleted_count":0}`,
+	})
+
+	if err := NewBrCliBackend(repo).Delete("kb-1", repo); err == nil {
+		t.Fatal("an empty deleted list must not be reported as success")
+	}
+}
+
+func TestBrCliReopen(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"reopen kb-1": `{"reopened":[{"id":"kb-1","status":"open"}],"skipped":[]}`,
+	})
+
+	if err := NewBrCliBackend(repo).Reopen("kb-1", "needs more work", repo); err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "--reason=needs more work") {
+		t.Errorf("calls: %v", fake.calledWith())
+	}
+}
+
+// A no-op reopen (already open, or a tombstoned issue that cannot be reopened
+// at all) is also reported as exit 0 with an empty "reopened" array and no
+// error envelope - measured live against both cases. The real reason lives in
+// "skipped", not in an error br ever raises.
+func TestBrCliReopenFailsLoudWhenNothingReopened(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"reopen kb-1": `{"reopened":[],"skipped":[{"id":"kb-1","reason":"already open"}]}`,
+	})
+
+	err := NewBrCliBackend(repo).Reopen("kb-1", "", repo)
+	if err == nil {
+		t.Fatal("an empty reopened list must not be reported as success")
+	}
+	if !strings.Contains(err.Error(), "already open") {
+		t.Errorf("error must carry br's own skip reason, got: %v", err)
+	}
+}
+
+// Search returns a bare array, like show and dep list - not list's
+// {"issues": [...]} envelope. Decoding it as an object would silently drop
+// every result.
+func TestBrCliSearch(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"search --limit=0 --all -- widget": `[{"id":"kb-1","title":"a widget bug","status":"open"}]`,
+	})
+
+	beads, err := NewBrCliBackend(repo).Search("widget", nil, repo)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(beads) != 1 || beads[0].ID != "kb-1" {
+		t.Fatalf("got %+v", beads)
+	}
+	calls := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(calls, "--limit=0") {
+		t.Error("search must ask for every row, not br's default page of 50")
+	}
+}
+
+// Search shares List's filter flags and its --status/--all default: a filter
+// naming a state passes --status, and an unfiltered search passes --all so
+// closed issues are not silently excluded from a search that never asked to
+// exclude them.
+func TestBrCliSearchWithFilters(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"search": `[]`,
+	})
+
+	_, err := NewBrCliBackend(repo).Search("widget", &BeadListFilters{
+		State: "open", Type: "bug", Label: "urgent", Assignee: "alice", Priority: 1,
+	}, repo)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	calls := strings.Join(fake.calledWith(), "\n")
+	for _, want := range []string{"--status=open", "--type=bug", "--label=urgent", "--assignee=alice", "--priority=1", "-- widget"} {
+		if !strings.Contains(calls, want) {
+			t.Errorf("calls %v must contain %q", fake.calledWith(), want)
+		}
+	}
+	if strings.Contains(calls, "--all") {
+		t.Error("a state filter was given, so search must not also pass --all")
+	}
+}
+
+// The query is positional, so a search term beginning with "-" needs the same
+// "--" boundary Create's title does; without it br reads the term as a flag.
+func TestBrCliSearchQueryStartingWithDashIsNotReadAsAFlag(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"search --limit=0 --all -- -fix-me": `[]`,
+	})
+
+	if _, err := NewBrCliBackend(repo).Search("-fix-me", nil, repo); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if !strings.HasSuffix(fake.calledWith()[0], "-- -fix-me") {
+		t.Errorf("call %q must end with the query after a `--` boundary", fake.calledWith()[0])
+	}
+}
+
+// The port names the blocker first; br names the dependent first - the same
+// crossed mapping AddDependency uses.
+func TestBrCliRemoveDependencyPassesTheDependentFirst(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{"dep remove": `{"status":"ok","action":"removed"}`})
+
+	if err := NewBrCliBackend(repo).RemoveDependency("kb-1", "kb-2", repo); err != nil {
+		t.Fatalf("RemoveDependency: %v", err)
+	}
+	if !strings.Contains(strings.Join(fake.calledWith(), "\n"), "dep remove kb-2 kb-1") {
+		t.Errorf("kb-2 depends on kb-1, so br must be called as `dep remove kb-2 kb-1`, calls: %v", fake.calledWith())
+	}
+}
+
 // The port names the blocker first; br names the dependent first.
 func TestBrCliAddDependencyPassesTheDependentFirst(t *testing.T) {
 	repo := brRepo(t)
@@ -799,15 +956,15 @@ func TestBrCliDoesNotMistakeAnErrorFieldForAFailure(t *testing.T) {
 	}
 }
 
+// Query stays a stub: `br query` manages saved queries (save/run/list/delete
+// a named filter set), not free-form expression evaluation, so there is
+// nothing in br to translate this port method onto.
 func TestBrCliUnimplementedMethodsFailLoud(t *testing.T) {
 	repo := brRepo(t)
 	be := NewBrCliBackend(repo)
 
 	if _, err := be.Query("status = open", nil, repo); err == nil {
 		t.Error("query must fail loud rather than return nothing")
-	}
-	if err := be.Delete("kb-1", repo); err == nil {
-		t.Error("delete must fail loud")
 	}
 }
 

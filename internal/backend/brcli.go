@@ -635,11 +635,12 @@ func (b *BrCliBackend) Comment(id string, body string, repoPath string) error {
 	return err
 }
 
-// Everything below is BackendPort surface that driving an epic never touches.
-// It fails loud rather than being written blind: an adapter method that has
-// never been run against the real CLI is a guess, and a guess that returns an
-// empty result reads as "there is nothing to do".
-
+// ListWorkflows has no br counterpart at all, and this is not a gap left by
+// partial coverage: a workflow (states, exit gates, stage contracts) is
+// kernl's own concept for driving an epic, and br has no notion of one - it
+// just tracks issues and their status strings. There is nothing to translate,
+// so this stays a stub permanently rather than becoming a place where the
+// adapter would have to invent workflow semantics br was never asked to have.
 func (b *BrCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, error) {
 	return nil, brUnimplemented("listWorkflows")
 }
@@ -781,26 +782,163 @@ func NewCreatePartialError(bead *Bead, err error) *CreatePartialError {
 	return &CreatePartialError{Bead: bead, error: err}
 }
 
+// brDeleteResult is `br delete`'s response.
+//
+// A dependent issue blocks the delete outright, but not by way of br's error
+// envelope: br exits 0 and reports "preview": true, describing what it WOULD
+// delete rather than what it did - confirmed against a live `br delete` on an
+// issue with a dependent, run with neither --cascade nor --force. Reading
+// only the exit code (or only for `error`) makes this look like a delete that
+// succeeded; the issue is untouched. This adapter never passes
+// --cascade/--force on a caller's behalf - that is a real destructive choice,
+// not a default this port method gets to make silently - so a preview result
+// is surfaced as a failure instead.
+type brDeleteResult struct {
+	Preview           bool     `json:"preview,omitempty"`
+	Deleted           []string `json:"deleted,omitempty"`
+	BlockedDependents []string `json:"blocked_dependents,omitempty"`
+}
+
 func (b *BrCliBackend) Delete(id string, repoPath string) error {
-	return brUnimplemented("delete")
+	out, err := b.run(context.Background(), repoPath, "delete", id)
+	if err != nil {
+		return err
+	}
+	var result brDeleteResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: parsing `br delete %s`: %w", id, err)
+	}
+	if result.Preview {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: br delete %s: blocked by dependent issue(s) %v - Fix: remove the dependency first with RemoveDependency, or delete the dependents themselves; this adapter does not pass --cascade/--force on a caller's behalf", id, result.BlockedDependents)
+	}
+	if len(result.Deleted) == 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: br delete %s reported no issue deleted", id)
+	}
+	return nil
+}
+
+// brReopenResult is `br reopen`'s response.
+//
+// Like delete, a no-op reopen is not reported through br's error envelope: an
+// issue that is already open, or a tombstoned one that cannot be reopened at
+// all, comes back as exit 0 with an empty "reopened" array and the real
+// reason tucked into "skipped" - confirmed against a live `br reopen` of both
+// an already-open issue and a deleted (tombstoned) one.
+type brReopenResult struct {
+	Reopened []brIssue      `json:"reopened"`
+	Skipped  []brSkippedRow `json:"skipped"`
+}
+
+type brSkippedRow struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
 }
 
 func (b *BrCliBackend) Reopen(id string, reason string, repoPath string) error {
-	return brUnimplemented("reopen")
+	args := []string{"reopen", id}
+	if reason != "" {
+		args = append(args, brValue("--reason", reason))
+	}
+	out, err := b.run(context.Background(), repoPath, args...)
+	if err != nil {
+		return err
+	}
+	var result brReopenResult
+	if err := json.Unmarshal(out, &result); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: parsing `br reopen %s`: %w", id, err)
+	}
+	if len(result.Reopened) == 0 {
+		skipReason := "no reason reported"
+		if len(result.Skipped) > 0 {
+			skipReason = result.Skipped[0].Reason
+		}
+		return fmt.Errorf("KERNL DISPATCH FAILURE: br reopen %s did nothing: %s", id, skipReason)
+	}
+	return nil
 }
 
+// Search maps onto `br search`, which - measured live - returns a bare array,
+// the same shape as show and dep list, not list's {"issues": [...]} envelope.
+// It shares List's filter flags (--status, --type, --label, --assignee,
+// --priority) and List's two traps: --limit defaults to 50 (0 is unlimited),
+// and omitting --status also excludes closed issues by default, so a filter
+// asking for a specific state passes --status and an unfiltered search passes
+// --all instead, exactly as List does.
 func (b *BrCliBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {
-	return nil, brUnimplemented("search")
+	args := []string{"search", "--limit=0"}
+	if filters != nil {
+		if filters.State != "" {
+			args = append(args, brValue("--status", filters.State))
+		} else {
+			args = append(args, "--all")
+		}
+		if filters.Type != "" {
+			args = append(args, brValue("--type", filters.Type))
+		}
+		if filters.Label != "" {
+			args = append(args, brValue("--label", filters.Label))
+		}
+		if filters.Assignee != "" {
+			args = append(args, brValue("--assignee", filters.Assignee))
+		}
+		if filters.Priority != 0 {
+			args = append(args, brValue("--priority", strconv.Itoa(filters.Priority)))
+		}
+	} else {
+		args = append(args, "--all")
+	}
+	// The query is positional, so it needs the same "--" boundary Create uses
+	// for its title: without it, a query beginning with "-" is read as the
+	// next flag instead of search text.
+	args = append(args, "--", query)
+
+	out, err := b.run(context.Background(), repoPath, args...)
+	if err != nil {
+		return nil, err
+	}
+	var issues []brIssue
+	if err := json.Unmarshal(out, &issues); err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: parsing `br search`: %w", err)
+	}
+	beads := make([]Bead, 0, len(issues))
+	for _, issue := range issues {
+		beads = append(beads, issue.toBead())
+	}
+	return beads, nil
 }
 
+// Query stays a stub: `br query` manages SAVED queries (save/run/list/delete
+// a named filter set - confirmed against `br query --help`, which lists
+// exactly those four subcommands and nothing else). There is no `br query
+// <expression>` that evaluates a free-form expression and returns matching
+// issues, which is what this port method's signature promises. The two are
+// different features with the same English name, not one feature under two
+// spellings, so this cannot be wired up as a thin translation the way Search
+// or RemoveDependency are - it would need this adapter to invent expression
+// parsing that br itself does not do.
 func (b *BrCliBackend) Query(expression string, options *BeadQueryOptions, repoPath string) ([]Bead, error) {
 	return nil, brUnimplemented("query")
 }
 
+// RemoveDependency undoes AddDependency. Same crossed parameter mapping as
+// AddDependency: br spells this `br dep remove <issue> <depends-on>`, and the
+// first argument is the one that depends on the second - so blockedID (the
+// port's name for the dependent) goes first, matching AddDependency's own
+// blockedID/blockerID swap.
 func (b *BrCliBackend) RemoveDependency(blockerID string, blockedID string, repoPath string) error {
-	return brUnimplemented("removeDependency")
+	_, err := b.run(context.Background(), repoPath, "dep", "remove", blockedID, blockerID)
+	return err
 }
 
+// BuildTakePrompt and BuildPollPrompt have no br counterpart either, for the
+// same reason as ListWorkflows: br has no command that assembles a
+// take/poll prompt, and driving an epic against br never calls through this
+// pair anyway - internal/app/drive_bead.go builds the stage prompt itself
+// (BuildBeadStagePrompt), using backend.TrackerInvocation for the tracker
+// command line rather than asking the backend for a finished prompt. Both
+// methods are inherited from the bd/knots era, where a prompt builder lived
+// behind the tracker port because bd's own CLI conventions shaped the
+// resulting text; there is no equivalent br behavior to translate here.
 func (b *BrCliBackend) BuildTakePrompt(beadID string, options *TakePromptOptions, repoPath string) (*TakePromptResult, error) {
 	return nil, brUnimplemented("buildTakePrompt")
 }
