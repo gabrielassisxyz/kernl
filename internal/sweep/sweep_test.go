@@ -17,9 +17,10 @@ type epicRow struct {
 }
 
 type fakeBackend struct {
-	mu     sync.Mutex
-	epics  []epicRow
-	closed []string
+	mu      sync.Mutex
+	epics   []epicRow
+	closed  []string
+	failIDs map[string]error
 }
 
 func (f *fakeBackend) ListEpicsAwaitingPRReview() ([]sweep.Epic, error) {
@@ -35,6 +36,9 @@ func (f *fakeBackend) ListEpicsAwaitingPRReview() ([]sweep.Epic, error) {
 func (f *fakeBackend) Close(id, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if err, ok := f.failIDs[id]; ok && err != nil {
+		return err
+	}
 	f.closed = append(f.closed, id)
 	return nil
 }
@@ -136,5 +140,90 @@ func TestSweep_PRStaleWARN_FiresHookAndNoClose(t *testing.T) {
 	}
 	if len(warns) != 1 || !strings.Contains(warns[0], "open for 10 days") {
 		t.Fatalf("expected WARN containing 'open for 10 days', got %v", warns)
+	}
+}
+
+func TestSweep_HappyMerged_ReportsWhatClosed(t *testing.T) {
+	b := &fakeBackend{epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1", "c2"}}}}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	msg := reports[0]
+	if !strings.Contains(msg, "e1") {
+		t.Fatalf("receipt missing epic id: %q", msg)
+	}
+	if !strings.Contains(msg, "2 children") {
+		t.Fatalf("receipt missing child count: %q", msg)
+	}
+	if !strings.Contains(msg, "merged via PR https://x/pr/1") {
+		t.Fatalf("receipt missing reason: %q", msg)
+	}
+}
+
+func TestSweep_PartialCloseFailure_ReportsActualCount(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1", "c2"}}},
+		failIDs: map[string]error{"c1": errors.New("tracker unavailable")},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	// c1 failed to close, but c2 and the epic itself must still be attempted
+	// and closed - one failing child does not block the rest.
+	if len(b.closed) != 2 {
+		t.Fatalf("expected c2 and epic e1 closed despite c1 failing, got %v", b.closed)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	if !strings.Contains(reports[0], "1/2 children closed") {
+		t.Fatalf("receipt should reflect only 1 of 2 children actually closed, got %q", reports[0])
+	}
+}
+
+func TestSweep_MissingPRURL_ReportsSkipThroughHook(t *testing.T) {
+	b := &fakeBackend{epics: []epicRow{{ID: "e1", PRURL: ""}}}
+	g := &fakeGH{responses: map[string]sweep.PRState{}, calls: map[string]int{}}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || !strings.Contains(reports[0], "e1") {
+		t.Fatalf("expected a skip report naming epic e1, got %v", reports)
+	}
+}
+
+func TestSweep_DryRun_ReportsPreviewThroughHook(t *testing.T) {
+	b := &fakeBackend{epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}}}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{DryRun: true, ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.closed) != 0 {
+		t.Fatalf("dry-run wrote: %v", b.closed)
+	}
+	if len(reports) != 1 || !strings.Contains(reports[0], "would close epic e1") {
+		t.Fatalf("expected a dry-run preview report, got %v", reports)
 	}
 }
