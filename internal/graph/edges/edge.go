@@ -114,6 +114,20 @@ func Create(ctx context.Context, tx *graph.WriteTx, edge Edge, author nodes.Auth
 	return id, nil
 }
 
+// Exists reports whether an edge with this exact (src, dst, type) triple
+// already exists. There is no uniqueness constraint on that triple at the
+// schema level, so this is the tool an idempotent writer uses to check
+// before calling Create - a retry that calls Create unconditionally would
+// mint a second, indistinguishable edge every time it runs.
+func Exists(ctx context.Context, tx *graph.WriteTx, src, dst string, t EdgeType) (bool, error) {
+	var count int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE src = ? AND dst = ? AND label = ?`, src, dst, string(t)).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("edges.Exists: %w", err)
+	}
+	return count > 0, nil
+}
+
 // Delete removes an edge by ID. Validates author before deletion.
 func Delete(ctx context.Context, tx *graph.WriteTx, id string, author nodes.Author) error {
 	if !author.Valid() {
