@@ -1140,6 +1140,96 @@ sys.exit(1)
 	})
 }
 
+// TestDriveBead_Subprocess_FailedAttemptRecordsLedgerRow proves a subprocess
+// stage that exits non-zero - a real attempt with a real outcome - still
+// gets a stage-attempt ledger row. Before this, the failure branch blocked
+// the bead and returned without ever calling AppendStageAttempt, so a
+// subprocess that ran and failed left no trace at all, biasing the ledger
+// toward subprocess stages that happened to work.
+func TestDriveBead_Subprocess_FailedAttemptRecordsLedgerRow(t *testing.T) {
+	backend.ClearWorkflowRegistry()
+
+	crashScript := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+sys.stderr.write("boom\n")
+sys.exit(1)
+`)
+
+	wf := backend.WorkflowDescriptor{
+		ID:           "subprocess-ledger",
+		InitialState: "ready_for_sub",
+		States:       []string{"ready_for_sub", "sub", "shipped"},
+		TerminalStates: []string{
+			"shipped",
+		},
+		Transitions: []backend.WorkflowTransition{
+			{From: "ready_for_sub", To: "sub"},
+			{From: "sub", To: "shipped"},
+		},
+		QueueStates:  []string{"ready_for_sub"},
+		ActionStates: []string{"sub"},
+		QueueActions: map[string]string{"ready_for_sub": "sub"},
+		Stages: map[string]backend.StageContract{
+			"sub": {
+				Role: "subprocess",
+				Kind: "subprocess",
+				Subprocess: &backend.SubprocessSpec{
+					Command: []string{crashScript},
+				},
+			},
+		},
+	}
+	backend.RegisterWorkflow(wf)
+
+	be := newPersistingBackend()
+	be.beads["kb-ledger-fail"] = &backend.Bead{
+		ID:        "kb-ledger-fail",
+		ParentID:  "epic-ledger-fail",
+		State:     "ready_for_sub",
+		ProfileID: "subprocess-ledger",
+	}
+
+	driver := &scriptedDriver{be: be}
+	storeDir := t.TempDir()
+	store, _ := workflow.NewAgentStateStore(storeDir)
+	stateDir := t.TempDir()
+
+	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
+		StateDir:        stateDir,
+		VerifyCommand:   "bin/ci",
+		Backend:         be,
+		Driver:          driver,
+		Config:          newDriveTestConfig(),
+		BeadID:          "kb-ledger-fail",
+		RepoPath:        "/tmp/repo",
+		Worktree:        t.TempDir(),
+		AgentStateStore: store,
+		MaxStages:       16,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("expected Success=false for a failed subprocess")
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-ledger-fail", "attempts.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 ledger row for the failed subprocess attempt, got %d", len(lines))
+	}
+	row := lines[0]
+	if row.GatePassed {
+		t.Error("GatePassed = true, want false for a subprocess that exited non-zero")
+	}
+	if row.GateFailureReason == nil || !strings.Contains(*row.GateFailureReason, "non-zero exit") {
+		t.Errorf("GateFailureReason = %v, want it to name the non-zero exit", row.GateFailureReason)
+	}
+	if row.Dialect != "subprocess" {
+		t.Errorf("Dialect = %q, want %q", row.Dialect, "subprocess")
+	}
+}
+
 // TestResolveArtifactDir_OutsideWorktree proves exit-gate artifacts resolve
 // outside the worktree kernl hands to the agent - the fix for PR #40 on
 // archeion, where .kernl/<bead>/*.md ended up published in a target

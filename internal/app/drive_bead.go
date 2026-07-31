@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -181,6 +182,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// history (see resolveArtifactDir and backend.ExitGateContext).
 			baseSHA := worktreeHeadSHA(deps.Worktree)
 			startTime := time.Now()
+			subprocessAgentID := "subprocess"
+			if len(activeStage.Subprocess.Command) > 0 {
+				subprocessAgentID = activeStage.Subprocess.Command[0]
+			}
 			resp, err := subprocess.RunSubprocessStage(ctx, activeStage, req)
 			if err != nil {
 				var causeStr string
@@ -202,6 +207,30 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					}
 				} else {
 					causeStr = "execution failed: " + err.Error()
+				}
+
+				// A subprocess that timed out, ran over its output cap, or
+				// exited non-zero is a real attempt with a real outcome -
+				// not recording it here (the only place this branch ever
+				// reaches an exit-gate-shaped result) would bias the
+				// ledger toward subprocess stages that happened to work.
+				// No structured exit code is available from
+				// subprocess.SubprocessError - only ExitCode: nil is
+				// honest here, not a guess reconstructed from error text.
+				if ledgerErr := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
+					AgentID:           subprocessAgentID,
+					Dialect:           "subprocess",
+					BeadID:            deps.BeadID,
+					Stage:             activeState,
+					StartedAt:         startTime,
+					Duration:          time.Since(startTime),
+					BaseSHA:           baseSHA,
+					CommitSHA:         worktreeHeadSHA(deps.Worktree),
+					Worktree:          deps.Worktree,
+					GatePassed:        false,
+					GateFailureReason: "subprocess_" + causeStr,
+				})); ledgerErr != nil {
+					slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 				}
 
 				// Truncate stderr dumped into the bead comment at a sane limit (64KB) with a truncation marker.
@@ -228,14 +257,38 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
 				gateDesc = freshBead.Description
 			}
-			gatePassed, gateReason := backend.EvaluateExitGate(wf, backend.ExitGateContext{
+			gateCtx := backend.ExitGateContext{
 				FromState:       activeState,
 				WorktreePath:    deps.Worktree,
 				ArtifactDir:     artifactDir,
 				BeadID:          deps.BeadID,
 				BeadDescription: gateDesc,
 				BaseSHA:         baseSHA,
-			})
+			}
+			gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
+			commitSHA := worktreeHeadSHA(deps.Worktree)
+			agentID := subprocessAgentID
+			// RunSubprocessStage only reaches here when the subprocess's own
+			// cmd.Run() returned no error, so it did exit cleanly - unlike
+			// the failure branch above, a real exit code (0) is available.
+			cleanExit := 0
+			if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
+				AgentID:           agentID,
+				Dialect:           "subprocess",
+				BeadID:            deps.BeadID,
+				Stage:             activeState,
+				StartedAt:         startTime,
+				Duration:          duration,
+				ExitCode:          &cleanExit,
+				BaseSHA:           baseSHA,
+				CommitSHA:         commitSHA,
+				Worktree:          deps.Worktree,
+				GatePassed:        gatePassed,
+				GateFailureReason: gateReason,
+				ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
+			})); err != nil {
+				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
+			}
 			if gatePassed {
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 				if ok {
@@ -251,11 +304,6 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 						}
 					}
 					artifactPath := resolveArtifactRef(activeState, wf.Stages, deps.BeadID, artifactDir)
-					commitSHA := worktreeHeadSHA(deps.Worktree)
-					agentID := "subprocess"
-					if len(activeStage.Subprocess.Command) > 0 {
-						agentID = activeStage.Subprocess.Command[0]
-					}
 					if err := deps.Backend.Comment(deps.BeadID, buildStageComment(activeState, agentID, "", artifactPath, commitSHA, duration), deps.RepoPath); err != nil {
 						slog.Warn("DRIVE_TRACE comment failed", "bead", deps.BeadID, "err", err)
 					}
@@ -344,12 +392,57 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		startTime := time.Now()
 		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
+		attemptDialect := string(adapter.ResolveDialect(agentInput.Command))
 		if err != nil {
+			if ledgerErr := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
+				AgentID:           agentInput.AgentName,
+				Dialect:           attemptDialect,
+				ConfiguredModel:   agentInput.Model,
+				Pool:              agentInput.Pool,
+				BeadID:            deps.BeadID,
+				Stage:             activeState,
+				SessionID:         res.SessionID,
+				StartedAt:         startTime,
+				Duration:          time.Since(startTime),
+				ExitCode:          res.ExitCode,
+				BaseSHA:           baseSHA,
+				CommitSHA:         worktreeHeadSHA(deps.Worktree),
+				Worktree:          deps.Worktree,
+				GatePassed:        false,
+				GateFailureReason: err.Error(),
+				FollowUpCount:     res.FollowUpCount,
+				Nudged:            res.Nudged,
+				Usage:             res.Usage,
+			})); ledgerErr != nil {
+				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
+			}
 			slog.Info("DRIVE_TRACE return agent-err", "bead", deps.BeadID, "iter", i, "err", err)
 			return RunBeadResult{FinalState: res.FinalState, Success: false},
 				fmt.Errorf("KERNL DISPATCH FAILURE: agent %s for bead %s: %w", agentInput.AgentName, deps.BeadID, err)
 		}
 		if !res.Success {
+			if ledgerErr := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
+				AgentID:           agentInput.AgentName,
+				Dialect:           attemptDialect,
+				ConfiguredModel:   agentInput.Model,
+				Pool:              agentInput.Pool,
+				BeadID:            deps.BeadID,
+				Stage:             activeState,
+				SessionID:         res.SessionID,
+				StartedAt:         startTime,
+				Duration:          time.Since(startTime),
+				ExitCode:          res.ExitCode,
+				BaseSHA:           baseSHA,
+				CommitSHA:         worktreeHeadSHA(deps.Worktree),
+				Worktree:          deps.Worktree,
+				GatePassed:        false,
+				GateFailureReason: fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(res.ExitCode)),
+				FollowUpCount:     res.FollowUpCount,
+				Nudged:            res.Nudged,
+				Usage:             res.Usage,
+			})); ledgerErr != nil {
+				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
+			}
 			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
 		}
@@ -363,14 +456,39 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
 			gateDesc = freshBead.Description
 		}
-		gatePassed, gateReason := backend.EvaluateExitGate(wf, backend.ExitGateContext{
+		gateCtx := backend.ExitGateContext{
 			FromState:       activeState,
 			WorktreePath:    deps.Worktree,
 			ArtifactDir:     artifactDir,
 			BeadID:          deps.BeadID,
 			BeadDescription: gateDesc,
 			BaseSHA:         baseSHA,
-		})
+		}
+		gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
+		commitSHA := worktreeHeadSHA(deps.Worktree)
+		if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
+			AgentID:           agentInput.AgentName,
+			Dialect:           attemptDialect,
+			ConfiguredModel:   agentInput.Model,
+			Pool:              agentInput.Pool,
+			BeadID:            deps.BeadID,
+			Stage:             activeState,
+			SessionID:         res.SessionID,
+			StartedAt:         startTime,
+			Duration:          duration,
+			ExitCode:          res.ExitCode,
+			BaseSHA:           baseSHA,
+			CommitSHA:         commitSHA,
+			Worktree:          deps.Worktree,
+			GatePassed:        gatePassed,
+			GateFailureReason: gateReason,
+			ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
+			FollowUpCount:     res.FollowUpCount,
+			Nudged:            res.Nudged,
+			Usage:             res.Usage,
+		})); err != nil {
+			slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
+		}
 		if gatePassed {
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 			if ok {
@@ -386,7 +504,6 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					}
 				}
 				artifactPath := resolveArtifactRef(activeState, wf.Stages, deps.BeadID, artifactDir)
-				commitSHA := worktreeHeadSHA(deps.Worktree)
 				if err := deps.Backend.Comment(deps.BeadID, buildStageComment(activeState, agentInput.AgentName, res.SessionID, artifactPath, commitSHA, duration), deps.RepoPath); err != nil {
 					slog.Warn("DRIVE_TRACE comment failed", "bead", deps.BeadID, "err", err)
 				}
@@ -454,6 +571,26 @@ func isSafePathComponent(s string) bool {
 	return !strings.ContainsAny(s, `/\`)
 }
 
+// escapesRoot reports whether dir, once joined from caller-supplied
+// components, no longer resolves beneath root - the shared belt-and-braces
+// check for every path kernl builds from tracker-owned ids (resolveArtifactDir,
+// resolveAttemptLedgerPath in attempt_ledger.go).
+func escapesRoot(root, dir string) bool {
+	rel, err := filepath.Rel(root, dir)
+	return err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// formatExitCode renders an exit code for a log message or a ledger
+// GateFailureReason, without ever fabricating one: nil (no process ever
+// exited to report a code) renders distinctly from any real numeric value,
+// including 0.
+func formatExitCode(code *int) string {
+	if code == nil {
+		return "none (no process exited)"
+	}
+	return strconv.Itoa(*code)
+}
+
 // resolveArtifactDir is where exit-gate artifacts (plan.md, review verdicts,
 // ...) live for one bead - deliberately outside the worktree, so a stage's
 // own `git add <files>` can never sweep kernl's control files into the
@@ -476,8 +613,7 @@ func resolveArtifactDir(stateDir, epicID, beadID string) (string, error) {
 	// Belt and braces: even validated components could combine into
 	// something unanticipated, so the joined result itself must still land
 	// under runRoot before anything is created or granted access to it.
-	rel, err := filepath.Rel(runRoot, dir)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if escapesRoot(runRoot, dir) {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: artifact dir %s for bead %s escapes %s - Fix: epic/parent id %q and bead id %q must resolve to a path beneath it", dir, beadID, runRoot, epicID, beadID)
 	}
 
