@@ -46,3 +46,33 @@ func TestHealthUpdateCheckHelpMatchesResponseShape(t *testing.T) {
 		t.Errorf("update-check help must name the 'checked' field an agent branches on: %q", d)
 	}
 }
+
+// TestBeadRunHelpDocumentsDryRun is the same class of drift as the two tests
+// above: parseBeadRunArgs accepts --dry-run, and its own unknown-flag error
+// already names it as valid, so a help page and an error message disagreed
+// about whether the flag exists. The usage string and the structured Flags
+// block both have to name it - Flags is what capabilities --json and
+// robot-docs render from, so a fix to the usage string alone would still
+// leave those two surfaces silent about it.
+func TestBeadRunHelpDocumentsDryRun(t *testing.T) {
+	bead := findCommand(commandTable, "bead")
+	if bead == nil {
+		t.Fatal(`no "bead" command in the table`)
+	}
+	run := findCommand(bead.Subs, "run")
+	if run == nil {
+		t.Fatal(`no "run" sub under "bead"`)
+	}
+	if !strings.Contains(run.Usage, "--dry-run") {
+		t.Errorf("bead run usage must document --dry-run, got: %q", run.Usage)
+	}
+	found := false
+	for _, f := range run.Flags {
+		if f.Name == "--dry-run" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("bead run must declare --dry-run in its Flags block, not only in Usage")
+	}
+}
