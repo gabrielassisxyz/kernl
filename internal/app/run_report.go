@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -167,10 +168,13 @@ type ComposeRunReportInput struct {
 // runDecision is one decision belonging to a run, paired with the title of
 // the bead it was recorded against - the bead name a report reader needs
 // beside the decision, and BeadReference never carries that in the Decision
-// node itself.
+// node itself. isFixup mirrors that bead reference's own IsFixup: a decision
+// recorded by a Phase 6 fix-up bead's own implementation stage, the one case
+// the operator never saw the bead that produced it.
 type runDecision struct {
 	decision  *nodes.Decision
 	beadTitle string
+	isFixup   bool
 }
 
 // ComposeRunReport is the run-close composer: it finds every decision
@@ -225,8 +229,9 @@ func ComposeRunReport(ctx context.Context, in ComposeRunReportInput) (string, er
 	fields := make([]decisionReportFields, 0, len(found))
 	for _, r := range found {
 		impact := resolveImpactField(ctx, in.Graph, in.Composer, rd.RepoPath, r.decision, r.beadTitle)
-		fields = append(fields, buildDecisionReportFields(r.decision, impact))
+		fields = append(fields, buildDecisionReportFields(r.decision, impact, r.isFixup))
 	}
+	sortFixupDecisionsFirst(fields)
 
 	return writeRunReport(in.StateDir, in.EpicID, renderRunReport(in, rd, fields))
 }
@@ -259,40 +264,61 @@ func findRunDecisions(ctx context.Context, tx *graph.ReadTx, runID string) ([]ru
 		if err != nil {
 			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: reading decision %s for run %s: %w", de.Dst, runID, err)
 		}
-		beadTitle, err := beadTitleForDecision(ctx, tx, de.Dst, runID)
+		beadTitle, isFixup, err := beadRefForDecision(ctx, tx, de.Dst, runID)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, runDecision{decision: d, beadTitle: beadTitle})
+		out = append(out, runDecision{decision: d, beadTitle: beadTitle, isFixup: isFixup})
 	}
 	return out, nil
 }
 
-// beadTitleForDecision recovers which bead a decision was recorded against,
-// for the report's "Bead:" context handed to the composer.
-// WriteDecisionRecordNode links a decision to its run AND to the bead (and,
-// when different, the epic) that produced it, all via EdgeTypeHasDecision;
-// this walks those same incoming edges and returns the title of the first
-// one that is not the run itself. When bead and epic are the same tracker id
-// (a standalone bead run) there is only one candidate; when they differ,
-// either is an accurate answer to "which bead" and the choice between them
-// is not a behavior this function pins down.
-func beadTitleForDecision(ctx context.Context, tx *graph.ReadTx, decisionID, runID string) (string, error) {
+// beadRefForDecision recovers which bead a decision was recorded against -
+// for the report's "Bead:" context handed to the composer - and whether it
+// was recorded by a Phase 6 fix-up bead. WriteDecisionRecordNode links a
+// decision to its run AND to the bead (and, when different, the epic) that
+// produced it, all via EdgeTypeHasDecision, so a child bead's own decision
+// has TWO non-run incoming edges: its own bead_reference and its epic's.
+//
+// title takes the first non-run edge found (unchanged from before this
+// function also answered isFixup): when bead and epic are the same tracker
+// id there is only one candidate, and when they differ either is an
+// accurate answer to "which bead" - the choice between them is not a
+// behavior this function pins down, and edges.Incoming makes no ordering
+// guarantee between two edges created in the same transaction.
+//
+// isFixup CANNOT use that same "first one" shortcut: an epic is never
+// itself a fix-up bead, so if the query happened to return the epic's edge
+// before the child's, reading isFixup off of it would silently read false
+// for a decision a fix-up bead genuinely recorded - exactly the
+// nondeterminism the title case tolerates becoming a wrong answer instead
+// of an equally-valid one. It is instead OR'd across every non-run
+// reference this decision links to, which is order-independent and correct
+// either way: a real fix-up bead's own reference has IsFixup true regardless
+// of which edge is visited first, and an epic's reference never sets it.
+func beadRefForDecision(ctx context.Context, tx *graph.ReadTx, decisionID, runID string) (title string, isFixup bool, err error) {
 	in, err := edges.Incoming(ctx, tx, decisionID, edges.WithType(edges.EdgeTypeHasDecision))
 	if err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: reading bead links for decision %s: %w", decisionID, err)
+		return "", false, fmt.Errorf("KERNL DISPATCH FAILURE: reading bead links for decision %s: %w", decisionID, err)
 	}
+	titleSet := false
 	for _, e := range in {
 		if e.Src == runID {
 			continue
 		}
 		ref, err := nodes.GetBeadReference(ctx, tx, e.Src)
 		if err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: reading bead reference %s for decision %s: %w", e.Src, decisionID, err)
+			return "", false, fmt.Errorf("KERNL DISPATCH FAILURE: reading bead reference %s for decision %s: %w", e.Src, decisionID, err)
 		}
-		return ref.Title, nil
+		if !titleSet {
+			title = ref.Title
+			titleSet = true
+		}
+		if ref.IsFixup {
+			isFixup = true
+		}
 	}
-	return "", nil
+	return title, isFixup, nil
 }
 
 // resolveImpactField answers field 4 for one decision's report entry, and is
@@ -373,6 +399,10 @@ type decisionReportFields struct {
 	tradeOffs         string
 	impactOnUse       string
 	rationale         string
+	// fromFixup marks a decision recorded by a Phase 6 fix-up bead's own
+	// implementation stage - see sortFixupDecisionsFirst's own doc comment
+	// for why this changes reading order and nothing about execution.
+	fromFixup bool
 }
 
 // buildDecisionReportFields maps a Decision node plus its already-resolved
@@ -380,7 +410,7 @@ type decisionReportFields struct {
 // recovers options-considered and trade-offs from Body using the same
 // heading-aware parse buildDecisionBody's own boundary relies on (see
 // decision_record.go) - not a second, hand-rolled split.
-func buildDecisionReportFields(d *nodes.Decision, impactOnUse string) decisionReportFields {
+func buildDecisionReportFields(d *nodes.Decision, impactOnUse string, fromFixup bool) decisionReportFields {
 	options, tradeOffs, _ := SplitDecisionBody(d.Body)
 	return decisionReportFields{
 		title:             d.Title,
@@ -389,7 +419,22 @@ func buildDecisionReportFields(d *nodes.Decision, impactOnUse string) decisionRe
 		tradeOffs:         tradeOffs,
 		impactOnUse:       impactOnUse,
 		rationale:         d.Outcome,
+		fromFixup:         fromFixup,
 	}
+}
+
+// sortFixupDecisionsFirst reorders fields so every fix-up-bead decision comes
+// before every original-bead decision, preserving each group's own relative
+// order (sort.SliceStable) - a fix-up bead is created mid-run with no
+// operator involvement (§7: "the one bead that does not satisfy §1's
+// premise"), so its decisions are the one place in a run the operator had no
+// prior context at all, and that is where attention is worth the most. This
+// changes reading order only; it does not change which decisions exist or
+// how they were arrived at.
+func sortFixupDecisionsFirst(fields []decisionReportFields) {
+	sort.SliceStable(fields, func(i, j int) bool {
+		return fields[i].fromFixup && !fields[j].fromFixup
+	})
 }
 
 // renderRunReport composes the report's prose from facts kernl already
@@ -429,6 +474,9 @@ func renderRunReport(in ComposeRunReportInput, rd runData, fields []decisionRepo
 	}
 	for i, f := range fields {
 		fmt.Fprintf(&b, "### %d. %s\n\n", i+1, f.title)
+		if f.fromFixup {
+			b.WriteString("**This decision was recorded by a fix-up bead the operator never saw created.**\n\n")
+		}
 		b.WriteString("**What was being decided**\n\n")
 		fmt.Fprintf(&b, "%s\n\n", f.whatWasDecided)
 		b.WriteString("**Options considered**\n\n")

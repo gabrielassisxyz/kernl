@@ -453,6 +453,58 @@ func TestComposeRunReport_UnknownRunIDFailsLoud(t *testing.T) {
 	}
 }
 
+// --- criterion: a fix-up bead's own decision is sorted first and labeled,
+// ahead of a decision the original beads recorded - the one point in a run
+// the operator had no prior context, so the one place attention is worth
+// the most (orchestrator-autonomy decision model §7). ---
+
+func TestComposeRunReport_FixupDecisionSortsFirstAndIsLabeled(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	stateDir := t.TempDir()
+
+	epic := BeadRef{ID: "kb-epic-fx", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
+	originalChild := BeadRef{ID: "kb-child-fx", Title: "original child", TrackerKind: "br", RepoPath: "/repo"}
+	fixupChild := BeadRef{ID: "kb-fixup-fx", Title: "fix-up child", TrackerKind: "br", RepoPath: "/repo", IsFixup: true}
+
+	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic, originalChild, fixupChild})
+	// Written in this order on purpose: the original bead's decision first,
+	// the fix-up bead's decision second - insertion order alone would put
+	// the original one first in the report; only the sort makes the fix-up
+	// one lead.
+	writeTestDecision(t, g, runID, originalChild, epic, wellFormedDecisionRecord)
+	writeTestDecision(t, g, runID, fixupChild, epic, secondDecisionRecord)
+
+	in := baseReportInput(g, stateDir, runID, "kb-epic-fx")
+	path, err := ComposeRunReport(context.Background(), in)
+	if err != nil {
+		t.Fatalf("ComposeRunReport: %v", err)
+	}
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	report := string(body)
+
+	fixupIdx := strings.Index(report, "Use TOML for the export manifest")
+	originalIdx := strings.Index(report, "Use edges.EdgeTypeHasDecision")
+	if fixupIdx == -1 || originalIdx == -1 {
+		t.Fatalf("both decisions must appear in the report:\n%s", report)
+	}
+	if fixupIdx >= originalIdx {
+		t.Errorf("the fix-up bead's decision must be listed before the original bead's, got fixup at %d and original at %d:\n%s", fixupIdx, originalIdx, report)
+	}
+	if !strings.Contains(report, "recorded by a fix-up bead the operator never saw created") {
+		t.Errorf("the fix-up decision must be labeled as such, report:\n%s", report)
+	}
+	// The label must sit with the fix-up decision, not leak onto the
+	// original one - checked by position, not just presence.
+	labelIdx := strings.Index(report, "recorded by a fix-up bead")
+	if labelIdx == -1 || labelIdx < fixupIdx || labelIdx > originalIdx {
+		t.Errorf("the fix-up label must appear between the fix-up decision's own heading and the original decision's, got label at %d (fixup=%d, original=%d)", labelIdx, fixupIdx, originalIdx)
+	}
+}
+
 // --- criterion: a whitespace-only completion is a failure, not a
 // deliberate "nothing to add". ---
 
