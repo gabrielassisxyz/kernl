@@ -683,7 +683,20 @@ func (b *BrCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, er
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br create has no profile/workflow concept - ProfileID=%q WorkflowID=%q would be silently dropped - Fix: create the bead without them, then set the wf:profile:/wf:state: labels with Update, the same way epic children already get theirs", input.ProfileID, input.WorkflowID)
 	}
 
-	args := []string{"create", title}
+	// Options are collected before the title, not after: "create" followed
+	// immediately by a bare title (the pre-existing shape) hands br a title
+	// beginning with "-" as the next flag instead of a positional argument -
+	// unlike every other value in this file, brValue cannot help here
+	// because the title is positional, not a flag's own value. Every field
+	// this adapter maps to a create-time flag is a value that already goes
+	// through brValue for the exact same reason; the title needs the other
+	// half of br's own escape mechanism instead: "--" ends flag parsing, so
+	// whatever follows - including one starting with "-" - is read as a
+	// positional argument, never a flag. This surface was previously
+	// unreachable (br create was unimplemented), so nothing exercised a
+	// hostile title before Phase 6 made Create callable at all - including
+	// from POST /api/beads, which accepts any string a caller sends.
+	args := []string{"create"}
 	if input.Type != "" {
 		args = append(args, brValue("--type", input.Type))
 	}
@@ -710,6 +723,7 @@ func (b *BrCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, er
 	if input.Estimate != 0 {
 		args = append(args, brValue("--estimate", strconv.Itoa(input.Estimate)))
 	}
+	args = append(args, "--", title)
 
 	out, err := b.run(context.Background(), repoPath, args...)
 	if err != nil {
@@ -730,12 +744,41 @@ func (b *BrCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, er
 	}
 	if input.Acceptance != "" || notes != "" {
 		if err := b.Update(bead.ID, UpdateBeadInput{Acceptance: input.Acceptance, Notes: notes}, repoPath); err != nil {
-			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s was created (and linked, if a parent was given) but writing its acceptance/notes failed: %w - Fix: run `br update %s --acceptance ... --notes ...` by hand; do not call Create again for the same title, it would create a duplicate bead", bead.ID, err, bead.ID)
+			// The issue itself was already created (and linked, and
+			// labeled - everything create's own first call sets). Returning
+			// a plain error here would discard bead.ID entirely, and a
+			// caller told "nothing was created, retry" would call Create
+			// again for the same title and end up with two issues for one
+			// request. CreatePartialError carries the bead that DOES exist,
+			// so a caller can finish the one remaining step (write
+			// acceptance/notes directly) instead of re-creating it.
+			return nil, &CreatePartialError{Bead: &bead, error: fmt.Errorf("KERNL DISPATCH FAILURE: bead %s was created (and linked, if a parent was given) but writing its acceptance/notes failed: %w - Fix: run `br update %s --acceptance ... --notes ...` against the bead that already exists; do not call Create again for the same title, it would create a duplicate", bead.ID, err, bead.ID)}
 		}
 		bead.Acceptance = input.Acceptance
 		bead.Notes = notes
 	}
 	return &bead, nil
+}
+
+// CreatePartialError marks that Create's underlying issue creation
+// succeeded but a required follow-up write failed - today, only the
+// acceptance/notes update `br create` cannot do in one call (see Create's
+// own doc comment). Bead is never nil when this error is returned: a caller
+// using errors.As can recover the created bead's id and resume the one
+// remaining step, instead of treating "Create returned an error" as "Create
+// created nothing" and retrying the whole operation into a duplicate.
+type CreatePartialError struct {
+	Bead *Bead
+	error
+}
+
+// NewCreatePartialError builds a CreatePartialError from another package -
+// the embedded error field's name is unexported (it is literally "error"),
+// so a composite literal naming it can only be written inside this package;
+// this is the constructor any other caller that must fabricate one for a
+// test uses instead.
+func NewCreatePartialError(bead *Bead, err error) *CreatePartialError {
+	return &CreatePartialError{Bead: bead, error: err}
 }
 
 func (b *BrCliBackend) Delete(id string, repoPath string) error {
