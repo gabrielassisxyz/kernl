@@ -148,10 +148,11 @@ func TestRecordDecisionIfGateType_NoOpForOtherGateTypes(t *testing.T) {
 	}
 	gateCtx := backend.ExitGateContext{FromState: "implementation"}
 
-	// cfg is deliberately nil: a no-op must return before ever touching it,
-	// so passing nil doubles as proof the function never even tries to open
-	// a graph for a gate type it does not own.
-	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, nil, "kb-1", "kb-1"); err != nil {
+	// deps and bead are deliberately zero-value (deps.Config nil, no
+	// Backend): a no-op must return before ever touching either, so passing
+	// zero values doubles as proof the function never even tries to open a
+	// graph, or fetch an epic, for a gate type it does not own.
+	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1"); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
 	}
 }
@@ -160,7 +161,7 @@ func TestRecordDecisionIfGateType_NoOpWhenNoGateForState(t *testing.T) {
 	wf := backend.WorkflowDescriptor{ExitGates: map[string]backend.WorkflowExitGate{}}
 	gateCtx := backend.ExitGateContext{FromState: "implementation"}
 
-	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, nil, "kb-1", "kb-1"); err != nil {
+	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1"); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
 	}
 }
@@ -233,10 +234,11 @@ func TestReadDecisionRecordSections_WellFormedRecordExtractsAllFour(t *testing.T
 func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
-	beadID, epicID := seedStandInNodes(t, g, "kb-child-1", "kb-epic-1")
+	bead := BeadRef{ID: "kb-child-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	epic := BeadRef{ID: "kb-epic-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
 
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, beadID, epicID)
+	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
@@ -266,14 +268,54 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 	for _, e := range in {
 		srcs[e.Src] = true
 	}
-	if !srcs[beadID] {
-		t.Errorf("no has_decision edge from bead %s to decision %s", beadID, id)
+	if !srcs[bead.ID] {
+		t.Errorf("no has_decision edge from bead %s to decision %s", bead.ID, id)
 	}
-	if !srcs[epicID] {
-		t.Errorf("no has_decision edge from epic %s to decision %s", epicID, id)
+	if !srcs[epic.ID] {
+		t.Errorf("no has_decision edge from epic %s to decision %s", epic.ID, id)
 	}
 	if len(in) != 2 {
 		t.Errorf("expected exactly 2 incoming has_decision edges, got %d: %+v", len(in), in)
+	}
+
+	// Criterion 6: the node id is the bead's own tracker id, and a
+	// traversal starting from that id (not from the decision) reaches the
+	// decision - the direction a caller actually has when it only knows a
+	// bead id and wants what was decided while working it.
+	var out []edges.Edge
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		out, err = edges.Outgoing(ctx, tx, bead.ID, edges.WithType(edges.EdgeTypeHasDecision))
+		return err
+	}); err != nil {
+		t.Fatalf("edges.Outgoing: %v", err)
+	}
+	if len(out) != 1 || out[0].Dst != id {
+		t.Errorf("traversal from bead id %s = %+v, want exactly one has_decision edge to %s", bead.ID, out, id)
+	}
+
+	var beadRef *nodes.BeadReference
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		beadRef, err = nodes.GetBeadReference(ctx, tx, bead.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("GetBeadReference(bead): %v", err)
+	}
+	if beadRef.Title != bead.Title || beadRef.TrackerKind != bead.TrackerKind || beadRef.Repository != bead.RepoPath {
+		t.Errorf("bead reference node = %+v, want Title=%q TrackerKind=%q Repository=%q", beadRef, bead.Title, bead.TrackerKind, bead.RepoPath)
+	}
+
+	var epicRef *nodes.BeadReference
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		epicRef, err = nodes.GetBeadReference(ctx, tx, epic.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("GetBeadReference(epic): %v", err)
+	}
+	if epicRef.Title != epic.Title {
+		t.Errorf("epic reference Title = %q, want %q", epicRef.Title, epic.Title)
 	}
 }
 
@@ -282,22 +324,24 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 // commits, but the caller's own next step (advancing the bead's tracker
 // state) fails for an unrelated reason, and the whole run is retried from
 // the top. The retry re-reads the same decision-record.md and calls
-// WriteDecisionRecordNode again with identical sections, beadID and epicID.
-// A writer that mints a fresh random ID every call would leave two Decision
-// nodes and four has_decision edges behind for one real decision; this one
-// must converge on exactly one of each.
+// WriteDecisionRecordNode again with identical sections, bead and epic. A
+// writer that mints a fresh random ID every call would leave two Decision
+// nodes and four has_decision edges behind for one real decision - and,
+// since this bead, a second reference node per retry too; this one must
+// converge on exactly one of each (criterion 3).
 func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
-	beadID, epicID := seedStandInNodes(t, g, "kb-retry-1", "kb-epic-retry-1")
+	bead := BeadRef{ID: "kb-retry-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	epic := BeadRef{ID: "kb-epic-retry-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
 
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
 
-	firstID, err := WriteDecisionRecordNode(ctx, g, sections, beadID, epicID)
+	firstID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode (first attempt): %v", err)
 	}
-	secondID, err := WriteDecisionRecordNode(ctx, g, sections, beadID, epicID)
+	secondID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode (retry): %v", err)
 	}
@@ -316,6 +360,16 @@ func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 		t.Errorf("decision node count = %d after 2 identical writes, want 1", decisionCount)
 	}
 
+	var refCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'bead_reference'`).Scan(&refCount)
+	}); err != nil {
+		t.Fatalf("counting bead_reference nodes: %v", err)
+	}
+	if refCount != 2 {
+		t.Errorf("bead_reference node count = %d after 2 identical writes, want 2 (one bead, one epic), not one per attempt", refCount)
+	}
+
 	var in []edges.Edge
 	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		var err error
@@ -332,10 +386,10 @@ func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 func TestWriteDecisionRecordNode_SameBeadAndEpicWritesOneEdge(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
-	beadID, _ := seedStandInNodes(t, g, "kb-standalone-1", "")
+	bead := BeadRef{ID: "kb-standalone-1", Title: "standalone bead", TrackerKind: "bd", RepoPath: "/repo"}
 
 	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, beadID, beadID)
+	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, bead)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
@@ -351,28 +405,108 @@ func TestWriteDecisionRecordNode_SameBeadAndEpicWritesOneEdge(t *testing.T) {
 	if len(in) != 1 {
 		t.Errorf("expected 1 edge when bead and epic are the same node, got %d: %+v", len(in), in)
 	}
+
+	var refCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'bead_reference'`).Scan(&refCount)
+	}); err != nil {
+		t.Fatalf("counting bead_reference nodes: %v", err)
+	}
+	if refCount != 1 {
+		t.Errorf("bead_reference node count = %d when bead and epic are the same tracker id, want 1", refCount)
+	}
 }
 
-// TestWriteDecisionRecordNode_FailsLoudWhenBeadIsNotAGraphNode documents a
-// real gap: orchestrator bead/epic IDs (br/bd tracker IDs) are not mirrored
-// into this graph as nodes anywhere in this codebase (nodes.Task and
-// nodes.Project are a distinct, human-authored concept - see task.go's own
-// doc comment). edges.Create requires both ends of an edge to already exist
-// as node rows, so linking a Decision to a real, un-mirrored bead ID fails.
-// That failure must surface as a halting KERNL DISPATCH FAILURE (criterion
-// 7), not vanish - this test pins that it does, and stands as a marker for
-// whoever picks up bridging beads into the graph next.
-func TestWriteDecisionRecordNode_FailsLoudWhenBeadIsNotAGraphNode(t *testing.T) {
+// TestWriteDecisionRecordNode_NeverSeenBeadSucceeds is criterion 2: the
+// end-to-end failure this bead exists to remove. Before this change, calling
+// WriteDecisionRecordNode for a real bead id that had never been mirrored
+// into the graph failed with "edges.Create: src node ... graph: not found",
+// because orchestrator bead/epic ids were never mirrored into this graph as
+// nodes anywhere in this codebase (nodes.Task and nodes.Project are a
+// distinct, human-authored concept - see task.go's own doc comment). That
+// failure was harmless only because the decision_record gate was not yet
+// wired to the workflow profile the live rig actually runs; once it is, this
+// path runs on every real gate pass and the failure stops being harmless.
+// The graph here starts completely empty - no stand-in of any kind - which
+// is the exact shape of a bead's first decision record in production.
+func TestWriteDecisionRecordNode_NeverSeenBeadSucceeds(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-never-seen-1", Title: "never seen before", TrackerKind: "br", RepoPath: "/repo"}
+	epic := BeadRef{ID: "kb-never-seen-epic-1", Title: "epic, also never seen", TrackerKind: "br", RepoPath: "/repo"}
+
+	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
+	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode: %v", err)
+	}
+	if id == "" {
+		t.Fatal("expected a non-empty decision node id")
+	}
+}
+
+// TestEnsureBeadReferenceNode_MissingFactsFailsLoud pins that a bead never
+// seen before, but missing one of the sourceable facts a reference node
+// requires, halts with a KERNL DISPATCH FAILURE naming what is missing
+// rather than substituting a placeholder (criterion in "What to build" #3).
+func TestEnsureBeadReferenceNode_MissingFactsFailsLoud(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
 
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	_, err := WriteDecisionRecordNode(ctx, g, sections, "kb-does-not-exist", "kb-does-not-exist")
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return ensureBeadReferenceNode(ctx, tx, BeadRef{ID: "kb-incomplete-1"}, nodes.Author{Name: "test"})
+	})
 	if err == nil {
-		t.Fatal("expected an error: neither the bead nor the epic exists as a graph node")
+		t.Fatal("expected an error: Title, TrackerKind and RepoPath are all empty")
 	}
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Errorf("error %q does not carry the KERNL DISPATCH FAILURE marker", err.Error())
+	}
+	for _, want := range []string{"title", "tracker kind", "repository path"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name missing %q", err.Error(), want)
+		}
+	}
+}
+
+// TestWriteDecisionRecordNode_PartialFailureRollsBackEverything is criterion
+// 4: a failure part-way through the transaction must leave nothing behind.
+// The bead's own reference node is created first and would succeed on its
+// own; the epic's reference node is deliberately missing its Title, so
+// ensureBeadReferenceNode fails loud on it a moment later, inside the same
+// transaction. A reference node for the bead surviving without its epic, or
+// without the Decision it was supposed to explain, would be worse than the
+// original failure - it would look like a completed link.
+func TestWriteDecisionRecordNode_PartialFailureRollsBackEverything(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-partial-1", Title: "bead", TrackerKind: "bd", RepoPath: "/repo"}
+	epic := BeadRef{ID: "kb-epic-partial-1", TrackerKind: "bd", RepoPath: "/repo"} // Title missing on purpose
+
+	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
+	_, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic)
+	if err == nil {
+		t.Fatal("expected an error: the epic BeadRef is missing a title")
+	}
+
+	var count int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE id IN (?, ?)`, bead.ID, epic.ID).Scan(&count)
+	}); err != nil {
+		t.Fatalf("counting nodes: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 nodes surviving the rollback (bead ref, epic ref, decision), found %d", count)
+	}
+
+	var decisionCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'decision'`).Scan(&decisionCount)
+	}); err != nil {
+		t.Fatalf("counting decision nodes: %v", err)
+	}
+	if decisionCount != 0 {
+		t.Errorf("expected no decision node to survive a rolled-back transaction, found %d", decisionCount)
 	}
 }
 
@@ -387,14 +521,11 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 	if err != nil {
 		t.Fatalf("graphDBFilePath: %v", err)
 	}
-	g, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
-	if err != nil {
-		t.Fatalf("graph.Open: %v", err)
-	}
-	beadID, epicID := seedStandInNodes(t, g, "kb-child-2", "kb-epic-2")
-	if err := g.Close(); err != nil {
-		t.Fatalf("closing seed graph: %v", err)
-	}
+
+	beadID, epicID := "kb-child-2", "kb-epic-2"
+	be := newPersistingBackend()
+	be.beads[beadID] = &backend.Bead{ID: beadID, Title: "child bead"}
+	be.beads[epicID] = &backend.Bead{ID: epicID, Title: "epic bead"}
 
 	artifactDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
@@ -407,8 +538,9 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 		},
 	}
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: artifactDir, BeadID: beadID}
+	deps := DriveBeadDeps{Config: cfg, Backend: be, RepoPath: "/repo", TrackerCommand: "bd"}
 
-	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, cfg, beadID, epicID); err != nil {
+	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, deps, be.beads[beadID], epicID); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
 	}
 
@@ -428,35 +560,6 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 	if len(decisions) != 1 {
 		t.Fatalf("expected 1 decision written to %s, got %d", graphPath, len(decisions))
 	}
-}
-
-// seedStandInNodes creates task nodes carrying the given IDs to stand in for
-// a bead and (optionally) an epic, purely so edges.Create's src/dst
-// existence check has something to point at - the same technique
-// internal/api/audit_test.go already uses for the pre-existing audit-log
-// edge tests. If epicID is "", only the bead stand-in is created and epicID
-// is returned equal to beadID (the standalone-bead case).
-func seedStandInNodes(t *testing.T, g *graph.Graph, beadID, epicID string) (string, string) {
-	t.Helper()
-	ctx := context.Background()
-	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		if _, err := nodes.CreateTask(ctx, tx, nodes.Task{ID: beadID, Title: "bead stand-in"}, nodes.Author{Name: "test"}); err != nil {
-			return err
-		}
-		if epicID != "" && epicID != beadID {
-			if _, err := nodes.CreateTask(ctx, tx, nodes.Task{ID: epicID, Title: "epic stand-in"}, nodes.Author{Name: "test"}); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("seeding stand-in nodes: %v", err)
-	}
-	if epicID == "" {
-		return beadID, beadID
-	}
-	return beadID, epicID
 }
 
 // fakeHeadSHAResolver is a named fake HeadSHAResolver: a fixed answer with
@@ -530,10 +633,14 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 	be := newPersistingBackend()
 	be.beads["kb-2"] = &backend.Bead{
 		ID:        "kb-2",
+		Title:     "child bead",
 		ParentID:  "kb-epic-2",
 		State:     "implementation",
 		ProfileID: "autopilot_with_pr",
 	}
+	// The epic is fetched separately (deps.Backend.Get) to build its own
+	// reference node's title - see recordDecisionIfGateType.
+	be.beads["kb-epic-2"] = &backend.Bead{ID: "kb-epic-2", Title: "epic bead"}
 
 	cfg := newDriveTestConfig()
 	vaultRoot := t.TempDir()
@@ -542,14 +649,6 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 	graphPath, err := graphDBFilePath(cfg)
 	if err != nil {
 		t.Fatalf("graphDBFilePath: %v", err)
-	}
-	g, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
-	if err != nil {
-		t.Fatalf("graph.Open: %v", err)
-	}
-	seedStandInNodes(t, g, "kb-2", "kb-epic-2")
-	if err := g.Close(); err != nil {
-		t.Fatalf("closing seed graph: %v", err)
 	}
 
 	stateDir := t.TempDir()
@@ -652,10 +751,14 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 	be := newPersistingBackend()
 	be.beads["kb-sub-1"] = &backend.Bead{
 		ID:        "kb-sub-1",
+		Title:     "subprocess bead",
 		ParentID:  "kb-epic-sub-1",
 		State:     "ready_for_implementation",
 		ProfileID: "subprocess-decision-record",
 	}
+	// The epic is fetched separately (deps.Backend.Get) to build its own
+	// reference node's title - see recordDecisionIfGateType.
+	be.beads["kb-epic-sub-1"] = &backend.Bead{ID: "kb-epic-sub-1", Title: "epic bead"}
 
 	cfg := newDriveTestConfig()
 	vaultRoot := t.TempDir()
@@ -664,14 +767,6 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 	graphPath, err := graphDBFilePath(cfg)
 	if err != nil {
 		t.Fatalf("graphDBFilePath: %v", err)
-	}
-	g, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
-	if err != nil {
-		t.Fatalf("graph.Open: %v", err)
-	}
-	seedStandInNodes(t, g, "kb-sub-1", "kb-epic-sub-1")
-	if err := g.Close(); err != nil {
-		t.Fatalf("closing seed graph: %v", err)
 	}
 
 	stateDir := t.TempDir()

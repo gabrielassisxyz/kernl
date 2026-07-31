@@ -46,8 +46,11 @@ func TestAuditDecisionsHandler(t *testing.T) {
 		t.Fatalf("seeding stand-in nodes: %v", err)
 	}
 
-	// A record written by this bead's actual production path.
-	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, "kb-1", "kb-epic-1"); err != nil {
+	// A record written by this bead's actual production path. The bead and
+	// epic nodes were already seeded above as Task stand-ins, so
+	// WriteDecisionRecordNode's reference-node creation short-circuits on
+	// nodes.Exists and never needs the BeadRef's Title/TrackerKind/RepoPath.
+	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, app.BeadRef{ID: "kb-1"}, app.BeadRef{ID: "kb-epic-1"}); err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
 
@@ -164,7 +167,7 @@ func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
 			"trade_offs":         wellFormedAuditFixtureSections["trade_offs"],
 			"rationale":          wellFormedAuditFixtureSections["rationale"],
 		}
-		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, "kb-many", "kb-many"); err != nil {
+		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, app.BeadRef{ID: "kb-many"}, app.BeadRef{ID: "kb-many"}); err != nil {
 			t.Fatalf("WriteDecisionRecordNode(%d): %v", i, err)
 		}
 	}

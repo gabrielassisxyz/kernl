@@ -323,7 +323,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				// other gate type. Run before the state transition, not
 				// after: a bead must not advance past a stage whose
 				// reasoning failed to persist (see recordDecisionIfGateType).
-				if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps.Config, deps.BeadID, epicID); err != nil {
+				if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps, bead, epicID); err != nil {
 					return RunBeadResult{FinalState: activeState, Success: false}, err
 				}
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
@@ -531,7 +531,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// type. Run before the state transition, not after: a bead must
 			// not advance past a stage whose reasoning failed to persist
 			// (see recordDecisionIfGateType).
-			if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps.Config, deps.BeadID, epicID); err != nil {
+			if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps, bead, epicID); err != nil {
 				return RunBeadResult{FinalState: activeState, Success: false}, err
 			}
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
