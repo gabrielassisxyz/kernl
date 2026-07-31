@@ -39,7 +39,7 @@ func TestIngestAPI(t *testing.T) {
 	testFile := filepath.Join(tempDir, "test.md")
 	_ = os.WriteFile(testFile, []byte("hello"), 0644)
 
-	body := `{"file_path":"` + testFile + `", "node_id":"n1"}`
+	body := `{"filePath":"` + testFile + `", "nodeId":"n1"}`
 	req := httptest.NewRequest("POST", "/api/ingest/trigger", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

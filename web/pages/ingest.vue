@@ -314,7 +314,7 @@ const submitTrigger = async () => {
   try {
     await $fetch('/api/ingest/trigger', {
       method: 'POST',
-      body: { file_path: filePath, node_id: triggerNodeId.value.trim() }
+      body: { filePath, nodeId: triggerNodeId.value.trim() }
     })
     setTimeout(refresh, 1000)
   } catch (error) {

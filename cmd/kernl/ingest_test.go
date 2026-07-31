@@ -154,7 +154,7 @@ func TestIngestSourcePostsURLAndPrintsSourceNode(t *testing.T) {
 	}
 }
 
-func TestIngestTriggerSendsSnakeCasePath(t *testing.T) {
+func TestIngestTriggerSendsCamelCasePath(t *testing.T) {
 	ts, seen := fakeIngestAPI(t, http.StatusAccepted, "")
 
 	if _, err := driveIngest(t, ts, "trigger", "/vault/inbox/a.md", "--node", "nd-1"); err != nil {
@@ -164,8 +164,8 @@ func TestIngestTriggerSendsSnakeCasePath(t *testing.T) {
 	if req.path != "/api/ingest/trigger" {
 		t.Fatalf("expected /api/ingest/trigger, got %s", req.path)
 	}
-	if req.body["file_path"] != "/vault/inbox/a.md" || req.body["node_id"] != "nd-1" {
-		t.Fatalf("trigger payload must use the handler's snake_case keys: %#v", req.body)
+	if req.body["filePath"] != "/vault/inbox/a.md" || req.body["nodeId"] != "nd-1" {
+		t.Fatalf("trigger payload must use the handler's camelCase keys: %#v", req.body)
 	}
 }
 
