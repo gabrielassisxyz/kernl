@@ -201,6 +201,10 @@ func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 		if !requireIngestEnabled(w, svc) {
 			return
 		}
+		// file_path and node_id are snake_case, unlike the rest of the API. Left
+		// as-is: cmd/kernl's `ingest trigger` posts this exact shape (see the
+		// matching note there), and renaming here without a coordinated change
+		// on that side would silently break the CLI instead of failing loud.
 		var body struct {
 			FilePath string `json:"file_path"`
 			NodeID   string `json:"node_id"`
