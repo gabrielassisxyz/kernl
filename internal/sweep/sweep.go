@@ -36,11 +36,12 @@ type Config struct {
 	PRStaleWarnDays  int
 	WarnHook         func(msg string)
 	// ReportHook receives the human-facing account of what the sweep did:
-	// the dry-run preview, the no-pr_url skip, and the close receipt. It
-	// exists so a CLI caller can route this to stdout (where the rest of
-	// the CLI's user-facing output goes) while internal/sweep stays free
-	// of a direct os.Stdout write and so hermetic tests can assert on it.
-	// Nil falls back to the package logger, matching WarnHook's precedent.
+	// the dry-run preview, the no-pr_url skip, the not-yet-merged notice,
+	// and the close receipt. It exists so a CLI caller can route this to
+	// stdout (where the rest of the CLI's user-facing output goes) while
+	// internal/sweep stays free of a direct os.Stdout write and so hermetic
+	// tests can assert on it. Nil falls back to the package logger, matching
+	// WarnHook's precedent.
 	ReportHook func(msg string)
 }
 
@@ -134,7 +135,16 @@ func (s *Sweeper) processEpic(e Epic) {
 		s.mergedCache[e.PRURL] = true
 		s.mu.Unlock()
 		s.closeAll(e, "merged via PR "+e.PRURL+" at "+state.MergedAt.UTC().Format(time.RFC3339))
+		return
 	}
+
+	// Neither closeAll's receipt nor the no-pr_url skip fires here, so
+	// without this line a correctly-declining sweep (PR still open) and an
+	// empty sweep (nothing to check) both print nothing - an operator
+	// watching stdout cannot tell them apart. Same stdout/ReportHook
+	// treatment as the skip above: this is an account of what sweep found,
+	// not a WARN.
+	s.report(fmt.Sprintf("sweep: epic %s not closed - PR %s is %s", e.ID, e.PRURL, state.State))
 }
 
 func (s *Sweeper) closeAll(e Epic, reason string) {
