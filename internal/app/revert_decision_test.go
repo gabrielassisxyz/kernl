@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type revertTestBackend struct {
 	mu             sync.Mutex
 	beads          map[string]*backend.Bead
 	rewindCalls    []rewindCall
+	updateCalls    int
 	failNextRewind error
 }
 
@@ -66,6 +68,7 @@ func (b *revertTestBackend) Create(input backend.CreateBeadInput, repoPath strin
 func (b *revertTestBackend) Update(id string, input backend.UpdateBeadInput, repoPath string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.updateCalls++
 	bead, ok := b.beads[id]
 	if !ok {
 		return fmt.Errorf("revertTestBackend.Update: no such bead %s", id)
@@ -366,8 +369,8 @@ func TestRevertDecisionAndReopenBead_RetryAfterRewindFailureConverges(t *testing
 	if err == nil {
 		t.Fatal("expected the first call to fail on rewind")
 	}
-	if !strings.Contains(err.Error(), "retry this exact command") {
-		t.Errorf("error must tell the operator the state is safe to retry, got: %v", err)
+	if !strings.Contains(err.Error(), "retry with --decision") || !strings.Contains(err.Error(), decisionID) {
+		t.Errorf("error must tell the operator to retry naming the decision id, got: %v", err)
 	}
 
 	bead, _ := be.Get("kb-6", "/repo")
@@ -439,5 +442,182 @@ func TestRevertDecisionAndReopenBead_DifferentReasonOnAlreadyRevertedFailsLoud(t
 	}
 	if !strings.Contains(err.Error(), "already reverted") {
 		t.Errorf("error must say the decision was already reverted, got: %v", err)
+	}
+}
+
+// realWorldDecisionRecord reproduces the shape of the one production
+// decision record this project has (arch-f40, read directly out of the
+// graph): a Title that is a fragment rather than a name, an Outcome that
+// names options only by an id defined inside Body's Options Considered
+// section, and a Trade-offs section discussing those same ids. Rendering
+// Title/Context/Outcome alone, without Body, produces a constraint that
+// tells the next implementer which option to avoid by an id that is never
+// defined anywhere in the text.
+const realWorldDecisionRecord = "## Decision\n\n" +
+	"Three things were open, and none of them was settled by the bead:\n\n" +
+	"whether the export manifest is JSON or TOML, whether ids are content-\n" +
+	"addressed, and whether validation runs before or after the write.\n\n" +
+	"## Options Considered\n\n" +
+	"1a. JSON manifest, 1b. TOML manifest.\n" +
+	"2a. Content-addressed ids, 2b. Sequential ids.\n" +
+	"3a. Validate before write, 3b. Validate after write.\n\n" +
+	"## Trade-offs\n\n" +
+	"1a reads unambiguously but is less friendly by hand than 1b. 2a survives a\n" +
+	"retry without duplicating; 2b is simpler but does not. 3a never leaves a\n" +
+	"manifest describing a file that was never written; 3b is cheaper per call.\n\n" +
+	"## Rationale\n\n" +
+	"**1a**, **2a**, **3a**."
+
+func TestRevertDecisionAndReopenBead_ConstraintCarriesOptionsAndTradeOffs(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ref := BeadRef{ID: "kb-8", Title: "bead kb-8", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "bead kb-8", []BeadRef{ref})
+	sections := backend.DecisionRecordSectionBodies(realWorldDecisionRecord)
+	if _, err := WriteDecisionRecordNode(context.Background(), g, sections, ref, ref, runID); err != nil {
+		t.Fatalf("WriteDecisionRecordNode: %v", err)
+	}
+	be := newRevertTestBackend(backend.Bead{ID: "kb-8", Description: "original"})
+
+	if _, err := RevertDecisionAndReopenBead(context.Background(), g, be, "/repo", RevertDecisionInput{
+		BeadID: "kb-8", TargetState: "ready_for_implementation", Reason: "wrong export format",
+	}); err != nil {
+		t.Fatalf("RevertDecisionAndReopenBead: %v", err)
+	}
+
+	bead, _ := be.Get("kb-8", "/repo")
+	// The Rationale references 1a/2a/3a - the constraint must define them,
+	// not merely repeat the reference. Asserting the option TEXT is present
+	// (not just the ids, which could coincidentally appear anywhere) proves
+	// the Options Considered / Trade-offs sections actually made it in.
+	for _, want := range []string{
+		"JSON manifest", "TOML manifest",
+		"Content-addressed ids", "Sequential ids",
+		"never leaves a", "cheaper per call",
+	} {
+		if !strings.Contains(bead.Description, want) {
+			t.Errorf("constraint is missing option/trade-off text %q, description:\n%s", want, bead.Description)
+		}
+	}
+	if !strings.Contains(bead.Description, "1a") || !strings.Contains(bead.Description, "2a") || !strings.Contains(bead.Description, "3a") {
+		t.Errorf("constraint lost the winning option ids from Outcome, description:\n%s", bead.Description)
+	}
+}
+
+// The target state is validated against the bead's own resolved workflow
+// before any durable write. A well-formed but active (non-queue) state, and
+// a well-formed but nonexistent ready_for_* state, must both be rejected
+// with zero mutations - not after the decision has already been marked
+// reverted and the constraint already written.
+func TestRevertDecisionAndReopenBead_InvalidTargetStateMutatesNothing(t *testing.T) {
+	cases := []struct {
+		name  string
+		state string
+	}{
+		{"active state, not a queue state", "implementation"},
+		{"well-formed but nonexistent queue state", "ready_for_nonexistent_stage"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := testutil.NewInMemoryTestGraph(t)
+			decisionID := seedActiveDecision(t, g, "kb-9")
+			be := newRevertTestBackend(backend.Bead{ID: "kb-9", Description: "original", State: "implementation"})
+
+			_, err := RevertDecisionAndReopenBead(context.Background(), g, be, "/repo", RevertDecisionInput{
+				BeadID: "kb-9", TargetState: tc.state, Reason: "x",
+			})
+			if err == nil {
+				t.Fatal("expected an invalid-target-state error")
+			}
+			var inputErr RevertDecisionInputError
+			if !errors.As(err, &inputErr) {
+				t.Errorf("error must classify as RevertDecisionInputError, got %T: %v", err, err)
+			}
+
+			d := getDecision(t, g, decisionID)
+			if d.RevertedAt != nil {
+				t.Error("the decision must not be marked reverted when the target state is invalid")
+			}
+			bead, _ := be.Get("kb-9", "/repo")
+			if bead.Description != "original" {
+				t.Errorf("the bead's description must not change, got: %q", bead.Description)
+			}
+			if be.updateCalls != 0 {
+				t.Errorf("Update must never be called, got %d calls", be.updateCalls)
+			}
+			if len(be.rewindCalls) != 0 {
+				t.Errorf("Rewind must never be called, got %v", be.rewindCalls)
+			}
+		})
+	}
+}
+
+// A bead id that resolves in the graph (it has a decision recorded) but not
+// in this repository's tracker - the realistic trigger is the wrong
+// repository, not a deleted bead, since the graph is process-wide and
+// repoPath is not - must fail before the decision is marked reverted. Once
+// marked, the bead cannot be reopened and the graph would misreport that a
+// decision was reverted when nothing about the bead actually changed.
+func TestRevertDecisionAndReopenBead_UnknownBeadMutatesNothing(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	decisionID := seedActiveDecision(t, g, "kb-10")
+	be := newRevertTestBackend() // kb-10 was never added: Get returns nil, nil
+
+	_, err := RevertDecisionAndReopenBead(context.Background(), g, be, "/repo", RevertDecisionInput{
+		BeadID: "kb-10", TargetState: "ready_for_implementation", Reason: "x",
+	})
+	if err == nil {
+		t.Fatal("expected a bead-not-found error")
+	}
+	var notFoundErr RevertDecisionNotFoundError
+	if !errors.As(err, &notFoundErr) {
+		t.Errorf("error must classify as RevertDecisionNotFoundError, got %T: %v", err, err)
+	}
+
+	d := getDecision(t, g, decisionID)
+	if d.RevertedAt != nil {
+		t.Error("the decision must not be marked reverted when the bead does not exist in the tracker")
+	}
+	if be.updateCalls != 0 {
+		t.Errorf("Update must never be called, got %d calls", be.updateCalls)
+	}
+	if len(be.rewindCalls) != 0 {
+		t.Errorf("Rewind must never be called, got %v", be.rewindCalls)
+	}
+}
+
+// BuildBeadStagePrompt has two branches (hasContract true/false); production
+// always takes the true branch, since every profile declares a stage
+// contract. The earlier prompt test left Stages nil, which exercises the
+// fallback branch instead - both render Description today, so there was no
+// live defect, but the test was not proving what it claimed to prove. This
+// covers the branch production actually takes.
+func TestRevertDecisionAndReopenBead_ConstraintReachesRenderedPromptWithStageContract(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	seedActiveDecision(t, g, "kb-11")
+	be := newRevertTestBackend(backend.Bead{ID: "kb-11", Description: "Wire the SSE reconnect."})
+
+	if _, err := RevertDecisionAndReopenBead(context.Background(), g, be, "/repo", RevertDecisionInput{
+		BeadID: "kb-11", TargetState: "ready_for_implementation", Reason: "picked the wrong retry backoff",
+	}); err != nil {
+		t.Fatalf("RevertDecisionAndReopenBead: %v", err)
+	}
+
+	bead, _ := be.Get("kb-11", "/repo")
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead:  bead,
+		State: "implementation",
+		Stages: map[string]backend.StageContract{
+			"implementation": {Role: "Implement the change."},
+		},
+	})
+
+	if !strings.Contains(prompt, "Do not choose this option again") {
+		t.Errorf("rendered prompt (hasContract branch) does not carry the constraint directive:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "picked the wrong retry backoff") {
+		t.Errorf("rendered prompt (hasContract branch) does not carry the revert reason:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Wire the SSE reconnect.") {
+		t.Errorf("rendered prompt (hasContract branch) lost the original description:\n%s", prompt)
 	}
 }
