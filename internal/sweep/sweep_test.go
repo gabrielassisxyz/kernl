@@ -248,6 +248,33 @@ func TestSweep_MissingPRURL_ReportsSkipThroughHook(t *testing.T) {
 	}
 }
 
+func TestSweep_OpenPR_ReportsNotClosedThroughHook(t *testing.T) {
+	b := &fakeBackend{epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1"}}}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "OPEN", CreatedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.closed) != 0 {
+		t.Fatalf("OPEN PR should not be closed: %v", b.closed)
+	}
+	// Without this line, "no epic is waiting" and "one is waiting on an open
+	// PR" both print nothing - the defect this test guards against.
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	if !strings.Contains(reports[0], "e1") {
+		t.Fatalf("report missing epic id: %q", reports[0])
+	}
+	if !strings.Contains(reports[0], "OPEN") {
+		t.Fatalf("report missing PR state: %q", reports[0])
+	}
+}
+
 func TestSweep_DryRun_ReportsPreviewThroughHook(t *testing.T) {
 	b := &fakeBackend{epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}}}
 	g := &fakeGH{
