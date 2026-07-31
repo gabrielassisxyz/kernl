@@ -840,6 +840,24 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		if strings.TrimSpace(string(out)) == "" {
 			return false, "commit_marker_missing: " + ctx.FromState
 		}
+		// A non-empty range is not proof of work by itself: `git commit
+		// --allow-empty` leaves the tree byte-for-byte identical to base
+		// while still landing a commit reachable from HEAD and not from
+		// base - the exact bypass the old marker-string check also missed
+		// (it only asked for a string in the message, never a change in the
+		// tree). `git diff --quiet` exits 0 when the two trees match and 1
+		// when they differ, so a clean 0 here means every commit in range
+		// was empty. That is the same answer commit_marker_missing already
+		// gives ("the stage left nothing"), not a new outcome.
+		diffOut, err := exec.Command("git", "-C", ctx.WorktreePath, "diff", "--quiet", ctx.BaseSHA, "HEAD").CombinedOutput()
+		if err == nil {
+			return false, "commit_marker_missing: " + ctx.FromState
+		}
+		var diffExitErr *exec.ExitError
+		if !errors.As(err, &diffExitErr) || diffExitErr.ExitCode() != 1 {
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(diffOut))
+		}
+		// Exit 1 is `git diff --quiet`'s clean "yes, they differ" answer.
 		return true, ""
 	case "description_contains":
 		if !strings.Contains(ctx.BeadDescription, gate.Path) {
