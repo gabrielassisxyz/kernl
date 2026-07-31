@@ -17,13 +17,28 @@
 # these rows, on demand; it never rewrites them.
 #
 # Attribution - splitting these numbers into orchestrator-produced versus
-# hand-produced - does NOT exist yet. No column for it below, and none should be
-# faked with a `Kernl-Run:`-style trailer written into a target repository's
-# commits or PR bodies: these are published repositories that carry no tool
-# signatures, and a trailer would leak the machinery into a public diff - the
-# same mistake as leaking internal artifacts into a public PR. When attribution
-# work happens, it is a join on kernl's own run records, computed here, writing
-# nothing back into the repositories mined below.
+# hand-produced - is a JOIN against kernl's own run records, computed by
+# `report`, never a trailer written into a target repository's commits or PR
+# bodies: these are published repositories that carry no tool signatures, and
+# a trailer would leak the machinery into a public diff - the same mistake as
+# leaking internal artifacts into a public PR. The join reads (never writes)
+# <state-dir>/run/<epicID>/attempts.jsonl (see internal/app/attempt_ledger.go)
+# and matches:
+#   - a commit, by prefix, against every attempt's commitSHA (git's own short
+#     form - `git rev-parse --short HEAD`, see worktreeHeadSHA in
+#     internal/app/drive_bead.go - so it is a PREFIX of a commit's full SHA,
+#     never an equal string)
+#   - a pull request, by exact match, against "feat/<epicID>" for every epic
+#     with a ledger (internal/epic/worktree.go cuts the epic branch as
+#     "feat/"+epicID; internal/prompt/shipment_prompt.go opens the PR with
+#     `gh pr create --head {{.EpicBranch}}`) - the ledger records no PR
+#     number to join on directly, only the branch convention does that
+# Anything that matches neither is counted as hand-produced, INCLUDING every
+# commit and PR from before the ledger existed - there was nothing to match
+# against yet, and that is the correct classification for that period, not a
+# gap in the join. See the CLASSIFICATION CAVEAT `report` prints: this split
+# is orchestrated-vs-supervised, not AI-vs-human - the hand-produced side was
+# itself agent-assisted work driven from an interactive chat session.
 #
 # Merge commits are excluded from commits.csv: git suppresses their diff by
 # default, so they would land as zero-stat rows duplicating the merge event
@@ -47,6 +62,12 @@ REPOS=(
     "$HOME/repositories/daytrace"
 )
 
+# Root of the orchestrator's own run ledgers: <LEDGER_RUN_DIR>/<epicID>/attempts.jsonl
+# per epic (app.DefaultStateDir() + "run", see internal/app/attempt_ledger.go).
+# Overridable so throughput_test.sh can point this at a fixture tree instead of
+# the operator's real ~/.kernl - never overridden in production use.
+LEDGER_RUN_DIR="${THROUGHPUT_STATE_DIR:-$HOME/.kernl}/run"
+
 usage() {
     cat >&2 <<EOF
 throughput - commit/PR throughput baseline, mined from git and gh
@@ -54,8 +75,13 @@ throughput - commit/PR throughput baseline, mined from git and gh
   throughput collect                mine each repo in REPOS, write raw rows to
                                      local/throughput/{commits,prs}.csv, and the
                                      ref each repo was mined from to repos.csv
-  throughput report [--by MODE]     aggregate the raw rows for reading
+  throughput report [--by MODE]     aggregate the raw rows for reading, split
+                                     orchestrator-produced vs hand-produced
                                      MODE: week (default) | month | repo
+
+report classifies each row against the orchestrator's own run ledger under
+\${THROUGHPUT_STATE_DIR:-\$HOME/.kernl}/run/<epicID>/attempts.jsonl - THROUGHPUT_STATE_DIR
+is a test-only override, never needed for real use.
 
 Repositories mined:
 $(printf '  %s\n' "${REPOS[@]}")
@@ -95,7 +121,12 @@ mine_commits() {
     '
 }
 
-# One row per PR: repo,number,state,created_at,merged_at,closed_at,additions,deletions,changed_files,lead_time_hours
+# One row per PR: repo,number,state,created_at,merged_at,closed_at,additions,deletions,
+# changed_files,lead_time_hours,head_ref_name
+#
+# head_ref_name is mined (not derived at report time) because `report` never touches
+# the network - it is the branch `report` later matches against "feat/<epicID>" to
+# classify the PR as orchestrator-produced, and gh is the only source for it.
 PR_FETCH_LIMIT=1000
 
 mine_prs() {
@@ -106,7 +137,7 @@ mine_prs() {
     fi
     local prs_json
     if ! prs_json=$(cd "$path" && gh pr list --state all --limit "$PR_FETCH_LIMIT" \
-            --json number,state,createdAt,mergedAt,closedAt,additions,deletions,changedFiles 2>&1); then
+            --json number,state,createdAt,mergedAt,closedAt,additions,deletions,changedFiles,headRefName 2>&1); then
         warn "gh pr list failed for $name - skipping PR data ($prs_json)"
         return 0
     fi
@@ -130,9 +161,72 @@ mine_prs() {
             (.additions | tostring),
             (.deletions | tostring),
             (.changedFiles | tostring),
-            (if .mergedAt then (((.mergedAt | fromdateiso8601) - (.createdAt | fromdateiso8601)) / 3600 | tostring) else "" end)
+            (if .mergedAt then (((.mergedAt | fromdateiso8601) - (.createdAt | fromdateiso8601)) / 3600 | tostring) else "" end),
+            .headRefName
         ] | join(",")
     ' <<<"$prs_json"
+}
+
+# Every distinct, non-empty commitSHA recorded across every epic's attempt ledger,
+# one per line. These are git's short-form abbreviation (`git rev-parse --short
+# HEAD` - see worktreeHeadSHA in internal/app/drive_bead.go), not full 40-hex SHAs,
+# so callers must PREFIX-match against commits.csv's full SHAs, never compare equal.
+ledger_commit_shas() {
+    local run_dir="$1" f
+    [ -d "$run_dir" ] || return 0
+    for f in "$run_dir"/*/attempts.jsonl; do
+        [ -f "$f" ] || continue
+        jq -r 'select(.commitSHA != null and .commitSHA != "") | .commitSHA' "$f" 2>/dev/null
+    done | sort -u
+}
+
+# "feat/<epicID>" for every epic that has an attempt ledger - the exact branch the
+# orchestrator opens that epic's pull request from (internal/epic/worktree.go cuts
+# it as "feat/"+epicID; internal/prompt/shipment_prompt.go's shipment stage runs
+# `gh pr create --head {{.EpicBranch}}`). This is the join for PR classification:
+# the ledger itself records no PR number to match on directly.
+ledger_epic_branches() {
+    local run_dir="$1" f epic_id
+    [ -d "$run_dir" ] || return 0
+    for f in "$run_dir"/*/attempts.jsonl; do
+        [ -f "$f" ] || continue
+        epic_id="$(jq -r 'select(.epicId != null and .epicId != "") | .epicId' "$f" 2>/dev/null | head -n1)"
+        [ -n "$epic_id" ] && printf 'feat/%s\n' "$epic_id"
+    done | sort -u
+}
+
+# Appends a trailing 1/0 orchestrated-classification column to every row of body,
+# testing column $sha_col as a PREFIX of each line in shafile (see ledger_commit_shas
+# for why this is prefix, not equality).
+classify_by_sha_prefix() {
+    local body="$1" sha_col="$2" shafile="$3"
+    awk -F, -v col="$sha_col" -v shafile="$shafile" '
+        BEGIN {
+            n = 0
+            while ((getline s < shafile) > 0) if (s != "") shas[++n] = s
+        }
+        {
+            full = $col
+            orch = 0
+            for (i = 1; i <= n; i++) {
+                if (substr(full, 1, length(shas[i])) == shas[i]) { orch = 1; break }
+            }
+            print $0 "," orch
+        }
+    ' "$body"
+}
+
+# Appends a trailing 1/0 orchestrated-classification column to every row of body,
+# testing column $ref_col for exact membership in branchfile - branch names are not
+# abbreviated the way commit SHAs are, so no prefix logic is needed here.
+classify_by_branch() {
+    local body="$1" ref_col="$2" branchfile="$3"
+    awk -F, -v col="$ref_col" -v branchfile="$branchfile" '
+        BEGIN {
+            while ((getline b < branchfile) > 0) if (b != "") branches[b] = 1
+        }
+        { print $0 "," ($col in branches ? 1 : 0) }
+    ' "$body"
 }
 
 # Mining bare HEAD makes the baseline depend on whatever happens to be checked out -
@@ -161,7 +255,7 @@ resolve_ref() {
 cmd_collect() {
     mkdir -p "$OUT_DIR"
     echo "repo,sha,author_date,files_changed,insertions,deletions" > "$COMMITS_CSV"
-    echo "repo,number,state,created_at,merged_at,closed_at,additions,deletions,changed_files,lead_time_hours" > "$PRS_CSV"
+    echo "repo,number,state,created_at,merged_at,closed_at,additions,deletions,changed_files,lead_time_hours,head_ref_name" > "$PRS_CSV"
     echo "repo,ref_mined,mined_at" > "$REFS_CSV"
 
     local repo name ref
@@ -241,49 +335,99 @@ cmd_report() {
 
     tail -n +2 "$COMMITS_CSV" > "$work/commits_body.csv"
     tail -n +2 "$PRS_CSV" > "$work/prs_body.csv"
-    awk -F, '$5 != ""' "$work/prs_body.csv" > "$work/prs_merged_body.csv"
 
-    # bucket,files,insertions,deletions - one line per commit
+    # The ledger join, done once per report run against whatever is on disk right
+    # now under LEDGER_RUN_DIR - an empty/missing ledger yields empty sets, and
+    # every row then classifies as hand-produced, which is correct for the period
+    # before the ledger existed (see the header comment on attribution above).
+    ledger_commit_shas "$LEDGER_RUN_DIR" > "$work/orch_shas.txt"
+    ledger_epic_branches "$LEDGER_RUN_DIR" > "$work/orch_branches.txt"
+
+    # commits_body columns are repo,sha,date,files,ins,del (1-6); classify appends
+    # orch as column 7, keyed off sha (column 2).
+    classify_by_sha_prefix "$work/commits_body.csv" 2 "$work/orch_shas.txt" > "$work/commits_classified.csv"
+    # prs_body columns are repo,number,state,created,merged,closed,add,del,changed,
+    # lead,head_ref (1-11); classify appends orch as column 12, keyed off head_ref
+    # (column 11).
+    classify_by_branch "$work/prs_body.csv" 11 "$work/orch_branches.txt" > "$work/prs_classified.csv"
+    awk -F, '$5 != ""' "$work/prs_classified.csv" > "$work/prs_merged_classified.csv"
+
+    # bucket,files,insertions,deletions,orch - one line per commit
     paste -d, \
-        <(bucket_keys "$work/commits_body.csv" 3 "$mode") \
-        <(cut -d, -f4,5,6 "$work/commits_body.csv") \
+        <(bucket_keys "$work/commits_classified.csv" 3 "$mode") \
+        <(cut -d, -f4,5,6,7 "$work/commits_classified.csv") \
         > "$work/commits_bucket.csv"
 
-    # bucket - one line per PR opened
-    bucket_keys "$work/prs_body.csv" 4 "$mode" > "$work/prs_opened_bucket.csv"
-
-    # bucket,lead_time_hours - one line per PR merged
+    # bucket,orch - one line per PR opened
     paste -d, \
-        <(bucket_keys "$work/prs_merged_body.csv" 5 "$mode") \
-        <(cut -d, -f10 "$work/prs_merged_body.csv") \
+        <(bucket_keys "$work/prs_classified.csv" 4 "$mode") \
+        <(cut -d, -f12 "$work/prs_classified.csv") \
+        > "$work/prs_opened_bucket.csv"
+
+    # bucket,lead_time_hours,orch - one line per PR merged
+    paste -d, \
+        <(bucket_keys "$work/prs_merged_classified.csv" 5 "$mode") \
+        <(cut -d, -f10,12 "$work/prs_merged_classified.csv") \
         > "$work/prs_merged_bucket.csv"
 
+    printf 'CLASSIFICATION CAVEAT: COMMITS_ORCH/PRS_*_ORCH count rows matched against\n'
+    printf 'the orchestrator run ledger (commit SHA, or PR head branch feat/<epicID>);\n'
+    printf 'everything else is HAND-PRODUCED BY DEFINITION, including every row from\n'
+    printf 'before the ledger existed. That "hand-produced" bucket was NOT unassisted -\n'
+    printf 'it is agent-assisted work driven from an interactive chat session. This is\n'
+    printf 'an orchestrated-vs-supervised split, not AI-vs-human, and raw commit/line\n'
+    printf 'volume is a proxy that rewards churn as much as it rewards shipped value.\n\n'
+
     {
-        printf 'BUCKET\tCOMMITS\tFILES\t+LINES\t-LINES\tPRS_OPENED\tPRS_MERGED\tAVG_LEAD_H\n'
+        printf 'BUCKET\tCOMMITS\tCOMMITS_ORCH\tFILES\t+LINES\t-LINES\tPRS_OPENED\tPRS_OPENED_ORCH\tPRS_MERGED\tPRS_MERGED_ORCH\tAVG_LEAD_H\n'
         awk -F, -v cf="$work/commits_bucket.csv" -v of="$work/prs_opened_bucket.csv" -v mf="$work/prs_merged_bucket.csv" '
             FILENAME == cf {
-                commits[$1]++; files[$1] += $2; ins[$1] += $3; del[$1] += $4; keys[$1] = 1; next
+                commits[$1]++; if ($5 == "1") commits_orch[$1]++
+                files[$1] += $2; ins[$1] += $3; del[$1] += $4; keys[$1] = 1; next
             }
             FILENAME == of {
-                opened[$1]++; keys[$1] = 1; next
+                opened[$1]++; if ($2 == "1") opened_orch[$1]++
+                keys[$1] = 1; next
             }
             FILENAME == mf {
-                merged[$1]++; leadsum[$1] += $2; keys[$1] = 1; next
+                merged[$1]++; if ($3 == "1") merged_orch[$1]++
+                leadsum[$1] += $2; keys[$1] = 1; next
             }
             END {
                 for (k in keys) {
                     avg = (merged[k] > 0) ? leadsum[k] / merged[k] : 0
-                    printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", \
-                        k, commits[k] + 0, files[k] + 0, ins[k] + 0, del[k] + 0, opened[k] + 0, merged[k] + 0, avg
+                    printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%.1f\n", \
+                        k, commits[k] + 0, commits_orch[k] + 0, files[k] + 0, ins[k] + 0, del[k] + 0, \
+                        opened[k] + 0, opened_orch[k] + 0, merged[k] + 0, merged_orch[k] + 0, avg
                 }
             }
         ' "$work/commits_bucket.csv" "$work/prs_opened_bucket.csv" "$work/prs_merged_bucket.csv" | sort
     } | column -t -s "$(printf '\t')"
+
+    report_classification_totals "$work/commits_classified.csv" 7 "commit"
+    report_classification_totals "$work/prs_classified.csv" 12 "PR"
 }
 
-case "${1:-}" in
-    collect)      cmd_collect ;;
-    report)       shift; cmd_report "$@" ;;
-    ""|-h|--help) usage ;;
-    *)            echo "unknown subcommand: $1" >&2; usage; exit 2 ;;
-esac
+# Prints how many rows of file (its trailing 1/0 column at orch_col) matched the
+# ledger versus fell back to hand-produced - the whole-run count the per-bucket
+# table above does not, by itself, make easy to read off at a glance.
+report_classification_totals() {
+    local file="$1" orch_col="$2" noun="$3" total orch hand
+    total="$(wc -l < "$file" | tr -d ' ')"
+    orch="$(awk -F, -v c="$orch_col" '$c == "1"' "$file" | wc -l | tr -d ' ')"
+    hand=$((total - orch))
+    printf 'classified %d of %d %ss as orchestrator-produced (ledger match); %d %ss hand-produced (no match)\n' \
+        "$orch" "$total" "$noun" "$hand" "$noun"
+}
+
+# Guarded so throughput_test.sh can `source` this file to reach the functions
+# above (bucket_keys, classify_by_sha_prefix, ledger_commit_shas, ...) without
+# also running whatever subcommand happens to be in the test process's "$1".
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    case "${1:-}" in
+        collect)      cmd_collect ;;
+        report)       shift; cmd_report "$@" ;;
+        ""|-h|--help) usage ;;
+        *)            echo "unknown subcommand: $1" >&2; usage; exit 2 ;;
+    esac
+fi
