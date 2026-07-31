@@ -14,6 +14,10 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 	"github.com/gabrielassisxyz/kernl/internal/shipment"
 )
@@ -47,7 +51,11 @@ func (b *testBackend) Get(id string, repoPath string) (*backend.Bead, error) {
 	if !ok {
 		return nil, nil
 	}
-	bead := &backend.Bead{ID: id, State: s, ParentID: b.parents[id], ProfileID: b.profiles[id]}
+	// Title defaults to the bead id: StartWorkflowRun's bead reference nodes
+	// require a non-empty title (see ensureBeadReferenceNode), and no test
+	// in this file asserts a specific title, so the id doubles as one
+	// without introducing a titles map nothing else needs yet.
+	bead := &backend.Bead{ID: id, Title: id, State: s, ParentID: b.parents[id], ProfileID: b.profiles[id]}
 	if n := b.depCount[id]; n > 0 {
 		bead.Dependencies = make([]backend.BeadDependency, n)
 	}
@@ -188,7 +196,13 @@ func testAppForBeadRun(t *testing.T, be *testBackend) *app.App {
 	withoutGit(t)
 	withResolvableShipment(t)
 	return &app.App{
-		Backend:  be,
+		Backend: be,
+		// A real (in-memory) graph: bead run now opens a workflow_run node
+		// through it on every dispatch past --dry-run, and a nil Graph is a
+		// loud KERNL DISPATCH FAILURE, not a silent no-op (see
+		// app.StartWorkflowRun) - every test in this file that reaches past
+		// the dry-run boundary needs one.
+		Graph:    testutil.NewInMemoryTestGraph(t),
 		StateDir: t.TempDir(),
 		Config: &config.Config{
 			Settings: config.Settings{
@@ -305,6 +319,121 @@ func TestRunBeadDispatchDryRunStopsBeforeDispatch(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(a.StateDir, "agentstate")); !os.IsNotExist(statErr) {
 		t.Errorf("dry-run must not create the agentstate directory (workflow.NewAgentStateStore is the first write past the dry-run return), stat err=%v", statErr)
+	}
+	if n := countWorkflowRunNodes(t, a.Graph); n != 0 {
+		t.Errorf("dry-run must not create a workflow_run node either - it is a write, same as the agentstate directory - got %d", n)
+	}
+}
+
+// countWorkflowRunNodes is the assertion TestRunBeadDispatchDryRunStopsBeforeDispatch
+// and TestRunBeadDispatchCreatesAndClosesAWorkflowRun both need: how many
+// workflow_run rows exist in the fixture's graph right now.
+func countWorkflowRunNodes(t *testing.T, g *graph.Graph) int {
+	t.Helper()
+	var n int
+	if err := g.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'workflow_run'`).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting workflow_run nodes: %v", err)
+	}
+	return n
+}
+
+// TestRunBeadDispatchCreatesAndClosesAWorkflowRun is the acceptance test for
+// wiring app.StartWorkflowRun/CloseWorkflowRun into bead run: a real (non
+// dry-run) dispatch that succeeds leaves exactly one workflow_run node behind,
+// linked to the bead it drove, closed at status "completed" rather than left
+// stuck at "running".
+func TestRunBeadDispatchCreatesAndClosesAWorkflowRun(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-14": "ready_for_implementation"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	res, err := runBeadDispatch(a, driver, "kb-14", repoEntry, false)
+	if err != nil {
+		t.Fatalf("runBeadDispatch: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got %+v", res)
+	}
+
+	if n := countWorkflowRunNodes(t, a.Graph); n != 1 {
+		t.Fatalf("expected exactly 1 workflow_run node after one dispatch, got %d", n)
+	}
+
+	var runs []*nodes.WorkflowRun
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		runs, err = nodes.ListWorkflowRuns(context.Background(), tx, nodes.WorkflowRunFilter{})
+		return err
+	}); err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected 1 run, got %d", len(runs))
+	}
+	if runs[0].Status != "completed" {
+		t.Errorf("Status = %q, want %q - a successful dispatch must not leave the run stuck at \"running\"", runs[0].Status, "completed")
+	}
+
+	var out []edges.Edge
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		out, err = edges.Outgoing(context.Background(), tx, runs[0].ID, edges.WithType(edges.EdgeTypeRanBead))
+		return err
+	}); err != nil {
+		t.Fatalf("edges.Outgoing: %v", err)
+	}
+	if len(out) != 1 || out[0].Dst != "kb-14" {
+		t.Errorf("expected exactly 1 ran_bead edge to kb-14, got %+v", out)
+	}
+}
+
+// TestRunBeadDispatchClosesFailedOnUnsuccessfulResultWithNilError is the
+// regression test for a run record that read "completed" for a dispatch the
+// CLI itself reported as failed: runBeadDispatch returns
+// app.DriveBeadToTerminal's result directly, and that function legitimately
+// signals failure two different ways - a non-nil error, or a nil error
+// paired with RunBeadResult.Success == false (an already-blocked bead, a
+// failed exit gate, a subprocess failure, an agent result that never reached
+// a terminal success state). Deriving the run's closing status from the
+// named err alone missed the second shape entirely. Here the bead starts
+// already blocked, the exact case DriveBeadToTerminal itself returns
+// (RunBeadResult{Success: false}, nil) for before it ever calls the driver.
+func TestRunBeadDispatchClosesFailedOnUnsuccessfulResultWithNilError(t *testing.T) {
+	be := &testBackend{state: map[string]string{"kb-15": "blocked"}}
+	driver := &fakeBeadDriver{}
+	a := testAppForBeadRun(t, be)
+	repoEntry := a.Config.Registry.Repos[0]
+
+	res, err := runBeadDispatch(a, driver, "kb-15", repoEntry, false)
+	if err != nil {
+		t.Fatalf("runBeadDispatch: unexpected error for an already-blocked bead: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected an unsuccessful result for an already-blocked bead, got %+v", res)
+	}
+	if len(driver.calls) != 0 {
+		t.Fatalf("an already-blocked bead must never reach the driver, got %d calls", len(driver.calls))
+	}
+
+	var runs []*nodes.WorkflowRun
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		runs, err = nodes.ListWorkflowRuns(context.Background(), tx, nodes.WorkflowRunFilter{})
+		return err
+	}); err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly 1 workflow_run node, got %d", len(runs))
+	}
+	if runs[0].Status != "failed" {
+		t.Errorf("Status = %q, want %q - a DriveBeadToTerminal result carrying Success == false with a nil error must still close the run as failed, not \"completed\"", runs[0].Status, "failed")
+	}
+	if !strings.Contains(runs[0].RunData, "blocked") {
+		t.Errorf("RunData does not carry a failure explanation naming the final state, got: %s", runs[0].RunData)
 	}
 }
 

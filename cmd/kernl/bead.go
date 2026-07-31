@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -151,7 +152,7 @@ func parseBeadRunArgs(args []string) (beadID string, dryRun bool, err error) {
 // driver is threaded through explicitly, rather than read off App inside this
 // function, so a hermetic test can hand it a fake BeadDriver and observe
 // exactly what gets assembled, without spawning a real agent process.
-func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry config.RepoEntry, dryRun bool) (app.RunBeadResult, error) {
+func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry config.RepoEntry, dryRun bool) (result app.RunBeadResult, err error) {
 	repoPath := repoEntry.Path
 
 	bead, err := a.Backend.Get(beadID, repoPath)
@@ -244,6 +245,70 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	if dryRun {
 		return app.RunBeadResult{FinalState: bead.State, Success: true}, nil
 	}
+
+	// The run record opens here, immediately past the dry-run boundary
+	// above: creating this node is itself a write, so a dry run - which by
+	// definition performs none - must never reach it, exactly like every
+	// other write below this line. It closes via the defer immediately
+	// after, on every path out of this function from here on.
+	runID, err := app.StartWorkflowRun(context.Background(), a.Graph, app.StartWorkflowRunInput{
+		EntryPoint:     "bead run",
+		Title:          bead.Title,
+		WorkflowName:   bead.ProfileID,
+		Beads:          []app.BeadRef{{ID: bead.ID, Title: bead.Title}},
+		RepoPath:       repoPath,
+		BaseBranch:     baseBranch,
+		VerifyCommand:  verifyCommand,
+		TrackerCommand: trackerCommand,
+		DryRun:         false,
+		StartedAt:      time.Now(),
+	})
+	if err != nil {
+		return app.RunBeadResult{}, err
+	}
+	defer func() {
+		// DriveBeadToTerminal is returned directly below, and it legitimately
+		// reports failure two ways: a non-nil err, or a nil err with
+		// result.Success == false (an already-blocked bead, a failed exit
+		// gate, a subprocess failure, an agent result that never reached a
+		// terminal success state). Deriving status from err alone missed the
+		// second shape entirely - the run record read "completed" for a
+		// dispatch runBeadCmd was, in the same breath, reporting to the
+		// operator as KERNL DISPATCH FAILURE.
+		status, failure := "completed", ""
+		switch {
+		case err != nil:
+			status, failure = "failed", err.Error()
+		case !result.Success:
+			status, failure = "failed", fmt.Sprintf("bead %s did not reach a successful terminal state - stopped at %q", beadID, result.FinalState)
+		}
+		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
+			Status:     status,
+			FinishedAt: time.Now(),
+			Failure:    failure,
+		})
+		if closeErr == nil {
+			return
+		}
+		if err != nil {
+			err = fmt.Errorf("%w - additionally, closing workflow run %s failed: %v", err, runID, closeErr)
+			return
+		}
+		if !result.Success {
+			// The dispatch itself already failed (result.Success == false)
+			// with no Go error to carry that fact past this defer - branching
+			// on err alone here would report only the close failure and lose
+			// the original one, and runBeadCmd's own "!res.Success" check
+			// never runs once err stops being nil.
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s did not reach a successful terminal state (stopped at %q), and its workflow run record %s also failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", beadID, result.FinalState, runID, closeErr)
+			return
+		}
+		// The dispatch itself succeeded; only the run record failed to
+		// close. Reporting plain success here would leave a run stuck at
+		// "running" with no report ever composed for it, and nothing short
+		// of reading this error would reveal that happened.
+		err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", beadID, runID, closeErr)
+	}()
 
 	stateStore, err := workflow.NewAgentStateStore(filepath.Join(a.StateDir, "agentstate"))
 	if err != nil {
