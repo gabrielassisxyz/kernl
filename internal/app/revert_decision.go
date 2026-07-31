@@ -112,7 +112,7 @@ func RevertDecisionAndReopenBead(ctx context.Context, g *graph.Graph, be backend
 		return nil, err
 	}
 
-	if err := markDecisionReverted(ctx, g, decision, in.Reason); err != nil {
+	if err := markDecisionReverted(ctx, g, decision.ID, in.Reason); err != nil {
 		return nil, err
 	}
 
@@ -243,19 +243,33 @@ func resolveActiveDecision(ctx context.Context, g *graph.Graph, beadID, decision
 // A DIFFERENT reason against an already-reverted decision fails loud rather
 // than silently overwriting the first revert's record - this function never
 // guesses that a second, distinct revert of the same decision was intended.
-func markDecisionReverted(ctx context.Context, g *graph.Graph, d *nodes.Decision, reason string) error {
-	if d.RevertedAt != nil {
-		if d.RevertReason != nil && *d.RevertReason == reason {
-			return nil
-		}
-		return RevertDecisionInputError{fmt.Errorf("KERNL DISPATCH FAILURE: decision %s was already reverted on %s with reason %q - Fix: this looks like a second, different revert of the same decision; resolve it by hand before retrying", d.ID, d.RevertedAt.Format(time.RFC3339), stringOrEmpty(d.RevertReason))}
-	}
-
-	now := time.Now()
-	updated := *d
-	updated.RevertedAt = &now
-	updated.RevertReason = &reason
+// markDecisionReverted re-reads decisionID inside its own write transaction
+// rather than trusting a caller's earlier, separately-committed read
+// (resolveActiveDecision runs in its own DoRead) - two concurrent reverts of
+// the same decision could otherwise both observe "not yet reverted" before
+// either commits, and the second writer would silently overwrite the
+// first's reason. tx.AsReadTx() shares this transaction's own connection
+// rather than opening a second one, so the re-read and the write below are
+// atomic with respect to any other writer, at the cost of one extra SELECT,
+// not a second transaction or a serialized queue over every revert in the
+// repository.
+func markDecisionReverted(ctx context.Context, g *graph.Graph, decisionID string, reason string) error {
 	return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		current, err := nodes.GetDecision(ctx, tx.AsReadTx(), decisionID)
+		if err != nil {
+			return err
+		}
+		if current.RevertedAt != nil {
+			if current.RevertReason != nil && *current.RevertReason == reason {
+				return nil
+			}
+			return RevertDecisionInputError{fmt.Errorf("KERNL DISPATCH FAILURE: decision %s was already reverted on %s with reason %q - Fix: this looks like a second, different revert of the same decision; resolve it by hand before retrying", current.ID, current.RevertedAt.Format(time.RFC3339), stringOrEmpty(current.RevertReason))}
+		}
+
+		now := time.Now()
+		updated := *current
+		updated.RevertedAt = &now
+		updated.RevertReason = &reason
 		return nodes.UpdateDecision(ctx, tx, updated, runRecordAuthor)
 	})
 }
