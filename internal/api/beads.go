@@ -269,6 +269,11 @@ func resolveBeadsRepoPath(a *app.App) (string, error) {
 	return "", fmt.Errorf("KERNL DISPATCH FAILURE: no repository resolved for the bead routes - App.RepoPath is unset and registry.repos is empty - Fix: add a repo to registry.repos in kernl.yaml, or build the App via app.NewAppForRepo")
 }
 
+// standardHTTPMethods is the fixed, closed set of HTTP methods a bead route
+// pattern is registered for - not a list of bead routes, which is the thing
+// registerFailingBeadRoutes deliberately avoids enumerating.
+var standardHTTPMethods = []string{"GET", "POST", "PATCH", "PUT", "DELETE"}
+
 // registerFailingBeadRoutes wires every bead route to a handler that reports
 // the unresolved repository, rather than letting each handler discover it
 // independently (and rather than reaching into a.Config.Registry.Repos[0]
@@ -276,23 +281,31 @@ func resolveBeadsRepoPath(a *app.App) (string, error) {
 // boundary: a client hitting any bead endpoint gets the same, actionable
 // error instead of a 404 for a route that silently never got its real
 // handler installed.
+//
+// Catch-all patterns, not an enumeration of the handlers RegisterBeadRoutes
+// registers below: an enumerated list here would be a second copy of that
+// one that has to be kept in step by hand, and the day a bead route is added
+// to one and not the other, it would 404 in this branch instead of reporting
+// the failure this function exists to make loud - silently, since nothing
+// would fail to compile or go red. "/api/beads" is the ServeMux exact match
+// for that one path; "/api/beads/" is its subtree match, catching every
+// route nested under it (today's {id}, close, mark-terminal, ... and
+// whatever is added later) with nothing to keep in sync. Both are
+// method-qualified because an unqualified pattern here (matching every
+// method) is ambiguous against routes.go's "GET /" file-server catch-all -
+// ServeMux refuses to register two patterns where neither is strictly more
+// specific than the other - so this ranges over HTTP methods instead, which
+// is a fixed, closed set and not a second copy of anything. This function
+// returns before RegisterBeadRoutes registers anything else, so there is no
+// pattern conflict between this catch-all and the real handlers.
 func registerFailingBeadRoutes(mux *http.ServeMux, err error) {
 	fail := func(w http.ResponseWriter, r *http.Request) {
 		slog.Error(err.Error())
 		writeError(w, http.StatusInternalServerError, err.Error())
 	}
-	for _, route := range []string{
-		"GET /api/beads",
-		"GET /api/beads/{id}",
-		"POST /api/beads",
-		"PATCH /api/beads/{id}",
-		"POST /api/beads/{id}/close",
-		"POST /api/beads/{id}/mark-terminal",
-		"POST /api/beads/{id}/rollback",
-		"POST /api/beads/{id}/refine-scope",
-		"POST /api/beads/{id}/revert-decision",
-	} {
-		mux.HandleFunc(route, fail)
+	for _, method := range standardHTTPMethods {
+		mux.HandleFunc(method+" /api/beads", fail)
+		mux.HandleFunc(method+" /api/beads/", fail)
 	}
 }
 
