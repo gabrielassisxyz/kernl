@@ -258,6 +258,61 @@ func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 	}
 }
 
+// TestEvaluateExitGate_IntegrationReviewRecognizesReject proves the Phase 6
+// distinction this gate exists to make: a reviewer that deliberately
+// rejects (VERDICT: REJECT) still fails the gate - a rejection is not a
+// pass - but with a reason distinguishable from every other way this gate
+// fails, so the caller can tell "the reviewer did its job and said no" apart
+// from "the reviewer produced nothing coherent."
+//
+// Inversion: reading this test against a state_machine.go with the REJECT
+// branch removed (i.e. reverting to the pre-Phase-6 two-way PASS/not-PASS
+// check) makes the first assertion below fail on the "verdict_reject: "
+// prefix - it would still get "verdict_not_pass: " instead, since REJECT is
+// not PASS either. Confirmed by hand: with only the two-branch check, this
+// case's reason reads "verdict_not_pass: <path>", not
+// "verdict_reject: <path>", which is exactly the collapse Phase 6 exists to
+// undo.
+func TestEvaluateExitGate_IntegrationReviewRecognizesReject(t *testing.T) {
+	wf := BuiltinProfileDescriptor("epic")
+	dir := t.TempDir()
+	artifactDir := t.TempDir()
+	reviewFile := filepath.Join(artifactDir, "integration-review.md")
+
+	if err := os.WriteFile(reviewFile, []byte("this is wrong\n\nVERDICT: REJECT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"})
+	if ok {
+		t.Fatal("a rejection must still fail the gate - it is not a pass")
+	}
+	if !strings.HasPrefix(reason, "verdict_reject: ") {
+		t.Errorf("reason = %q, want the verdict_reject prefix so a caller can tell a deliberate rejection apart from a generic failure", reason)
+	}
+
+	// Every other artifact_verdict stage has no fix-up path to hand a
+	// rejection to, so REJECT is not recognized there: the reason must stay
+	// the generic verdict_not_pass, unchanged from before Phase 6.
+	for _, state := range []string{"plan_review", "implementation_review", "shipment_review"} {
+		t.Run(state, func(t *testing.T) {
+			otherWf := WorkflowDescriptor{
+				ExitGates: map[string][]WorkflowExitGate{state: {{Type: "artifact_verdict", Path: "<artifact_dir>/review.md"}}},
+			}
+			path := filepath.Join(artifactDir, "review.md")
+			if err := os.WriteFile(path, []byte("this is wrong\n\nVERDICT: REJECT"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			ok, reason := EvaluateExitGate(otherWf, ExitGateContext{FromState: state, WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"})
+			if ok {
+				t.Fatalf("%s must not pass on VERDICT: REJECT", state)
+			}
+			if !strings.HasPrefix(reason, "verdict_not_pass: ") {
+				t.Errorf("%s reason = %q, want verdict_not_pass (REJECT is only recognized for integration_review)", state, reason)
+			}
+		})
+	}
+}
+
 // TestEvaluateExitGate_Total proves EvaluateExitGate always passes when there
 // is nothing for it to check: a state with no declared gate at all, a state
 // declaring an empty gate list, a gate with an empty type, and the legacy

@@ -768,10 +768,26 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		if err != nil {
 			return false, "artifact_missing: " + abs
 		}
-		if !strings.HasSuffix(strings.TrimSpace(string(data)), "VERDICT: PASS") {
-			return false, "verdict_not_pass: " + abs
+		trimmed := strings.TrimSpace(string(data))
+		if strings.HasSuffix(trimmed, "VERDICT: PASS") {
+			return true, ""
 		}
-		return true, ""
+		// integration_review is the only stage with anywhere to send a
+		// rejection: the orchestrator-autonomy decision model's §7 fix-up
+		// mechanism reads this exact reason string to tell a reviewer's
+		// deliberate "this is wrong" apart from every other way this gate
+		// fails (missing file, a reviewer that ran out of budget, one that
+		// wrote incoherent output) - those must keep reading as
+		// verdict_not_pass, the same generic stage failure they always
+		// were, not silently become rejections. No other artifact_verdict
+		// stage (plan_review, implementation_review, shipment_review) has a
+		// fix-up path to hand a rejection to, so REJECT is deliberately not
+		// recognized for them: a non-PASS verdict there still means only
+		// "this did not pass."
+		if ctx.FromState == "integration_review" && strings.HasSuffix(trimmed, "VERDICT: REJECT") {
+			return false, "verdict_reject: " + abs
+		}
+		return false, "verdict_not_pass: " + abs
 	case "commit_marker":
 		if ctx.BaseSHA == "" {
 			return false, "commit_marker_unscoped: " + gate.Path
