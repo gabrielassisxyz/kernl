@@ -20,8 +20,17 @@ type Decision struct {
 	Body      string
 	Context   string
 	Outcome   string
-	DecidedAt time.Time
-	Tags      []string
+	// ImpactOnUse is the decision record's fifth part - impact on using the
+	// tool - written by a different actor (the run's composer) at a
+	// different time (run close) than the other four, which the implementer
+	// writes at decision time. nil means the composer has not run yet
+	// (awaiting); a non-nil pointer, even to "", means the composer already
+	// wrote something - the two must stay distinguishable, or a later reader
+	// cannot tell "not written yet" from "nothing to report" even though
+	// they mean different things.
+	ImpactOnUse *string
+	DecidedAt   time.Time
+	Tags        []string
 }
 
 // Meta returns the common metadata for this node.
@@ -30,12 +39,17 @@ func (d Decision) Meta() *Meta {
 }
 
 // NodeAttrs marshals type-specific fields for the nodes.attrs column.
+// ImpactOnUse is stored as-is: a nil pointer marshals to a JSON null (the
+// composer has not run yet), a pointer to "" marshals to "" (the composer
+// ran and had nothing to add) - the two are distinct values on read back,
+// not both empty-string.
 func (d Decision) NodeAttrs() []byte {
 	attrs := map[string]any{
-		"body":       d.Body,
-		"context":    d.Context,
-		"outcome":    d.Outcome,
-		"decided_at": d.DecidedAt,
+		"body":          d.Body,
+		"context":       d.Context,
+		"outcome":       d.Outcome,
+		"decided_at":    d.DecidedAt,
+		"impact_on_use": d.ImpactOnUse,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -46,7 +60,11 @@ func (d Decision) NodeTags() []string { return d.Tags }
 
 // FTSFields returns full-text-searchable content.
 func (d Decision) FTSFields() FTSFields {
-	body := strings.Join([]string{d.Body, d.Context, d.Outcome}, " ")
+	parts := []string{d.Body, d.Context, d.Outcome}
+	if d.ImpactOnUse != nil {
+		parts = append(parts, *d.ImpactOnUse)
+	}
+	body := strings.Join(parts, " ")
 	return FTSFields{Title: d.Title, Body: body, Tags: strings.Join(d.Tags, " ")}
 }
 
@@ -79,10 +97,11 @@ func GetDecision(ctx context.Context, tx *graph.ReadTx, id string) (*Decision, e
 	}
 
 	var attrs struct {
-		Body      string    `json:"body"`
-		Context   string    `json:"context"`
-		Outcome   string    `json:"outcome"`
-		DecidedAt time.Time `json:"decided_at"`
+		Body        string    `json:"body"`
+		Context     string    `json:"context"`
+		Outcome     string    `json:"outcome"`
+		DecidedAt   time.Time `json:"decided_at"`
+		ImpactOnUse *string   `json:"impact_on_use"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -96,15 +115,16 @@ func GetDecision(ctx context.Context, tx *graph.ReadTx, id string) (*Decision, e
 	}
 
 	return &Decision{
-		ID:        id,
-		CreatedAt: tryParseTime(createdAt.String),
-		UpdatedAt: tryParseTime(updatedAt.String),
-		Title:     title.String,
-		Body:      attrs.Body,
-		Context:   attrs.Context,
-		Outcome:   attrs.Outcome,
-		DecidedAt: attrs.DecidedAt,
-		Tags:      tags,
+		ID:          id,
+		CreatedAt:   tryParseTime(createdAt.String),
+		UpdatedAt:   tryParseTime(updatedAt.String),
+		Title:       title.String,
+		Body:        attrs.Body,
+		Context:     attrs.Context,
+		Outcome:     attrs.Outcome,
+		DecidedAt:   attrs.DecidedAt,
+		ImpactOnUse: attrs.ImpactOnUse,
+		Tags:        tags,
 	}, nil
 }
 
@@ -160,10 +180,11 @@ func ListDecisions(ctx context.Context, tx *graph.ReadTx, f DecisionFilter) ([]*
 		}
 
 		var attrs struct {
-			Body      string    `json:"body"`
-			Context   string    `json:"context"`
-			Outcome   string    `json:"outcome"`
-			DecidedAt time.Time `json:"decided_at"`
+			Body        string    `json:"body"`
+			Context     string    `json:"context"`
+			Outcome     string    `json:"outcome"`
+			DecidedAt   time.Time `json:"decided_at"`
+			ImpactOnUse *string   `json:"impact_on_use"`
 		}
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -177,15 +198,16 @@ func ListDecisions(ctx context.Context, tx *graph.ReadTx, f DecisionFilter) ([]*
 		}
 
 		out = append(out, &Decision{
-			ID:        id,
-			CreatedAt: tryParseTime(createdAt.String),
-			UpdatedAt: tryParseTime(updatedAt.String),
-			Title:     title.String,
-			Body:      attrs.Body,
-			Context:   attrs.Context,
-			Outcome:   attrs.Outcome,
-			DecidedAt: attrs.DecidedAt,
-			Tags:      tags,
+			ID:          id,
+			CreatedAt:   tryParseTime(createdAt.String),
+			UpdatedAt:   tryParseTime(updatedAt.String),
+			Title:       title.String,
+			Body:        attrs.Body,
+			Context:     attrs.Context,
+			Outcome:     attrs.Outcome,
+			DecidedAt:   attrs.DecidedAt,
+			ImpactOnUse: attrs.ImpactOnUse,
+			Tags:        tags,
 		})
 	}
 	return out, rows.Err()

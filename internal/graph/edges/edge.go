@@ -22,6 +22,11 @@ const (
 	EdgeTypeBlocks    EdgeType = "blocks"
 	EdgeTypePartOf    EdgeType = "part_of"
 	EdgeTypeLinksTo   EdgeType = "links_to"
+	// EdgeTypeHasDecision links a bead or epic (Src) to a Decision node
+	// (Dst) recording a design decision made during that unit of work. It
+	// exists so that link has a typed member of this closed set instead of
+	// a bare string literal typed by hand at each call site.
+	EdgeTypeHasDecision EdgeType = "has_decision"
 )
 
 // Edge models a directed relationship between two nodes.

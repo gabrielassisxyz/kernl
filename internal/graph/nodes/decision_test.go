@@ -68,6 +68,73 @@ func TestDecisionRoundtrip(t *testing.T) {
 	}
 }
 
+// TestDecisionImpactOnUseAwaitingIsDistinctFromEmpty verifies that a nil
+// ImpactOnUse (the composer has not run yet) round-trips as nil, not as a
+// pointer to "" - if the two collapsed into the same on-disk representation,
+// a later reader could not tell "awaiting the composer" from "the composer
+// ran and had nothing to add", which is exactly the distinction this field
+// exists to preserve.
+func TestDecisionImpactOnUseAwaitingIsDistinctFromEmpty(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	empty := ""
+	withText := "no measurable change to the tool's day-to-day use"
+
+	cases := []struct {
+		name string
+		want *string
+	}{
+		{name: "awaiting (nil)", want: nil},
+		{name: "composer ran, nothing to add (empty string)", want: &empty},
+		{name: "composer ran, wrote something", want: &withText},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := Decision{
+				Title:       "Impact case: " + c.name,
+				Body:        "b",
+				Context:     "c",
+				Outcome:     "o",
+				DecidedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				ImpactOnUse: c.want,
+			}
+
+			var id string
+			err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+				var err error
+				id, err = CreateDecision(ctx, tx, d, Author{Name: "test"})
+				return err
+			})
+			if err != nil {
+				t.Fatalf("CreateDecision: %v", err)
+			}
+
+			var got *Decision
+			err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+				var err error
+				got, err = GetDecision(ctx, tx, id)
+				return err
+			})
+			if err != nil {
+				t.Fatalf("GetDecision: %v", err)
+			}
+
+			switch {
+			case c.want == nil:
+				if got.ImpactOnUse != nil {
+					t.Errorf("ImpactOnUse = %q, want nil (awaiting)", *got.ImpactOnUse)
+				}
+			case got.ImpactOnUse == nil:
+				t.Errorf("ImpactOnUse = nil, want non-nil %q", *c.want)
+			case *got.ImpactOnUse != *c.want:
+				t.Errorf("ImpactOnUse = %q, want %q", *got.ImpactOnUse, *c.want)
+			}
+		})
+	}
+}
+
 // TestDecisionUpdateProducesOneRevision verifies updating writes a second revision.
 func TestDecisionUpdateProducesOneRevision(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
