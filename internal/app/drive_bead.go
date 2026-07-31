@@ -182,6 +182,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// history (see resolveArtifactDir and backend.ExitGateContext).
 			baseSHA := worktreeHeadSHA(deps.Worktree)
 			startTime := time.Now()
+			subprocessAgentID := "subprocess"
+			if len(activeStage.Subprocess.Command) > 0 {
+				subprocessAgentID = activeStage.Subprocess.Command[0]
+			}
 			resp, err := subprocess.RunSubprocessStage(ctx, activeStage, req)
 			if err != nil {
 				var causeStr string
@@ -203,6 +207,30 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					}
 				} else {
 					causeStr = "execution failed: " + err.Error()
+				}
+
+				// A subprocess that timed out, ran over its output cap, or
+				// exited non-zero is a real attempt with a real outcome -
+				// not recording it here (the only place this branch ever
+				// reaches an exit-gate-shaped result) would bias the
+				// ledger toward subprocess stages that happened to work.
+				// No structured exit code is available from
+				// subprocess.SubprocessError - only ExitCode: nil is
+				// honest here, not a guess reconstructed from error text.
+				if ledgerErr := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
+					AgentID:           subprocessAgentID,
+					Dialect:           "subprocess",
+					BeadID:            deps.BeadID,
+					Stage:             activeState,
+					StartedAt:         startTime,
+					Duration:          time.Since(startTime),
+					BaseSHA:           baseSHA,
+					CommitSHA:         worktreeHeadSHA(deps.Worktree),
+					Worktree:          deps.Worktree,
+					GatePassed:        false,
+					GateFailureReason: "subprocess_" + causeStr,
+				})); ledgerErr != nil {
+					slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 				}
 
 				// Truncate stderr dumped into the bead comment at a sane limit (64KB) with a truncation marker.
@@ -239,10 +267,11 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			}
 			gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
 			commitSHA := worktreeHeadSHA(deps.Worktree)
-			agentID := "subprocess"
-			if len(activeStage.Subprocess.Command) > 0 {
-				agentID = activeStage.Subprocess.Command[0]
-			}
+			agentID := subprocessAgentID
+			// RunSubprocessStage only reaches here when the subprocess's own
+			// cmd.Run() returned no error, so it did exit cleanly - unlike
+			// the failure branch above, a real exit code (0) is available.
+			cleanExit := 0
 			if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 				AgentID:           agentID,
 				Dialect:           "subprocess",
@@ -250,6 +279,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				Stage:             activeState,
 				StartedAt:         startTime,
 				Duration:          duration,
+				ExitCode:          &cleanExit,
 				BaseSHA:           baseSHA,
 				CommitSHA:         commitSHA,
 				Worktree:          deps.Worktree,
@@ -257,7 +287,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				GateFailureReason: gateReason,
 				ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
 			})); err != nil {
-				slog.Warn("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
+				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 			}
 			if gatePassed {
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
