@@ -201,7 +201,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	var workflowFlagSeen bool
 	var autonomous bool
 	var interactive bool
-	var dryRun bool
+	var stopBeforeShipment bool
 	var remainingArgs []string
 
 	for i := 0; i < len(args); i++ {
@@ -227,13 +227,19 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			autonomous = true
 		} else if arg == "--interactive" {
 			interactive = true
-		} else if arg == "--dry-run" {
-			dryRun = true
+		} else if arg == "--stop-before-shipment" || arg == "--dry-run" {
+			// --dry-run is the accepted alias: this is what the flag used to be
+			// called before it was renamed. The old name promised a run that
+			// does nothing, but children, integration, and integration_review
+			// all dispatch for real under it - only shipment is withheld. The
+			// new name says what actually happens; the old one keeps working
+			// so nothing already depending on it breaks.
+			stopBeforeShipment = true
 		} else if strings.HasPrefix(arg, "-") {
 			// A mistyped flag must not silently become the epic ID (it used
 			// to swallow --autonomous typos and run non-autonomous).
-			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive, --dry-run, --repo",
-				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive", "--dry-run", "--repo"}))
+			return usagef("KERNL DISPATCH FAILURE: unknown epic run flag %q%s - valid: --workflow, --autonomous, --interactive, --stop-before-shipment, --dry-run, --repo",
+				arg, didYouMean(arg, []string{"--workflow", "--autonomous", "--interactive", "--stop-before-shipment", "--dry-run", "--repo"}))
 		} else {
 			remainingArgs = append(remainingArgs, arg)
 		}
@@ -422,9 +428,18 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	// every child has been implemented and reviewed. It sits after argument and
 	// workflow validation on purpose: a flag typo must still report itself as a
 	// flag typo.
-	plan, err := resolveShipmentPlan(repoEntry, dryRun, out)
+	plan, err := resolveShipmentPlan(repoEntry, stopBeforeShipment, out)
 	if err != nil {
 		return err
+	}
+	if stopBeforeShipment {
+		// epic run's biggest effect under this flag is not the epic's own
+		// integration merge - it is every child: real implementation, real
+		// review, real commits on each kernl/<beadID> branch, real writes to
+		// the target repository's own tracker, real agent cost. Naming only
+		// the epic-level merge here would leave the larger effect invisible
+		// to whoever is reading the terminal instead of --help.
+		out("--stop-before-shipment: children still implement and get reviewed for real (commits, tracker writes, agent cost); integration and integration_review then run for real too and commit onto the epic branch - only the push and pull request are withheld, and that merge cannot be redone\n")
 	}
 
 	// The run record opens here, after every read-only validation above and
@@ -432,8 +447,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	// typo or an undeclared remote must never leave a "running" run node
 	// behind for a dispatch that in fact never started. It closes via the
 	// defer immediately below, on every path out of this function from here
-	// on, including --dry-run (dry-run only stops shipment, not dispatch
-	// itself - see resolveShipmentPlan).
+	// on, including --stop-before-shipment (it only stops shipment, not
+	// dispatch itself - see resolveShipmentPlan).
 	epicBead, err := a.Backend.Get(epicID, repoPath)
 	if err != nil || epicBead == nil {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s while opening its workflow run record: %w", epicID, repoPath, err)
@@ -457,7 +472,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		BaseBranch:     baseBranch,
 		VerifyCommand:  verifyCommand,
 		TrackerCommand: trackerCommand,
-		DryRun:         dryRun,
+		DryRun:         stopBeforeShipment,
 		StartedAt:      runStartedAt,
 	})
 	if err != nil {
@@ -695,12 +710,18 @@ type shipmentPlan struct {
 
 // resolveShipmentPlan settles where a run may publish before a single agent is
 // spawned. A run that would be refused at shipment is refused now, rather than
-// after the agent work that precedes it; --dry-run is how the rest of the
-// pipeline is exercised while that configuration is still missing.
-func resolveShipmentPlan(repoEntry config.RepoEntry, dryRun bool, out func(string)) (shipmentPlan, error) {
-	plan := shipmentPlan{Allowed: repoEntry.Shipment.AllowedRemotes, DryRun: dryRun}
-	if dryRun {
-		out("dry-run: the run stops before shipment - nothing is pushed and no pull request is opened\n")
+// after the agent work that precedes it; --stop-before-shipment (--dry-run) is
+// how the rest of the pipeline is exercised while that configuration is still
+// missing.
+//
+// It prints nothing for the stop-before-shipment case itself: what still runs
+// for real differs between epic run (which dispatches every child) and epic
+// merge (which does not), so each caller states its own scope right after
+// calling this, rather than this shared function guessing at a scope it does
+// not have.
+func resolveShipmentPlan(repoEntry config.RepoEntry, stopBeforeShipment bool, out func(string)) (shipmentPlan, error) {
+	plan := shipmentPlan{Allowed: repoEntry.Shipment.AllowedRemotes, DryRun: stopBeforeShipment}
+	if stopBeforeShipment {
 		return plan, nil
 	}
 	dest, err := shipment.ResolveDestination(repoEntry.Path, repoEntry.Shipment.Remote, repoEntry.Shipment.AllowedRemotes, nil)

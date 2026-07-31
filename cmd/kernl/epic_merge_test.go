@@ -38,6 +38,71 @@ func TestEpicMergeRequiresRepo(t *testing.T) {
 	}
 }
 
+// The flag was renamed to --stop-before-shipment because "dry-run" overstated
+// what it withholds (see help.go), but --dry-run stays a working alias so
+// nothing already invoking it breaks. Both spellings must reach the same
+// warning, and that warning must name epic merge's own scope (no children) -
+// not epic run's - since resolveShipmentPlan is shared between the two and no
+// longer prints anything itself for exactly this reason.
+func TestEpicMergeAcceptsDryRunAsStopBeforeShipmentAlias(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+
+	for _, flag := range []string{"--stop-before-shipment", "--dry-run"} {
+		t.Run(flag, func(t *testing.T) {
+			repoPath := t.TempDir()
+			for _, args := range [][]string{
+				{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+				{"commit", "--allow-empty", "-m", "base"},
+			} {
+				if out, err := exec.Command("git", append([]string{"-C", repoPath}, args...)...).CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+
+			be := &epicRunTestBackend{beads: []backend.Bead{
+				{ID: "e1", Type: "epic", Title: "alias probe"},
+			}}
+			scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
+			refuseSpawn := func(ctx context.Context, cmd string, args []string, cwd string, env []string) (app.Process, io.Reader, io.Reader, error) {
+				return nil, nil, nil, fmt.Errorf("test: dispatch must not go further than the printed warning")
+			}
+			driver := app.NewSessionDriver(app.DriverDeps{Backend: be, Spawn: refuseSpawn, SCM: scm, LogDir: t.TempDir()})
+
+			a := &app.App{
+				Backend:  be,
+				Driver:   driver,
+				StateDir: t.TempDir(),
+				Config: &config.Config{
+					Settings: config.Settings{
+						Agents: map[string]config.AgentConfig{
+							"opencode": {Command: "opencode", Args: []string{"run", "--format", "json"}, Label: "opencode"},
+						},
+						Pools: map[string]config.PoolConfig{
+							"integration": {Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}},
+						},
+					},
+					Registry:     config.RegistryConfig{Repos: []config.RepoEntry{{Path: repoPath, VerifyCommand: "true", MemoryManager: "beads"}}},
+					Orchestrator: config.OrchestratorConfig{WorktreeRoot: t.TempDir()},
+				},
+				EpicEvents: epic.NewEpicEventHub(),
+			}
+
+			var lines []string
+			_ = runEpicMerge(a, []string{flag, "e1"}, func(s string) { lines = append(lines, s) })
+
+			joined := strings.Join(lines, "")
+			if !strings.Contains(joined, "--stop-before-shipment:") {
+				t.Fatalf("%s must print the stop-before-shipment warning; got %q", flag, joined)
+			}
+			if !strings.Contains(joined, "epic merge does not run children") {
+				t.Errorf("%s: warning must state epic merge's own scope, not epic run's; got %q", flag, joined)
+			}
+		})
+	}
+}
+
 // runEpicMerge and runEpicAbort each build their own AgentStateStore from
 // App.StateDir. Before the injection fix, both instead derived the directory
 // from os.Getenv("HOME"), so the two happened to agree only because nothing

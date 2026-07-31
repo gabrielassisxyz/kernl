@@ -133,31 +133,37 @@ Flags:
 kernl epic run - Execute an epic's bead graph in parallel
 
 Usage:
-  kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--dry-run] [--repo <path|name>] <epic-id>
+  kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--stop-before-shipment] [--repo <path|name>] <epic-id>
 
 Flags:
-  --workflow <path>   Use a custom workflow YAML instead of the default profile
-  --autonomous        Let the DA infer the workflow shape without prompting
-  --interactive       With --autonomous: confirm the inferred shape first
-  --dry-run           Stop before shipment: nothing is pushed and no pull request is opened
-  --repo <path|name>  Which registered repo to act on; required when more than one is registered
+  --workflow <path>                  Use a custom workflow YAML instead of the default profile
+  --autonomous                       Let the DA infer the workflow shape without prompting
+  --interactive                      With --autonomous: confirm the inferred shape first
+  --stop-before-shipment, --dry-run  Run children and the epic's own integration for real; only shipment is withheld
+                                     integration commits a real merge onto the epic branch, so this consumes that
+                                     stage - a later real run can find nothing left to merge and get stuck. --dry-run
+                                     is accepted as an alias, but that name overstates what the flag withholds.
+  --repo <path|name>                 Which registered repo to act on; required when more than one is registered
 
 ### kernl epic merge
 kernl epic merge - (Re-)run only the epic-level integration stages
 
 Usage:
-  kernl epic merge [--dry-run] [--repo <path|name>] <epic-id>
+  kernl epic merge [--stop-before-shipment] [--repo <path|name>] <epic-id>
 
 Drives the epic bead through integration -> integration_review -> shipment.
 Use it to recover a blocked epic; it does not run the children.
 
 Shipment pushes to the remote declared in registry.repos[].shipment.allowedRemotes
 and refuses any other. With no allow-list configured it refuses to push at all;
-use --dry-run to stop before shipment.
+use --stop-before-shipment to run integration for real and withhold only shipment.
 
 Flags:
-  --dry-run           Stop before shipment: nothing is pushed and no pull request is opened
-  --repo <path|name>  Which registered repo to act on; required when more than one is registered
+  --stop-before-shipment, --dry-run  Run integration and integration_review for real; only shipment is withheld
+                                     integration commits a real merge onto the epic branch, so this consumes that
+                                     stage - a later real run can find nothing left to merge and get stuck. --dry-run
+                                     is accepted as an alias, but that name overstates what the flag withholds.
+  --repo <path|name>                 Which registered repo to act on; required when more than one is registered
 
 ### kernl epic abort
 kernl epic abort - Close an epic and its children; clean worktrees and agent state
@@ -232,7 +238,8 @@ Usage:
 
 --dry-run validates everything it can without writing anything, then stops
 before the first change - the same refusal a real run would give, none of
-its side effects.
+its side effects. 'kernl epic run --stop-before-shipment' means something
+weaker: it still dispatches and commits for real, withholding only shipment.
 
 Flags:
   --dry-run           Validate without dispatching; stop before the first write

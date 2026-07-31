@@ -118,30 +118,40 @@ the others drive the orchestrator locally.`,
 			{
 				Name:    "run",
 				Summary: "Execute an epic's bead graph in parallel",
-				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--dry-run] [--repo <path|name>] <epic-id>",
+				Usage:   "kernl epic run [--workflow <path>] [--autonomous] [--interactive] [--stop-before-shipment] [--repo <path|name>] <epic-id>",
 				Details: "{{flags}}",
 				Flags: []commandFlag{
 					{Name: "--workflow", Value: "<path>", Description: "Use a custom workflow YAML instead of the default profile"},
 					{Name: "--autonomous", Description: "Let the DA infer the workflow shape without prompting"},
 					{Name: "--interactive", Description: "With --autonomous: confirm the inferred shape first"},
-					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+					{Name: "--stop-before-shipment", Alias: "--dry-run", Description: "Run children and the epic's own integration for real; only shipment is withheld",
+						Continuation: []string{
+							"integration commits a real merge onto the epic branch, so this consumes that",
+							"stage - a later real run can find nothing left to merge and get stuck. --dry-run",
+							"is accepted as an alias, but that name overstates what the flag withholds.",
+						}},
 					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
 			{
 				Name:    "merge",
 				Summary: "(Re-)run only the epic-level integration stages",
-				Usage:   "kernl epic merge [--dry-run] [--repo <path|name>] <epic-id>",
+				Usage:   "kernl epic merge [--stop-before-shipment] [--repo <path|name>] <epic-id>",
 				Details: `Drives the epic bead through integration -> integration_review -> shipment.
 Use it to recover a blocked epic; it does not run the children.
 
 Shipment pushes to the remote declared in registry.repos[].shipment.allowedRemotes
 and refuses any other. With no allow-list configured it refuses to push at all;
-use --dry-run to stop before shipment.
+use --stop-before-shipment to run integration for real and withhold only shipment.
 
 {{flags}}`,
 				Flags: []commandFlag{
-					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+					{Name: "--stop-before-shipment", Alias: "--dry-run", Description: "Run integration and integration_review for real; only shipment is withheld",
+						Continuation: []string{
+							"integration commits a real merge onto the epic branch, so this consumes that",
+							"stage - a later real run can find nothing left to merge and get stuck. --dry-run",
+							"is accepted as an alias, but that name overstates what the flag withholds.",
+						}},
 					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
@@ -175,7 +185,8 @@ running 'kernl serve'.`,
 				Usage:   "kernl bead run [--dry-run] [--repo <path|name>] <bead-id>",
 				Details: `--dry-run validates everything it can without writing anything, then stops
 before the first change - the same refusal a real run would give, none of
-its side effects.
+its side effects. 'kernl epic run --stop-before-shipment' means something
+weaker: it still dispatches and commits for real, withholding only shipment.
 
 {{flags}}`,
 				Flags: []commandFlag{
