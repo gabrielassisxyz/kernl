@@ -44,6 +44,15 @@ type App struct {
 	// which makes config writes unavailable rather than silently misdirected.
 	ConfigPath string
 
+	// RepoPath is the repository this App's Backend was constructed for -
+	// registry.repos[0] for the single-repo `kernl serve` daemon, but whatever
+	// --repo resolved to for an orchestrator verb built via NewAppForRepo. A
+	// route that needs "the repository this run is about" (the epic run GUI's
+	// bead routes) must read this, not Config.Registry.Repos[0]: that index is
+	// a fact about the registry, not about which repo this particular App -
+	// and the run it is serving a GUI for - was built against.
+	RepoPath string
+
 	// autoClassify is the live switch the background inbox classifier reads each
 	// tick. It is session-only (a UI toggle, not persisted) and resets to the
 	// config default on restart, so it needs its own guarded state rather than
@@ -144,6 +153,7 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 		EpicEvents:    epic.NewEpicEventHub(),
 		NudgeRegistry: nudges,
 		Graph:         g,
+		RepoPath:      repoPath,
 		autoClassify:  cfg.Inbox.AutoClassifyEnabled(),
 	}, nil
 }
