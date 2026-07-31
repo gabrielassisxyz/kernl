@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
@@ -241,5 +244,58 @@ func TestRenderRelatedDecisions_NoneFoundIsExplicit(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "No related decisions were found") {
 		t.Errorf("prompt does not say explicitly that none were found:\n%s", prompt)
+	}
+}
+
+// TestRelatedDecisionsForPrompt_NoGraphDBYetCreatesNoSideEffect proves the
+// vault-root half of the "no side effect" fix: a repository that has never
+// recorded a decision has no graph db file yet, and relatedDecisionsForPrompt
+// must recognize that and return without ever calling the directory-creating
+// path resolver or graph.Open - not open (and thereby create) the db just to
+// find it empty. Driving a bead used to be silent about the filesystem;
+// this proves it still is when nothing has ever written a decision.
+func TestRelatedDecisionsForPrompt_NoGraphDBYetCreatesNoSideEffect(t *testing.T) {
+	vaultRoot := t.TempDir()
+	deps := DriveBeadDeps{
+		Config:   &config.Config{Vault: config.VaultConfig{Root: vaultRoot}},
+		RepoPath: "/repo/archeion",
+	}
+	bead := &backend.Bead{ID: "arch-hkk", Title: "Enforce a page limit"}
+
+	got := relatedDecisionsForPrompt(context.Background(), deps, bead)
+	if got != nil {
+		t.Errorf("relatedDecisionsForPrompt = %+v, want nil: no graph db exists yet", got)
+	}
+
+	graphPath := filepath.Join(vaultRoot, ".kernl-graph.db")
+	if _, statErr := os.Stat(graphPath); statErr == nil {
+		t.Errorf("graph db %s was created, but nothing had ever recorded a decision in this vault", graphPath)
+	}
+}
+
+// TestRelatedDecisionsForPrompt_NoVaultConfiguredTouchesNoHomeDir is the
+// home-directory-fallback half of the same fix: when Vault.Root is unset,
+// graphDBDir falls back to a directory under the user's home. A bead run
+// with no vault configured must not derive a directory from HOME on this
+// path any more than it does when a vault IS configured but empty - the
+// same reasoning applies to whichever directory graphDBDir would have
+// resolved to.
+func TestRelatedDecisionsForPrompt_NoVaultConfiguredTouchesNoHomeDir(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	deps := DriveBeadDeps{
+		Config:   &config.Config{},
+		RepoPath: "/repo/archeion",
+	}
+	bead := &backend.Bead{ID: "arch-hkk", Title: "Enforce a page limit"}
+
+	got := relatedDecisionsForPrompt(context.Background(), deps, bead)
+	if got != nil {
+		t.Errorf("relatedDecisionsForPrompt = %+v, want nil: no graph db exists yet", got)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(homeDir, ".kernl")); !os.IsNotExist(statErr) {
+		t.Errorf("relatedDecisionsForPrompt must not derive a directory from HOME, but %s/.kernl exists", homeDir)
 	}
 }

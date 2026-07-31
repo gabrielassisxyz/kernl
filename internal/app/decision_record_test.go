@@ -783,30 +783,18 @@ func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
 		t.Errorf("expected bead blocked by the failed gate, got state %q", bd.State)
 	}
 
-	// The graph db file itself is no longer proof of anything:
-	// relatedDecisionsForPrompt (FetchRelevantDecisions's caller) now opens
-	// it unconditionally, before the agent ever runs, to look for decisions
-	// worth surfacing in the very prompt this stage is about to send - so a
-	// file existing at graphPath is expected regardless of whether the gate
-	// later passes. What this test actually needs to prove is narrower: that
-	// no Decision node was written, i.e. recordDecisionIfGateType's write
-	// path never ran for a gate that failed.
+	// relatedDecisionsForPrompt (FetchRelevantDecisions's caller) does open
+	// the graph unconditionally before the agent runs, on every native-flow
+	// stage - but only once a graph db file already exists; a vault that has
+	// never recorded a decision has nothing to read, and it stat-checks for
+	// that BEFORE calling the directory-creating path resolver or
+	// graph.Open (see that function's own doc comment). So the original
+	// invariant still holds here: nothing upstream of the failed gate ever
+	// created a db in this fresh vault, and recordDecisionIfGateType's own
+	// write path never ran for a gate that failed either.
 	graphPath := filepath.Join(vaultRoot, ".kernl-graph.db")
-	g, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
-	if err != nil {
-		t.Fatalf("graph.Open: %v", err)
-	}
-	defer g.Close()
-	var decisions []*nodes.Decision
-	if err := g.DoRead(context.Background(), func(tx *graph.ReadTx) error {
-		var err error
-		decisions, err = nodes.ListDecisions(context.Background(), tx, nodes.DecisionFilter{})
-		return err
-	}); err != nil {
-		t.Fatalf("ListDecisions: %v", err)
-	}
-	if len(decisions) != 0 {
-		t.Errorf("expected no decision nodes written (the gate never passed), got %d: %+v", len(decisions), decisions)
+	if _, statErr := os.Stat(graphPath); statErr == nil {
+		t.Errorf("graph db %s exists, but the gate never passed - recordDecisionIfGateType must not have run", graphPath)
 	}
 }
 

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -186,29 +188,53 @@ func decisionScope(ctx context.Context, tx *graph.ReadTx, decisionID, repoPath, 
 }
 
 // relatedDecisionsForPrompt resolves the standing decisions a stage prompt
-// for bead should carry, or nil (with a loud, greppable warning) if the
-// graph could not be opened or read.
+// for bead should carry, or nil (with a loud, greppable warning, except for
+// the "no db yet" case below) if the graph could not be opened or read.
 //
-// This degrades rather than halts, unlike recordDecisionIfGateType (the
-// write path for this same graph), and the asymmetry is deliberate. The
-// write path's job is to guarantee a decision that was actually just made
-// gets recorded - losing that silently is permanent: the agent invocation
-// that produced it is already spent, and nothing else will ever write it
-// down. This read path's job is best-effort context for an agent that has
-// not started yet; if the graph cannot be read, the worst case is the
-// status quo this bead is improving on (an implementer without prior
-// context), not a new failure mode. Halting every bead in the fleet because
-// this repository's graph database hiccuped would trade a rare, recoverable
-// loss of extra context for certain, repository-wide unavailability of work
-// that would otherwise succeed - a worse outcome than the one being fixed.
-// The KERNL DISPATCH FAILURE marker keeps the failure greppable in logs
-// either way, so a graph that is reliably unreadable does not stay invisible.
+// It checks whether the graph db file already exists (os.Stat against
+// graphDBDir, which never touches the filesystem) BEFORE calling
+// graphDBFilePath or graph.Open - both of which create persistent state
+// (graphDBFilePath runs os.MkdirAll on the vault root or its home-directory
+// fallback; graph.Open then creates the db file and runs its migrations).
+// A repository that has never recorded a decision has no db yet, and "no
+// related decisions" is the correct, non-degraded answer for it - not a
+// degraded one - so reaching it must not be the reason a vault directory and
+// a migrated database get created on a dispatch path that used to touch
+// neither. That is also why this specific case logs nothing: it is not a
+// failure, and warning on an absent file that is about to be the expected,
+// permanent state of most repositories (only decision_record-gated stages
+// ever create it) would just be noise on every ordinary run.
+//
+// Every other failure here (the stat call itself errors for a reason other
+// than not-exist, or the file exists but fails to open or query) degrades
+// rather than halts, unlike recordDecisionIfGateType (the write path for
+// this same graph), and that asymmetry is deliberate. The write path's job
+// is to guarantee a decision that was actually just made gets recorded -
+// losing that silently is permanent: the agent invocation that produced it
+// is already spent, and nothing else will ever write it down. This read
+// path's job is best-effort context for an agent that has not started yet;
+// if the graph cannot be read, the worst case is the status quo this bead is
+// improving on (an implementer without prior context), not a new failure
+// mode. Halting every bead in the fleet because this repository's graph
+// database hiccuped would trade a rare, recoverable loss of extra context
+// for certain, repository-wide unavailability of work that would otherwise
+// succeed - a worse outcome than the one being fixed. The KERNL DISPATCH
+// FAILURE marker keeps THOSE failures greppable in logs, so a graph that is
+// reliably unreadable does not stay invisible.
 func relatedDecisionsForPrompt(ctx context.Context, deps DriveBeadDeps, bead *backend.Bead) []RelevantDecision {
-	graphPath, err := graphDBFilePath(deps.Config)
+	dir, err := graphDBDir(deps.Config)
 	if err != nil {
-		slog.Warn("KERNL DISPATCH FAILURE: resolving graph path to fetch related decisions - continuing without them", "bead", bead.ID, "err", err)
+		slog.Warn("KERNL DISPATCH FAILURE: resolving graph dir to fetch related decisions - continuing without them", "bead", bead.ID, "err", err)
 		return nil
 	}
+	graphPath := filepath.Join(dir, ".kernl-graph.db")
+	if _, statErr := os.Stat(graphPath); statErr != nil {
+		if !os.IsNotExist(statErr) {
+			slog.Warn("KERNL DISPATCH FAILURE: checking whether the graph db exists to fetch related decisions - continuing without them", "bead", bead.ID, "path", graphPath, "err", statErr)
+		}
+		return nil
+	}
+
 	g, err := graph.Open(ctx, graph.Config{Path: graphPath})
 	if err != nil {
 		slog.Warn("KERNL DISPATCH FAILURE: opening graph to fetch related decisions - continuing without them", "bead", bead.ID, "err", err)
