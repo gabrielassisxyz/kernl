@@ -11,6 +11,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/sweep"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 func runSweep(configPath string, args []string) error {
@@ -164,12 +165,20 @@ func (a *sweepBackendAdapter) ListEpicsAwaitingPRReview() ([]sweep.Epic, error) 
 		if err != nil {
 			return nil, err
 		}
-		prURL := ""
-		if eb.Metadata != nil {
-			if u, ok := eb.Metadata["pr_url"].(string); ok {
-				prURL = u
-			}
-		}
+		// The description is where a shipped epic's pr_url actually lives:
+		// the shipment prompt tells the agent to write "pr_url: <url>" there,
+		// the shipment exit gate refuses to advance without it
+		// (description_contains "pr_url:"), and the containment check reads it
+		// back the same way (see epic.go's refuseUnallowedPullRequest).
+		//
+		// This used to read eb.Metadata["pr_url"], a key nothing in this
+		// repository has ever written: Metadata is only ever decoded back out
+		// of the tracker, and neither bd nor br exposes a way to set it. So
+		// the lookup could not succeed even after a fully automatic run, and
+		// every epic was skipped with "in awaiting_pr_review without pr_url".
+		// That is why sweep had never closed anything - not, as it appeared,
+		// because nothing had merged yet.
+		prURL := workflow.GetPRURL(eb.Description)
 		childIDs := make([]string, 0, len(children))
 		for _, c := range children {
 			childIDs = append(childIDs, c.ID)

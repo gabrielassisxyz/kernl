@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
@@ -195,5 +196,82 @@ func TestSweepRefusesARepositoryWithNoResolvableTracker(t *testing.T) {
 
 	if _, err := defaultSweeperFactory(cfg); err == nil {
 		t.Fatal("expected a refusal rather than a default tracker")
+	}
+}
+
+// sweepEpicBackend is a named fake (AGENTS.md §4) that answers the two List
+// calls sweepBackendAdapter makes: the epics awaiting PR review, and each
+// epic's children. It embeds testBackend so only those two behaviours have to
+// be spelled out here.
+type sweepEpicBackend struct {
+	*testBackend
+	epics []backend.Bead
+}
+
+func (b *sweepEpicBackend) List(filters *backend.BeadListFilters, repoPath string) ([]backend.Bead, error) {
+	if filters != nil && filters.Parent != "" {
+		return nil, nil
+	}
+	return b.epics, nil
+}
+
+// TestSweepReadsPRURLFromTheDescription pins where the pr_url comes from.
+// sweep used to read it from Bead.Metadata, a key nothing in this repository
+// writes: Metadata is only decoded back out of the tracker, and neither bd nor
+// br can set it. The shipment prompt writes "pr_url: <url>" into the
+// description and the shipment exit gate refuses to advance without it there,
+// so the description is the only source that is ever populated. Reading the
+// other one made sweep skip every epic, which looked like "nothing has merged
+// yet" rather than a broken contract.
+func TestSweepReadsPRURLFromTheDescription(t *testing.T) {
+	const url = "https://github.com/owner/repo/pull/41"
+	a := &sweepBackendAdapter{
+		b: &sweepEpicBackend{
+			testBackend: &testBackend{},
+			epics: []backend.Bead{{
+				ID:          "arch-pun",
+				Type:        "epic",
+				State:       "awaiting_pr_review",
+				Description: "Some epic body.\n\npr_url: " + url + "\nmerge_outcome: success\n",
+			}},
+		},
+		dir: t.TempDir(),
+	}
+
+	epics, err := a.ListEpicsAwaitingPRReview()
+	if err != nil {
+		t.Fatalf("ListEpicsAwaitingPRReview: %v", err)
+	}
+	if len(epics) != 1 {
+		t.Fatalf("expected 1 epic, got %d", len(epics))
+	}
+	if epics[0].PRURL != url {
+		t.Errorf("PRURL = %q, want %q - sweep must read pr_url from the description the shipment gate enforces, not from a metadata key nothing writes", epics[0].PRURL, url)
+	}
+}
+
+// An epic that genuinely has no pr_url must still come back empty, so sweep's
+// own "in awaiting_pr_review without pr_url" warning keeps firing for the real
+// case instead of being masked by a fallback.
+func TestSweepPRURLEmptyWhenTheDescriptionHasNone(t *testing.T) {
+	a := &sweepBackendAdapter{
+		b: &sweepEpicBackend{
+			testBackend: &testBackend{},
+			epics: []backend.Bead{{
+				ID:          "arch-none",
+				Type:        "epic",
+				State:       "awaiting_pr_review",
+				Description: "An epic that never shipped.\n",
+			}},
+		},
+		dir: t.TempDir(),
+	}
+
+	epics, err := a.ListEpicsAwaitingPRReview()
+	if err != nil {
+		t.Fatalf("ListEpicsAwaitingPRReview: %v", err)
+	}
+	if epics[0].PRURL != "" {
+		t.Errorf("PRURL = %q, want empty for an epic whose description carries no pr_url", epics[0].PRURL)
 	}
 }
