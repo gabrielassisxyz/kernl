@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestLoadWorkflow_StagesBlockParses(t *testing.T) {
@@ -487,8 +489,74 @@ exit_gates:
 	if !strings.Contains(msg, "exit_gates.implementation") {
 		t.Errorf("error must name the offending state 'implementation', got: %v", err)
 	}
-	if !strings.Contains(msg, "- type: commit_marker") || !strings.Contains(msg, "path: stage: implementation") {
+	if !strings.Contains(msg, `- type: "commit_marker"`) || !strings.Contains(msg, `path: "stage: implementation"`) {
 		t.Errorf("error must show the list shape that fixes it, got: %v", err)
+	}
+
+	assertSuggestedFixParses(t, msg)
+}
+
+// assertSuggestedFixParses extracts the YAML snippet after "Fix: write it
+// as" from a rejectLegacyExitGatesShape error and feeds it back through the
+// real YAML parser. A suggested fix that itself fails to parse is not a fix:
+// the value driving this precheck (a gate's own path, e.g. commit_marker's
+// "stage: implementation", which contains ": ") previously produced
+// unquoted output that yaml.v3 rejects with "mapping values are not allowed
+// here" when copied verbatim.
+func assertSuggestedFixParses(t *testing.T, errMsg string) {
+	t.Helper()
+	const marker = "Fix: write it as\n"
+	idx := strings.Index(errMsg, marker)
+	if idx == -1 {
+		t.Fatalf("error must contain the %q marker ahead of the suggested fix, got: %s", marker, errMsg)
+	}
+	snippet := errMsg[idx+len(marker):]
+
+	var parsed map[string]any
+	if err := yaml.Unmarshal([]byte(snippet), &parsed); err != nil {
+		t.Fatalf("the suggested fix does not parse as YAML: %v\nsnippet:\n%s", err, snippet)
+	}
+	if _, ok := parsed["exit_gates"]; !ok {
+		t.Errorf("parsed suggested fix missing 'exit_gates', got: %+v", parsed)
+	}
+}
+
+// TestLoadWorkflow_LegacyShapeViaYAMLAliasRejects proves the old-shape
+// precheck sees through a YAML alias, not just a literal mapping node. A
+// state whose value is "*legacy" - an alias to an old-shape gate object
+// anchored elsewhere in the same document - carries no Kind of its own to
+// classify; without resolving it first, the precheck would skip straight
+// past it and fall through to yaml.v3's own unreadable decode error, which
+// is exactly the message this file exists to replace.
+func TestLoadWorkflow_LegacyShapeViaYAMLAliasRejects(t *testing.T) {
+	yamlText := `
+id: aliased_wf
+exit_gates:
+  planning:
+    - &legacy
+      type: commit_marker
+      path: marker
+  implementation: *legacy
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadWorkflowYAML(path)
+	if err == nil {
+		t.Fatal("expected LoadWorkflowYAML to reject the old shape reached through a YAML alias")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if !strings.Contains(msg, "exit_gates.implementation") {
+		t.Errorf("error must name the aliased state 'implementation', got: %v", err)
+	}
+	if strings.Contains(msg, "cannot unmarshal") {
+		t.Errorf("error must be the actionable precheck message, not yaml.v3's raw decode error, got: %v", err)
 	}
 }
 

@@ -81,14 +81,14 @@ func rejectLegacyExitGatesShape(path string, data []byte) error {
 		return nil
 	}
 
-	exitGatesNode := mappingValue(root.Content[0], "exit_gates")
+	exitGatesNode := resolveAlias(mappingValue(root.Content[0], "exit_gates"))
 	if exitGatesNode == nil || exitGatesNode.Kind != yaml.MappingNode {
 		return nil
 	}
 
 	for i := 0; i+1 < len(exitGatesNode.Content); i += 2 {
 		stateKey := exitGatesNode.Content[i]
-		stateVal := exitGatesNode.Content[i+1]
+		stateVal := resolveAlias(exitGatesNode.Content[i+1])
 		if stateVal.Kind != yaml.MappingNode {
 			continue
 		}
@@ -97,10 +97,25 @@ func rejectLegacyExitGatesShape(path string, data []byte) error {
 		examplePath := nodeValueOrPlaceholder(mappingValue(stateVal, "path"), "gate_path")
 		return fmt.Errorf(
 			"KERNL DISPATCH FAILURE: workflow YAML %s: exit_gates.%s uses the old single-gate shape - exit_gates is now a list of gates per state, so a state can carry more than one. Fix: write it as\nexit_gates:\n  %s:\n    - type: %s\n      path: %s",
-			path, stateKey.Value, stateKey.Value, exampleType, examplePath,
+			path, stateKey.Value, stateKey.Value, yamlDoubleQuoted(exampleType), yamlDoubleQuoted(examplePath),
 		)
 	}
 	return nil
+}
+
+// resolveAlias follows a YAML alias node (e.g. two states sharing one gate
+// via "&legacy" / "*legacy" anchors) to the node it refers to. An AliasNode
+// carries no Kind of its own to classify - skipping this step would let a
+// state written as an alias to an old-shape gate object slip past the
+// MappingNode check below unnoticed, falling through to yaml.v3's own
+// unreadable decode error instead of the actionable one this file exists to
+// produce. A node that is not an alias (the overwhelmingly common case) is
+// returned unchanged.
+func resolveAlias(n *yaml.Node) *yaml.Node {
+	if n != nil && n.Kind == yaml.AliasNode && n.Alias != nil {
+		return n.Alias
+	}
+	return n
 }
 
 // mappingValue returns the value node paired with key in a YAML mapping
@@ -127,6 +142,21 @@ func nodeValueOrPlaceholder(node *yaml.Node, placeholder string) string {
 		return placeholder
 	}
 	return node.Value
+}
+
+// yamlDoubleQuoted renders s as a double-quoted YAML scalar. The "Fix: write
+// it as" example embeds a value taken verbatim from the file under
+// diagnosis - and a real gate value can itself contain ": " (commit_marker's
+// own path is literally "stage: implementation"). Interpolated unquoted,
+// that reads as a second mapping key and the suggested fix does not parse
+// ("mapping values are not allowed here"); an actionable error that emits
+// invalid YAML is not actionable. Escaping is the minimum a double-quoted
+// YAML scalar needs: a backslash first (so an already-escaped sequence in s
+// is not double-unescaped by whatever re-parses this), then the quote that
+// would otherwise close the scalar early.
+func yamlDoubleQuoted(s string) string {
+	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)
+	return `"` + escaped + `"`
 }
 
 func (d *workflowYAMLDoc) toDescriptor() WorkflowDescriptor {
