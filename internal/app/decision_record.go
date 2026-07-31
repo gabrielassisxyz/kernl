@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
-	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
@@ -150,6 +149,85 @@ func ensureHasDecisionEdge(ctx context.Context, tx *graph.WriteTx, src, dst stri
 	return err
 }
 
+// BeadRef is the bridge WriteDecisionRecordNode needs to link a Decision to
+// an orchestrator bead or epic: the tracker id edges.Create requires to
+// already exist as a node, plus the three sourceable facts
+// nodes.BeadReference is allowed to carry. It exists so a caller (only
+// recordDecisionIfGateType today) can hand over exactly what it already has
+// in hand - the bead fetched at the top of the drive loop, and the tracker
+// command and repo path resolved once for the whole run - without this
+// package re-deriving any of it.
+type BeadRef struct {
+	ID          string
+	Title       string
+	TrackerKind string
+	RepoPath    string
+}
+
+// validBeadReferenceTrackerKinds are the only tracker_kind values a bead
+// reference node may ever store. A reference node is never updated after
+// creation (see nodes.BeadReference), so a wrong value here is not a
+// transient glitch - it is permanent and unfixable without a migration, and
+// this check is the last point before it is written where that can be
+// prevented. backend.MemoryManagerType also names "knots" as a supported
+// tracker, deliberately excluded here: nothing has validated this write path
+// against a knots-backed repository's tracker command shape, so rejecting it
+// loudly is safer than writing an unverified value into an immutable node.
+var validBeadReferenceTrackerKinds = map[string]bool{"br": true, "bd": true}
+
+// trackerKindFromCommand extracts the tracker binary name from the
+// invocation string DriveBeadDeps.TrackerCommand already carries, and
+// validates it against validBeadReferenceTrackerKinds.
+// backend.TrackerInvocation always builds that string as "<binary> <rest>"
+// (see its own doc comment), so the first field is the kind - this is string
+// surgery on data already resolved for the run, not a second call to
+// backend.ResolveMemoryManager, which would mean re-detecting which tracker
+// the repository uses.
+func trackerKindFromCommand(trackerCommand string) (string, error) {
+	fields := strings.Fields(trackerCommand)
+	if len(fields) == 0 {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: tracker command is empty, so no tracker kind can be recorded on a bead reference node - Fix: resolve DriveBeadDeps.TrackerCommand with backend.TrackerInvocation before driving a bead")
+	}
+	kind := fields[0]
+	if !validBeadReferenceTrackerKinds[kind] {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: tracker command %q names tracker kind %q, which a bead reference node cannot record - Fix: this write path only supports br and bd; a knots-backed repository is not yet supported here", trackerCommand, kind)
+	}
+	return kind, nil
+}
+
+// ensureBeadReferenceNode creates a reference node for ref, or is a no-op if
+// one already exists at that id. It calls nodes.CreateBeadReference
+// unconditionally rather than checking nodes.Exists first: every child bead
+// of the same epic calls this for the same epic id, each through its own
+// *graph.Graph (recordDecisionIfGateType opens one per call), so a
+// check-then-insert here would race across those separate connections - two
+// callers can both observe absence before either commits, and only one of
+// their inserts would then succeed. nodes.CreateBeadReference's own insert
+// is atomic and idempotent, so every caller converges on the same row
+// without that window.
+func ensureBeadReferenceNode(ctx context.Context, tx *graph.WriteTx, ref BeadRef, author nodes.Author) error {
+	var missing []string
+	if ref.Title == "" {
+		missing = append(missing, "title")
+	}
+	if ref.TrackerKind == "" {
+		missing = append(missing, "tracker kind")
+	}
+	if ref.RepoPath == "" {
+		missing = append(missing, "repository path")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: creating a reference node for bead %s: missing %s - Fix: this data must come from the bead already fetched by DriveBeadToTerminal and the DriveBeadDeps.TrackerCommand/RepoPath resolved for the run; a placeholder must never be substituted here", ref.ID, strings.Join(missing, ", "))
+	}
+	_, err := nodes.CreateBeadReference(ctx, tx, nodes.BeadReference{
+		ID:          ref.ID,
+		Title:       ref.Title,
+		TrackerKind: ref.TrackerKind,
+		Repository:  ref.RepoPath,
+	}, author)
+	return err
+}
+
 // WriteDecisionRecordNode creates a Decision node from a decision record's
 // extracted sections and links it to the bead and (when different) the epic
 // it was written for via edges.EdgeTypeHasDecision, all inside one write
@@ -157,22 +235,40 @@ func ensureHasDecisionEdge(ctx context.Context, tx *graph.WriteTx, src, dst stri
 // meaningfully queryable later, so the two are written together or not at
 // all.
 //
-// The node ID is content-addressed (decisionRecordNodeID), and both the node
-// create and the edge creates are skipped when they already exist
-// (nodes.Exists, ensureHasDecisionEdge) - a caller that retries this same
-// call for the same bead and the same record (DriveBeadToTerminal does,
-// whenever the graph write itself succeeds but the bead's state update fails
-// afterward and the run is retried) converges on one node and its edges
-// rather than accumulating one of each per attempt.
+// edges.Create requires both endpoints to already exist as node rows, and
+// orchestrator bead/epic ids are never otherwise mirrored into this graph
+// (nodes.Task and nodes.Project are a distinct, human-authored concept - see
+// task.go's own doc comment). bead and epic (a reference-node stub, not the
+// bead's full tracker state - see nodes.BeadReference) supply exactly what
+// is needed to bring both endpoints into existence via
+// ensureBeadReferenceNode before either edge is attempted.
+//
+// The Decision node ID is content-addressed (decisionRecordNodeID), and the
+// reference node creates, the Decision create, and the edge creates are all
+// skipped when they already exist (nodes.Exists, ensureBeadReferenceNode,
+// ensureHasDecisionEdge) - a caller that retries this same call for the same
+// bead and the same record (DriveBeadToTerminal does, whenever the graph
+// write itself succeeds but the bead's state update fails afterward and the
+// run is retried) converges on one of each rather than accumulating one per
+// attempt.
 //
 // Exported so a test proving the audit API surfaces this path's output (see
 // internal/api/audit.go) can call the real write path instead of re-deriving
 // fixture data by hand.
-func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[string]string, beadID, epicID string) (string, error) {
-	id := decisionRecordNodeID(beadID, epicID, sections)
+func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[string]string, bead, epic BeadRef) (string, error) {
+	id := decisionRecordNodeID(bead.ID, epic.ID, sections)
 	author := nodes.Author{Name: "kernl-dispatch"}
 
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		if err := ensureBeadReferenceNode(ctx, tx, bead, author); err != nil {
+			return err
+		}
+		if epic.ID != "" && epic.ID != bead.ID {
+			if err := ensureBeadReferenceNode(ctx, tx, epic, author); err != nil {
+				return err
+			}
+		}
+
 		exists, err := nodes.Exists(ctx, tx, id)
 		if err != nil {
 			return err
@@ -184,18 +280,18 @@ func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, sections map[s
 				return err
 			}
 		}
-		if err := ensureHasDecisionEdge(ctx, tx, beadID, id, author); err != nil {
+		if err := ensureHasDecisionEdge(ctx, tx, bead.ID, id, author); err != nil {
 			return err
 		}
-		if epicID != "" && epicID != beadID {
-			if err := ensureHasDecisionEdge(ctx, tx, epicID, id, author); err != nil {
+		if epic.ID != "" && epic.ID != bead.ID {
+			if err := ensureHasDecisionEdge(ctx, tx, epic.ID, id, author); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing decision record node for bead %s: %w", beadID, err)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing decision record node for bead %s: %w", bead.ID, err)
 	}
 	return id, nil
 }
@@ -240,27 +336,47 @@ func readDecisionRecordSections(gate backend.WorkflowExitGate, gateCtx backend.E
 // refused to advance the bead, so this function is only ever invoked once
 // per stage, after the gate that reads the same file already proved it well
 // formed.
-func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor, gateCtx backend.ExitGateContext, cfg *config.Config, beadID, epicID string) error {
+//
+// bead, deps and epicTitle are the caller's own loop state, not re-derived
+// here: bead is the same object DriveBeadToTerminal already fetched at the
+// top of its iteration, deps.RepoPath/TrackerCommand were resolved once for
+// the whole run, and epicTitle (when epicID differs from bead.ID) is fetched
+// by the same loop, before the agent runs, not here. A second tracker fetch
+// at this point - after the agent already ran and the gate already passed -
+// would turn a transient lookup failure into a reason to discard work that
+// had already succeeded; DriveBeadToTerminal pays that cost earlier, when
+// failing costs nothing but a retry of the fetch itself.
+func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor, gateCtx backend.ExitGateContext, deps DriveBeadDeps, bead *backend.Bead, epicID, epicTitle string) error {
 	gate, ok := wf.ExitGates[gateCtx.FromState]
 	if !ok || gate.Type != "decision_record" {
 		return nil
 	}
 
-	sections, err := readDecisionRecordSections(gate, gateCtx, beadID)
+	sections, err := readDecisionRecordSections(gate, gateCtx, bead.ID)
 	if err != nil {
 		return err
 	}
 
-	graphPath, err := graphDBFilePath(cfg)
+	trackerKind, err := trackerKindFromCommand(deps.TrackerCommand)
+	if err != nil {
+		return err
+	}
+	beadRef := BeadRef{ID: bead.ID, Title: bead.Title, TrackerKind: trackerKind, RepoPath: deps.RepoPath}
+	epicRef := beadRef
+	if epicID != "" && epicID != bead.ID {
+		epicRef = BeadRef{ID: epicID, Title: epicTitle, TrackerKind: trackerKind, RepoPath: deps.RepoPath}
+	}
+
+	graphPath, err := graphDBFilePath(deps.Config)
 	if err != nil {
 		return err
 	}
 	g, err := graph.Open(ctx, graph.Config{Path: graphPath})
 	if err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: opening graph to record decision for bead %s: %w", beadID, err)
+		return fmt.Errorf("KERNL DISPATCH FAILURE: opening graph to record decision for bead %s: %w", bead.ID, err)
 	}
 	defer g.Close()
 
-	_, err = WriteDecisionRecordNode(ctx, g, sections, beadID, epicID)
+	_, err = WriteDecisionRecordNode(ctx, g, sections, beadRef, epicRef)
 	return err
 }

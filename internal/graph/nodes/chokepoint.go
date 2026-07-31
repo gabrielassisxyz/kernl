@@ -7,6 +7,12 @@
 //     [INSERT nodes_fts] -> [UPDATE nodes SET fts_rowid] -> [INSERT node_tags]
 //     [INSERT first revision]
 //
+//   createNodeIfAbsent(nodeType, spec, author): same steps as createNode,
+//   except the id is required (never generated) and the INSERT nodes step
+//   uses OR IGNORE - a duplicate id is success (created=false), atomically,
+//   with no separate existence check to race against. Opt-in per node type
+//   (today: BeadReference); createNode's plain INSERT stays the default.
+//
 //   updateNode(spec, author):
 //     [SELECT prev state + tags + fts_rowid] -> [validate author]
 //     [DELETE nodes_fts WHERE rowid = prev.fts_rowid]
@@ -53,6 +59,10 @@ func Exists(ctx context.Context, tx *graph.WriteTx, id string) (bool, error) {
 }
 
 // createNode inserts a new node, its FTS index, tags, and initial revision.
+// A duplicate id is a SQLite UNIQUE constraint error, surfaced to the
+// caller: for every node type but BeadReference (see createNodeIfAbsent), an
+// id collision among generated or content-addressed ids is a bug worth
+// surfacing, not something to paper over.
 func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec NodeSpec, author Author) (string, error) {
 	if !author.Valid() {
 		return "", graph.ErrAuthorRequired
@@ -79,6 +89,74 @@ func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec No
 		return "", fmt.Errorf("createNode: insert node: %w", err)
 	}
 
+	if err := finishNodeCreate(ctx, tx, meta.ID, attrs, fts, spec.NodeTags(), author); err != nil {
+		return "", err
+	}
+	return meta.ID, nil
+}
+
+// createNodeIfAbsent inserts a new node exactly like createNode, except a
+// duplicate id is treated as success (created=false) rather than an error.
+// The INSERT itself uses OR IGNORE, so the check "does a row with this id
+// already exist" and the insert are one atomic statement - there is no
+// window between a separate existence check and an unconditional insert
+// where two concurrent callers can both observe absence and then both
+// attempt to insert, with only one succeeding and the other failing on the
+// primary-key collision. That window is real: every child bead of the same
+// epic calls this for the same epic id, each through its own *graph.Graph
+// (recordDecisionIfGateType opens one per call), so two siblings' writes can
+// interleave across separate connections to the same SQLite file.
+//
+// Correct for a node type designed to be immutable and content-independent
+// of any single writer (BeadReference: whichever caller's insert wins, the
+// row is identical in every field that matters). Not exposed generally,
+// because for most node types a genuine id collision with different content
+// is a bug that should be reported, not silently resolved to "keep the
+// first writer's version".
+func createNodeIfAbsent(ctx context.Context, tx *graph.WriteTx, nodeType string, spec NodeSpec, author Author) (id string, created bool, err error) {
+	if !author.Valid() {
+		return "", false, graph.ErrAuthorRequired
+	}
+
+	meta := spec.Meta()
+	if meta.ID == "" {
+		return "", false, fmt.Errorf("createNodeIfAbsent: id is required - an idempotent-on-conflict create only makes sense for a caller-chosen id, never a generated one")
+	}
+
+	attrs := spec.NodeAttrs()
+	if len(attrs) == 0 {
+		attrs = []byte("{}")
+	}
+
+	fts := spec.FTSFields()
+
+	result, err := tx.Exec(
+		`INSERT OR IGNORE INTO nodes(id, type, title, attrs) VALUES (?, ?, ?, ?)`,
+		meta.ID, nodeType, fts.Title, string(attrs),
+	)
+	if err != nil {
+		return "", false, fmt.Errorf("createNodeIfAbsent: insert node: %w", err)
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return "", false, fmt.Errorf("createNodeIfAbsent: rows affected: %w", err)
+	}
+	if inserted == 0 {
+		// Someone else already created this id, in this transaction's view
+		// of the database - success, not a conflict.
+		return meta.ID, false, nil
+	}
+
+	if err := finishNodeCreate(ctx, tx, meta.ID, attrs, fts, spec.NodeTags(), author); err != nil {
+		return "", false, err
+	}
+	return meta.ID, true, nil
+}
+
+// finishNodeCreate writes the FTS index, tags, and initial revision for a
+// node whose row in the nodes table was just inserted by createNode or
+// createNodeIfAbsent.
+func finishNodeCreate(ctx context.Context, tx *graph.WriteTx, id string, attrs []byte, fts FTSFields, rawTags []string, author Author) error {
 	// Build FTS attrs content: body + tags (space-separated)
 	ftsAttrs := fts.Body
 	if fts.Tags != "" {
@@ -93,38 +171,38 @@ func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec No
 		fts.Title, ftsAttrs,
 	)
 	if err != nil {
-		return "", fmt.Errorf("createNode: insert fts: %w", err)
+		return fmt.Errorf("finishNodeCreate: insert fts: %w", err)
 	}
 	ftsRowid, err := result.LastInsertId()
 	if err != nil {
-		return "", fmt.Errorf("createNode: fts last insert id: %w", err)
+		return fmt.Errorf("finishNodeCreate: fts last insert id: %w", err)
 	}
 
 	_, err = tx.Exec(
 		`UPDATE nodes SET fts_rowid = ? WHERE id = ?`,
-		ftsRowid, meta.ID,
+		ftsRowid, id,
 	)
 	if err != nil {
-		return "", fmt.Errorf("createNode: update fts_rowid: %w", err)
+		return fmt.Errorf("finishNodeCreate: update fts_rowid: %w", err)
 	}
 
 	// Insert tags (deduplicate to avoid UNIQUE constraint violations)
-	tags := dedupStrings(spec.NodeTags())
+	tags := dedupStrings(rawTags)
 	for _, tag := range tags {
 		if err := upsertTag(ctx, tx, tag); err != nil {
-			return "", err
+			return err
 		}
 		var tagID string
 		err = tx.QueryRow(`SELECT id FROM tags WHERE name = ?`, tag).Scan(&tagID)
 		if err != nil {
-			return "", fmt.Errorf("createNode: select tag id: %w", err)
+			return fmt.Errorf("finishNodeCreate: select tag id: %w", err)
 		}
 		_, err = tx.Exec(
 			`INSERT INTO node_tags(node_id, tag_id) VALUES (?, ?)`,
-			meta.ID, tagID,
+			id, tagID,
 		)
 		if err != nil {
-			return "", fmt.Errorf("createNode: insert node_tags: %w", err)
+			return fmt.Errorf("finishNodeCreate: insert node_tags: %w", err)
 		}
 	}
 
@@ -132,18 +210,18 @@ func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec No
 	revisionID := ids.New()
 	snapshotB, err := snapshotJSON(fts.Title, string(attrs), tags)
 	if err != nil {
-		return "", fmt.Errorf("createNode: snapshot: %w", err)
+		return fmt.Errorf("finishNodeCreate: snapshot: %w", err)
 	}
 
 	_, err = tx.Exec(
 		`INSERT INTO revisions(id, node_id, parent_id, diff, author) VALUES (?, ?, NULL, ?, ?)`,
-		revisionID, meta.ID, string(snapshotB), author.String(),
+		revisionID, id, string(snapshotB), author.String(),
 	)
 	if err != nil {
-		return "", fmt.Errorf("createNode: insert revision: %w", err)
+		return fmt.Errorf("finishNodeCreate: insert revision: %w", err)
 	}
 
-	return meta.ID, nil
+	return nil
 }
 
 // updateNode updates an existing node's title, attrs, FTS index, tags, and stores a revision.

@@ -190,6 +190,29 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: activeState, Success: false}, err
 		}
 
+		// A decision_record gate on this stage needs the epic's own title
+		// to build its reference node (see recordDecisionIfGateType).
+		// Fetched here, before the agent runs, so a transient tracker
+		// failure or a concurrently deleted epic is discovered before an
+		// agent invocation is spent - rather than discarding a successful
+		// agent run and a passed gate afterward, the way a fetch made only
+		// after the gate had already passed would.
+		epicTitle := ""
+		if epicID != "" && epicID != deps.BeadID {
+			if gate, ok := wf.ExitGates[activeState]; ok && gate.Type == "decision_record" {
+				epicBead, epicErr := deps.Backend.Get(epicID, deps.RepoPath)
+				if epicErr != nil {
+					return RunBeadResult{FinalState: activeState, Success: false},
+						fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at stage %s needs its epic %s to record a decision, but the epic could not be fetched from %s: %w - Fix: confirm the epic bead still exists in the tracker at that repo path", deps.BeadID, activeState, epicID, deps.RepoPath, epicErr)
+				}
+				if epicBead == nil {
+					return RunBeadResult{FinalState: activeState, Success: false},
+						fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at stage %s needs its epic %s to record a decision, but the epic was not found in %s - Fix: confirm the epic bead still exists in the tracker at that repo path", deps.BeadID, activeState, epicID, deps.RepoPath)
+				}
+				epicTitle = epicBead.Title
+			}
+		}
+
 		if deps.AgentStateStore != nil && activeStage.Kind == "subprocess" {
 			// Subprocess flow
 			runtimeState, err := deps.AgentStateStore.Load(deps.BeadID)
@@ -323,7 +346,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				// other gate type. Run before the state transition, not
 				// after: a bead must not advance past a stage whose
 				// reasoning failed to persist (see recordDecisionIfGateType).
-				if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps.Config, deps.BeadID, epicID); err != nil {
+				if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps, bead, epicID, epicTitle); err != nil {
 					return RunBeadResult{FinalState: activeState, Success: false}, err
 				}
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
@@ -531,7 +554,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// type. Run before the state transition, not after: a bead must
 			// not advance past a stage whose reasoning failed to persist
 			// (see recordDecisionIfGateType).
-			if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps.Config, deps.BeadID, epicID); err != nil {
+			if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps, bead, epicID, epicTitle); err != nil {
 				return RunBeadResult{FinalState: activeState, Success: false}, err
 			}
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
