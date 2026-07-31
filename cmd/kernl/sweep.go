@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -27,9 +26,17 @@ func runSweep(configPath string, args []string) error {
 
 	// Closing epics is a tracker mutation: it only happens with an explicit
 	// --yes. A bare `kernl sweep` previews as dry-run and says how to apply.
+	//
+	// This notice is part of the same account of "what this run did" as the
+	// dry-run preview and the close receipt below it, both of which go to
+	// stdout through ReportHook - it stayed on stderr only because it is
+	// printed before the Sweeper exists to route it. Splitting one run's
+	// narrative across two streams means a caller piping stdout alone (the
+	// documented way to watch what sweep did) misses the line explaining why
+	// nothing else follows.
 	dryRun := flags.dryRun || !flags.yes
 	if !flags.dryRun && !flags.yes {
-		fmt.Fprintln(os.Stderr, "sweep: dry-run (no epics will be closed) - add --yes to close merged epics, or --dry-run to silence this notice")
+		fmt.Println("sweep: dry-run (no epics will be closed) - add --yes to close merged epics, or --dry-run to silence this notice")
 	}
 
 	// Sweep reads and closes beads, so it needs the repository's own tracker.
