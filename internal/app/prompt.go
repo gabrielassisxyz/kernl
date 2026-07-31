@@ -39,6 +39,16 @@ type StagePromptInput struct {
 	// target repository's commits. A stage contract's Path/Inputs entries
 	// that use the <artifact_dir> placeholder are expanded against it.
 	ArtifactDir string
+	// RelevantDecisions carries standing decisions from earlier beads in
+	// this repository whose vocabulary overlaps this bead's own title and
+	// description (see FetchRelevantDecisions), so this bead's implementer
+	// sees an answer that was already settled instead of re-deriving it and
+	// landing on the alternative that was already rejected. A nil or empty
+	// slice is a legitimate value - nothing relevant was found, or the graph
+	// could not be read - and renderRelatedDecisions renders an explicit
+	// "none found" line for it either way, rather than silently omitting
+	// the section (see that function's own doc comment for why).
+	RelevantDecisions []RelevantDecision
 }
 
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
@@ -52,6 +62,7 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 	fmt.Fprintf(&b, "# Bead %s - %s\n\n", in.Bead.ID, in.Bead.Title)
 
 	renderRole(&b, hasContract, contract)
+	renderRelatedDecisions(&b, in.RelevantDecisions)
 	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderOutput(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderDecisionRecord(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
@@ -150,6 +161,34 @@ func renderDecisionRecord(b *strings.Builder, hasContract bool, contract backend
 	b.WriteString("- `## Trade-offs` - what each option costs and gains\n")
 	b.WriteString("- `## Rationale` - why the winner won\n\n")
 	b.WriteString("Do not add a section about this record's impact on how the tool gets used day to day - that is written separately, later, by a different step, not by you.\n\n")
+}
+
+// renderRelatedDecisions surfaces standing decisions from earlier work in
+// this repository whose vocabulary overlaps this bead - see
+// FetchRelevantDecisions for the relevance criterion - so an implementer
+// sees an answer that was already settled instead of re-deriving it and
+// landing on the alternative that was already rejected. That exact failure
+// is what motivated this section: two beads, days apart, independently
+// named the same enum variant and picked opposite names, one of them the
+// name the other had already considered and rejected in a decision record
+// nothing downstream ever read.
+//
+// Rendered unconditionally, even when decisions is empty: omitting the
+// section entirely when nothing was found is indistinguishable, to a reader
+// of the prompt, from this feature never having run at all - which is
+// exactly the silent failure mode that let the original defect through. One
+// explicit line costs nothing and removes that ambiguity.
+func renderRelatedDecisions(b *strings.Builder, decisions []RelevantDecision) {
+	b.WriteString("## Related decisions already made\n\n")
+	if len(decisions) == 0 {
+		b.WriteString("No related decisions were found recorded in this repository for this bead's own title and description.\n\n")
+		return
+	}
+	b.WriteString("These were already decided in this repository, on other beads. Do not silently re-derive or contradict them: if you disagree, say so in your own decision record instead of quietly choosing differently.\n\n")
+	for _, d := range decisions {
+		fmt.Fprintf(b, "- **%s** - %s\n", d.Title, strings.TrimSpace(d.Outcome))
+	}
+	b.WriteString("\n")
 }
 
 func renderForbidden(b *strings.Builder, hasContract bool, contract backend.StageContract, trackerCommand string) {

@@ -783,6 +783,15 @@ func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
 		t.Errorf("expected bead blocked by the failed gate, got state %q", bd.State)
 	}
 
+	// relatedDecisionsForPrompt (FetchRelevantDecisions's caller) does open
+	// the graph unconditionally before the agent runs, on every native-flow
+	// stage - but only once a graph db file already exists; a vault that has
+	// never recorded a decision has nothing to read, and it stat-checks for
+	// that BEFORE calling the directory-creating path resolver or
+	// graph.Open (see that function's own doc comment). So the original
+	// invariant still holds here: nothing upstream of the failed gate ever
+	// created a db in this fresh vault, and recordDecisionIfGateType's own
+	// write path never ran for a gate that failed either.
 	graphPath := filepath.Join(vaultRoot, ".kernl-graph.db")
 	if _, statErr := os.Stat(graphPath); statErr == nil {
 		t.Errorf("graph db %s exists, but the gate never passed - recordDecisionIfGateType must not have run", graphPath)
