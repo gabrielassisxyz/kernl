@@ -97,21 +97,46 @@ type profileConfig struct {
 	ExplicitStates []string
 	// TerminalStates overrides the default {"shipped","abandoned"} stop set.
 	TerminalStates []string
-	// ExitGates declares per-state exit gates evaluated after an agent exits.
-	// Empty means every stage passes on agent_exit_zero (the legacy default).
-	ExitGates map[string]WorkflowExitGate
+	// ExitGates declares, per state, every gate evaluated after an agent
+	// exits. All gates declared for a state must pass. Empty means every
+	// stage passes on agent_exit_zero (the legacy default).
+	ExitGates map[string][]WorkflowExitGate
 }
 
 // canonicalImplementationExitGates gates the canonical pipeline's
 // "implementation" state on the decision record described in
-// CanonicalStageContracts. It is wired only onto "autopilot_with_pr" - the
+// CanonicalStageContracts. It is wired onto "autopilot_with_pr" - the
 // profile canonical.yaml mirrors - and deliberately not onto "autopilot"
 // (TestEvaluateExitGate_Total pins "autopilot" as carrying no exit gates at
-// all) nor onto "epic"/"worker" (their "implementation" state already
-// carries its own commit_marker gate, and EvaluateExitGate checks exactly
-// one gate per state - combining the two is a different, unrequested change).
-var canonicalImplementationExitGates = map[string]WorkflowExitGate{
-	"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+// all). "epic"/"worker" carry the same decision_record gate too, but
+// alongside their own pre-existing commit_marker gate on the same state
+// (see builtinProfiles below) - now that ExitGates holds a list per state,
+// combining the two is exactly what this gate exists to make possible.
+var canonicalImplementationExitGates = map[string][]WorkflowExitGate{
+	"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+}
+
+// epicStageContracts narrows CanonicalStageContracts to the three action
+// states the epic profile's ExplicitStates actually reach (integration,
+// integration_review, shipment - epic never touches planning or
+// implementation) and adds a decision_record requirement to "integration",
+// mirroring "implementation" on worker/autopilot_with_pr. The shared
+// CanonicalStageContracts entry for "integration" carries no such
+// requirement, because worker, autopilot and autopilot_with_pr - the other
+// profiles that also reach "integration" via the shared canonical stages -
+// are not gated on it there; giving epic its own copy keeps that addition
+// from leaking a decision-record instruction into their prompts, and from
+// requiring canonical.yaml (which mirrors autopilot_with_pr, not epic) to
+// carry a field TestCanonicalYAML_Parity would then have to track.
+func epicStageContracts() map[string]StageContract {
+	canonical := CanonicalStageContracts()
+	integration := canonical["integration"]
+	integration.DecisionRecord = StageArtifact{Path: "<artifact_dir>/decision-record.md"}
+	return map[string]StageContract{
+		"integration":        integration,
+		"integration_review": canonical["integration_review"],
+		"shipment":           canonical["shipment"],
+	}
 }
 
 var builtinProfiles = []profileConfig{
@@ -136,14 +161,26 @@ var builtinProfiles = []profileConfig{
 			"deferred", "abandoned",
 		},
 		TerminalStates: []string{"awaiting_pr_review", "abandoned"},
-		ExitGates: map[string]WorkflowExitGate{
-			// integration agent must leave a marker commit on the epic branch.
-			"integration": {Type: "commit_marker", Path: "stage: integration"},
+		ExitGates: map[string][]WorkflowExitGate{
+			// integration is the epic's own implementation-side state: the
+			// agent must leave a marker commit on the epic branch AND record
+			// the decisions behind the integration work, same as worker's
+			// "implementation" state below.
+			"integration": {
+				{Type: "commit_marker", Path: "stage: integration"},
+				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+			},
 			// integration_review agent must write a PASS verdict artifact.
-			"integration_review": {Type: "artifact_verdict", Path: "<artifact_dir>/integration-review.md"},
+			"integration_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/integration-review.md"}},
 			// shipment agent must record the opened PR URL in the epic description.
-			"shipment": {Type: "description_contains", Path: "pr_url:"},
+			"shipment": {{Type: "description_contains", Path: "pr_url:"}},
 		},
+		// epicStageContracts narrows the shared canonical stage set to the
+		// three states epic actually reaches and adds the decision_record
+		// requirement to "integration" - the shared CanonicalStageContracts
+		// entry for "integration" carries none, and without it the agent is
+		// never told to write the file the exit gate above now requires.
+		Stages: epicStageContracts(),
 	},
 	{
 		// worker is the per-child profile inside an epic: it does the bead's
@@ -169,13 +206,21 @@ var builtinProfiles = []profileConfig{
 			"deferred", "abandoned",
 		},
 		TerminalStates: []string{"awaiting_integration", "abandoned"},
-		ExitGates: map[string]WorkflowExitGate{
-			// implementation agent must leave a marker commit in the worktree.
-			// Without this gate a bead that produced no commits silently sails
-			// to awaiting_integration (see kernl-gc7j post-mortem).
-			"implementation": {Type: "commit_marker", Path: "stage: implementation"},
+		ExitGates: map[string][]WorkflowExitGate{
+			// implementation agent must leave a marker commit in the worktree
+			// (without this gate a bead that produced no commits silently
+			// sails to awaiting_integration - see kernl-gc7j post-mortem) AND
+			// record the decisions behind the implementation, same as
+			// autopilot_with_pr's canonicalImplementationExitGates. The
+			// shared CanonicalStageContracts "implementation" entry already
+			// carries a matching DecisionRecord.Path, so no Stages override
+			// is needed here (contrast with epic's "integration" above).
+			"implementation": {
+				{Type: "commit_marker", Path: "stage: implementation"},
+				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+			},
 			// implementation_review agent must write a PASS verdict artifact.
-			"implementation_review": {Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"},
+			"implementation_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"}},
 		},
 	},
 	{
@@ -628,11 +673,33 @@ func ResolveArtifactFSPath(raw, beadID, worktreePath, artifactDir string) string
 }
 
 // EvaluateExitGate decides whether a bead may advance past ctx.FromState
-// after its agent exited zero. An empty/unknown gate type passes (legacy
-// agent_exit_zero).
+// after its agent exited zero. A state with no declared gates - no entry,
+// or an empty list - passes (legacy agent_exit_zero). When a state declares
+// more than one gate, ALL of them must pass; every failure is evaluated and
+// reported, not just the first one hit, so a run that fixes one failure does
+// not have to wait a full stage round trip to discover the next.
 func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, reason string) {
-	gate, ok := wf.ExitGates[ctx.FromState]
-	if !ok || gate.Type == "" || gate.Type == "agent_exit_zero" {
+	gates := wf.ExitGates[ctx.FromState]
+	var failures []string
+	for _, gate := range gates {
+		if ok, gateReason := evaluateSingleExitGate(gate, ctx); !ok {
+			failures = append(failures, gateReason)
+		}
+	}
+	if len(failures) > 0 {
+		return false, strings.Join(failures, "; ")
+	}
+	return true, ""
+}
+
+// evaluateSingleExitGate judges exactly one gate against ctx. Its reason
+// strings are the vocabulary EvaluateExitGate's callers and tests key off of
+// (commit_marker_missing, artifact_missing, verdict_not_pass, ...); when a
+// state carries several gates, each one's reason already names which check
+// failed - joining them (see EvaluateExitGate) does not need to add another
+// layer of prefixing on top.
+func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed bool, reason string) {
+	if gate.Type == "" || gate.Type == "agent_exit_zero" {
 		return true, ""
 	}
 	switch gate.Type {
@@ -1228,7 +1295,7 @@ func validateDecisionRecordPathContained(raw string) error {
 // the same state, they must agree - otherwise an implementer who writes
 // exactly what the prompt told it to write still fails the gate, because the
 // gate was checking a different file the whole time.
-func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string]WorkflowExitGate) error {
+func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string][]WorkflowExitGate) error {
 	for name, stage := range stages {
 		if strings.Contains(stage.OutputArtifact.Path, legacyInWorktreeArtifactPrefix) {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q output_artifact.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is written outside the worktree", name, stage.OutputArtifact.Path)
@@ -1247,24 +1314,26 @@ func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string
 			}
 		}
 	}
-	for state, gate := range exitGates {
-		if gate.Type == "decision_record" {
-			if err := validateDecisionRecordPathContained(gate.Path); err != nil {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q %s", state, gate.Path, err)
+	for state, gates := range exitGates {
+		for _, gate := range gates {
+			if gate.Type == "decision_record" {
+				if err := validateDecisionRecordPathContained(gate.Path); err != nil {
+					return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q %s", state, gate.Path, err)
+				}
+				if stage, ok := stages[state]; ok && stage.DecisionRecord.Path != "" && stage.DecisionRecord.Path != gate.Path {
+					return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q decision_record path %q disagrees with stage %q decision_record.path %q - Fix: make the two strings identical, so the agent is told to write exactly the file the gate reads", state, gate.Path, state, stage.DecisionRecord.Path)
+				}
+				continue
 			}
-			if stage, ok := stages[state]; ok && stage.DecisionRecord.Path != "" && stage.DecisionRecord.Path != gate.Path {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q decision_record path %q disagrees with stage %q decision_record.path %q - Fix: make the two strings identical, so the agent is told to write exactly the file the gate reads", state, gate.Path, state, stage.DecisionRecord.Path)
+			if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
+				// commit_marker and description_contains Path values are marker
+				// text and description substrings, not filesystem paths - a
+				// ".kernl/" substring there means nothing.
+				continue
 			}
-			continue
-		}
-		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
-			// commit_marker and description_contains Path values are marker
-			// text and description substrings, not filesystem paths - a
-			// ".kernl/" substring there means nothing.
-			continue
-		}
-		if strings.Contains(gate.Path, legacyInWorktreeArtifactPrefix) {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the gate checks outside the worktree", state, gate.Path)
+			if strings.Contains(gate.Path, legacyInWorktreeArtifactPrefix) {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the gate checks outside the worktree", state, gate.Path)
+			}
 		}
 	}
 	return nil

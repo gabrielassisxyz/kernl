@@ -97,12 +97,38 @@ func (b *epicFakeBackend) Capabilities() backend.BackendCapabilities {
 	return backend.BackendCapabilities{}
 }
 
+// fakeDecisionRecord is a minimal decision record satisfying the
+// decision_record exit gate's four required sections (see
+// missingDecisionRecordSections in internal/backend/state_machine.go). The
+// worker/epic drivers below write this alongside their marker commit, since
+// "implementation"/"integration" now carry both gates.
+const fakeDecisionRecord = `# Decision record
+
+## Decision
+
+Use the fake artifact driver's canned content.
+
+## Options Considered
+
+1. Write a real decision.
+2. Write a minimal but complete fake one.
+
+## Trade-offs
+
+A real decision is more realistic but couples this test to prose that has
+nothing to do with what it verifies.
+
+## Rationale
+
+Option 2 wins: the gate only checks structure, not content.
+`
+
 // workerArtifactDriver simulates a worker child agent that produces each
-// stage's exit-gate output: a "stage: implementation" marker commit, then a
-// PASS verdict artifact for implementation_review. The verdict is written to
-// the same artifact directory kernl itself resolves (StateDir/run/<epic>/
-// <bead>/, not the worktree), so the driver mirrors what applyOpencodePermissions
-// would tell the agent to do.
+// stage's exit-gate output: a "stage: implementation" marker commit plus a
+// decision record, then a PASS verdict artifact for implementation_review.
+// Artifacts are written to the same directory kernl itself resolves
+// (StateDir/run/<epic>/<bead>/, not the worktree), so the driver mirrors what
+// applyOpencodePermissions would tell the agent to do.
 type workerArtifactDriver struct {
 	be       *epicFakeBackend
 	beadID   string
@@ -118,6 +144,9 @@ func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBe
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
 		}
+		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "decision-record.md"), []byte(fakeDecisionRecord), 0o644)
 	case "implementation_review":
 		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 		_ = os.MkdirAll(dir, 0o755)
@@ -228,6 +257,9 @@ func (d *artifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResu
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return RunBeadResult{Success: false}, fmt.Errorf("integration commit: %v: %s", err, out)
 		}
+		dir := filepath.Join(d.stateDir, "run", d.epicID, d.epicID)
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "decision-record.md"), []byte(fakeDecisionRecord), 0o644)
 	case "integration_review":
 		dir := filepath.Join(d.stateDir, "run", d.epicID, d.epicID)
 		_ = os.MkdirAll(dir, 0o755)

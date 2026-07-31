@@ -68,15 +68,58 @@ func TestEpicProfile_LifecycleShape(t *testing.T) {
 		t.Errorf("awaiting_pr_review should not be agent-claimable: %+v", rtEnd)
 	}
 
-	// Exit gates wired on the three epic action stages.
-	if g := wf.ExitGates["integration"]; g.Type != "commit_marker" || g.Path != "stage: integration" {
-		t.Errorf("integration gate = %+v; want commit_marker/stage: integration", g)
+	// Exit gates wired on the three epic action stages. "integration" is
+	// epic's own implementation-side state, so it carries both its existing
+	// commit_marker gate and the decision_record gate - the criterion this
+	// bead exists to satisfy (see TestEpicProfile_CarriesDecisionRecordGate
+	// below for the dedicated assertion).
+	integrationGates := wf.ExitGates["integration"]
+	if len(integrationGates) != 2 || integrationGates[0].Type != "commit_marker" || integrationGates[0].Path != "stage: integration" {
+		t.Errorf("integration gates = %+v; want [commit_marker/stage: integration, decision_record/...]", integrationGates)
 	}
-	if g := wf.ExitGates["integration_review"]; g.Type != "artifact_verdict" {
-		t.Errorf("integration_review gate = %+v; want artifact_verdict", g)
+	if g := wf.ExitGates["integration_review"]; len(g) != 1 || g[0].Type != "artifact_verdict" {
+		t.Errorf("integration_review gates = %+v; want exactly one artifact_verdict", g)
 	}
-	if g := wf.ExitGates["shipment"]; g.Type != "description_contains" || g.Path != "pr_url:" {
-		t.Errorf("shipment gate = %+v; want description_contains/pr_url:", g)
+	if g := wf.ExitGates["shipment"]; len(g) != 1 || g[0].Type != "description_contains" || g[0].Path != "pr_url:" {
+		t.Errorf("shipment gates = %+v; want exactly one description_contains/pr_url:", g)
+	}
+}
+
+// TestEpicProfile_CarriesDecisionRecordGate proves epic's own
+// implementation-side state ("integration") carries the decision_record gate
+// alongside its pre-existing commit_marker gate, and that the stage contract
+// tells the agent to write the same file the gate reads - the criterion the
+// exit-gate cardinality change exists to satisfy (see also
+// TestWorkerProfile_CarriesDecisionRecordGate for the worker half).
+func TestEpicProfile_CarriesDecisionRecordGate(t *testing.T) {
+	wf := BuiltinProfileDescriptor("epic")
+
+	gates := wf.ExitGates["integration"]
+	var hasCommitMarker, hasDecisionRecord bool
+	for _, g := range gates {
+		switch g.Type {
+		case "commit_marker":
+			hasCommitMarker = true
+			if g.Path != "stage: integration" {
+				t.Errorf("commit_marker gate path = %q; want %q", g.Path, "stage: integration")
+			}
+		case "decision_record":
+			hasDecisionRecord = true
+			if g.Path != "<artifact_dir>/decision-record.md" {
+				t.Errorf("decision_record gate path = %q; want %q", g.Path, "<artifact_dir>/decision-record.md")
+			}
+		}
+	}
+	if !hasCommitMarker {
+		t.Errorf("epic integration gates = %+v; missing commit_marker", gates)
+	}
+	if !hasDecisionRecord {
+		t.Errorf("epic integration gates = %+v; missing decision_record", gates)
+	}
+
+	stage, ok := wf.Stages["integration"]
+	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.md" {
+		t.Errorf("epic integration stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.md", stage.DecisionRecord, ok)
 	}
 }
 
@@ -115,12 +158,16 @@ func TestWorkerProfile_StopsAtAwaitingIntegration(t *testing.T) {
 	}
 
 	// Exit gates stop a bead from advancing when it produced no real output:
-	// implementation needs a marker commit, the review needs a PASS verdict.
-	if g := wf.ExitGates["implementation"]; g.Type != "commit_marker" || g.Path != "stage: implementation" {
-		t.Errorf("implementation gate = %+v; want commit_marker/stage: implementation", g)
+	// implementation needs a marker commit AND a decision record (the
+	// criterion this bead exists to satisfy - see
+	// TestWorkerProfile_CarriesDecisionRecordGate below), the review needs a
+	// PASS verdict.
+	implGates := wf.ExitGates["implementation"]
+	if len(implGates) != 2 || implGates[0].Type != "commit_marker" || implGates[0].Path != "stage: implementation" {
+		t.Errorf("implementation gates = %+v; want [commit_marker/stage: implementation, decision_record/...]", implGates)
 	}
-	if g := wf.ExitGates["implementation_review"]; g.Type != "artifact_verdict" || g.Path != "<artifact_dir>/implementation-review.md" {
-		t.Errorf("implementation_review gate = %+v; want artifact_verdict/<artifact_dir>/implementation-review.md", g)
+	if g := wf.ExitGates["implementation_review"]; len(g) != 1 || g[0].Type != "artifact_verdict" || g[0].Path != "<artifact_dir>/implementation-review.md" {
+		t.Errorf("implementation_review gates = %+v; want exactly one artifact_verdict/<artifact_dir>/implementation-review.md", g)
 	}
 
 	// Autopilot (standalone) must still flow past implementation_review toward shipment, not stop.
@@ -128,6 +175,45 @@ func TestWorkerProfile_StopsAtAwaitingIntegration(t *testing.T) {
 	apNext, _ := ForwardTransitionTarget("implementation_review", ap)
 	if apNext == "awaiting_integration" {
 		t.Errorf("autopilot must not hand off to awaiting_integration (worker-only)")
+	}
+}
+
+// TestWorkerProfile_CarriesDecisionRecordGate proves worker's "implementation"
+// state carries the decision_record gate alongside its pre-existing
+// commit_marker gate, and that the stage contract (inherited from the shared
+// CanonicalStageContracts, unmodified) tells the agent to write the same file
+// the gate reads - the criterion the exit-gate cardinality change exists to
+// satisfy (see also TestEpicProfile_CarriesDecisionRecordGate for the epic
+// half).
+func TestWorkerProfile_CarriesDecisionRecordGate(t *testing.T) {
+	wf := BuiltinProfileDescriptor("worker")
+
+	gates := wf.ExitGates["implementation"]
+	var hasCommitMarker, hasDecisionRecord bool
+	for _, g := range gates {
+		switch g.Type {
+		case "commit_marker":
+			hasCommitMarker = true
+			if g.Path != "stage: implementation" {
+				t.Errorf("commit_marker gate path = %q; want %q", g.Path, "stage: implementation")
+			}
+		case "decision_record":
+			hasDecisionRecord = true
+			if g.Path != "<artifact_dir>/decision-record.md" {
+				t.Errorf("decision_record gate path = %q; want %q", g.Path, "<artifact_dir>/decision-record.md")
+			}
+		}
+	}
+	if !hasCommitMarker {
+		t.Errorf("worker implementation gates = %+v; missing commit_marker", gates)
+	}
+	if !hasDecisionRecord {
+		t.Errorf("worker implementation gates = %+v; missing decision_record", gates)
+	}
+
+	stage, ok := wf.Stages["implementation"]
+	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.md" {
+		t.Errorf("worker implementation stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.md", stage.DecisionRecord, ok)
 	}
 }
 
@@ -180,9 +266,10 @@ func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 }
 
 // TestEvaluateExitGate_Total proves EvaluateExitGate always passes when there
-// is nothing for it to check: a state with no declared gate, a gate with an
-// empty type, and the legacy agent_exit_zero type. None of these should ever
-// require WorktreePath, ArtifactDir or BaseSHA to be set.
+// is nothing for it to check: a state with no declared gate at all, a state
+// declaring an empty gate list, a gate with an empty type, and the legacy
+// agent_exit_zero type. None of these should ever require WorktreePath,
+// ArtifactDir or BaseSHA to be set.
 func TestEvaluateExitGate_Total(t *testing.T) {
 	// "autopilot" declares no ExitGates at all - every state on it is the
 	// "no gate for this state" case.
@@ -192,10 +279,14 @@ func TestEvaluateExitGate_Total(t *testing.T) {
 	}
 
 	wf := WorkflowDescriptor{
-		ExitGates: map[string]WorkflowExitGate{
-			"empty_type":       {Type: ""},
-			"legacy_exit_zero": {Type: "agent_exit_zero"},
+		ExitGates: map[string][]WorkflowExitGate{
+			"empty_list":       {},
+			"empty_type":       {{Type: ""}},
+			"legacy_exit_zero": {{Type: "agent_exit_zero"}},
 		},
+	}
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "empty_list", BeadID: "kb-1"}); !ok {
+		t.Errorf("an empty gate list must pass, got ok=%v reason=%q", ok, reason)
 	}
 	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "empty_type", BeadID: "kb-1"}); !ok {
 		t.Errorf("an empty gate type must pass, got ok=%v reason=%q", ok, reason)
@@ -203,6 +294,111 @@ func TestEvaluateExitGate_Total(t *testing.T) {
 	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "legacy_exit_zero", BeadID: "kb-1"}); !ok {
 		t.Errorf("agent_exit_zero must pass, got ok=%v reason=%q", ok, reason)
 	}
+}
+
+// TestEvaluateExitGate_MultipleGatesPerState proves the core capability this
+// bead adds: a state declaring more than one gate requires ALL of them to
+// pass, a failure names which one failed, and failing two at once reports
+// both instead of only the first (acceptance criteria 1 and 2).
+func TestEvaluateExitGate_MultipleGatesPerState(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+
+	multiGateWf := WorkflowDescriptor{
+		ExitGates: map[string][]WorkflowExitGate{
+			"implementation": {
+				{Type: "commit_marker", Path: "stage: implementation"},
+				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+			},
+		},
+	}
+
+	writeDecisionRecord := func(t *testing.T, artifactDir string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(fullDecisionRecord()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commitMarker := func(t *testing.T, dir string) string {
+		t.Helper()
+		initGitRepo(t, dir)
+		return gitCommit(t, dir, "base: before dispatch")
+	}
+	markerCommit := func(t *testing.T, dir string) {
+		t.Helper()
+		if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "stage: implementation: did the work").CombinedOutput(); err != nil {
+			t.Fatalf("git commit: %v\n%s", err, out)
+		}
+	}
+
+	t.Run("both pass advances", func(t *testing.T) {
+		dir := t.TempDir()
+		artifactDir := t.TempDir()
+		baseSHA := commitMarker(t, dir)
+		markerCommit(t, dir)
+		writeDecisionRecord(t, artifactDir)
+
+		ok, reason := EvaluateExitGate(multiGateWf, ExitGateContext{FromState: "implementation", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kb-1", BaseSHA: baseSHA})
+		if !ok {
+			t.Fatalf("expected both gates to pass, got reason=%q", reason)
+		}
+	})
+
+	t.Run("commit_marker fails alone names commit_marker", func(t *testing.T) {
+		dir := t.TempDir()
+		artifactDir := t.TempDir()
+		baseSHA := commitMarker(t, dir)
+		writeDecisionRecord(t, artifactDir)
+
+		ok, reason := EvaluateExitGate(multiGateWf, ExitGateContext{FromState: "implementation", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kb-1", BaseSHA: baseSHA})
+		if ok {
+			t.Fatal("expected failure when commit_marker is missing")
+		}
+		if !strings.Contains(reason, "commit_marker_missing") {
+			t.Errorf("reason must name commit_marker as the failing gate, got %q", reason)
+		}
+		if strings.Contains(reason, "decision_record_missing_sections") || strings.Contains(reason, "artifact_missing") {
+			t.Errorf("decision_record passed and must not appear in the failure reason, got %q", reason)
+		}
+	})
+
+	t.Run("decision_record fails alone names decision_record", func(t *testing.T) {
+		dir := t.TempDir()
+		artifactDir := t.TempDir()
+		baseSHA := commitMarker(t, dir)
+		markerCommit(t, dir)
+		// No decision record written.
+
+		ok, reason := EvaluateExitGate(multiGateWf, ExitGateContext{FromState: "implementation", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kb-1", BaseSHA: baseSHA})
+		if ok {
+			t.Fatal("expected failure when decision_record is missing")
+		}
+		if !strings.Contains(reason, "artifact_missing") {
+			t.Errorf("reason must name the decision_record failure, got %q", reason)
+		}
+		if strings.Contains(reason, "commit_marker_missing") {
+			t.Errorf("commit_marker passed and must not appear in the failure reason, got %q", reason)
+		}
+	})
+
+	t.Run("both fail reports both", func(t *testing.T) {
+		dir := t.TempDir()
+		artifactDir := t.TempDir()
+		baseSHA := commitMarker(t, dir)
+		// Neither the marker commit nor the decision record is produced.
+
+		ok, reason := EvaluateExitGate(multiGateWf, ExitGateContext{FromState: "implementation", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kb-1", BaseSHA: baseSHA})
+		if ok {
+			t.Fatal("expected failure when both gates are unmet")
+		}
+		if !strings.Contains(reason, "commit_marker_missing") {
+			t.Errorf("reason must report the commit_marker failure, got %q", reason)
+		}
+		if !strings.Contains(reason, "artifact_missing") {
+			t.Errorf("reason must report the decision_record failure, got %q", reason)
+		}
+	})
 }
 
 func initGitRepo(t *testing.T, dir string) {
@@ -230,6 +426,21 @@ func gitCommit(t *testing.T, dir, message string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// commitMarkerOnlyWorkflow builds a minimal WorkflowDescriptor carrying only
+// the "implementation" state's commit_marker gate, so the commit_marker
+// tests below stay focused on that one gate's own behavior. worker's
+// builtin "implementation" state also carries a decision_record gate now
+// (see TestWorkerProfile_CarriesDecisionRecordGate); reusing the full
+// builtin profile here would make these tests fail on a missing decision
+// record that has nothing to do with what each one is testing.
+func commitMarkerOnlyWorkflow() WorkflowDescriptor {
+	return WorkflowDescriptor{
+		ExitGates: map[string][]WorkflowExitGate{
+			"implementation": {{Type: "commit_marker", Path: "stage: implementation"}},
+		},
+	}
+}
+
 // TestEvaluateExitGate_CommitMarkerScopedToBaseSHA proves the commit_marker
 // gate only sees commits produced after BaseSHA, not the marker sitting in
 // an ancestor commit - the bug recorded in the kernl-gc7j post-mortem, where
@@ -239,7 +450,7 @@ func TestEvaluateExitGate_CommitMarkerScopedToBaseSHA(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")
 	}
-	wf := BuiltinProfileDescriptor("worker")
+	wf := commitMarkerOnlyWorkflow()
 
 	dir := t.TempDir()
 	initGitRepo(t, dir)
@@ -268,7 +479,7 @@ func TestEvaluateExitGate_CommitMarkerRequiresBaseSHA(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")
 	}
-	wf := BuiltinProfileDescriptor("worker")
+	wf := commitMarkerOnlyWorkflow()
 
 	dir := t.TempDir()
 	initGitRepo(t, dir)
@@ -290,7 +501,7 @@ func TestEvaluateExitGate_CommitMarkerUnreadableBaseSHA(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")
 	}
-	wf := BuiltinProfileDescriptor("worker")
+	wf := commitMarkerOnlyWorkflow()
 
 	dir := t.TempDir()
 	initGitRepo(t, dir)
@@ -320,7 +531,7 @@ func TestEvaluateExitGate_CommitMarkerRejectsRewrittenHistory(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")
 	}
-	wf := BuiltinProfileDescriptor("worker")
+	wf := commitMarkerOnlyWorkflow()
 
 	dir := t.TempDir()
 	initGitRepo(t, dir)
