@@ -13,15 +13,19 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 )
 
-// qualityColumnNote is printed under the human table and carried as a field
-// in --json, so a reader of either surface sees why the report has no
-// revert/fix-up column: the plan calls that "the rate at which the work it
-// produced was later reverted or fixed up", sourced from Phase 5 (revert
-// detection) and Phase 6 (fix-up attribution) - neither of which exists yet.
-// A column of dashes standing in for a measurement that was never taken
-// would read as "measured, and it's zero everywhere," which is worse than
-// leaving the column out.
-const qualityColumnNote = "revert/fix-up rate is not reported here - it needs the revert/fix-up tracking that later phases (revert detection, fix-up attribution) are meant to supply, and neither exists yet. The numbers below are speed and gate/review outcomes only, not a quality verdict."
+// qualityColumnNote explains why this report has no revert/fix-up column:
+// the plan calls that "the rate at which the work it produced was later
+// reverted or fixed up", sourced from Phase 5 (revert detection) and Phase 6
+// (fix-up attribution) - neither of which exists yet. A column of dashes
+// standing in for a measurement that was never taken would read as
+// "measured, and it's zero everywhere," which is worse than leaving the
+// column out.
+//
+// The wording names what it qualifies ("this report") instead of leaning on
+// print order, because it is read from two positions that disagree about
+// where "above" and "below" point: printed ahead of the human table, and
+// carried as a JSON field that sits beside the data rather than around it.
+const qualityColumnNote = "revert/fix-up rate is not part of this report - it needs the revert/fix-up tracking that later phases (revert detection, fix-up attribution) are meant to supply, and neither exists yet. This report covers speed and gate/review outcomes only, not a quality verdict."
 
 var orchestratorSubcommands = []string{"stats"}
 
@@ -236,6 +240,9 @@ func printOrchestratorStatsTable(w io.Writer, result app.AttemptStatsResult) err
 		fmt.Fprintln(w)
 	}
 
+	fmt.Fprintln(w, qualityColumnNote)
+	fmt.Fprintln(w)
+
 	if len(result.Agents) == 0 {
 		fmt.Fprintln(w, "no attempts matched --stage/--since")
 	} else {
@@ -254,8 +261,6 @@ func printOrchestratorStatsTable(w io.Writer, result app.AttemptStatsResult) err
 			return fmt.Errorf("KERNL DISPATCH FAILURE: writing orchestrator stats table: %w", err)
 		}
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, qualityColumnNote)
 	return nil
 }
 
