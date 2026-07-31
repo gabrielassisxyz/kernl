@@ -284,6 +284,156 @@ exit_gates:
 	}
 }
 
+// TestLoadWorkflow_DecisionRecordPathMustStayBeneathArtifactDir proves a
+// decision_record path is rejected unless it is anchored at, and stays
+// confined beneath, <artifact_dir> - unlike OutputArtifact/artifact_verdict
+// paths, which may still legitimately resolve relative to the worktree, a
+// decision_record path has no such fallback and exists solely to keep this
+// control file out of the target repository.
+func TestLoadWorkflow_DecisionRecordPathMustStayBeneathArtifactDir(t *testing.T) {
+	cases := map[string]string{
+		"stage decision_record.path not anchored at all": `
+id: unanchored_wf
+stages:
+  implementation:
+    role: "Implement"
+    decision_record:
+      path: "decision-record.md"
+`,
+		"exit gate decision_record path not anchored at all": `
+id: unanchored_wf
+exit_gates:
+  implementation:
+    type: "decision_record"
+    path: "decision-record.md"
+`,
+		"stage decision_record.path escapes via ..": `
+id: escaping_wf
+stages:
+  implementation:
+    role: "Implement"
+    decision_record:
+      path: "<artifact_dir>/../../etc/passwd"
+`,
+		"exit gate decision_record path escapes via ..": `
+id: escaping_wf
+exit_gates:
+  implementation:
+    type: "decision_record"
+    path: "<artifact_dir>/../../etc/passwd"
+`,
+	}
+
+	for name, yamlText := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "workflow.yaml")
+			if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := LoadWorkflowYAML(path)
+			if err == nil {
+				t.Fatal("expected LoadWorkflowYAML to reject a decision_record path not confined beneath <artifact_dir>")
+			}
+			if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+				t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+			}
+			if !strings.Contains(err.Error(), "<artifact_dir>") {
+				t.Errorf("error must name <artifact_dir> as the anchor, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestLoadWorkflow_DecisionRecordPathProperlyAnchoredAccepted is the
+// positive case for the test above: a path anchored at, and confined
+// beneath, <artifact_dir> loads without error.
+func TestLoadWorkflow_DecisionRecordPathProperlyAnchoredAccepted(t *testing.T) {
+	yamlText := `
+id: anchored_wf
+stages:
+  implementation:
+    role: "Implement"
+    decision_record:
+      path: "<artifact_dir>/decision-record.md"
+exit_gates:
+  implementation:
+    type: "decision_record"
+    path: "<artifact_dir>/decision-record.md"
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadWorkflowYAML(path); err != nil {
+		t.Fatalf("expected a properly anchored decision_record path to load, got: %v", err)
+	}
+}
+
+// TestLoadWorkflow_DecisionRecordPathMismatchBetweenStageAndGateRejects
+// proves the exact scenario the review reported: a stage tells the agent to
+// write one file while the exit gate reads a different one, so a competent
+// implementer that writes exactly what it was told still fails the gate.
+func TestLoadWorkflow_DecisionRecordPathMismatchBetweenStageAndGateRejects(t *testing.T) {
+	yamlText := `
+id: mismatched_wf
+exit_gates:
+  implementation:
+    type: decision_record
+    path: "<artifact_dir>/gate-record.md"
+stages:
+  implementation:
+    role: "Implement"
+    decision_record:
+      path: "<artifact_dir>/prompt-record.md"
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadWorkflowYAML(path)
+	if err == nil {
+		t.Fatal("expected LoadWorkflowYAML to reject a decision_record path mismatch between the stage and its exit gate")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the KERNL DISPATCH FAILURE marker, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "gate-record.md") || !strings.Contains(err.Error(), "prompt-record.md") {
+		t.Errorf("error must name both disagreeing paths, got: %v", err)
+	}
+}
+
+// TestLoadWorkflow_DecisionRecordPathMatchBetweenStageAndGateAccepted is the
+// positive case: identical paths on the stage and the gate load cleanly.
+func TestLoadWorkflow_DecisionRecordPathMatchBetweenStageAndGateAccepted(t *testing.T) {
+	yamlText := `
+id: matched_wf
+exit_gates:
+  implementation:
+    type: decision_record
+    path: "<artifact_dir>/decision-record.md"
+stages:
+  implementation:
+    role: "Implement"
+    decision_record:
+      path: "<artifact_dir>/decision-record.md"
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "workflow.yaml")
+	if err := os.WriteFile(path, []byte(yamlText), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadWorkflowYAML(path); err != nil {
+		t.Fatalf("expected matching stage/gate decision_record paths to load, got: %v", err)
+	}
+}
+
 func TestLoadWorkflow_UnknownFieldUnderSubprocessRejects(t *testing.T) {
 	yamlText := `
 id: bad_wf

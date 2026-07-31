@@ -1184,6 +1184,35 @@ func ValidateStages(stages map[string]StageContract) error {
 // an unmigrated example the same bug this project exists to close.
 const legacyInWorktreeArtifactPrefix = ".kernl/"
 
+// decisionRecordArtifactDirPlaceholder is the only anchor a decision_record
+// path may use. Unlike OutputArtifact/artifact_verdict/artifact_exists,
+// which may legitimately resolve relative to the worktree - a documented
+// pre-existing convention (see legacyInWorktreeArtifactPrefix) - a
+// decision_record path has no such fallback: the whole reason this artifact
+// lives outside the worktree is to keep it out of a stage's own
+// `git add <files>` in the target repository, so a path that resolves
+// inside the worktree (or escapes <artifact_dir> via "..") reproduces
+// exactly the leak <artifact_dir> exists to prevent (archeion PR #40).
+const decisionRecordArtifactDirPlaceholder = "<artifact_dir>"
+
+// validateDecisionRecordPathContained rejects a decision_record path that is
+// not anchored at <artifact_dir>, or that escapes it via ".." once
+// substituted. It resolves the placeholder against a fixed sentinel
+// directory instead of a real one, because at workflow-load time there is no
+// real ArtifactDir yet - only the shape of the path is being checked.
+func validateDecisionRecordPathContained(raw string) error {
+	prefix := decisionRecordArtifactDirPlaceholder + "/"
+	if !strings.HasPrefix(raw, prefix) {
+		return fmt.Errorf("must be anchored at %s/..., not resolve against the worktree", decisionRecordArtifactDirPlaceholder)
+	}
+	const sentinel = "/__kernl_artifact_dir__"
+	resolved := filepath.Clean(sentinel + strings.TrimPrefix(raw, decisionRecordArtifactDirPlaceholder))
+	if !strings.HasPrefix(resolved, sentinel+string(filepath.Separator)) {
+		return fmt.Errorf("must stay beneath %s after resolution, not escape it via \"..\"", decisionRecordArtifactDirPlaceholder)
+	}
+	return nil
+}
+
 // ValidateArtifactPaths rejects any stage OutputArtifact/Inputs entry, or
 // filesystem-based exit gate Path, that still names the legacy in-worktree
 // ".kernl/" location instead of the <artifact_dir> placeholder. Called from
@@ -1191,13 +1220,26 @@ const legacyInWorktreeArtifactPrefix = ".kernl/"
 // before the artifact directory moved outside the worktree fails loud,
 // naming the offending stage, instead of quietly reproducing the defect
 // that move fixed.
+//
+// It additionally enforces two decision_record-specific invariants that the
+// other gate types do not need: the path must stay confined beneath
+// <artifact_dir> (validateDecisionRecordPathContained), and when both a
+// stage's decision_record.path and an exit gate's decision_record path name
+// the same state, they must agree - otherwise an implementer who writes
+// exactly what the prompt told it to write still fails the gate, because the
+// gate was checking a different file the whole time.
 func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string]WorkflowExitGate) error {
 	for name, stage := range stages {
 		if strings.Contains(stage.OutputArtifact.Path, legacyInWorktreeArtifactPrefix) {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q output_artifact.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the artifact is written outside the worktree", name, stage.OutputArtifact.Path)
 		}
-		if strings.Contains(stage.DecisionRecord.Path, legacyInWorktreeArtifactPrefix) {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q decision_record.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the record is written outside the worktree", name, stage.DecisionRecord.Path)
+		if stage.DecisionRecord.Path != "" {
+			if strings.Contains(stage.DecisionRecord.Path, legacyInWorktreeArtifactPrefix) {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q decision_record.path %q uses the legacy in-worktree .kernl/ location - Fix: use <artifact_dir>/... instead, so the record is written outside the worktree", name, stage.DecisionRecord.Path)
+			}
+			if err := validateDecisionRecordPathContained(stage.DecisionRecord.Path); err != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: stage %q decision_record.path %q %s", name, stage.DecisionRecord.Path, err)
+			}
 		}
 		for _, inp := range stage.Inputs {
 			if strings.Contains(inp, legacyInWorktreeArtifactPrefix) {
@@ -1206,7 +1248,16 @@ func ValidateArtifactPaths(stages map[string]StageContract, exitGates map[string
 		}
 	}
 	for state, gate := range exitGates {
-		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" && gate.Type != "decision_record" {
+		if gate.Type == "decision_record" {
+			if err := validateDecisionRecordPathContained(gate.Path); err != nil {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q path %q %s", state, gate.Path, err)
+			}
+			if stage, ok := stages[state]; ok && stage.DecisionRecord.Path != "" && stage.DecisionRecord.Path != gate.Path {
+				return fmt.Errorf("KERNL DISPATCH FAILURE: exit gate %q decision_record path %q disagrees with stage %q decision_record.path %q - Fix: make the two strings identical, so the agent is told to write exactly the file the gate reads", state, gate.Path, state, stage.DecisionRecord.Path)
+			}
+			continue
+		}
+		if gate.Type != "artifact_exists" && gate.Type != "artifact_verdict" {
 			// commit_marker and description_contains Path values are marker
 			// text and description substrings, not filesystem paths - a
 			// ".kernl/" substring there means nothing.
