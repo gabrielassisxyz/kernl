@@ -447,6 +447,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if runWorkflowName == "" {
 		runWorkflowName = "worker"
 	}
+	runStartedAt := time.Now()
 	runID, err := app.StartWorkflowRun(context.Background(), a.Graph, app.StartWorkflowRunInput{
 		EntryPoint:     "epic run",
 		Title:          epicBead.Title,
@@ -457,19 +458,53 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		VerifyCommand:  verifyCommand,
 		TrackerCommand: trackerCommand,
 		DryRun:         dryRun,
-		StartedAt:      time.Now(),
+		StartedAt:      runStartedAt,
 	})
 	if err != nil {
 		return err
+	}
+	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
+	// when none is: ComposeRunReport's own doc comment on why that must
+	// never fail the close is the reason a missing llm.provider is not
+	// checked here.
+	var impactComposer app.ImpactComposer
+	if a.Config.LLM.IsSet() {
+		impactComposer = app.LLMImpactComposer{LLM: a.Config.LLM}
 	}
 	defer func() {
 		status, failure := "completed", ""
 		if err != nil {
 			status, failure = "failed", err.Error()
 		}
+		finishedAt := time.Now()
+
+		// Composed and written before the run record closes, and on every
+		// path out of this function including failure - a report of what
+		// failed is worth more than no report, and the run's own status is
+		// one of the facts its header states.
+		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
+			Graph:      a.Graph,
+			Composer:   impactComposer,
+			RunID:      runID,
+			EntryPoint: "epic run",
+			RepoPath:   repoPath,
+			BaseBranch: baseBranch,
+			Status:     status,
+			StartedAt:  runStartedAt,
+			FinishedAt: finishedAt,
+			Beads:      beadRunOutcomes(a.Backend, repoPath, runBeads),
+			StateDir:   a.StateDir,
+			EpicID:     epicID,
+		})
+		if reportErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for epic %s failed: %v\n", epicID, reportErr)
+		} else {
+			out(fmt.Sprintf("run report: %s\n", reportPath))
+		}
+
 		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
 			Status:     status,
-			FinishedAt: time.Now(),
+			FinishedAt: finishedAt,
 			Failure:    failure,
 		})
 		if closeErr == nil {
@@ -589,6 +624,25 @@ func confirmShape(in io.Reader, out func(string), shapeID string) error {
 		return nil
 	}
 	return fmt.Errorf("KERNL DISPATCH FAILURE: aborted at shape confirmation (answered %q) - re-run kernl epic run and answer y, or use --autonomous", answer)
+}
+
+// beadRunOutcomes resolves each run bead's current tracker state for the run
+// report's header and summary. It is best-effort, not fail-loud, on purpose:
+// ComposeRunReport's own doc comment already establishes that composing the
+// report must never fail the run, and a bead whose state cannot be re-read
+// at the very end of a run (the tracker briefly unreachable, a bead deleted
+// mid-run) is exactly that same class of problem, not a reason to lose the
+// report entirely.
+func beadRunOutcomes(be backend.BackendPort, repoPath string, runBeads []app.BeadRef) []app.BeadRunOutcome {
+	out := make([]app.BeadRunOutcome, 0, len(runBeads))
+	for _, ref := range runBeads {
+		state := "unknown"
+		if bead, err := be.Get(ref.ID, repoPath); err == nil && bead != nil {
+			state = bead.State
+		}
+		out = append(out, app.BeadRunOutcome{ID: ref.ID, Title: ref.Title, FinalState: state})
+	}
+	return out
 }
 
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto

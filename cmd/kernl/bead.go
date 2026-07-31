@@ -251,6 +251,7 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	// definition performs none - must never reach it, exactly like every
 	// other write below this line. It closes via the defer immediately
 	// after, on every path out of this function from here on.
+	runStartedAt := time.Now()
 	runID, err := app.StartWorkflowRun(context.Background(), a.Graph, app.StartWorkflowRunInput{
 		EntryPoint:     "bead run",
 		Title:          bead.Title,
@@ -261,10 +262,18 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		VerifyCommand:  verifyCommand,
 		TrackerCommand: trackerCommand,
 		DryRun:         false,
-		StartedAt:      time.Now(),
+		StartedAt:      runStartedAt,
 	})
 	if err != nil {
 		return app.RunBeadResult{}, err
+	}
+	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
+	// when none is: ComposeRunReport's own doc comment on why that must
+	// never fail the close is the reason a missing llm.provider is not
+	// checked here.
+	var impactComposer app.ImpactComposer
+	if a.Config.LLM.IsSet() {
+		impactComposer = app.LLMImpactComposer{LLM: a.Config.LLM}
 	}
 	defer func() {
 		// DriveBeadToTerminal is returned directly below, and it legitimately
@@ -282,9 +291,42 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		case !result.Success:
 			status, failure = "failed", fmt.Sprintf("bead %s did not reach a successful terminal state - stopped at %q", beadID, result.FinalState)
 		}
+		finishedAt := time.Now()
+
+		// Composed and written before the run record closes, and on every
+		// path out of this function including failure - a report of what
+		// failed is worth more than no report, and the run's own status is
+		// one of the facts its header states. A standalone bead is its own
+		// report scope (EpicID: bead.ID): refuseEpicManagedBead above already
+		// refused any bead with a parent, so bead.ID and epicIDFor(bead)
+		// agree here without calling that unexported helper.
+		finalState := result.FinalState
+		if finalState == "" {
+			finalState = bead.State
+		}
+		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
+			Graph:      a.Graph,
+			Composer:   impactComposer,
+			RunID:      runID,
+			EntryPoint: "bead run",
+			RepoPath:   repoPath,
+			BaseBranch: baseBranch,
+			Status:     status,
+			StartedAt:  runStartedAt,
+			FinishedAt: finishedAt,
+			Beads:      []app.BeadRunOutcome{{ID: bead.ID, Title: bead.Title, FinalState: finalState}},
+			StateDir:   a.StateDir,
+			EpicID:     bead.ID,
+		})
+		if reportErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for bead %s failed: %v\n", beadID, reportErr)
+		} else {
+			fmt.Printf("run report: %s\n", reportPath)
+		}
+
 		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
 			Status:     status,
-			FinishedAt: time.Now(),
+			FinishedAt: finishedAt,
 			Failure:    failure,
 		})
 		if closeErr == nil {
