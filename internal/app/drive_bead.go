@@ -417,16 +417,32 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: bead.State, Success: false},
 				fmt.Errorf("KERNL DISPATCH FAILURE: no verify command for bead %s - the stage prompt would tell the agent to run nothing before declaring done - Fix: resolve it with epic.ResolveVerifyCommand and pass it in DriveBeadDeps.VerifyCommand", deps.BeadID)
 		}
+		// Fetched only for the native flow (deps.BuildPrompt == nil): that is
+		// both production shapes that ever render a bead's own generic
+		// implementer prompt - `kernl bead run` and an epic's child beads
+		// (cmd/kernl/epic.go's per-child RunBead, which drives implementation
+		// through this same loop with no override). The epic BEAD's own
+		// integration/integration_review/shipment stages set BuildPrompt and
+		// render a wholly different template (internal/prompt) that does not
+		// read StagePromptInput.RelevantDecisions at all - those stages merge
+		// and ship code that was already decided, they do not make new design
+		// decisions, so paying for a graph lookup whose result would be
+		// silently discarded there bought nothing.
+		var relevantDecisions []RelevantDecision
+		if deps.BuildPrompt == nil {
+			relevantDecisions = relatedDecisionsForPrompt(ctx, deps, bead)
+		}
 		promptInput := StagePromptInput{
-			Bead:           bead,
-			State:          activeState,
-			Stages:         wf.Stages,
-			RepoPath:       deps.RepoPath,
-			Worktree:       deps.Worktree,
-			VerifyCommand:  deps.VerifyCommand,
-			TrackerCommand: deps.TrackerCommand,
-			Dialect:        adapter.ResolveDialect(agentInput.Command),
-			ArtifactDir:    artifactDir,
+			Bead:              bead,
+			State:             activeState,
+			Stages:            wf.Stages,
+			RepoPath:          deps.RepoPath,
+			Worktree:          deps.Worktree,
+			VerifyCommand:     deps.VerifyCommand,
+			TrackerCommand:    deps.TrackerCommand,
+			Dialect:           adapter.ResolveDialect(agentInput.Command),
+			ArtifactDir:       artifactDir,
+			RelevantDecisions: relevantDecisions,
 		}
 		var prompt string
 		if deps.BuildPrompt != nil {
