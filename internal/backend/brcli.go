@@ -515,6 +515,42 @@ func (b *BrCliBackend) MarkTerminal(id string, targetState string, reason string
 	return nil
 }
 
+// Rewind moves id back to an earlier queue state so it is picked up again -
+// the mechanism a revert-and-reopen composite verb needs and that used to be
+// brUnimplemented here, which meant the composite verb's own half that talks
+// to the real tracker failed loud against every repository this orchestrator
+// actually drives (br, not knots). It runs the identical `br update
+// --status/--notes` invocation MarkTerminal already uses against production
+// - the same mechanism an operator already runs by hand (see the plan's
+// manual recovery recipe) - rather than inventing a second one.
+//
+// targetState must be a queue state (ready_for_*): rewinding into anything
+// else leaves the bead sitting in an active, non-queue state that nothing
+// ever dispatches from, which is a stuck bead wearing the appearance of a
+// successful rewind. KnotsBackend.Rewind already enforces exactly this for
+// the one backend that has a real Rewind implementation; this mirrors it
+// rather than leaving br as the one path with no such check.
+//
+// defaultState (dto.go) prefers a known workflow status over a stale
+// wf:state:* label, and targetState is always one of those known states
+// here, so status alone is sufficient - the label is not additionally
+// reset. A caller inspecting `br show` by eye can still see a stale label,
+// which is a pre-existing, already-tolerated gap (MarkTerminal has the same
+// one) and not something this change introduces.
+func (b *BrCliBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
+	if !strings.HasPrefix(targetState, "ready_for_") {
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind target %q must be a queue state (ready_for_*) - Fix: rewind %s to the ready_for_<stage> state that should re-run it, not the active stage itself", targetState, id)
+	}
+	args := []string{"update", id, brValue("--status", targetState)}
+	if reason != "" {
+		args = append(args, brValue("--notes", reason))
+	}
+	if _, err := b.run(context.Background(), repoPath, args...); err != nil {
+		return fmt.Errorf("KERNL WORKFLOW CORRECTION FAILURE: rewind %s -> %s: %w", id, targetState, err)
+	}
+	return nil
+}
+
 // AddDependency records that blockedID waits on blockerID.
 //
 // br spells this `br dep add <issue> <depends-on>` - the first argument is the
@@ -577,10 +613,6 @@ func (b *BrCliBackend) Delete(id string, repoPath string) error {
 
 func (b *BrCliBackend) Reopen(id string, reason string, repoPath string) error {
 	return brUnimplemented("reopen")
-}
-
-func (b *BrCliBackend) Rewind(id string, targetState string, reason string, repoPath string) error {
-	return brUnimplemented("rewind")
 }
 
 func (b *BrCliBackend) Search(query string, filters *BeadListFilters, repoPath string) ([]Bead, error) {

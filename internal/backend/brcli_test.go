@@ -346,6 +346,44 @@ func TestBrCliUpdateWithNothingToChangeFailsLoud(t *testing.T) {
 	}
 }
 
+// Rewind used to be brUnimplemented against every repository this
+// orchestrator actually drives (br, not knots) - the composite
+// revert-decision verb's "rewind" half would have failed loud on every real
+// run. This proves it now runs the same br update invocation MarkTerminal
+// already uses in production.
+func TestBrCliRewindUpdatesStatusAndNotes(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{"update kb-1": `[{"id":"kb-1","status":"ready_for_implementation"}]`})
+
+	if err := NewBrCliBackend(repo).Rewind("kb-1", "ready_for_implementation", "wrong dependency chosen", repo); err != nil {
+		t.Fatalf("Rewind: %v", err)
+	}
+	calls := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(calls, "--status=ready_for_implementation") {
+		t.Errorf("rewind must set the target status, calls: %v", fake.calledWith())
+	}
+	if !strings.Contains(calls, "--notes=wrong dependency chosen") {
+		t.Errorf("rewind must record the reason as notes, calls: %v", fake.calledWith())
+	}
+}
+
+// A rewind target that is not a queue state (ready_for_*) leaves the bead in
+// an active state nothing ever dispatches from - a rewind that "succeeds"
+// into a stuck bead. KnotsBackend.Rewind already refuses this; br must not be
+// the one backend that lets it through.
+func TestBrCliRewindRejectsNonQueueTarget(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, nil)
+
+	err := NewBrCliBackend(repo).Rewind("kb-1", "implementation", "reason", repo)
+	if err == nil {
+		t.Fatal("rewind to a non ready_for_* state must fail loud")
+	}
+	if !strings.Contains(err.Error(), "KERNL WORKFLOW CORRECTION FAILURE") {
+		t.Errorf("error must carry the fail-loud marker, got: %v", err)
+	}
+}
+
 // Replacing the wf:state:* set travels with the status change it mirrors.
 // Doing it afterwards as remove-then-add was not atomic: a failure partway left
 // a new status beside a half-replaced label set, which the workflow then reads
