@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,14 +69,13 @@ func TestEpicProfile_LifecycleShape(t *testing.T) {
 		t.Errorf("awaiting_pr_review should not be agent-claimable: %+v", rtEnd)
 	}
 
-	// Exit gates wired on the three epic action stages. "integration" is
-	// epic's own implementation-side state, so it carries both its existing
-	// commit_marker gate and the decision_record gate - the criterion this
-	// bead exists to satisfy (see TestEpicProfile_CarriesDecisionRecordGate
-	// below for the dedicated assertion).
+	// Exit gates wired on the three epic action stages. "integration" carries
+	// only its pre-existing commit_marker gate - see
+	// TestEpicProfile_IntegrationCarriesNoDecisionRecordGate for why it does
+	// not also carry decision_record.
 	integrationGates := wf.ExitGates["integration"]
-	if len(integrationGates) != 2 || integrationGates[0].Type != "commit_marker" || integrationGates[0].Path != "stage: integration" {
-		t.Errorf("integration gates = %+v; want [commit_marker/stage: integration, decision_record/...]", integrationGates)
+	if len(integrationGates) != 1 || integrationGates[0].Type != "commit_marker" || integrationGates[0].Path != "stage: integration" {
+		t.Errorf("integration gates = %+v; want exactly one commit_marker/stage: integration", integrationGates)
 	}
 	if g := wf.ExitGates["integration_review"]; len(g) != 1 || g[0].Type != "artifact_verdict" {
 		t.Errorf("integration_review gates = %+v; want exactly one artifact_verdict", g)
@@ -85,41 +85,34 @@ func TestEpicProfile_LifecycleShape(t *testing.T) {
 	}
 }
 
-// TestEpicProfile_CarriesDecisionRecordGate proves epic's own
-// implementation-side state ("integration") carries the decision_record gate
-// alongside its pre-existing commit_marker gate, and that the stage contract
-// tells the agent to write the same file the gate reads - the criterion the
-// exit-gate cardinality change exists to satisfy (see also
-// TestWorkerProfile_CarriesDecisionRecordGate for the worker half).
-func TestEpicProfile_CarriesDecisionRecordGate(t *testing.T) {
+// TestEpicProfile_IntegrationCarriesNoDecisionRecordGate proves epic's
+// "integration" state does NOT carry a decision_record gate, unlike worker's
+// "implementation" (see TestWorkerProfile_CarriesDecisionRecordGate).
+// decision_record checks for the four sections an implementer writes down
+// before coding; "integration" is a merge stage whose real prompt
+// (RenderIntegration in cmd/kernl/epic.go, which replaces the generic
+// stage-contract prompt for that state) never asks the agent for one, and an
+// ordinary conflict-free merge usually has no open design choice to record.
+// Gating on it would force the agent to fabricate content to pass, which is
+// worse than no gate at all - see canonicalImplementationExitGates.
+func TestEpicProfile_IntegrationCarriesNoDecisionRecordGate(t *testing.T) {
 	wf := BuiltinProfileDescriptor("epic")
 
-	gates := wf.ExitGates["integration"]
-	var hasCommitMarker, hasDecisionRecord bool
-	for _, g := range gates {
-		switch g.Type {
-		case "commit_marker":
-			hasCommitMarker = true
-			if g.Path != "stage: integration" {
-				t.Errorf("commit_marker gate path = %q; want %q", g.Path, "stage: integration")
-			}
-		case "decision_record":
-			hasDecisionRecord = true
-			if g.Path != "<artifact_dir>/decision-record.md" {
-				t.Errorf("decision_record gate path = %q; want %q", g.Path, "<artifact_dir>/decision-record.md")
-			}
+	for _, g := range wf.ExitGates["integration"] {
+		if g.Type == "decision_record" {
+			t.Fatalf("epic integration gates = %+v; must not carry decision_record", wf.ExitGates["integration"])
 		}
 	}
-	if !hasCommitMarker {
-		t.Errorf("epic integration gates = %+v; missing commit_marker", gates)
-	}
-	if !hasDecisionRecord {
-		t.Errorf("epic integration gates = %+v; missing decision_record", gates)
-	}
 
+	// The stage contract must not advertise a requirement nothing enforces
+	// either - epic never overrides the shared CanonicalStageContracts, so
+	// its "integration" stage carries whatever that shared entry declares.
 	stage, ok := wf.Stages["integration"]
-	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.md" {
-		t.Errorf("epic integration stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.md", stage.DecisionRecord, ok)
+	if !ok {
+		t.Fatal("epic must still declare an 'integration' stage contract")
+	}
+	if stage.DecisionRecord.Path != "" {
+		t.Errorf("epic integration stage DecisionRecord = %+v; want empty (no decision_record requirement)", stage.DecisionRecord)
 	}
 }
 
@@ -183,8 +176,8 @@ func TestWorkerProfile_StopsAtAwaitingIntegration(t *testing.T) {
 // commit_marker gate, and that the stage contract (inherited from the shared
 // CanonicalStageContracts, unmodified) tells the agent to write the same file
 // the gate reads - the criterion the exit-gate cardinality change exists to
-// satisfy (see also TestEpicProfile_CarriesDecisionRecordGate for the epic
-// half).
+// satisfy. Epic does NOT carry the same pairing on its own implementation-side
+// state - see TestEpicProfile_IntegrationCarriesNoDecisionRecordGate for why.
 func TestWorkerProfile_CarriesDecisionRecordGate(t *testing.T) {
 	wf := BuiltinProfileDescriptor("worker")
 
@@ -296,6 +289,51 @@ func TestEvaluateExitGate_Total(t *testing.T) {
 	}
 }
 
+// TestInitBuiltinWorkflows_ValidatesArtifactPaths proves builtin profiles are
+// not exempt from the artifact-path containment check that YAML-loaded
+// workflows already go through in LoadWorkflowYAML. Without this,
+// initBuiltinWorkflows could hand back a descriptor whose decision_record
+// path escapes <artifact_dir> - the exact leak that check exists to prevent
+// (archeion PR #40) - and nothing would catch it before it ran.
+//
+// This mutates the package-level builtinProfiles/builtinWorkflowCache to
+// inject a deliberately broken profile, which is safe here (and nowhere
+// else in this package) because no test in this package runs in parallel;
+// both are restored via defer regardless of outcome.
+func TestInitBuiltinWorkflows_ValidatesArtifactPaths(t *testing.T) {
+	savedProfiles := builtinProfiles
+	savedCache := builtinWorkflowCache
+	defer func() {
+		builtinProfiles = savedProfiles
+		builtinWorkflowCache = savedCache
+	}()
+
+	builtinProfiles = []profileConfig{
+		{
+			ID: "broken_builtin",
+			ExitGates: map[string][]WorkflowExitGate{
+				"implementation": {{Type: "decision_record", Path: "<artifact_dir>/../../etc/passwd"}},
+			},
+		},
+	}
+	builtinWorkflowCache = nil
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected initBuiltinWorkflows to panic on a builtin profile with an unconfined decision_record path")
+		}
+		msg := fmt.Sprint(r)
+		if !strings.Contains(msg, "KERNL DISPATCH FAILURE") {
+			t.Errorf("panic message must carry the KERNL DISPATCH FAILURE marker, got: %v", msg)
+		}
+		if !strings.Contains(msg, "broken_builtin") {
+			t.Errorf("panic message must name the offending profile, got: %v", msg)
+		}
+	}()
+	initBuiltinWorkflows()
+}
+
 // TestEvaluateExitGate_MultipleGatesPerState proves the core capability this
 // bead adds: a state declaring more than one gate requires ALL of them to
 // pass, a failure names which one failed, and failing two at once reports
@@ -399,6 +437,84 @@ func TestEvaluateExitGate_MultipleGatesPerState(t *testing.T) {
 			t.Errorf("reason must report the decision_record failure, got %q", reason)
 		}
 	})
+}
+
+// TestEvaluateExitGate_FailureReasonEscapesEmbeddedDelimiter proves the
+// aggregate failure reason stays reversible even when a gate's own free-text
+// detail (here, a description_contains gate's operator-configured
+// substring) contains the "; " delimiter EvaluateExitGate joins failures
+// with. Without escaping, a substring like "foo; artifact_missing: /record"
+// combined with a second, genuinely failing gate produces a joined string a
+// reader cannot tell apart from three separate failures - one of them
+// entirely fabricated from the configured text. An escape-aware reader (see
+// splitEscapedExitGateFailures below) must recover exactly the original two
+// failures, byte-for-byte, regardless of what either gate's own text
+// contains.
+func TestEvaluateExitGate_FailureReasonEscapesEmbeddedDelimiter(t *testing.T) {
+	const trickyPath = "foo; artifact_missing: /record"
+	wf := WorkflowDescriptor{
+		ExitGates: map[string][]WorkflowExitGate{
+			"shipment": {
+				{Type: "description_contains", Path: trickyPath},
+				{Type: "artifact_exists", Path: "<artifact_dir>/really-missing.md"},
+			},
+		},
+	}
+
+	artifactDir := t.TempDir()
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{
+		FromState:       "shipment",
+		WorktreePath:    t.TempDir(),
+		ArtifactDir:     artifactDir,
+		BeadID:          "kb-1",
+		BeadDescription: "nothing relevant in here",
+	})
+	if ok {
+		t.Fatal("expected both gates to fail")
+	}
+
+	wantFirst := "description_missing: " + trickyPath
+	wantSecondPrefix := "artifact_missing: " + filepath.Join(artifactDir, "really-missing.md")
+
+	got := splitEscapedExitGateFailures(reason)
+	if len(got) != 2 {
+		t.Fatalf("expected exactly 2 recovered failures from %q, got %d: %#v", reason, len(got), got)
+	}
+	if got[0] != wantFirst {
+		t.Errorf("failure 0 = %q; want %q (unescaped, byte-for-byte)", got[0], wantFirst)
+	}
+	if got[1] != wantSecondPrefix {
+		t.Errorf("failure 1 = %q; want %q", got[1], wantSecondPrefix)
+	}
+}
+
+// splitEscapedExitGateFailures reverses joinExitGateFailures' escaping: it
+// splits on "; " that is not preceded by an escaping backslash, then
+// unescapes each recovered segment. It exists only to prove, from outside
+// the package's own internals, that the join is actually reversible -
+// nothing in production code needs to split this string today.
+func splitEscapedExitGateFailures(s string) []string {
+	var parts []string
+	var cur strings.Builder
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], `\;`):
+			cur.WriteByte(';')
+			i += 2
+		case strings.HasPrefix(s[i:], `\\`):
+			cur.WriteByte('\\')
+			i += 2
+		case strings.HasPrefix(s[i:], "; "):
+			parts = append(parts, cur.String())
+			cur.Reset()
+			i += 2
+		default:
+			cur.WriteByte(s[i])
+			i++
+		}
+	}
+	parts = append(parts, cur.String())
+	return parts
 }
 
 func initGitRepo(t *testing.T, dir string) {

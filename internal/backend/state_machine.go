@@ -108,35 +108,26 @@ type profileConfig struct {
 // CanonicalStageContracts. It is wired onto "autopilot_with_pr" - the
 // profile canonical.yaml mirrors - and deliberately not onto "autopilot"
 // (TestEvaluateExitGate_Total pins "autopilot" as carrying no exit gates at
-// all). "epic"/"worker" carry the same decision_record gate too, but
-// alongside their own pre-existing commit_marker gate on the same state
-// (see builtinProfiles below) - now that ExitGates holds a list per state,
+// all). "worker" carries the same decision_record gate too, but alongside
+// its own pre-existing commit_marker gate on the same state (see
+// builtinProfiles below) - now that ExitGates holds a list per state,
 // combining the two is exactly what this gate exists to make possible.
+//
+// "epic" deliberately does NOT carry it. decision_record checks for the
+// four sections a stage's own implementer writes down before coding
+// (Decision, Options Considered, Trade-offs, Rationale) - that is what the
+// stage contract's Role text asks for and who it addresses. Epic's
+// "integration" state is not that stage: its real prompt (RenderIntegration
+// in cmd/kernl/epic.go, which replaces the generic stage-contract prompt
+// entirely for that state) instructs the agent only to merge child
+// branches, resolve conflicts, and verify tests - it never asks for a
+// decision record, and an ordinary conflict-free merge usually has no open
+// design choice to record. Gating a stage on an artifact its own prompt
+// never asks for, and which often has nothing honest to contain, does not
+// add safety - it forces the agent to fabricate content to get past the
+// gate, corrupting the exact record this check exists to keep trustworthy.
 var canonicalImplementationExitGates = map[string][]WorkflowExitGate{
 	"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
-}
-
-// epicStageContracts narrows CanonicalStageContracts to the three action
-// states the epic profile's ExplicitStates actually reach (integration,
-// integration_review, shipment - epic never touches planning or
-// implementation) and adds a decision_record requirement to "integration",
-// mirroring "implementation" on worker/autopilot_with_pr. The shared
-// CanonicalStageContracts entry for "integration" carries no such
-// requirement, because worker, autopilot and autopilot_with_pr - the other
-// profiles that also reach "integration" via the shared canonical stages -
-// are not gated on it there; giving epic its own copy keeps that addition
-// from leaking a decision-record instruction into their prompts, and from
-// requiring canonical.yaml (which mirrors autopilot_with_pr, not epic) to
-// carry a field TestCanonicalYAML_Parity would then have to track.
-func epicStageContracts() map[string]StageContract {
-	canonical := CanonicalStageContracts()
-	integration := canonical["integration"]
-	integration.DecisionRecord = StageArtifact{Path: "<artifact_dir>/decision-record.md"}
-	return map[string]StageContract{
-		"integration":        integration,
-		"integration_review": canonical["integration_review"],
-		"shipment":           canonical["shipment"],
-	}
 }
 
 var builtinProfiles = []profileConfig{
@@ -162,25 +153,17 @@ var builtinProfiles = []profileConfig{
 		},
 		TerminalStates: []string{"awaiting_pr_review", "abandoned"},
 		ExitGates: map[string][]WorkflowExitGate{
-			// integration is the epic's own implementation-side state: the
-			// agent must leave a marker commit on the epic branch AND record
-			// the decisions behind the integration work, same as worker's
-			// "implementation" state below.
-			"integration": {
-				{Type: "commit_marker", Path: "stage: integration"},
-				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
-			},
+			// integration agent must leave a marker commit on the epic
+			// branch. It deliberately does NOT also carry decision_record:
+			// integration is a merge stage, not an implementer's stage - see
+			// canonicalImplementationExitGates for why that distinction
+			// matters here.
+			"integration": {{Type: "commit_marker", Path: "stage: integration"}},
 			// integration_review agent must write a PASS verdict artifact.
 			"integration_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/integration-review.md"}},
 			// shipment agent must record the opened PR URL in the epic description.
 			"shipment": {{Type: "description_contains", Path: "pr_url:"}},
 		},
-		// epicStageContracts narrows the shared canonical stage set to the
-		// three states epic actually reaches and adds the decision_record
-		// requirement to "integration" - the shared CanonicalStageContracts
-		// entry for "integration" carries none, and without it the agent is
-		// never told to write the file the exit gate above now requires.
-		Stages: epicStageContracts(),
 	},
 	{
 		// worker is the per-child profile inside an epic: it does the bead's
@@ -517,6 +500,19 @@ func initBuiltinWorkflows() map[string]WorkflowDescriptor {
 	builtinWorkflowCache = make(map[string]WorkflowDescriptor)
 	for _, cfg := range builtinProfiles {
 		desc := descriptorFromProfileConfig(cfg)
+		// A YAML-loaded workflow goes through this same containment check in
+		// LoadWorkflowYAML before it is ever returned; a builtin never went
+		// through the loader, so nothing enforced it here. That is the exact
+		// invariant kernl's control files being written outside the bead's
+		// worktree exists to guarantee (see legacyInWorktreeArtifactPrefix
+		// and validateDecisionRecordPathContained) - a builtin profile is
+		// this project's own hardcoded data, not user input, so a violation
+		// here is a defect in this file and panicking at first access (the
+		// descriptor is built once and cached) is the fail-loud response,
+		// matching createConcreteBackend's panic on an unknown backend type.
+		if err := ValidateArtifactPaths(desc.Stages, desc.ExitGates); err != nil {
+			panic(fmt.Sprintf("KERNL DISPATCH FAILURE: builtin profile %q failed its own artifact path validation: %v", cfg.ID, err))
+		}
 		builtinWorkflowCache[cfg.ID] = desc
 	}
 	return builtinWorkflowCache
@@ -687,9 +683,40 @@ func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, 
 		}
 	}
 	if len(failures) > 0 {
-		return false, strings.Join(failures, "; ")
+		return false, joinExitGateFailures(failures)
 	}
 	return true, ""
+}
+
+// exitGateFailureEscaper escapes a single failure's own text before it is
+// joined with others by joinExitGateFailures. Backslash goes first, so the
+// escape it introduces is not itself mistaken for one already present in the
+// input; the delimiter character goes second.
+var exitGateFailureEscaper = strings.NewReplacer(`\`, `\\`, `;`, `\;`)
+
+// joinExitGateFailures joins per-gate failure reasons into the single string
+// EvaluateExitGate returns. A plain "; ".join is ambiguous: several of the
+// per-gate reason vocabularies embed operator-configured or externally
+// sourced free text - a description_contains gate's own configured
+// substring, a commit_marker's marker text, a git diagnostic - and none of
+// it is validated against containing "; " itself. A gate configured with
+// path "foo; artifact_missing: /record" that fails would otherwise produce
+// a joined string indistinguishable from two real failures, one of them
+// entirely fabricated from the configured text. Escaping each failure's own
+// backslashes and semicolons before joining keeps the boundary between
+// failures recoverable regardless of what any one gate's detail contains,
+// without changing the per-gate vocabulary itself (evaluateSingleExitGate's
+// reason strings, and the single-failure case, are unescaped byte-for-byte
+// unless a failure happens to contain "\" or ";").
+func joinExitGateFailures(failures []string) string {
+	if len(failures) == 1 {
+		return failures[0]
+	}
+	escaped := make([]string, len(failures))
+	for i, f := range failures {
+		escaped[i] = exitGateFailureEscaper.Replace(f)
+	}
+	return strings.Join(escaped, "; ")
 }
 
 // evaluateSingleExitGate judges exactly one gate against ctx. Its reason
