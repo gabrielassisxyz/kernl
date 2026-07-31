@@ -32,6 +32,16 @@ type BeadReference struct {
 	// Repository is the local path of the repository this bead's tracker
 	// belongs to.
 	Repository string
+	// IsFixup marks a bead created by the Phase 6 fix-up mechanism (see
+	// local/artifacts/orchestrator-autonomy-decision-model.md §7) rather
+	// than by a human who knew what the tool is for - the one case §1's
+	// provenance premise does not hold. It is a fact fixed at the moment
+	// this reference is first created, exactly like Title, so recording it
+	// here does not violate the "never updated" rule this node type is
+	// built around: the run report reads it back to sort a fix-up bead's
+	// own decisions first and label them as coming from a bead the operator
+	// never saw.
+	IsFixup bool
 }
 
 // Meta returns the common metadata for this node.
@@ -46,6 +56,7 @@ func (b BeadReference) NodeAttrs() []byte {
 	attrs := map[string]any{
 		"tracker_kind": b.TrackerKind,
 		"repository":   b.Repository,
+		"is_fixup":     b.IsFixup,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -125,6 +136,7 @@ func GetBeadReference(ctx context.Context, tx *graph.ReadTx, id string) (*BeadRe
 	var attrs struct {
 		TrackerKind string `json:"tracker_kind"`
 		Repository  string `json:"repository"`
+		IsFixup     bool   `json:"is_fixup"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -139,5 +151,6 @@ func GetBeadReference(ctx context.Context, tx *graph.ReadTx, id string) (*BeadRe
 		Title:       title.String,
 		TrackerKind: attrs.TrackerKind,
 		Repository:  attrs.Repository,
+		IsFixup:     attrs.IsFixup,
 	}, nil
 }
