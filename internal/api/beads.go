@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -201,6 +202,66 @@ func RegisterBeadRoutes(mux *http.ServeMux, a *app.App) {
 		}
 		json.NewEncoder(w).Encode(bead)
 	})
+
+	// revert-decision is the decision model's §6 middle row: one decision
+	// was wrong, the work stands, so the bead reopens carrying that decision
+	// as a constraint. See app.RevertDecisionAndReopenBead for why this is
+	// composed as one operation rather than left as two separate calls a
+	// client could invoke out of order or only halfway.
+	mux.HandleFunc("POST /api/beads/{id}/revert-decision", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		id := r.PathValue("id")
+		var body struct {
+			DecisionID  string `json:"decisionId"`
+			TargetState string `json:"targetState"`
+			Reason      string `json:"reason"`
+		}
+		// Unlike the sibling routes above, a malformed body here must not
+		// decode silently to a zero-value struct: encoding/json leaves an
+		// unmatched field at its zero value with no error, so a truncated
+		// body or a typo'd key (target_state instead of targetState) would
+		// otherwise reach RevertDecisionAndReopenBead as an ordinary missing
+		// --state, come back as a 500, and invite a retry that can never
+		// succeed - the request itself is malformed, not the backend.
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("KERNL DISPATCH FAILURE: invalid revert-decision body - %v - Fix: send valid JSON matching {targetState, reason, decisionId?}", err))
+			return
+		}
+		result, err := app.RevertDecisionAndReopenBead(r.Context(), a.Graph, a.Backend, repoPath, app.RevertDecisionInput{
+			BeadID:      id,
+			DecisionID:  body.DecisionID,
+			TargetState: body.TargetState,
+			Reason:      body.Reason,
+		})
+		if err != nil {
+			slog.Error("KERNL DISPATCH FAILURE: revert decision for bead", "error", err, "beadId", id)
+			writeError(w, revertDecisionErrorStatus(err), err.Error())
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":      "reverted",
+			"decisionId":  result.DecisionID,
+			"targetState": result.TargetState,
+		})
+	})
+}
+
+// revertDecisionErrorStatus maps app.RevertDecisionAndReopenBead's error
+// into an HTTP status: a bad request (missing field, invalid target state,
+// a decision id that does not resolve) is 400, not 500, because retrying it
+// unchanged can never succeed; the named bead not existing in this
+// repository's tracker is 404; anything else - a graph write or tracker
+// update genuinely failing - is the 500 this route always returned before.
+func revertDecisionErrorStatus(err error) int {
+	var notFound app.RevertDecisionNotFoundError
+	if errors.As(err, &notFound) {
+		return http.StatusNotFound
+	}
+	var inputErr app.RevertDecisionInputError
+	if errors.As(err, &inputErr) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {

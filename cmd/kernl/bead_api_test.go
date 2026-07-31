@@ -285,6 +285,70 @@ func TestBeadAPIRefineScopeRequiresOneField(t *testing.T) {
 	}
 }
 
+func TestBeadAPIRevertDecisionRequiresStateAndReason(t *testing.T) {
+	fake := newFakeBeadAPI(t, http.StatusOK, `{}`)
+	if _, err := fake.run("revert-decision", "kn-1", "--reason", "wrong call", "--yes"); exitCode(err) != 2 {
+		t.Fatalf("want exit 2 without --state, got %v (%d)", err, exitCode(err))
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("nothing should be sent without --state: %+v", fake.calls)
+	}
+
+	fake = newFakeBeadAPI(t, http.StatusOK, `{}`)
+	if _, err := fake.run("revert-decision", "kn-1", "--state", "ready_for_implementation", "--yes"); exitCode(err) != 2 {
+		t.Fatalf("want exit 2 without --reason, got %v (%d)", err, exitCode(err))
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("nothing should be sent without --reason: %+v", fake.calls)
+	}
+}
+
+// Discarding the progress recorded after the target state is the same blast
+// radius as rollback - the preview must say so and nothing must reach the
+// server without --yes.
+func TestBeadAPIRevertDecisionSendsNothingWithoutYes(t *testing.T) {
+	fake := newFakeBeadAPI(t, http.StatusOK, `{}`)
+	out, err := fake.run("revert-decision", "kn-1", "--state", "ready_for_implementation", "--reason", "wrong export format")
+	requireRefusedWithoutYes(t, err, "bead revert-decision")
+	if len(fake.calls) != 0 {
+		t.Errorf("reached the server without --yes: %+v", fake.calls)
+	}
+	if !strings.Contains(out, "Would revert the decision on bead kn-1") || !strings.Contains(out, "--yes") {
+		t.Errorf("preview should name the bead and the flag, got:\n%s", out)
+	}
+}
+
+func TestBeadAPIRevertDecisionSendsStateReasonAndOptionalDecision(t *testing.T) {
+	fake := newFakeBeadAPI(t, http.StatusOK, `{"decisionId":"decision-abc","targetState":"ready_for_implementation"}`)
+	out, err := fake.run("revert-decision", "kn-1", "--state", "ready_for_implementation", "--reason", "wrong export format", "--decision", "decision-abc", "--yes")
+	if err != nil {
+		t.Fatalf("bead revert-decision: %v", err)
+	}
+	call := fake.only(t)
+	if call.method != http.MethodPost || call.path != "/api/beads/kn-1/revert-decision" {
+		t.Errorf("want POST /api/beads/kn-1/revert-decision, got %s %s", call.method, call.path)
+	}
+	if call.body["targetState"] != "ready_for_implementation" || call.body["reason"] != "wrong export format" || call.body["decisionId"] != "decision-abc" {
+		t.Errorf("unexpected payload: %#v", call.body)
+	}
+	if !strings.Contains(out, "Reverted decision decision-abc") || !strings.Contains(out, "bead kn-1") {
+		t.Errorf("unexpected output: %s", out)
+	}
+}
+
+// --decision is optional: a caller relying on the server's single-active-
+// decision auto-resolution must not be forced to name one.
+func TestBeadAPIRevertDecisionOmitsDecisionIDWhenNotPassed(t *testing.T) {
+	fake := newFakeBeadAPI(t, http.StatusOK, `{"decisionId":"decision-xyz","targetState":"ready_for_implementation"}`)
+	if _, err := fake.run("revert-decision", "kn-1", "--state", "ready_for_implementation", "--reason", "wrong export format", "--yes"); err != nil {
+		t.Fatalf("bead revert-decision: %v", err)
+	}
+	call := fake.only(t)
+	if _, present := call.body["decisionId"]; present {
+		t.Errorf("decisionId must be omitted when --decision was not passed, got: %#v", call.body)
+	}
+}
+
 func TestBeadAPINotFoundExitsTwo(t *testing.T) {
 	fake := newFakeBeadAPI(t, http.StatusNotFound, `{"error":"bead kn-404 not found"}`)
 

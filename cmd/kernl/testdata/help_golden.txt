@@ -225,6 +225,7 @@ Subcommands:
   mark-terminal  Force a bead into a terminal state, skipping its workflow
   rollback       Rewind a bead to an earlier workflow state
   refine-scope   Rewrite a bead's description, notes or acceptance criteria
+  revert-decision Revert a decision and reopen the bead with it as a constraint
 
 'bead run' drives an agent in a local worktree and needs the orchestrator
 toolchain. Every other subcommand reads or edits the tracker through a
@@ -336,6 +337,27 @@ Usage:
 
 At least one of the three is required. Each one you pass replaces that
 field wholesale.
+
+### kernl bead revert-decision
+kernl bead revert-decision - Revert a decision and reopen the bead with it as a constraint
+
+Usage:
+  kernl bead revert-decision <bead-id> --state <state> --reason <text> [--decision <id>] --yes [--json]
+
+Requires --yes: this rewinds the bead back to --state so its stages run
+again. --reason is required - it becomes part of the constraint the next
+implementer reads, so a fresh implementer cannot silently re-derive the
+decision that was just reverted.
+
+--decision names which recorded decision is being reverted. It can be
+omitted when the bead carries exactly one decision that has not already
+been reverted; with more than one, or none, the command fails and names
+what to pass.
+
+The decision's own reasoning (title, context, outcome) is read out of the
+graph and prepended onto the bead's description - not retyped by hand -
+because the value of recording a decision structurally is that it does not
+need to be remembered a second time to revert it.
 
 ### kernl sweep
 kernl sweep - Close epics whose PRs are merged

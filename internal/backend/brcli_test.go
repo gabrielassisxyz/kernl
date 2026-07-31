@@ -346,6 +346,79 @@ func TestBrCliUpdateWithNothingToChangeFailsLoud(t *testing.T) {
 	}
 }
 
+// Rewind used to be brUnimplemented against every repository this
+// orchestrator actually drives (br, not knots) - the composite
+// revert-decision verb's "rewind" half would have failed loud on every real
+// run. This proves it now runs the same br update invocation MarkTerminal
+// already uses in production for the status change.
+func TestBrCliRewindUpdatesStatus(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"show kb-1":   `[{"id":"kb-1","status":"implementation"}]`,
+		"update kb-1": `[{"id":"kb-1","status":"ready_for_implementation"}]`,
+	})
+
+	if err := NewBrCliBackend(repo).Rewind("kb-1", "ready_for_implementation", "wrong dependency chosen", repo); err != nil {
+		t.Fatalf("Rewind: %v", err)
+	}
+	calls := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(calls, "--status=ready_for_implementation") {
+		t.Errorf("rewind must set the target status, calls: %v", fake.calledWith())
+	}
+	if !strings.Contains(calls, "--notes=wrong dependency chosen") {
+		t.Errorf("rewind must record the reason as notes, calls: %v", fake.calledWith())
+	}
+}
+
+// A bare `--notes <reason>` write replaces the field wholesale (same as
+// --description and --acceptance), and invariants for a br-backed bead live
+// entirely inside that one free-text field as an [Invariants] block. A
+// rewind - the mechanism revert-decision uses to reopen a bead - must not be
+// the thing that silently erases the scope/state invariants already
+// governing that bead; that is exactly the kind of silent constraint loss
+// this feature exists to prevent, delivered by the feature itself.
+func TestBrCliRewindPreservesInvariantsInNotes(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"show kb-1": `[{"id":"kb-1","status":"implementation","notes":"Existing prose note.\n\n[Invariants]\nScope: internal/api"}]`,
+	})
+
+	if err := NewBrCliBackend(repo).Rewind("kb-1", "ready_for_implementation", "wrong dependency chosen", repo); err != nil {
+		t.Fatalf("Rewind: %v", err)
+	}
+	// These three strings only ever appear as argv of the update call (the
+	// show call's args are just "show kb-1"), so a joined-log substring
+	// check unambiguously exercises what was sent to update, matching this
+	// file's existing convention for multi-call assertions.
+	calls := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(calls, "Existing prose note.") {
+		t.Errorf("rewind dropped the existing prose note, calls: %q", calls)
+	}
+	if !strings.Contains(calls, "[Invariants]") || !strings.Contains(calls, "Scope: internal/api") {
+		t.Errorf("rewind dropped the invariants block, calls: %q", calls)
+	}
+	if !strings.Contains(calls, "wrong dependency chosen") {
+		t.Errorf("rewind dropped the reason, calls: %q", calls)
+	}
+}
+
+// A rewind target that is not a queue state (ready_for_*) leaves the bead in
+// an active state nothing ever dispatches from - a rewind that "succeeds"
+// into a stuck bead. KnotsBackend.Rewind already refuses this; br must not be
+// the one backend that lets it through.
+func TestBrCliRewindRejectsNonQueueTarget(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, nil)
+
+	err := NewBrCliBackend(repo).Rewind("kb-1", "implementation", "reason", repo)
+	if err == nil {
+		t.Fatal("rewind to a non ready_for_* state must fail loud")
+	}
+	if !strings.Contains(err.Error(), "KERNL WORKFLOW CORRECTION FAILURE") {
+		t.Errorf("error must carry the fail-loud marker, got: %v", err)
+	}
+}
+
 // Replacing the wf:state:* set travels with the status change it mirrors.
 // Doing it afterwards as remove-then-add was not atomic: a failure partway left
 // a new status beside a half-replaced label set, which the workflow then reads
