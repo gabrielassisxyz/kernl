@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -501,4 +502,85 @@ func (d *noPRDriver) RunBead(ctx context.Context, in RunBeadInput) (RunBeadResul
 		return RunBeadResult{FinalState: "ok", Success: true}, nil
 	}
 	return d.artifactDriver.RunBead(ctx, in)
+}
+
+// TestDriveEpic_DryRunStopsBeforeShipmentButCommitsForReal pins the boundary
+// cmd/kernl/epic.go's driveEpic draws for --dry-run: StopBeforeState is
+// "shipment", not "integration". Integration and integration_review are not
+// previewed, they are actually dispatched, so this asserts the real integration
+// commit lands in the worktree and the review artifact is actually written -
+// the exact fact an operator has to know before trusting --dry-run not to
+// consume the epic's one-shot merge stage (see driveEpic's own doc comment on
+// epicAlreadyInTail for why that stage cannot be re-entered once it has run).
+// Shipment itself is asserted never to run: no pr_url is ever written.
+func TestDriveEpic_DryRunStopsBeforeShipmentButCommitsForReal(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	worktree := t.TempDir()
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		{"commit", "--allow-empty", "-m", "base"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", worktree}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	commitCount := func() int {
+		out, err := exec.Command("git", "-C", worktree, "rev-list", "--count", "HEAD").CombinedOutput()
+		if err != nil {
+			t.Fatalf("git rev-list: %v: %s", err, out)
+		}
+		var n int
+		if _, err := fmt.Sscanf(string(out), "%d", &n); err != nil {
+			t.Fatalf("parsing commit count %q: %v", out, err)
+		}
+		return n
+	}
+	before := commitCount()
+
+	be := newEpicFakeBackend()
+	be.put(&backend.Bead{
+		ID: "kernl-e4", Type: "epic", Title: "Test Epic 4", State: "ready_for_integration",
+		ProfileID: "epic",
+	})
+
+	stateDir := t.TempDir()
+	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
+		StateDir:        stateDir,
+		VerifyCommand:   "bin/ci",
+		Backend:         be,
+		Driver:          &artifactDriver{be: be, epicID: "kernl-e4", worktree: worktree, stateDir: stateDir},
+		Config:          newDriveTestConfig(),
+		BeadID:          "kernl-e4",
+		RepoPath:        t.TempDir(),
+		Worktree:        worktree,
+		StopBeforeState: "shipment",
+	})
+	if err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v", err)
+	}
+	if !res.Success || res.FinalState != "ready_for_shipment" {
+		t.Fatalf("dry-run epic drive = %+v; want success at ready_for_shipment (stopped before shipment runs)", res)
+	}
+	final, _ := be.Get("kernl-e4", "")
+	if final.State != "ready_for_shipment" {
+		t.Errorf("epic bead state = %q, want ready_for_shipment", final.State)
+	}
+
+	// The whole point of this test: integration is not a preview, it committed
+	// for real.
+	if after := commitCount(); after != before+1 {
+		t.Errorf("worktree has %d commits after dry-run, want %d (base + one real integration merge commit)", after, before+1)
+	}
+	reviewArtifact := filepath.Join(stateDir, "run", "kernl-e4", "kernl-e4", "integration-review.md")
+	if _, err := os.Stat(reviewArtifact); err != nil {
+		t.Errorf("integration_review did not run for real under dry-run (no artifact at %s): %v", reviewArtifact, err)
+	}
+
+	// And shipment genuinely never ran: no pr_url was ever written.
+	if strings.Contains(final.Description, "pr_url") {
+		t.Errorf("epic description = %q, dry-run must never reach shipment", final.Description)
+	}
 }
