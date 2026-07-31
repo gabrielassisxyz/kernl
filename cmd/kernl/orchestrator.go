@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -112,15 +113,15 @@ func runOrchestratorStats(w io.Writer, args []string) error {
 		return reportNoAttemptsRecorded(w, asJSON, stageFlag, sinceFlag)
 	}
 
-	stats, err := app.AggregateAttemptStats(stateDir, stageFlag, cutoff)
+	result, err := app.AggregateAttemptStats(stateDir, stageFlag, cutoff)
 	if err != nil {
 		return err
 	}
 
 	if asJSON {
-		return json.NewEncoder(w).Encode(newOrchestratorStatsOutput(stageFlag, sinceFlag, stats))
+		return json.NewEncoder(w).Encode(newOrchestratorStatsOutput(stageFlag, sinceFlag, result))
 	}
-	return printOrchestratorStatsTable(w, stats)
+	return printOrchestratorStatsTable(w, result)
 }
 
 // reportNoAttemptsRecorded is the "nothing to report yet" answer, not a
@@ -129,7 +130,7 @@ func runOrchestratorStats(w io.Writer, args []string) error {
 func reportNoAttemptsRecorded(w io.Writer, asJSON bool, stage, since string) error {
 	const message = "no attempts recorded yet - nothing has run through the orchestrator's stage-attempt ledger"
 	if asJSON {
-		out := newOrchestratorStatsOutput(stage, since, nil)
+		out := newOrchestratorStatsOutput(stage, since, app.AttemptStatsResult{})
 		out.Message = message
 		return json.NewEncoder(w).Encode(out)
 	}
@@ -152,12 +153,21 @@ func parseSinceDuration(raw string) (time.Duration, error) {
 	return d, nil
 }
 
+// parseDayShorthand accepts only a finite, non-negative day count.
+// strconv.ParseFloat itself accepts "NaN" and "Inf"/"-Inf" as valid floats,
+// and a bare negative ("-30") parses cleanly too - none of those are a
+// sensible lookback window, and time.Now().Add(-NaN) or a negative cutoff
+// (which means "started after N days from now") would run successfully
+// against a cutoff that matches nothing or everything, silently. Returning
+// false here for any of those falls through to time.ParseDuration, which
+// rejects "d" as a unit and produces the same loud usage error every other
+// malformed --since value gets.
 func parseDayShorthand(raw string) (time.Duration, bool) {
 	if !strings.HasSuffix(raw, "d") {
 		return 0, false
 	}
 	days, err := strconv.ParseFloat(strings.TrimSuffix(raw, "d"), 64)
-	if err != nil {
+	if err != nil || math.IsNaN(days) || math.IsInf(days, 0) || days < 0 {
 		return 0, false
 	}
 	return time.Duration(days * float64(24*time.Hour)), true
@@ -171,7 +181,13 @@ type orchestratorStatsOutput struct {
 	Since   string                   `json:"since,omitempty"`
 	Message string                   `json:"message,omitempty"`
 	Agents  []orchestratorStatsAgent `json:"agents"`
-	Note    string                   `json:"qualityColumnNote"`
+	// DanglingLedgers names ledger files whose most recent row was dropped
+	// because it was still mid-write when this command read it (see
+	// app.AttemptStatsResult) - the affected attempt is missing from every
+	// count above, not merely unmeasured, so a caller must not read a clean
+	// document as a complete one without checking this field.
+	DanglingLedgers []string `json:"danglingLedgers,omitempty"`
+	Note            string   `json:"qualityColumnNote"`
 }
 
 type orchestratorStatsAgent struct {
@@ -187,14 +203,15 @@ type orchestratorStatsAgent struct {
 	DiffObservations            int      `json:"diffObservations"`
 }
 
-func newOrchestratorStatsOutput(stage, since string, stats []app.AgentAttemptStats) orchestratorStatsOutput {
+func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResult) orchestratorStatsOutput {
 	out := orchestratorStatsOutput{
-		Stage:  stage,
-		Since:  since,
-		Agents: make([]orchestratorStatsAgent, 0, len(stats)),
-		Note:   qualityColumnNote,
+		Stage:           stage,
+		Since:           since,
+		Agents:          make([]orchestratorStatsAgent, 0, len(result.Agents)),
+		DanglingLedgers: result.DanglingLedgers,
+		Note:            qualityColumnNote,
 	}
-	for _, s := range stats {
+	for _, s := range result.Agents {
 		out.Agents = append(out.Agents, orchestratorStatsAgent{
 			AgentID:                     s.AgentID,
 			Attempts:                    s.Attempts,
@@ -211,13 +228,20 @@ func newOrchestratorStatsOutput(stage, since string, stats []app.AgentAttemptSta
 	return out
 }
 
-func printOrchestratorStatsTable(w io.Writer, stats []app.AgentAttemptStats) error {
-	if len(stats) == 0 {
+func printOrchestratorStatsTable(w io.Writer, result app.AttemptStatsResult) error {
+	for _, path := range result.DanglingLedgers {
+		fmt.Fprintf(w, "warning: %s had an incomplete trailing row (an interrupted write) - that attempt was not counted\n", path)
+	}
+	if len(result.DanglingLedgers) > 0 {
+		fmt.Fprintln(w)
+	}
+
+	if len(result.Agents) == 0 {
 		fmt.Fprintln(w, "no attempts matched --stage/--since")
 	} else {
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 		fmt.Fprintln(tw, "AGENT\tATTEMPTS\tFIRST-PASS GATE\tREVIEW REJECT\tMEDIAN DURATION\tMEDIAN DIFF LINES")
-		for _, s := range stats {
+		for _, s := range result.Agents {
 			fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n",
 				s.AgentID, s.Attempts,
 				formatRate(s.FirstPassGateRate, s.FirstPassGateObservations),

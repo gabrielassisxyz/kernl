@@ -1,7 +1,9 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -49,36 +51,76 @@ type AgentAttemptStats struct {
 }
 
 // AttemptLedgerPaths lists every stage-attempt ledger file across every epic
-// under stateDir. An empty, non-nil result (no error) means literally no
-// ledger exists yet - the orchestrator has never recorded an attempt - which
-// callers report as "nothing recorded yet", not as a failure.
+// under stateDir. A missing <stateDir>/run is the genuine "nothing recorded
+// yet" case: an empty, non-nil result with no error, since the orchestrator
+// has never recorded an attempt.
+//
+// Any other failure to read <stateDir>/run, or to reach a ledger inside one
+// of its epic subdirectories (a chmod'd directory, a permission error deeper
+// in the tree), halts loudly instead of being folded into that same "empty"
+// result - filepath.Glob's own contract silently treats an unreadable
+// directory as "no match", which would make the reader unable to tell "I
+// looked and found nothing" from "I could not look," and report the wrong
+// one as success.
 func AttemptLedgerPaths(stateDir string) ([]string, error) {
-	pattern := filepath.Join(stateDir, "run", "*", "attempts.jsonl")
-	paths, err := filepath.Glob(pattern)
+	runRoot := filepath.Join(stateDir, "run")
+	entries, err := os.ReadDir(runRoot)
 	if err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing attempt ledgers matching %s: %w", pattern, err)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing attempt ledger directory %s: %w - Fix: check permissions on %s", runRoot, err, runRoot)
 	}
+
+	var paths []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		ledgerPath := filepath.Join(runRoot, entry.Name(), "attempts.jsonl")
+		if _, err := os.Stat(ledgerPath); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: checking attempt ledger %s: %w - Fix: check permissions on %s", ledgerPath, err, filepath.Dir(ledgerPath))
+		}
+		paths = append(paths, ledgerPath)
+	}
+	sort.Strings(paths)
 	return paths, nil
+}
+
+// AttemptStatsResult is AggregateAttemptStats's answer: the per-agent
+// numbers, plus which ledger files (if any) had their most recent row
+// dropped because it was still mid-write. DanglingLedgers is not a failure -
+// parseLedgerBytes already treats an unterminated trailing line as a write
+// the writer's own flock+Truncate protocol is built to recover from, not
+// corruption - but it does mean one attempt is missing from the count below
+// it, and a caller that never surfaces that fact would report a clean number
+// that quietly undercounts.
+type AttemptStatsResult struct {
+	Agents          []AgentAttemptStats
+	DanglingLedgers []string
 }
 
 // AggregateAttemptStats answers "which agent should run this stage" from the
 // stage-attempt ledger: every epic's attempts.jsonl under stateDir, grouped
 // by AgentID, optionally narrowed to one stage and to rows started at or
-// after since (a zero since applies no time filter). Results are sorted by
+// after since (a zero since applies no time filter). Agents are sorted by
 // AgentID for a deterministic report.
 //
 // It reads through parseLedgerBytes - the same parser AppendStageAttempt
 // uses to derive AttemptNumber - rather than a second implementation that
 // could disagree with the writer about what a valid row is.
-func AggregateAttemptStats(stateDir, stage string, since time.Time) ([]AgentAttemptStats, error) {
+func AggregateAttemptStats(stateDir, stage string, since time.Time) (AttemptStatsResult, error) {
 	paths, err := AttemptLedgerPaths(stateDir)
 	if err != nil {
-		return nil, err
+		return AttemptStatsResult{}, err
 	}
 
-	records, err := readAttemptLedgers(paths)
+	records, dangling, err := readAttemptLedgers(paths)
 	if err != nil {
-		return nil, err
+		return AttemptStatsResult{}, err
 	}
 
 	byAgent := map[string][]StageAttemptRecord{}
@@ -102,28 +144,42 @@ func AggregateAttemptStats(stateDir, stage string, since time.Time) ([]AgentAtte
 	for _, id := range agentIDs {
 		stats = append(stats, computeAgentAttemptStats(id, byAgent[id]))
 	}
-	return stats, nil
+	return AttemptStatsResult{Agents: stats, DanglingLedgers: dangling}, nil
 }
 
-// readAttemptLedgers reads and parses every ledger file named by paths. A
-// file that cannot be read, or whose content parseLedgerBytes rejects as
-// corrupt, halts the whole read and names the offending file - an
-// aggregation over a ledger it could not fully read would silently
-// undercount an agent's attempts.
-func readAttemptLedgers(paths []string) ([]StageAttemptRecord, error) {
-	var all []StageAttemptRecord
+// readAttemptLedgers reads and parses every ledger file named by paths.
+//
+// Two failure shapes inside a file are handled differently, matching how the
+// writer (appendStageAttempt) itself distinguishes them. A malformed row
+// that is NOT the file's trailing segment is real mid-file corruption -
+// parseLedgerBytes rejects it, and that halts the whole read here too,
+// naming the offending file, because aggregating over a ledger it could not
+// fully parse would silently misrepresent every row after the break. A
+// trailing segment with no newline is different: it is exactly the state a
+// process killed between the write syscall and AppendStageAttempt's
+// truncate-back leaves behind, which the writer's own flock+Truncate
+// protocol is designed to tolerate and repair on its next call.
+// parseLedgerBytes reports that case via a shorter validSize rather than an
+// error, and this function surfaces it as a dangling path rather than
+// silently dropping the row it belongs to - halting on it would make `stats`
+// unusable after any crash mid-append, stricter than the writer is about a
+// state the writer designed for.
+func readAttemptLedgers(paths []string) (records []StageAttemptRecord, dangling []string, err error) {
 	for _, path := range paths {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: reading attempt ledger %s: %w", path, err)
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return nil, nil, fmt.Errorf("KERNL DISPATCH FAILURE: reading attempt ledger %s: %w", path, readErr)
 		}
-		records, _, err := parseLedgerBytes(path, data)
-		if err != nil {
-			return nil, err
+		parsed, validSize, parseErr := parseLedgerBytes(path, data)
+		if parseErr != nil {
+			return nil, nil, parseErr
 		}
-		all = append(all, records...)
+		if validSize != int64(len(data)) {
+			dangling = append(dangling, path)
+		}
+		records = append(records, parsed...)
 	}
-	return all, nil
+	return records, dangling, nil
 }
 
 func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAttemptStats {

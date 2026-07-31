@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +166,23 @@ func TestOrchestratorStatsRejectsMalformedSince(t *testing.T) {
 	}
 }
 
+func TestOrchestratorStatsRejectsNonFiniteAndNegativeDayShorthand(t *testing.T) {
+	orchestratorTestHome(t)
+
+	for _, since := range []string{"NaNd", "Infd", "-Infd", "-30d"} {
+		t.Run(since, func(t *testing.T) {
+			var buf bytes.Buffer
+			err := runOrchestratorStats(&buf, []string{"--since", since})
+			if err == nil {
+				t.Fatalf("expected --since %q to be refused", since)
+			}
+			if exitCode(err) != 2 {
+				t.Errorf("--since %q must be a usage error (exit 2), got exit %d: %v", since, exitCode(err), err)
+			}
+		})
+	}
+}
+
 func TestOrchestratorStatsUnknownFlagRejected(t *testing.T) {
 	orchestratorTestHome(t)
 
@@ -206,6 +224,79 @@ func TestOrchestratorStatsUnmeasuredGroupPrintsDashNotZero(t *testing.T) {
 	}
 	if strings.Contains(out, "0.0  (n=0)") {
 		t.Errorf("an unmeasured median must never render as a numeric zero, got: %q", out)
+	}
+}
+
+func TestOrchestratorStatsSurfacesDanglingLedgerInTableAndJSON(t *testing.T) {
+	home := orchestratorTestHome(t)
+	now := time.Now()
+
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation", StartedAt: now, GatePassed: true,
+	})
+	ledgerPath := home + "/.kernl/run/epic-a/attempts.jsonl"
+	f, err := os.OpenFile(ledgerPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"agentId":"claude","beadId":"bead-2"}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var tableBuf bytes.Buffer
+	if err := runOrchestratorStats(&tableBuf, nil); err != nil {
+		t.Fatalf("runOrchestratorStats: %v", err)
+	}
+	if !strings.Contains(tableBuf.String(), "incomplete trailing row") {
+		t.Errorf("table output must warn about the dangling ledger, got: %q", tableBuf.String())
+	}
+	if !strings.Contains(tableBuf.String(), ledgerPath) {
+		t.Errorf("table warning must name the ledger file, got: %q", tableBuf.String())
+	}
+
+	var jsonBuf bytes.Buffer
+	if err := runOrchestratorStats(&jsonBuf, []string{"--json"}); err != nil {
+		t.Fatalf("runOrchestratorStats --json: %v", err)
+	}
+	var out orchestratorStatsOutput
+	if err := json.Unmarshal(jsonBuf.Bytes(), &out); err != nil {
+		t.Fatalf("not valid JSON: %v", err)
+	}
+	if len(out.DanglingLedgers) != 1 || out.DanglingLedgers[0] != ledgerPath {
+		t.Errorf("expected danglingLedgers to name %q, got %v", ledgerPath, out.DanglingLedgers)
+	}
+}
+
+func TestOrchestratorStatsUnreadableRunDirIsAnErrorNotEmptyResult(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	home := orchestratorTestHome(t)
+	now := time.Now()
+
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation", StartedAt: now, GatePassed: true,
+	})
+	runDir := home + "/.kernl/run"
+	if err := os.Chmod(runDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(runDir, 0o755); err != nil {
+			t.Errorf("restoring run dir permissions: %v", err)
+		}
+	})
+
+	var buf bytes.Buffer
+	err := runOrchestratorStats(&buf, nil)
+	if err == nil {
+		t.Fatal("expected an unreadable run directory to fail loudly")
+	}
+	if strings.Contains(buf.String(), "no attempts recorded yet") {
+		t.Errorf("an unreadable run directory must not be reported as \"nothing recorded\", got: %q", buf.String())
 	}
 }
 
