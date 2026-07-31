@@ -263,7 +263,7 @@ func relatedDecisionsForPrompt(ctx context.Context, deps DriveBeadDeps, bead *ba
 		slog.Warn("KERNL DISPATCH FAILURE: resolving graph dir to fetch related decisions - continuing without them", "bead", bead.ID, "err", err)
 		return nil
 	}
-	graphPath := filepath.Join(dir, ".kernl-graph.db")
+	graphPath := filepath.Join(dir, graphDBFileName)
 	if _, statErr := os.Stat(graphPath); statErr != nil {
 		if !os.IsNotExist(statErr) {
 			slog.Warn("KERNL DISPATCH FAILURE: checking whether the graph db exists to fetch related decisions - continuing without them", "bead", bead.ID, "path", graphPath, "err", statErr)
