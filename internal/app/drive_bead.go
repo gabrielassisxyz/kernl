@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -383,7 +384,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				Nudged:            res.Nudged,
 				Usage:             res.Usage,
 			})); ledgerErr != nil {
-				slog.Warn("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
+				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 			}
 			slog.Info("DRIVE_TRACE return agent-err", "bead", deps.BeadID, "iter", i, "err", err)
 			return RunBeadResult{FinalState: res.FinalState, Success: false},
@@ -405,12 +406,12 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				CommitSHA:         worktreeHeadSHA(deps.Worktree),
 				Worktree:          deps.Worktree,
 				GatePassed:        false,
-				GateFailureReason: fmt.Sprintf("agent exited non-zero (exit code %d)", res.ExitCode),
+				GateFailureReason: fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(res.ExitCode)),
 				FollowUpCount:     res.FollowUpCount,
 				Nudged:            res.Nudged,
 				Usage:             res.Usage,
 			})); ledgerErr != nil {
-				slog.Warn("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
+				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 			}
 			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
 			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
@@ -456,7 +457,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			Nudged:            res.Nudged,
 			Usage:             res.Usage,
 		})); err != nil {
-			slog.Warn("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
+			slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 		}
 		if gatePassed {
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
@@ -547,6 +548,17 @@ func isSafePathComponent(s string) bool {
 func escapesRoot(root, dir string) bool {
 	rel, err := filepath.Rel(root, dir)
 	return err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// formatExitCode renders an exit code for a log message or a ledger
+// GateFailureReason, without ever fabricating one: nil (no process ever
+// exited to report a code) renders distinctly from any real numeric value,
+// including 0.
+func formatExitCode(code *int) string {
+	if code == nil {
+		return "none (no process exited)"
+	}
+	return strconv.Itoa(*code)
 }
 
 // resolveArtifactDir is where exit-gate artifacts (plan.md, review verdicts,

@@ -2,58 +2,29 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
-// initGitRepo creates a throwaway git repo with two commits so diffLineStats
-// and the ledger's CommitSHA/BaseSHA fields have something real to scope
-// against, mirroring how commit_marker gates scope their own scan.
-func initGitRepo(t *testing.T) (dir, baseSHA, headSHA string) {
-	t.Helper()
-	dir = t.TempDir()
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@test.invalid",
-			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@test.invalid",
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	run("init", "-q")
-	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	run("add", "a.txt")
-	run("commit", "-q", "-m", "base")
-	baseSHA = strings.TrimSpace(gitOutput(t, dir, "rev-parse", "--short", "HEAD"))
-
-	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	run("add", "a.txt")
-	run("commit", "-q", "-m", "stage work")
-	headSHA = strings.TrimSpace(gitOutput(t, dir, "rev-parse", "--short", "HEAD"))
-	return dir, baseSHA, headSHA
+// fakeDiffStatter is a named stub for DiffStatter so ledger tests never have
+// to shell out to a real git binary (AGENTS.md §4: unit tests must not
+// touch the host).
+type fakeDiffStatter struct {
+	added, removed *int
 }
 
-func gitOutput(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
-	if err != nil {
-		t.Fatalf("git %v: %v", args, err)
-	}
-	return string(out)
+func (f fakeDiffStatter) DiffStat(worktree, baseSHA, commitSHA string) (added, removed *int) {
+	return f.added, f.removed
 }
+
+func intPtr(v int) *int { return &v }
 
 func readLedgerLines(t *testing.T, path string) []StageAttemptRecord {
 	t.Helper()
@@ -103,7 +74,10 @@ func TestResolveAttemptLedgerPath_OutsideWorktree(t *testing.T) {
 
 func TestAppendStageAttempt_WritesOutsideWorktreeAndTargetRepo(t *testing.T) {
 	stateDir := t.TempDir()
-	worktree, base, head := initGitRepo(t)
+	worktree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(worktree, "a.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	err := AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
 		AgentID:   "claude",
@@ -112,9 +86,10 @@ func TestAppendStageAttempt_WritesOutsideWorktreeAndTargetRepo(t *testing.T) {
 		Stage:     "implementation",
 		StartedAt: time.Now(),
 		Duration:  time.Second,
-		BaseSHA:   base,
-		CommitSHA: head,
+		BaseSHA:   "base-sha",
+		CommitSHA: "head-sha",
 		Worktree:  worktree,
+		DiffStats: fakeDiffStatter{},
 	}))
 	if err != nil {
 		t.Fatalf("AppendStageAttempt: %v", err)
@@ -131,7 +106,7 @@ func TestAppendStageAttempt_WritesOutsideWorktreeAndTargetRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if e.Name() != ".git" && e.Name() != "a.txt" {
+		if e.Name() != "a.txt" {
 			t.Errorf("unexpected file %q written inside the worktree", e.Name())
 		}
 	}
@@ -184,7 +159,7 @@ func TestAppendStageAttempt_PropagatesPathFailure(t *testing.T) {
 
 func TestAppendStageAttempt_ClaudeRow_CarriesEveryReportedField(t *testing.T) {
 	stateDir := t.TempDir()
-	worktree, base, head := initGitRepo(t)
+	worktree := t.TempDir()
 
 	cost := 0.0456
 	turns := int64(3)
@@ -202,13 +177,14 @@ func TestAppendStageAttempt_ClaudeRow_CarriesEveryReportedField(t *testing.T) {
 		SessionID:       "sess-abc",
 		StartedAt:       time.Now(),
 		Duration:        4200 * time.Millisecond,
-		ExitCode:        0,
-		BaseSHA:         base,
-		CommitSHA:       head,
+		ExitCode:        intPtr(0),
+		BaseSHA:         "base-sha",
+		CommitSHA:       "head-sha",
 		Worktree:        worktree,
 		GatePassed:      true,
 		FollowUpCount:   0,
 		Nudged:          false,
+		DiffStats:       fakeDiffStatter{added: intPtr(2), removed: intPtr(0)},
 		Usage: &session.TokenUsageCounts{
 			InputTokens:      500,
 			OutputTokens:     120,
@@ -232,8 +208,11 @@ func TestAppendStageAttempt_ClaudeRow_CarriesEveryReportedField(t *testing.T) {
 	got := lines[0]
 
 	// Reported fields are present.
-	if got.Model != "claude-opus-5" || !got.ModelResolved {
-		t.Errorf("Model/ModelResolved = %q/%v, want the CLI-reported model marked resolved", got.Model, got.ModelResolved)
+	if got.Model == nil || *got.Model != "claude-opus-5" || !got.ModelResolved {
+		t.Errorf("Model/ModelResolved = %v/%v, want the CLI-reported model marked resolved", got.Model, got.ModelResolved)
+	}
+	if got.ExitCode == nil || *got.ExitCode != 0 {
+		t.Errorf("ExitCode = %v, want 0", got.ExitCode)
 	}
 	if got.InputTokens == nil || *got.InputTokens != 500 {
 		t.Errorf("InputTokens = %v, want 500", got.InputTokens)
@@ -269,7 +248,7 @@ func TestAppendStageAttempt_ClaudeRow_CarriesEveryReportedField(t *testing.T) {
 
 func TestAppendStageAttempt_CodexRow_CarriesEveryReportedField(t *testing.T) {
 	stateDir := t.TempDir()
-	worktree, base, head := initGitRepo(t)
+	worktree := t.TempDir()
 
 	cacheWrite := int64(15)
 	cacheRead := int64(40)
@@ -285,11 +264,12 @@ func TestAppendStageAttempt_CodexRow_CarriesEveryReportedField(t *testing.T) {
 		SessionID:       "sess-def",
 		StartedAt:       time.Now(),
 		Duration:        3100 * time.Millisecond,
-		ExitCode:        0,
-		BaseSHA:         base,
-		CommitSHA:       head,
+		ExitCode:        intPtr(0),
+		BaseSHA:         "base-sha",
+		CommitSHA:       "head-sha",
 		Worktree:        worktree,
 		GatePassed:      true,
+		DiffStats:       fakeDiffStatter{},
 		Usage: &session.TokenUsageCounts{
 			InputTokens:      100,
 			OutputTokens:     20,
@@ -332,8 +312,50 @@ func TestAppendStageAttempt_CodexRow_CarriesEveryReportedField(t *testing.T) {
 	if got.ModelResolved {
 		t.Errorf("ModelResolved = true, want false - codex never reports a resolved model")
 	}
-	if got.Model != "gpt-6-codex" {
-		t.Errorf("Model = %q, want the configured alias %q to be recorded as the fallback value", got.Model, "gpt-6-codex")
+	if got.Model == nil || *got.Model != "gpt-6-codex" {
+		t.Errorf("Model = %v, want the configured alias %q to be recorded as the fallback value", got.Model, "gpt-6-codex")
+	}
+}
+
+// TestAppendStageAttempt_CodexRow_NoConfiguredModelYieldsNilNotEmpty proves
+// finding 5's fix: a codex agent with no configured model (settings.agents.<id>.model
+// is optional) must not record model:"" - an empty string identifies
+// neither the alias nor what ran, which is exactly the comparison the
+// ledger exists to enable. It must record null: kernl genuinely does not
+// know.
+func TestAppendStageAttempt_CodexRow_NoConfiguredModelYieldsNilNotEmpty(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID:         "codex-default",
+		Dialect:         "codex",
+		ConfiguredModel: "", // no model configured for this agent
+		BeadID:          "bead-codex-nomodel",
+		Stage:           "implementation",
+		StartedAt:       time.Now(),
+		Duration:        time.Second,
+		Worktree:        worktree,
+		GatePassed:      true,
+		DiffStats:       fakeDiffStatter{},
+		Usage: &session.TokenUsageCounts{
+			InputTokens:  10,
+			OutputTokens: 5,
+			TotalTokens:  15,
+			// Model nil: codex never reports one.
+		},
+	})
+	if err := AppendStageAttempt(stateDir, "epic-nomodel", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-nomodel", "attempts.jsonl"))
+	got := lines[0]
+	if got.Model != nil {
+		t.Errorf("Model = %v, want nil - neither a resolved model nor a configured alias exists for this row", *got.Model)
+	}
+	if got.ModelResolved {
+		t.Error("ModelResolved = true, want false")
 	}
 }
 
@@ -342,13 +364,13 @@ func TestAppendStageAttempt_CodexRow_CarriesEveryReportedField(t *testing.T) {
 
 func TestAppendStageAttempt_SecondAttemptRecordsCausedByAndAttemptNumber(t *testing.T) {
 	stateDir := t.TempDir()
-	worktree, base, head := initGitRepo(t)
+	worktree := t.TempDir()
 
 	// Attempt 1: implementation runs and passes its own gate.
 	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
 		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
-		StartedAt: time.Now(), Duration: time.Second, BaseSHA: base, CommitSHA: head,
-		Worktree: worktree, GatePassed: true,
+		StartedAt: time.Now(), Duration: time.Second, BaseSHA: "base-sha", CommitSHA: "head-sha",
+		Worktree: worktree, GatePassed: true, DiffStats: fakeDiffStatter{},
 	})))
 
 	// Review runs against the implementation and rejects it - the exit gate
@@ -358,8 +380,8 @@ func TestAppendStageAttempt_SecondAttemptRecordsCausedByAndAttemptNumber(t *test
 	rejectVerdict := "FAIL"
 	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
 		AgentID: "reviewer", Dialect: "claude", BeadID: "bead-1", Stage: "implementation_review",
-		StartedAt: time.Now(), Duration: time.Second, BaseSHA: base, CommitSHA: head,
-		Worktree: worktree, GatePassed: false,
+		StartedAt: time.Now(), Duration: time.Second, BaseSHA: "base-sha", CommitSHA: "head-sha",
+		Worktree: worktree, GatePassed: false, DiffStats: fakeDiffStatter{},
 		GateFailureReason: "verdict_not_pass: " + reviewArtifact,
 		ReviewVerdict:     &rejectVerdict,
 	})))
@@ -368,8 +390,8 @@ func TestAppendStageAttempt_SecondAttemptRecordsCausedByAndAttemptNumber(t *test
 	// caused by the rejection above.
 	secondAttempt := BuildStageAttemptRecord(StageAttemptInput{
 		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
-		StartedAt: time.Now(), Duration: time.Second, BaseSHA: base, CommitSHA: head,
-		Worktree: worktree, GatePassed: true,
+		StartedAt: time.Now(), Duration: time.Second, BaseSHA: "base-sha", CommitSHA: "head-sha",
+		Worktree: worktree, GatePassed: true, DiffStats: fakeDiffStatter{},
 	})
 	must(t, AppendStageAttempt(stateDir, "epic-1", secondAttempt))
 
@@ -402,13 +424,13 @@ func TestAppendStageAttempt_SecondAttemptRecordsCausedByAndAttemptNumber(t *test
 
 func TestAppendStageAttempt_FirstPassApprovedTrueOnCleanReview(t *testing.T) {
 	stateDir := t.TempDir()
-	worktree, base, head := initGitRepo(t)
+	worktree := t.TempDir()
 
 	passVerdict := "PASS"
 	rec := BuildStageAttemptRecord(StageAttemptInput{
 		AgentID: "reviewer", Dialect: "claude", BeadID: "bead-clean", Stage: "implementation_review",
-		StartedAt: time.Now(), Duration: time.Second, BaseSHA: base, CommitSHA: head,
-		Worktree: worktree, GatePassed: true, ReviewVerdict: &passVerdict,
+		StartedAt: time.Now(), Duration: time.Second, BaseSHA: "base-sha", CommitSHA: "head-sha",
+		Worktree: worktree, GatePassed: true, ReviewVerdict: &passVerdict, DiffStats: fakeDiffStatter{},
 	})
 	must(t, AppendStageAttempt(stateDir, "epic-clean", rec))
 
@@ -423,13 +445,14 @@ func TestAppendStageAttempt_FirstPassApprovedTrueOnCleanReview(t *testing.T) {
 
 func TestAppendStageAttempt_NeverAggregates(t *testing.T) {
 	stateDir := t.TempDir()
-	worktree, base, head := initGitRepo(t)
+	worktree := t.TempDir()
 
 	for i := 0; i < 3; i++ {
 		must(t, AppendStageAttempt(stateDir, "epic-raw", BuildStageAttemptRecord(StageAttemptInput{
 			AgentID: "claude", Dialect: "claude", BeadID: "bead-raw", Stage: "implementation",
-			StartedAt: time.Now(), Duration: time.Second, BaseSHA: base, CommitSHA: head,
+			StartedAt: time.Now(), Duration: time.Second, BaseSHA: "base-sha", CommitSHA: "head-sha",
 			Worktree: worktree, GatePassed: false, GateFailureReason: "commit_marker_missing: DONE",
+			DiffStats: fakeDiffStatter{},
 		})))
 	}
 
@@ -441,6 +464,353 @@ func TestAppendStageAttempt_NeverAggregates(t *testing.T) {
 		if rec.AttemptNumber != i+1 {
 			t.Errorf("row %d AttemptNumber = %d, want %d", i, rec.AttemptNumber, i+1)
 		}
+	}
+}
+
+// --- Finding 3: exit codes are real, never fabricated. ---
+
+func TestBuildStageAttemptRecord_ExitCodeIsNilWhenNoProcessRan(t *testing.T) {
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-spawn-fail", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		ExitCode:  nil, // spawn failed before any process existed
+		DiffStats: fakeDiffStatter{},
+	})
+	if rec.ExitCode != nil {
+		t.Errorf("ExitCode = %v, want nil - no process ever exited to report one", *rec.ExitCode)
+	}
+}
+
+func TestBuildStageAttemptRecord_ExitCodePreservesRealValue(t *testing.T) {
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-real-code", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		ExitCode:  intPtr(42),
+		DiffStats: fakeDiffStatter{},
+	})
+	if rec.ExitCode == nil || *rec.ExitCode != 42 {
+		t.Errorf("ExitCode = %v, want 42 - the process's real exit code, not a fabricated 1", rec.ExitCode)
+	}
+}
+
+// --- Finding 4: concurrent writers never duplicate attempt numbers or
+// corrupt the file. ---
+
+// TestAppendStageAttempt_ConcurrentWritersProduceUniqueAttemptNumbers proves
+// the flock-based serialization: many goroutines, each opening its own file
+// descriptor to the same ledger path (exactly the contention flock(2)
+// describes between independently-opened descriptors, which is the same
+// contention two separate kernl processes would produce - see the doc
+// comment on AppendStageAttempt), append concurrently for the same
+// bead+stage. Every row must survive, every row must parse, and every
+// AttemptNumber from 1..N must appear exactly once.
+func TestAppendStageAttempt_ConcurrentWritersProduceUniqueAttemptNumbers(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+
+	const n = 50
+	var wg sync.WaitGroup
+	errCh := make(chan error, n)
+	start := make(chan struct{})
+
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start // maximize overlap: every goroutine is ready before any proceeds
+			err := AppendStageAttempt(stateDir, "epic-concurrent", BuildStageAttemptRecord(StageAttemptInput{
+				AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+				StartedAt: time.Now(), Duration: time.Millisecond, BaseSHA: "base-sha", CommitSHA: "head-sha",
+				Worktree: worktree, GatePassed: true, DiffStats: fakeDiffStatter{},
+			}))
+			errCh <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			t.Errorf("concurrent AppendStageAttempt returned an error: %v", err)
+		}
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-concurrent", "attempts.jsonl"))
+	if len(lines) != n {
+		t.Fatalf("expected %d lines (one per concurrent attempt, none lost or corrupted), got %d", n, len(lines))
+	}
+
+	seen := make(map[int]bool, n)
+	for _, rec := range lines {
+		if seen[rec.AttemptNumber] {
+			t.Errorf("duplicate attemptNumber %d - two concurrent writers derived the same number", rec.AttemptNumber)
+		}
+		seen[rec.AttemptNumber] = true
+	}
+	for i := 1; i <= n; i++ {
+		if !seen[i] {
+			t.Errorf("missing attemptNumber %d - expected the contiguous set 1..%d", i, n)
+		}
+	}
+}
+
+// --- Finding 1: a write failure never discards silently, and never leaves
+// a partial line that poisons every later append. ---
+
+// shortWriteFile wraps a real *os.File (so Fd() stays valid for flock) and
+// reports fewer bytes written than requested, mirroring what Go's writeFile
+// loop can observe from a real short write(2) (e.g. ENOSPC mid-write) -
+// something a hermetic test cannot trigger by actually exhausting disk
+// space.
+type shortWriteFile struct {
+	*os.File
+	failAfter int
+}
+
+func (f *shortWriteFile) Write(p []byte) (int, error) {
+	if f.failAfter >= 0 && f.failAfter < len(p) {
+		n, err := f.File.Write(p[:f.failAfter])
+		if err != nil {
+			return n, err
+		}
+		return n, nil // short write: n < len(p), no error - exactly the case os.File.Write can return
+	}
+	return f.File.Write(p)
+}
+
+// closeErrLedgerFile wraps a real *os.File and reports a Close() failure
+// after actually closing it, so AppendStageAttempt's handling of that
+// failure can be exercised without an unclosable real file descriptor.
+type closeErrLedgerFile struct {
+	*os.File
+	closeErr error
+}
+
+func (f *closeErrLedgerFile) Close() error {
+	_ = f.File.Close()
+	return f.closeErr
+}
+
+func TestAppendStageAttempt_ShortWriteIsUndoneNotLeftDangling(t *testing.T) {
+	stateDir := t.TempDir()
+
+	// Seed the ledger with one already-valid row, so the test can prove the
+	// truncate-back restores exactly that pre-write size, not zero.
+	seedRec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-seed", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})
+	must(t, AppendStageAttempt(stateDir, "epic-fail", seedRec))
+
+	path := filepath.Join(stateDir, "run", "epic-fail", "attempts.jsonl")
+	seededInfo, err := os.Stat(path)
+	must(t, err)
+	seededSize := seededInfo.Size()
+
+	failingOpen := func(p string) (ledgerFile, error) {
+		f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		// 5 bytes is always less than a full JSON line, so every append in
+		// this test is guaranteed to short-write.
+		return &shortWriteFile{File: f, failAfter: 5}, nil
+	}
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-2", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})
+	appendErr := appendStageAttempt(stateDir, "epic-fail", rec, failingOpen)
+	if appendErr == nil {
+		t.Fatal("expected an error from a short write")
+	}
+	if !strings.Contains(appendErr.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the marker, got: %v", appendErr)
+	}
+
+	afterInfo, err := os.Stat(path)
+	must(t, err)
+	if afterInfo.Size() != seededSize {
+		t.Errorf("file size after a failed write = %d, want unchanged at %d (the partial write must be undone)", afterInfo.Size(), seededSize)
+	}
+
+	lines := readLedgerLines(t, path)
+	if len(lines) != 1 {
+		t.Fatalf("expected only the seed row to survive a failed append, got %d lines", len(lines))
+	}
+}
+
+func TestAppendStageAttempt_CloseErrorIsSurfacedNotDiscarded(t *testing.T) {
+	stateDir := t.TempDir()
+
+	failingOpen := func(p string) (ledgerFile, error) {
+		f, err := os.OpenFile(p, os.O_RDWR|os.O_CREATE, 0o644)
+		if err != nil {
+			return nil, err
+		}
+		return &closeErrLedgerFile{File: f, closeErr: errors.New("simulated close failure")}, nil
+	}
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})
+	appendErr := appendStageAttempt(stateDir, "epic-close", rec, failingOpen)
+	if appendErr == nil {
+		t.Fatal("expected the injected close error to be surfaced")
+	}
+	if !strings.Contains(appendErr.Error(), "simulated close failure") {
+		t.Errorf("error must wrap the underlying close failure, got: %v", appendErr)
+	}
+}
+
+// TestAppendStageAttempt_RepairsDanglingTrailingRow proves the read-side
+// half of finding 1: a ledger file left with a dangling, non-newline-terminated
+// fragment at the end (exactly what an interrupted write - one this fix's
+// own truncate-back did not get to run for, e.g. the process was killed
+// outright) must not disable every future append. The next successful call
+// drops the dangling fragment, does not count it, and leaves the file valid.
+func TestAppendStageAttempt_RepairsDanglingTrailingRow(t *testing.T) {
+	stateDir := t.TempDir()
+	path, err := resolveAttemptLedgerPath(stateDir, "epic-dangling")
+	must(t, err)
+
+	validLine, err := json.Marshal(BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	}))
+	must(t, err)
+
+	// A dangling fragment with no trailing newline - never something a
+	// completed AppendStageAttempt call could have produced.
+	dangling := `{"agentId":"claude","beadId":"bead-2","stage":"implementati`
+	must(t, os.WriteFile(path, append(append(validLine, '\n'), []byte(dangling)...), 0o644))
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-3", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})
+	if err := AppendStageAttempt(stateDir, "epic-dangling", rec); err != nil {
+		t.Fatalf("AppendStageAttempt after a dangling row: %v", err)
+	}
+
+	lines := readLedgerLines(t, path)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 valid rows (the seed + the new append; the dangling fragment must be dropped, not kept or counted), got %d", len(lines))
+	}
+	if lines[0].BeadID != "bead-1" || lines[1].BeadID != "bead-3" {
+		t.Errorf("unexpected bead ids in surviving rows: %q, %q", lines[0].BeadID, lines[1].BeadID)
+	}
+	// AttemptNumber for the new row must be derived from the 1 valid prior
+	// row only - the dangling fragment (bead-2) was never a real attempt.
+	if lines[1].AttemptNumber != 1 {
+		t.Errorf("AttemptNumber = %d, want 1 (dangling fragment must not be counted)", lines[1].AttemptNumber)
+	}
+
+	raw, err := os.ReadFile(path)
+	must(t, err)
+	if strings.Contains(string(raw), "bead-2") {
+		t.Error("the dangling fragment's bytes must be trimmed from the file, not merely ignored on read")
+	}
+}
+
+// TestAppendStageAttempt_MidFileCorruptionFailsLoud proves the other half
+// of finding 1's boundary: a malformed row that is NOT the trailing
+// fragment (something wrote broken JSON in the middle of the file, with a
+// valid row after it) is a harder failure than "an interrupted write" and
+// must not be silently repaired - it is surfaced, and nothing is appended.
+func TestAppendStageAttempt_MidFileCorruptionFailsLoud(t *testing.T) {
+	stateDir := t.TempDir()
+	path, err := resolveAttemptLedgerPath(stateDir, "epic-corrupt")
+	must(t, err)
+
+	validLine, err := json.Marshal(BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-2", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	}))
+	must(t, err)
+
+	corrupt := "{not valid json at all}\n"
+	content := corrupt + string(validLine) + "\n"
+	must(t, os.WriteFile(path, []byte(content), 0o644))
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-3", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: t.TempDir(),
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})
+	appendErr := AppendStageAttempt(stateDir, "epic-corrupt", rec)
+	if appendErr == nil {
+		t.Fatal("expected mid-file corruption to fail loud, not be silently repaired")
+	}
+	if !strings.Contains(appendErr.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the marker, got: %v", appendErr)
+	}
+
+	raw, err := os.ReadFile(path)
+	must(t, err)
+	if string(raw) != content {
+		t.Error("the file must be left exactly as found when the append itself is refused")
+	}
+}
+
+// --- parseLedgerBytes: the pure parsing/repair logic, tested directly. ---
+
+func TestParseLedgerBytes_EmptyFile(t *testing.T) {
+	records, validSize, err := parseLedgerBytes("ledger", []byte(""))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 0 || validSize != 0 {
+		t.Errorf("records=%v validSize=%d, want empty/0", records, validSize)
+	}
+}
+
+func TestParseLedgerBytes_AllValidLines(t *testing.T) {
+	data := []byte(`{"beadId":"a"}` + "\n" + `{"beadId":"b"}` + "\n")
+	records, validSize, err := parseLedgerBytes("ledger", data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("expected 2 records, got %d", len(records))
+	}
+	if validSize != int64(len(data)) {
+		t.Errorf("validSize = %d, want %d (the whole file is valid)", validSize, len(data))
+	}
+}
+
+func TestParseLedgerBytes_TrailingFragmentWithoutNewlineIsDropped(t *testing.T) {
+	valid := `{"beadId":"a"}` + "\n"
+	data := []byte(valid + `{"beadId":"b"` /* no closing brace, no newline */)
+	records, validSize, err := parseLedgerBytes("ledger", data)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected only the newline-terminated row, got %d records", len(records))
+	}
+	if validSize != int64(len(valid)) {
+		t.Errorf("validSize = %d, want %d (stop right before the dangling fragment)", validSize, len(valid))
+	}
+}
+
+func TestParseLedgerBytes_MidFileCorruptionIsAHardError(t *testing.T) {
+	data := []byte("{not json}\n" + `{"beadId":"a"}` + "\n")
+	_, _, err := parseLedgerBytes("ledger", data)
+	if err == nil {
+		t.Fatal("expected an error: the corrupt row is not the trailing one")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error must carry the marker, got: %v", err)
 	}
 }
 

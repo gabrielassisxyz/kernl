@@ -2,10 +2,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -83,10 +85,13 @@ type RunBeadResult struct {
 	SessionID  string
 	FinalState string
 	Success    bool
-	// ExitCode is the spawned process's exit code (0 on a clean exit). The
-	// stage-attempt ledger records it as a fact independent of Success,
+	// ExitCode is the spawned process's real exit code, or nil when no
+	// process ever exited to report one - a spawn failure, or any error
+	// surfaced before proc.Wait() returned an exit status. -1 means the
+	// process was terminated by a signal (see exec.ExitError.ExitCode()).
+	// The stage-attempt ledger records it as a fact independent of Success,
 	// which also folds in the follow-up-refusal case below.
-	ExitCode int
+	ExitCode *int
 	// Usage is the last terminal token-usage event the dialect's stream
 	// reported (codex's turn.completed, claude's result), or nil when the
 	// run never emitted one - e.g. it errored before completing a turn.
@@ -213,6 +218,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 
 	exitErr := proc.Wait()
 	exitCode := exitCodeFromErr(exitErr)
+	success := exitCode != nil && *exitCode == 0
 
 	capturedSID := r.CapturedSessionID()
 	if capturedSID != "" {
@@ -257,7 +263,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	return RunBeadResult{
 		SessionID:     resultSessionID,
 		FinalState:    finalState,
-		Success:       exitCode == 0,
+		Success:       success,
 		ExitCode:      exitCode,
 		Usage:         usage,
 		FollowUpCount: followUpCount,
@@ -406,11 +412,25 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 	return proceed
 }
 
-func exitCodeFromErr(err error) int {
+// exitCodeFromErr reports the process's real exit status from proc.Wait()'s
+// error, never a fabricated stand-in. A nil err means a clean exit (code 0).
+// A non-nil err that IS an *exec.ExitError carries the process's own exit
+// code (ExitCode() returns -1 when the process was killed by a signal
+// rather than exiting normally - still the real, distinct fact, not code 1
+// standing in for "something failed"). Any other error (Wait() itself
+// failing for a reason unrelated to the child's exit status) returns nil:
+// no process exit was ever observed, so there is no code to report.
+func exitCodeFromErr(err error) *int {
 	if err == nil {
-		return 0
+		code := 0
+		return &code
 	}
-	return 1
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		code := exitErr.ExitCode()
+		return &code
+	}
+	return nil
 }
 
 // stageLog wraps a file writer with its filesystem path so callers can both
