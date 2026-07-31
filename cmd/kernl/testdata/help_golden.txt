@@ -11,6 +11,7 @@ Subcommands:
   epic         Manage epics (bead graphs)
   bead         Manage individual beads (run one locally, or read and edit the tracker)
   sweep        Close epics whose PRs are merged
+  orchestrator Compare agents by their recorded stage-attempt history
   bookmark     Manage bookmarks
   capture      Capture a quick note/idea into the inbox (text arg or stdin)
   plan         Show the vault notes relevant to a topic (substrate-aware planning)
@@ -347,6 +348,47 @@ Flags:
   --failure-threshold <n>   Consecutive failures before backing off
   --backoff-minutes <list>  Comma-separated backoff schedule, e.g. 5,15,60
   --stale-warn-days <n>     Warn when a PR is open longer than n days
+
+### kernl orchestrator
+kernl orchestrator - Compare agents by their recorded stage-attempt history
+
+Usage:
+  kernl orchestrator stats [--stage <stage>] [--since <duration>] [--json]
+
+Subcommands:
+  stats          Per-agent attempt counts, gate/review rates and medians
+
+Reads every epic's stage-attempt ledger (written by the orchestrator as it
+dispatches beads) and reports, per agent: how many attempts it made, its
+first-pass gate rate, its review-rejection rate, and its median duration
+and diff size. This is the answer to "which agent should implement" from
+recorded history instead of a hunch.
+
+Every rate and median is nil (printed as "-") when the ledger never
+measured it for that group - never a fabricated zero. The row alongside it
+says how many observations the number covers.
+
+This command only reports. It never edits kernl.yaml or reweights a pool -
+that stays a human decision made with kernl settings.
+
+Run 'kernl orchestrator stats --help' for its flags.
+
+### kernl orchestrator stats
+kernl orchestrator stats - Per-agent attempt counts, gate/review rates and medians
+
+Usage:
+  kernl orchestrator stats [--stage <stage>] [--since <duration>] [--json]
+
+--since accepts a Go duration (720h) or the day shorthand (30d); any other
+value is refused rather than silently treated as "all time".
+
+When nothing has ever run through the ledger, this prints that plainly and
+exits 0 - it is not an error.
+
+Flags:
+  --stage <stage>     Only rows for this workflow stage (e.g. implementation)
+  --since <duration>  Only rows started at or after now minus this - 720h or 30d
+  --json              Emit the same numbers as one camelCase document, null where unmeasured
 
 ### kernl bookmark
 kernl bookmark - Manage bookmarks
