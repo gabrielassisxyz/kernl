@@ -16,6 +16,10 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
+	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
@@ -235,10 +239,14 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	be := &epicRunTestBackend{
 		beads: []backend.Bead{
 			{ID: "e", Type: "epic", Title: "test epic"},
-			{ID: "a", Type: "task", ParentID: "e", State: "ready_for_implementation"},
-			{ID: "b", Type: "task", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "b"}}},
-			{ID: "c", Type: "task", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "c"}}},
-			{ID: "d", Type: "task", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "b", TargetID: "d"}, {SourceID: "c", TargetID: "d"}}},
+			// Title is set on every child too: StartWorkflowRun's bead
+			// reference nodes require a non-empty title (see
+			// ensureBeadReferenceNode), and a real epic run always has one
+			// from the tracker.
+			{ID: "a", Type: "task", Title: "task a", ParentID: "e", State: "ready_for_implementation"},
+			{ID: "b", Type: "task", Title: "task b", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "b"}}},
+			{ID: "c", Type: "task", Title: "task c", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "a", TargetID: "c"}}},
+			{ID: "d", Type: "task", Title: "task d", ParentID: "e", State: "ready_for_implementation", Dependencies: []backend.BeadDependency{{SourceID: "b", TargetID: "d"}, {SourceID: "c", TargetID: "d"}}},
 		},
 	}
 	scm := session.NewSessionConnectionManager(&epicRunProvider{}, nil)
@@ -257,6 +265,11 @@ func testAppWithDiamondEpic(t *testing.T, spawnFn app.SpawnFunc) *app.App {
 	return &app.App{
 		Backend: be,
 		Driver:  driver,
+		// A real (in-memory) graph: epic run now opens a workflow_run node
+		// through it before dispatching any child, and a nil Graph is a
+		// loud KERNL DISPATCH FAILURE, not a silent no-op (see
+		// app.StartWorkflowRun).
+		Graph: testutil.NewInMemoryTestGraph(t),
 		// The allowlist kernl writes for a dispatched agent lands here, not in
 		// the operator's real ~/.kernl.
 		StateDir: t.TempDir(),
@@ -293,6 +306,57 @@ func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 	}
 	if !guiURLPrinted {
 		t.Error("epic run must print the embedded GUI URL on startup")
+	}
+}
+
+// TestEpicRunCreatesAndClosesAWorkflowRunLinkedToEveryChild is the
+// acceptance test for wiring app.StartWorkflowRun/CloseWorkflowRun into epic
+// run: a successful run (here, --dry-run so it never reaches the one stage
+// that acts outside the machine) leaves exactly one workflow_run node
+// behind, closed at "completed" rather than stuck at "running", with a
+// ran_bead edge to the epic itself and to every child epic.LoadEpic found.
+func TestEpicRunCreatesAndClosesAWorkflowRunLinkedToEveryChild(t *testing.T) {
+	fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
+
+	if err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", "--dry-run", "e"}, func(string) {}); err != nil {
+		t.Fatalf("epic run: %v", err)
+	}
+
+	var runs []*nodes.WorkflowRun
+	if err := fakeApp.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		runs, err = nodes.ListWorkflowRuns(context.Background(), tx, nodes.WorkflowRunFilter{})
+		return err
+	}); err != nil {
+		t.Fatalf("ListWorkflowRuns: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly 1 workflow_run node, got %d", len(runs))
+	}
+	if runs[0].Status != "completed" {
+		t.Errorf("Status = %q, want %q - a successful run must not leave the run stuck at \"running\"", runs[0].Status, "completed")
+	}
+
+	var out []edges.Edge
+	if err := fakeApp.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		out, err = edges.Outgoing(context.Background(), tx, runs[0].ID, edges.WithType(edges.EdgeTypeRanBead))
+		return err
+	}); err != nil {
+		t.Fatalf("edges.Outgoing: %v", err)
+	}
+	want := map[string]bool{"e": true, "a": true, "b": true, "c": true, "d": true}
+	got := map[string]bool{}
+	for _, e := range out {
+		got[e.Dst] = true
+	}
+	if len(got) != len(want) {
+		t.Fatalf("ran_bead edges = %v, want one each for %v", got, want)
+	}
+	for id := range want {
+		if !got[id] {
+			t.Errorf("no ran_bead edge to %s", id)
+		}
 	}
 }
 
@@ -345,6 +409,27 @@ func TestEpicRunBlockedPrintsNextStep(t *testing.T) {
 	s := out.String()
 	if !strings.Contains(s, "blocked") || !strings.Contains(s, "kernl epic run e") {
 		t.Errorf("blocked output must name the failed bead and the re-run command: %q", s)
+	}
+
+	// The run record must reflect the failure too, not just the CLI's own
+	// text output - closed at "failed" with the same error carried into
+	// RunData.failure, not left stuck at "running" forever.
+	var runs []*nodes.WorkflowRun
+	if rerr := fakeApp.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		runs, err = nodes.ListWorkflowRuns(context.Background(), tx, nodes.WorkflowRunFilter{})
+		return err
+	}); rerr != nil {
+		t.Fatalf("ListWorkflowRuns: %v", rerr)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected exactly 1 workflow_run node, got %d", len(runs))
+	}
+	if runs[0].Status != "failed" {
+		t.Errorf("Status = %q, want %q", runs[0].Status, "failed")
+	}
+	if !strings.Contains(runs[0].RunData, `"failure"`) {
+		t.Errorf("RunData does not carry a failure field: %s", runs[0].RunData)
 	}
 }
 

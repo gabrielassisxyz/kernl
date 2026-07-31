@@ -192,7 +192,7 @@ type epicListRow struct {
 	State    string `json:"state"`
 }
 
-func runEpicRun(a *app.App, configPath string, args []string, out func(string)) error {
+func runEpicRun(a *app.App, configPath string, args []string, out func(string)) (err error) {
 	repoFlag, args, err := takeRepoFlag("epic run", args)
 	if err != nil {
 		return err
@@ -426,6 +426,65 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if err != nil {
 		return err
 	}
+
+	// The run record opens here, after every read-only validation above and
+	// after the shipment destination is settled: a run refused for a flag
+	// typo or an undeclared remote must never leave a "running" run node
+	// behind for a dispatch that in fact never started. It closes via the
+	// defer immediately below, on every path out of this function from here
+	// on, including --dry-run (dry-run only stops shipment, not dispatch
+	// itself - see resolveShipmentPlan).
+	epicBead, err := a.Backend.Get(epicID, repoPath)
+	if err != nil || epicBead == nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s while opening its workflow run record: %w", epicID, repoPath, err)
+	}
+	runBeads := make([]app.BeadRef, 0, len(ep.Children)+1)
+	runBeads = append(runBeads, app.BeadRef{ID: epicID, Title: epicBead.Title})
+	for _, child := range ep.Children {
+		runBeads = append(runBeads, app.BeadRef{ID: child.ID, Title: child.Title})
+	}
+	runWorkflowName := customProfileID
+	if runWorkflowName == "" {
+		runWorkflowName = "worker"
+	}
+	runID, err := app.StartWorkflowRun(context.Background(), a.Graph, app.StartWorkflowRunInput{
+		EntryPoint:     "epic run",
+		Title:          epicBead.Title,
+		WorkflowName:   runWorkflowName,
+		Beads:          runBeads,
+		RepoPath:       repoPath,
+		BaseBranch:     baseBranch,
+		VerifyCommand:  verifyCommand,
+		TrackerCommand: trackerCommand,
+		DryRun:         dryRun,
+		StartedAt:      time.Now(),
+	})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		status, failure := "completed", ""
+		if err != nil {
+			status, failure = "failed", err.Error()
+		}
+		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
+			Status:     status,
+			FinishedAt: time.Now(),
+			Failure:    failure,
+		})
+		if closeErr == nil {
+			return
+		}
+		if err != nil {
+			err = fmt.Errorf("%w - additionally, closing workflow run %s failed: %v", err, runID, closeErr)
+			return
+		}
+		// The dispatch itself succeeded; only the run record failed to
+		// close. Reporting that as a plain success would leave a run stuck
+		// at "running" with no report ever composed for it, and nothing
+		// short of reading this error would reveal that happened.
+		err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", epicID, runID, closeErr)
+	}()
 
 	doneSet := resumePlan.DoneSet()
 	// Collect session IDs for beads that have a recorded session.
