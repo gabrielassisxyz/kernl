@@ -27,7 +27,19 @@ const maxRelevantDecisions = 5
 // maxRelevanceTerms bounds how many of the bead's own vocabulary words drive
 // the search - each term is its own FTS lookup (see FetchRelevantDecisions),
 // so this also bounds the query cost for an unusually long bead description.
-const maxRelevanceTerms = 8
+//
+// relevanceTerms takes words in document order (title, then description),
+// so a low cap and a title or description that opens with ordinary prose
+// can exhaust the budget before ever reaching the specific identifier a
+// decision would actually be about. 16 is not a fix for that in general -
+// a description can always be written to be long enough to defeat any fixed
+// cap - but each term is one cheap, local FTS lookup against this
+// repository's own graph db, not a network call, so doubling the budget
+// from the original 8 buys real margin for a negligible cost rather than
+// building the term-selection logic into a scoring system to chase a
+// pathological case that a hand-picked stopword list would have its own
+// arbitrary edges around.
+const maxRelevanceTerms = 16
 
 // RelevantDecision is the sliver of a standing Decision node that reaches
 // the implementer's prompt: Title plus Outcome, not the full Body. Body
@@ -67,6 +79,19 @@ type RelevantDecision struct {
 // rejected alternative's own name appears verbatim in the first decision's
 // Outcome text, which is exactly what a second bead about the same concept
 // would also use in its own title.
+//
+// bead's own id is used to drop a decision it already recorded itself (see
+// decisionScope's isSelf) - correct for a bead that records its own
+// decisions, such as a child bead this project's own drive loop calls this
+// for. It is the WRONG answer for a container bead asking on behalf of its
+// children: an epic is has_decision-linked to every decision any of its
+// children recorded (WriteDecisionRecordNode links bead, epic and run
+// together), so isSelf would never be true for the epic's own id and every
+// child decision would be treated as self-authored and dropped. This is
+// unreachable today - the only production caller (relatedDecisionsForPrompt
+// in drive_bead.go) is gated to skip exactly the epic-bead call sites that
+// would pass a container's own id here - but a future caller that fetches
+// on an epic's behalf inherits the trap silently unless it reads this.
 func FetchRelevantDecisions(ctx context.Context, g *graph.Graph, repoPath string, bead *backend.Bead) ([]RelevantDecision, error) {
 	terms := relevanceTerms(bead.Title+" "+bead.Description, maxRelevanceTerms)
 	if len(terms) == 0 {
@@ -164,7 +189,18 @@ func relevanceTerms(s string, max int) []string {
 // WriteDecisionRecordNode); only the latter two resolve as a bead reference
 // node, so ErrNotFound on a run source is expected and skipped rather than
 // treated as a failure.
+//
+// Repository comparison runs both sides through filepath.Clean rather than
+// comparing the raw strings: ref.Repository and repoPath are both written
+// from the same configured path today (nothing in internal/config cleans it
+// on load), so an uncleaned or trailing-separator spelling reaching one side
+// and not the other is a real, cheap-to-close gap even though nothing
+// currently produces two DIFFERENT spellings of the same directory (a
+// symlink, a relative vs. absolute path). Clean does not close that second
+// half - it is not attempted here, since nothing in this codebase produces
+// it either.
 func decisionScope(ctx context.Context, tx *graph.ReadTx, decisionID, repoPath, beadID string) (sameRepo, isSelf bool, err error) {
+	cleanRepoPath := filepath.Clean(repoPath)
 	in, err := edges.Incoming(ctx, tx, decisionID, edges.WithType(edges.EdgeTypeHasDecision))
 	if err != nil {
 		return false, false, err
@@ -177,7 +213,7 @@ func decisionScope(ctx context.Context, tx *graph.ReadTx, decisionID, repoPath, 
 			}
 			return false, false, err
 		}
-		if ref.Repository == repoPath {
+		if filepath.Clean(ref.Repository) == cleanRepoPath {
 			sameRepo = true
 		}
 		if e.Src == beadID {
