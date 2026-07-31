@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -152,7 +153,7 @@ func TestRecordDecisionIfGateType_NoOpForOtherGateTypes(t *testing.T) {
 	// Backend): a no-op must return before ever touching either, so passing
 	// zero values doubles as proof the function never even tries to open a
 	// graph, or fetch an epic, for a gate type it does not own.
-	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1"); err != nil {
+	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1", ""); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
 	}
 }
@@ -161,7 +162,7 @@ func TestRecordDecisionIfGateType_NoOpWhenNoGateForState(t *testing.T) {
 	wf := backend.WorkflowDescriptor{ExitGates: map[string]backend.WorkflowExitGate{}}
 	gateCtx := backend.ExitGateContext{FromState: "implementation"}
 
-	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1"); err != nil {
+	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1", ""); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
 	}
 }
@@ -469,6 +470,132 @@ func TestEnsureBeadReferenceNode_MissingFactsFailsLoud(t *testing.T) {
 	}
 }
 
+// --- trackerKindFromCommand: a bead reference node's tracker_kind is
+// permanent (the node is never updated), so an unrecognized tracker must
+// fail loud rather than be recorded. ---
+
+func TestTrackerKindFromCommand_RejectsUnsupportedKind(t *testing.T) {
+	// "kno" is knots' real binary name (see backend.knownMemoryManagers) -
+	// a genuinely supported tracker for everything else in this codebase,
+	// and exactly why this must be an explicit allow-list rather than "any
+	// non-empty first token": a plausible-looking tracker command must not
+	// silently pass through into an immutable node.
+	_, err := trackerKindFromCommand("kno -C '/repo'")
+	if err == nil {
+		t.Fatal("expected an error: knots is not a supported bead reference tracker kind")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error %q does not carry the KERNL DISPATCH FAILURE marker", err.Error())
+	}
+	if !strings.Contains(err.Error(), "kno") {
+		t.Errorf("error %q does not name the rejected kind %q", err.Error(), "kno")
+	}
+}
+
+func TestTrackerKindFromCommand_RejectsEmptyCommand(t *testing.T) {
+	_, err := trackerKindFromCommand("")
+	if err == nil {
+		t.Fatal("expected an error: an empty tracker command names no kind at all")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error %q does not carry the KERNL DISPATCH FAILURE marker", err.Error())
+	}
+}
+
+func TestTrackerKindFromCommand_AcceptsBrAndBd(t *testing.T) {
+	for _, cmd := range []string{"br --db '/repo/.beads/beads.db'", "bd -C '/repo'"} {
+		kind, err := trackerKindFromCommand(cmd)
+		if err != nil {
+			t.Errorf("trackerKindFromCommand(%q): %v", cmd, err)
+		}
+		want := strings.Fields(cmd)[0]
+		if kind != want {
+			t.Errorf("trackerKindFromCommand(%q) = %q, want %q", cmd, kind, want)
+		}
+	}
+}
+
+// TestEnsureBeadReferenceNode_ConcurrentCreatesConvergeOnOneRow is finding 2:
+// every child bead of the same epic calls ensureBeadReferenceNode for the
+// same epic id, each through its own *graph.Graph, the way
+// recordDecisionIfGateType actually opens one per call in production. A
+// check-then-insert implementation races across those separate connections -
+// two callers can both observe absence before either commits, and only one
+// of their inserts then succeeds, failing the other's whole decision-record
+// write for a reason that has nothing to do with what that sibling did.
+//
+// This spawns genuinely concurrent writers (separate goroutines, separate
+// *graph.Graph instances, released together) rather than a sequential loop,
+// because a sequential loop cannot observe the interleaving the race
+// requires: two callers' SELECT both running before either callers' INSERT
+// commits.
+func TestEnsureBeadReferenceNode_ConcurrentCreatesConvergeOnOneRow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "graph.db")
+
+	// Apply the schema once, sequentially, before the concurrent writers
+	// start - concurrent first-opens would otherwise race the migration
+	// runner itself, a different (and uninteresting) race than the one
+	// this test exists to exercise.
+	seedGraph, err := graph.Open(context.Background(), graph.Config{Path: dbPath})
+	if err != nil {
+		t.Fatalf("graph.Open (seed): %v", err)
+	}
+	if err := seedGraph.Close(); err != nil {
+		t.Fatalf("closing seed graph: %v", err)
+	}
+
+	ref := BeadRef{ID: "kb-epic-concurrent-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
+
+	const writers = 16
+	graphs := make([]*graph.Graph, writers)
+	for i := range graphs {
+		g, err := graph.Open(context.Background(), graph.Config{Path: dbPath})
+		if err != nil {
+			t.Fatalf("graph.Open (writer %d): %v", i, err)
+		}
+		graphs[i] = g
+		t.Cleanup(func() { _ = g.Close() })
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, writers)
+	start := make(chan struct{})
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = graphs[i].DoWrite(context.Background(), func(tx *graph.WriteTx) error {
+				return ensureBeadReferenceNode(context.Background(), tx, ref, nodes.Author{Name: "test"})
+			})
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("writer %d: %v", i, err)
+		}
+	}
+
+	verify, err := graph.Open(context.Background(), graph.Config{Path: dbPath})
+	if err != nil {
+		t.Fatalf("graph.Open (verify): %v", err)
+	}
+	defer verify.Close()
+
+	var count int
+	if err := verify.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE id = ?`, ref.ID).Scan(&count)
+	}); err != nil {
+		t.Fatalf("counting nodes: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("node count for %s after %d concurrent creators = %d, want 1", ref.ID, writers, count)
+	}
+}
+
 // TestWriteDecisionRecordNode_PartialFailureRollsBackEverything is criterion
 // 4: a failure part-way through the transaction must leave nothing behind.
 // The bead's own reference node is created first and would succeed on its
@@ -540,7 +667,7 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: artifactDir, BeadID: beadID}
 	deps := DriveBeadDeps{Config: cfg, Backend: be, RepoPath: "/repo", TrackerCommand: "bd"}
 
-	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, deps, be.beads[beadID], epicID); err != nil {
+	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, deps, be.beads[beadID], epicID, be.beads[epicID].Title); err != nil {
 		t.Fatalf("recordDecisionIfGateType: %v", err)
 	}
 
@@ -588,6 +715,12 @@ func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
 		State:     "implementation",
 		ProfileID: "autopilot_with_pr",
 	}
+	// Registered so the epic pre-fetch (which runs before the agent, for
+	// any decision_record-gated stage, regardless of whether the record
+	// file will later be found - see the loop in DriveBeadToTerminal)
+	// succeeds; this test's own point is the gate failing on a missing
+	// record, not the epic being unreachable.
+	be.beads["kb-epic-1"] = &backend.Bead{ID: "kb-epic-1", Title: "epic bead"}
 
 	cfg := newDriveTestConfig()
 	vaultRoot := t.TempDir()
@@ -623,6 +756,79 @@ func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
 	}
 }
 
+// TestDriveBeadToTerminal_EpicFetchFailsBeforeAgentRuns is finding 3: an
+// epic that cannot be fetched must not discard a successful agent run. Here
+// the epic is simply never registered in the fake backend (standing in for
+// a transient tracker failure or a concurrently deleted epic) - the point
+// is not the exact cause, it is that DriveBeadToTerminal discovers this
+// before spawning the agent for a stage that could not have completed
+// anyway, rather than after, the way a fetch made only once the gate had
+// already passed would.
+func TestDriveBeadToTerminal_EpicFetchFailsBeforeAgentRuns(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{
+		ID:        "kb-1",
+		Title:     "child bead",
+		ParentID:  "kb-epic-unreachable",
+		State:     "implementation",
+		ProfileID: "autopilot_with_pr",
+	}
+	// kb-epic-unreachable is deliberately never registered.
+
+	cfg := newDriveTestConfig()
+	vaultRoot := t.TempDir()
+	cfg.Vault = config.VaultConfig{Root: vaultRoot}
+
+	// A well-formed record is in place, exactly where the gate expects it -
+	// if the agent were allowed to run, the gate would pass. This is what
+	// isolates the failure to the epic fetch specifically, not to a missing
+	// record (already covered by
+	// TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode).
+	stateDir := t.TempDir()
+	artifactDir := filepath.Join(stateDir, "run", "kb-epic-unreachable", "kb-1")
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	driver := &scriptedDriver{be: be}
+	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
+		StateDir:        stateDir,
+		VerifyCommand:   "bin/ci",
+		Backend:         be,
+		Driver:          driver,
+		Config:          cfg,
+		BeadID:          "kb-1",
+		RepoPath:        "/tmp/repo",
+		Worktree:        "/tmp/worktree",
+		MaxStages:       16,
+		HeadSHAResolver: fakeHeadSHAResolver{sha: "deadbeef"},
+	})
+	if err == nil {
+		t.Fatal("expected an error: the epic could not be fetched")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("error %q does not carry the KERNL DISPATCH FAILURE marker", err.Error())
+	}
+	if !strings.Contains(err.Error(), "kb-epic-unreachable") {
+		t.Errorf("error %q does not name the unreachable epic", err.Error())
+	}
+	if res.Success {
+		t.Errorf("expected failure, got success: %+v", res)
+	}
+	if driver.calls != 0 {
+		t.Errorf("driver.calls = %d, want 0 - the agent must never run when its epic cannot be fetched, even though its record was ready and would have passed the gate", driver.calls)
+	}
+
+	graphPath := filepath.Join(vaultRoot, ".kernl-graph.db")
+	if _, statErr := os.Stat(graphPath); statErr == nil {
+		t.Errorf("graph db %s exists, but the epic fetch failed before any write was attempted", graphPath)
+	}
+}
+
 // TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode is the
 // positive counterpart: a well-formed record plus a graph that already has
 // nodes for the bead and epic (see WriteDecisionRecordNode's own doc comment
@@ -638,8 +844,9 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 		State:     "implementation",
 		ProfileID: "autopilot_with_pr",
 	}
-	// The epic is fetched separately (deps.Backend.Get) to build its own
-	// reference node's title - see recordDecisionIfGateType.
+	// The epic is fetched by DriveBeadToTerminal's own loop, before the
+	// agent runs, to build its reference node's title (see finding 3's
+	// fix in the loop, right after epicID is resolved).
 	be.beads["kb-epic-2"] = &backend.Bead{ID: "kb-epic-2", Title: "epic bead"}
 
 	cfg := newDriveTestConfig()
@@ -756,8 +963,9 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 		State:     "ready_for_implementation",
 		ProfileID: "subprocess-decision-record",
 	}
-	// The epic is fetched separately (deps.Backend.Get) to build its own
-	// reference node's title - see recordDecisionIfGateType.
+	// The epic is fetched by DriveBeadToTerminal's own loop, before the
+	// agent runs, to build its reference node's title (see finding 3's
+	// fix in the loop, right after epicID is resolved).
 	be.beads["kb-epic-sub-1"] = &backend.Bead{ID: "kb-epic-sub-1", Title: "epic bead"}
 
 	cfg := newDriveTestConfig()

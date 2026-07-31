@@ -32,25 +32,12 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
 
-	// Seed the bead and epic nodes app.WriteDecisionRecordNode's edges will
-	// point at - the same technique the pre-existing dispatch/audit tests
-	// used for the (now-excluded) "autonomous" edge.
-	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		if _, err := nodes.CreateTask(ctx, tx, nodes.Task{ID: "kb-1", Title: "bead"}, nodes.Author{Name: "test"}); err != nil {
-			return err
-		}
-		_, err := nodes.CreateTask(ctx, tx, nodes.Task{ID: "kb-epic-1", Title: "epic"}, nodes.Author{Name: "test"})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("seeding stand-in nodes: %v", err)
-	}
-
-	// A record written by this bead's actual production path. The bead and
-	// epic nodes were already seeded above as Task stand-ins, so
-	// WriteDecisionRecordNode's reference-node creation short-circuits on
-	// nodes.Exists and never needs the BeadRef's Title/TrackerKind/RepoPath.
-	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, app.BeadRef{ID: "kb-1"}, app.BeadRef{ID: "kb-epic-1"}); err != nil {
+	// A record written by this bead's actual production path.
+	// WriteDecisionRecordNode creates the bead's and the epic's own
+	// reference nodes itself - no stand-in seeding needed.
+	bead := app.BeadRef{ID: "kb-1", Title: "bead", TrackerKind: "br", RepoPath: "/repo"}
+	epic := app.BeadRef{ID: "kb-epic-1", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
+	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, bead, epic); err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
 
@@ -58,7 +45,7 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	// (dispatch.LogAutonomousDecision's shape). It must NOT appear: it
 	// carries a different tag and a different edge type, and this endpoint
 	// is deliberately scoped to Phase 3 decision records only.
-	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		decisionID, err := nodes.CreateDecision(ctx, tx, nodes.Decision{
 			Title:     "Autonomous Decision",
 			Body:      "prompt",
@@ -151,13 +138,7 @@ func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ctx := context.Background()
 
-	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		_, err := nodes.CreateTask(ctx, tx, nodes.Task{ID: "kb-many", Title: "bead"}, nodes.Author{Name: "test"})
-		return err
-	})
-	if err != nil {
-		t.Fatalf("seeding stand-in node: %v", err)
-	}
+	bead := app.BeadRef{ID: "kb-many", Title: "bead", TrackerKind: "br", RepoPath: "/repo"}
 
 	const seeded = 101 // one more than decisionsPageLimit
 	for i := 0; i < seeded; i++ {
@@ -167,7 +148,7 @@ func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
 			"trade_offs":         wellFormedAuditFixtureSections["trade_offs"],
 			"rationale":          wellFormedAuditFixtureSections["rationale"],
 		}
-		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, app.BeadRef{ID: "kb-many"}, app.BeadRef{ID: "kb-many"}); err != nil {
+		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, bead, bead); err != nil {
 			t.Fatalf("WriteDecisionRecordNode(%d): %v", i, err)
 		}
 	}

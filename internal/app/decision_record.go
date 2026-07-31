@@ -164,36 +164,48 @@ type BeadRef struct {
 	RepoPath    string
 }
 
-// trackerKindFromCommand extracts the tracker binary name ("br" or "bd")
-// from the invocation string DriveBeadDeps.TrackerCommand already carries.
+// validBeadReferenceTrackerKinds are the only tracker_kind values a bead
+// reference node may ever store. A reference node is never updated after
+// creation (see nodes.BeadReference), so a wrong value here is not a
+// transient glitch - it is permanent and unfixable without a migration, and
+// this check is the last point before it is written where that can be
+// prevented. backend.MemoryManagerType also names "knots" as a supported
+// tracker, deliberately excluded here: nothing has validated this write path
+// against a knots-backed repository's tracker command shape, so rejecting it
+// loudly is safer than writing an unverified value into an immutable node.
+var validBeadReferenceTrackerKinds = map[string]bool{"br": true, "bd": true}
+
+// trackerKindFromCommand extracts the tracker binary name from the
+// invocation string DriveBeadDeps.TrackerCommand already carries, and
+// validates it against validBeadReferenceTrackerKinds.
 // backend.TrackerInvocation always builds that string as "<binary> <rest>"
 // (see its own doc comment), so the first field is the kind - this is string
 // surgery on data already resolved for the run, not a second call to
 // backend.ResolveMemoryManager, which would mean re-detecting which tracker
 // the repository uses.
-func trackerKindFromCommand(trackerCommand string) string {
+func trackerKindFromCommand(trackerCommand string) (string, error) {
 	fields := strings.Fields(trackerCommand)
 	if len(fields) == 0 {
-		return ""
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: tracker command is empty, so no tracker kind can be recorded on a bead reference node - Fix: resolve DriveBeadDeps.TrackerCommand with backend.TrackerInvocation before driving a bead")
 	}
-	return fields[0]
+	kind := fields[0]
+	if !validBeadReferenceTrackerKinds[kind] {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: tracker command %q names tracker kind %q, which a bead reference node cannot record - Fix: this write path only supports br and bd; a knots-backed repository is not yet supported here", trackerCommand, kind)
+	}
+	return kind, nil
 }
 
-// ensureBeadReferenceNode creates a reference node for ref unless a node
-// already exists at that id - nodes.Exists checks any node type, so a bead
-// already mirrored by an earlier write (or, in a caller's tests, stood in by
-// some other node type) short-circuits without a second insert attempting to
-// reuse the same primary key. Nothing on this node ever needs correcting
-// after creation (see nodes.BeadReference and CreateBeadReference's doc
-// comments), so "already exists" is success, not a conflict to reconcile.
+// ensureBeadReferenceNode creates a reference node for ref, or is a no-op if
+// one already exists at that id. It calls nodes.CreateBeadReference
+// unconditionally rather than checking nodes.Exists first: every child bead
+// of the same epic calls this for the same epic id, each through its own
+// *graph.Graph (recordDecisionIfGateType opens one per call), so a
+// check-then-insert here would race across those separate connections - two
+// callers can both observe absence before either commits, and only one of
+// their inserts would then succeed. nodes.CreateBeadReference's own insert
+// is atomic and idempotent, so every caller converges on the same row
+// without that window.
 func ensureBeadReferenceNode(ctx context.Context, tx *graph.WriteTx, ref BeadRef, author nodes.Author) error {
-	exists, err := nodes.Exists(ctx, tx, ref.ID)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
 	var missing []string
 	if ref.Title == "" {
 		missing = append(missing, "title")
@@ -207,7 +219,7 @@ func ensureBeadReferenceNode(ctx context.Context, tx *graph.WriteTx, ref BeadRef
 	if len(missing) > 0 {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: creating a reference node for bead %s: missing %s - Fix: this data must come from the bead already fetched by DriveBeadToTerminal and the DriveBeadDeps.TrackerCommand/RepoPath resolved for the run; a placeholder must never be substituted here", ref.ID, strings.Join(missing, ", "))
 	}
-	_, err = nodes.CreateBeadReference(ctx, tx, nodes.BeadReference{
+	_, err := nodes.CreateBeadReference(ctx, tx, nodes.BeadReference{
 		ID:          ref.ID,
 		Title:       ref.Title,
 		TrackerKind: ref.TrackerKind,
@@ -325,14 +337,16 @@ func readDecisionRecordSections(gate backend.WorkflowExitGate, gateCtx backend.E
 // per stage, after the gate that reads the same file already proved it well
 // formed.
 //
-// bead and deps are the caller's own loop state, not re-derived here: bead
-// is the same object DriveBeadToTerminal already fetched at the top of its
-// iteration, and deps.Backend/RepoPath/TrackerCommand were resolved once for
-// the whole run. The only lookup this function performs itself is fetching
-// the epic's own bead when it differs from bead - needed for its reference
-// node's title, and not a second tracker resolution, just a second bead read
-// through the same already-resolved deps.Backend.
-func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor, gateCtx backend.ExitGateContext, deps DriveBeadDeps, bead *backend.Bead, epicID string) error {
+// bead, deps and epicTitle are the caller's own loop state, not re-derived
+// here: bead is the same object DriveBeadToTerminal already fetched at the
+// top of its iteration, deps.RepoPath/TrackerCommand were resolved once for
+// the whole run, and epicTitle (when epicID differs from bead.ID) is fetched
+// by the same loop, before the agent runs, not here. A second tracker fetch
+// at this point - after the agent already ran and the gate already passed -
+// would turn a transient lookup failure into a reason to discard work that
+// had already succeeded; DriveBeadToTerminal pays that cost earlier, when
+// failing costs nothing but a retry of the fetch itself.
+func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor, gateCtx backend.ExitGateContext, deps DriveBeadDeps, bead *backend.Bead, epicID, epicTitle string) error {
 	gate, ok := wf.ExitGates[gateCtx.FromState]
 	if !ok || gate.Type != "decision_record" {
 		return nil
@@ -343,18 +357,14 @@ func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor
 		return err
 	}
 
-	trackerKind := trackerKindFromCommand(deps.TrackerCommand)
+	trackerKind, err := trackerKindFromCommand(deps.TrackerCommand)
+	if err != nil {
+		return err
+	}
 	beadRef := BeadRef{ID: bead.ID, Title: bead.Title, TrackerKind: trackerKind, RepoPath: deps.RepoPath}
 	epicRef := beadRef
 	if epicID != "" && epicID != bead.ID {
-		epicBead, getErr := deps.Backend.Get(epicID, deps.RepoPath)
-		if getErr != nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: decision_record gate passed for bead %s but its epic %s could not be fetched from %s to build its reference node: %w - Fix: confirm the epic bead still exists in the tracker at that repo path", bead.ID, epicID, deps.RepoPath, getErr)
-		}
-		if epicBead == nil {
-			return fmt.Errorf("KERNL DISPATCH FAILURE: decision_record gate passed for bead %s but its epic %s was not found in %s to build its reference node - Fix: confirm the epic bead still exists in the tracker at that repo path", bead.ID, epicID, deps.RepoPath)
-		}
-		epicRef = BeadRef{ID: epicID, Title: epicBead.Title, TrackerKind: trackerKind, RepoPath: deps.RepoPath}
+		epicRef = BeadRef{ID: epicID, Title: epicTitle, TrackerKind: trackerKind, RepoPath: deps.RepoPath}
 	}
 
 	graphPath, err := graphDBFilePath(deps.Config)
