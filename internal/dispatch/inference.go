@@ -11,6 +11,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/llmendpoint"
 	"github.com/gabrielassisxyz/kernl/internal/prompt"
 )
 
@@ -61,6 +62,18 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+// completeChatProviders are the providers CompleteChat can actually finish a
+// request for: it knows their auth header and how to unwrap their response
+// envelope. llmendpoint.Resolve accepts a wider set - it also serves
+// internal/chat's ollama and gemini clients - so without this check a
+// provider outside this set would still resolve to a plausible URL, send an
+// openai-shaped body with no auth header, and fail downstream as an
+// unexplained empty response instead of a reason.
+var completeChatProviders = map[string]bool{
+	"anthropic": true,
+	"openai":    true,
+}
+
 // CompleteChat sends prompt to the configured LLM and returns its raw text
 // response. It is the only place in this repository that builds an LLM chat
 // request, resolves a provider's default endpoint, sets provider auth
@@ -73,6 +86,9 @@ func CompleteChat(ctx context.Context, llmCfg config.LLMConfig, prompt string, m
 	if !llmCfg.IsSet() {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.provider is not set - Fix: set llm.provider (and llm.model / llm.api_key as the provider requires) in kernl.yaml")
 	}
+	if !completeChatProviders[llmCfg.Provider] {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.provider %q has no request/response support in dispatch.CompleteChat - Fix: set llm.provider to one of anthropic, openai in kernl.yaml", llmCfg.Provider)
+	}
 
 	reqBody, _ := json.Marshal(map[string]any{
 		"model": llmCfg.Model,
@@ -82,13 +98,15 @@ func CompleteChat(ctx context.Context, llmCfg config.LLMConfig, prompt string, m
 		"max_tokens": maxTokens,
 	})
 
-	endpoint := llmCfg.Endpoint
-	if endpoint == "" && llmCfg.Provider == "anthropic" {
-		endpoint = "https://api.anthropic.com/v1/messages"
-	} else if endpoint == "" && llmCfg.Provider == "openai" {
-		endpoint = "https://api.openai.com/v1/chat/completions"
-	} else if endpoint == "" && llmCfg.Provider == "gemini" {
-		endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + llmCfg.Model + ":generateContent"
+	// llm.endpoint is a base URL, resolved the same way for every caller in
+	// this codebase - see internal/llmendpoint. Building the URL here by
+	// hand (as this function used to) is what let it diverge from
+	// internal/chat's clients: this function treated llm.endpoint as
+	// already-complete, they treated it as a base to extend, and no single
+	// configured value satisfied both.
+	endpoint, err := llmendpoint.Resolve(llmCfg.Provider, llmCfg.Endpoint, llmCfg.Model)
+	if err != nil {
+		return "", err
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(reqBody))

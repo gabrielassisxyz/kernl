@@ -136,7 +136,12 @@ type LLMConfig struct {
 	Provider string `yaml:"provider"` // "openai" | "anthropic" | "ollama"
 	APIKey   string `yaml:"api_key"`
 	Model    string `yaml:"model"`
-	Endpoint string `yaml:"endpoint"` // custom base URL, optional
+	// Endpoint is always a base URL (scheme + host, e.g. a local proxy such
+	// as http://localhost:4000), never a complete request URL - every
+	// consumer of this field appends the provider's own request path onto
+	// it, resolved in one place by internal/llmendpoint. Optional; empty
+	// falls back to the provider's default base URL.
+	Endpoint string `yaml:"endpoint"`
 }
 
 // IsSet reports whether the LLM is configured (provider is non-empty).

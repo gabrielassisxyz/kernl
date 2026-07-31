@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/gabrielassisxyz/kernl/internal/llmendpoint"
 )
 
 // AnthropicClient calls the Anthropic Messages API.
@@ -23,13 +25,13 @@ func NewAnthropicClient(cfg LLMProviderConfig) (*AnthropicClient, error) {
 	if cfg.APIKey == "" {
 		return nil, fmt.Errorf("missing API key for the Anthropic provider")
 	}
-	baseURL := strings.TrimRight(cfg.Endpoint, "/")
-	if baseURL == "" {
-		baseURL = "https://api.anthropic.com"
-	}
 	model := cfg.Model
 	if model == "" {
 		model = "claude-3-5-sonnet-20241022"
+	}
+	baseURL, err := llmendpoint.Base("anthropic", cfg.Endpoint)
+	if err != nil {
+		return nil, err
 	}
 	return &AnthropicClient{
 		apiKey:     cfg.APIKey,
@@ -59,7 +61,14 @@ func (c *AnthropicClient) Chat(ctx context.Context, messages []Message, tools []
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/messages", bytes.NewReader(bodyBytes))
+	// c.baseURL is already resolved (custom or provider default), so this
+	// only ever appends the fixed Anthropic request path onto it.
+	url, err := llmendpoint.Resolve("anthropic", c.baseURL, c.model)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
