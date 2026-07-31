@@ -102,6 +102,13 @@ else
     skip "gitleaks not installed: go install github.com/zricethezav/gitleaks/v8@latest"
 fi
 
+section "throughput (bash unit tests)"
+if command -v jq >/dev/null 2>&1; then
+    bin/throughput_test.sh && ok || bad
+else
+    skip "jq not installed - bin/throughput's ledger join needs it"
+fi
+
 echo
 # anti-slop gate: em-dash in prose + the tool-name leak. Canonical: llm-workflow bin/slop-guard.
 echo "==> slop-guard"; bin/slop-guard --diff "${SLOP_GUARD_BASE:-origin/master}" || fail=1
