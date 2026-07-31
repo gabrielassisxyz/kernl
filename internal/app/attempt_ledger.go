@@ -29,8 +29,14 @@ import (
 // contract is not ledger-specific - only this writer needs the verdict text
 // itself.
 func reviewVerdictForGate(wf backend.WorkflowDescriptor, ctx backend.ExitGateContext) *string {
-	gate, ok := wf.ExitGates[ctx.FromState]
-	if !ok || gate.Type != "artifact_verdict" {
+	var gate *backend.WorkflowExitGate
+	for _, g := range wf.ExitGates[ctx.FromState] {
+		if g.Type == "artifact_verdict" {
+			gate = &g
+			break
+		}
+	}
+	if gate == nil {
 		return nil
 	}
 	if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
