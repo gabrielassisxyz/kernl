@@ -22,6 +22,7 @@ func TestBeadReferenceRoundtrip(t *testing.T) {
 		Title:       "Add CLI parity for epic run",
 		TrackerKind: "br",
 		Repository:  "/home/user/repositories/kernl",
+		IsFixup:     true,
 	}
 
 	var id string
@@ -59,6 +60,9 @@ func TestBeadReferenceRoundtrip(t *testing.T) {
 	if got.Repository != b.Repository {
 		t.Errorf("Repository = %q, want %q", got.Repository, b.Repository)
 	}
+	if got.IsFixup != b.IsFixup {
+		t.Errorf("IsFixup = %v, want %v", got.IsFixup, b.IsFixup)
+	}
 }
 
 // TestBeadReferenceStoredAttrsAreExactlyTrackerKindAndRepository pins the
@@ -95,7 +99,11 @@ func TestBeadReferenceStoredAttrsAreExactlyTrackerKindAndRepository(t *testing.T
 		t.Fatalf("unmarshal attrs: %v", err)
 	}
 
-	wantKeys := map[string]bool{"tracker_kind": true, "repository": true}
+	// is_fixup was added deliberately, per this test's own doc comment: it
+	// is fixed at creation and never updated, exactly like tracker_kind and
+	// repository, so it does not reintroduce the drift this pin test exists
+	// to catch (a mutable field such as "status" or "labels" would).
+	wantKeys := map[string]bool{"tracker_kind": true, "repository": true, "is_fixup": true}
 	if len(attrs) != len(wantKeys) {
 		t.Fatalf("stored attrs = %v, want exactly keys %v", attrs, wantKeys)
 	}

@@ -171,6 +171,11 @@ type BeadRef struct {
 	Title       string
 	TrackerKind string
 	RepoPath    string
+	// IsFixup marks that ID names a Phase 6 fix-up bead (see
+	// IntegrationFixupLabel), so the reference node created for it carries
+	// that fact forward into the graph. Only ever meaningful for a bead's
+	// own ref, never an epic's - an epic is never itself a fix-up bead.
+	IsFixup bool
 }
 
 // validBeadReferenceTrackerKinds are the only tracker_kind values a bead
@@ -233,6 +238,7 @@ func ensureBeadReferenceNode(ctx context.Context, tx *graph.WriteTx, ref BeadRef
 		Title:       ref.Title,
 		TrackerKind: ref.TrackerKind,
 		Repository:  ref.RepoPath,
+		IsFixup:     ref.IsFixup,
 	}, author)
 	return err
 }
@@ -397,7 +403,7 @@ func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor
 	if err != nil {
 		return err
 	}
-	beadRef := BeadRef{ID: bead.ID, Title: bead.Title, TrackerKind: trackerKind, RepoPath: deps.RepoPath}
+	beadRef := BeadRef{ID: bead.ID, Title: bead.Title, TrackerKind: trackerKind, RepoPath: deps.RepoPath, IsFixup: HasLabel(bead.Labels, IntegrationFixupLabel)}
 	epicRef := beadRef
 	if epicID != "" && epicID != bead.ID {
 		epicRef = BeadRef{ID: epicID, Title: epicTitle, TrackerKind: trackerKind, RepoPath: deps.RepoPath}

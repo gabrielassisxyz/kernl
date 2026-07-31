@@ -350,6 +350,42 @@ func TestDriveBeadToTerminal_BlockedReturnsFalse(t *testing.T) {
 	if res.Success {
 		t.Error("expected Success=false for blocked bead")
 	}
+	if res.BlockedAtState != "" {
+		t.Errorf("BlockedAtState = %q, want empty - this bead carries no wf:state:* label to recover one from", res.BlockedAtState)
+	}
+}
+
+// TestDriveBeadToTerminal_BlockedRecoversStageFromStaleLabel proves a bead
+// that is ALREADY "blocked" on entry (a retry, not a failure this call
+// produced) still reports which stage caused it: the transition that sets
+// State to "blocked" never touches labels, so the wf:state:* label a prior
+// claim step wrote is still there, and this is the only place that
+// information survives to be read back. A caller that must react to one
+// specific stage's own failure (Phase 6's fix-up mechanism, epic_fixup.go)
+// depends on this to avoid misreading a stale artifact left by some other,
+// unrelated stage's failure as a fresh one.
+func TestDriveBeadToTerminal_BlockedRecoversStageFromStaleLabel(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "blocked", Labels: []string{"wf:profile:epic", "wf:state:integration_review"}}
+
+	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand: "bd",
+		StateDir:       t.TempDir(),
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         &scriptedDriver{be: be},
+		Config:         newDriveTestConfig(),
+		BeadID:         "kb-1",
+		RepoPath:       "/tmp/repo",
+		Worktree:       "/tmp/worktree",
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.BlockedAtState != "integration_review" {
+		t.Errorf("BlockedAtState = %q, want %q recovered from the stale wf:state:* label", res.BlockedAtState, "integration_review")
+	}
 }
 
 func TestDriveBead_StageCommentRecorded(t *testing.T) {

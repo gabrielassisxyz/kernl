@@ -108,7 +108,17 @@ func StartWorkflowRun(ctx context.Context, g *graph.Graph, in StartWorkflowRunIn
 	refs := make([]BeadRef, len(in.Beads))
 	beadIDs := make([]string, len(in.Beads))
 	for i, b := range in.Beads {
-		refs[i] = BeadRef{ID: b.ID, Title: b.Title, TrackerKind: trackerKind, RepoPath: in.RepoPath}
+		// IsFixup is copied from the caller's own BeadRef, not recomputed:
+		// this is the FIRST bead_reference write for a run's beads
+		// (recordDecisionIfGateType's later ensureBeadReferenceNode call is
+		// a no-op once this one has landed - CreateBeadReference is INSERT
+		// OR IGNORE), so if IsFixup were dropped here the way every other
+		// per-bead fact this node deliberately excludes is, a fix-up bead's
+		// own decision would permanently read as IsFixup=false in the
+		// graph - the run report's sort-first-and-label behavior exists to
+		// act on a fact this exact write path would otherwise have already
+		// erased before that behavior ever got a chance to run.
+		refs[i] = BeadRef{ID: b.ID, Title: b.Title, TrackerKind: trackerKind, RepoPath: in.RepoPath, IsFixup: b.IsFixup}
 		beadIDs[i] = b.ID
 	}
 

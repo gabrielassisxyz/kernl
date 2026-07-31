@@ -150,8 +150,16 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: bead.State, Success: true}, nil
 		}
 		if bead.State == string(workflow.StatusBlocked) {
-			slog.Info("DRIVE_TRACE return blocked", "bead", deps.BeadID, "iter", i)
-			return RunBeadResult{FinalState: bead.State, Success: false}, nil
+			// This bead was already blocked BEFORE this call - a retry of a
+			// prior attempt, not a fresh gate failure this iteration
+			// produced. The transition that set State to "blocked" never
+			// touches labels, so the wf:state:* label is still whatever it
+			// was the moment before the block - the one place that
+			// information survives, since "blocked" itself carries no
+			// memory of which stage caused it.
+			blockedAt := stateFromStaleLabel(bead.Labels)
+			slog.Info("DRIVE_TRACE return blocked", "bead", deps.BeadID, "iter", i, "blockedAtState", blockedAt)
+			return RunBeadResult{FinalState: bead.State, Success: false, BlockedAtState: blockedAt}, nil
 		}
 
 		if deps.StopBeforeState != "" && bead.State == deps.StopBeforeState {
@@ -302,7 +310,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
 				_ = deps.Backend.Comment(deps.BeadID, commentBody, deps.RepoPath)
-				return RunBeadResult{FinalState: "blocked", Success: false}, nil
+				return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: "subprocess_" + causeStr}, nil
 			}
 
 			runtimeState.ContextPayload = resp.ContextPayload
@@ -378,7 +386,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			} else {
 				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
 				_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
-				return RunBeadResult{FinalState: "blocked", Success: false}, nil
+				return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}, nil
 			}
 
 			lastResult = RunBeadResult{FinalState: activeState, Success: true}
@@ -586,7 +594,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		} else {
 			_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
 			_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
-			return RunBeadResult{FinalState: "blocked", Success: false}, nil
+			return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}, nil
 		}
 
 		lastResult = res
@@ -737,6 +745,21 @@ func filterOutLabelPrefix(labels []string, prefix string) []string {
 		}
 	}
 	return out
+}
+
+// stateFromStaleLabel recovers the workflow state a bead was active in
+// before something set its status to "blocked" - the blocking transition
+// itself only ever writes State (see the two "blocked" branches above), so
+// the wf:state:* label a prior claim step set is never overwritten and
+// still names the stage whose gate actually failed. Returns "" when no such
+// label exists (a bead blocked some other way, e.g. by hand).
+func stateFromStaleLabel(labels []string) string {
+	for _, l := range labels {
+		if strings.HasPrefix(l, "wf:state:") {
+			return strings.TrimPrefix(l, "wf:state:")
+		}
+	}
+	return ""
 }
 
 // applyOpencodePermissions points OPENCODE_CONFIG at the allowlist the spawned

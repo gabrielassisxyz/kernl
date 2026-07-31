@@ -101,6 +101,23 @@ type RunBeadResult struct {
 	FollowUpCount int
 	// Nudged reports whether at least one follow-up was sent.
 	Nudged bool
+	// BlockedAtState names the workflow state that was active when
+	// FinalState became "blocked" - FinalState itself is only ever the
+	// literal string "blocked" in that case, which loses which stage
+	// actually failed. A caller that must react to one SPECIFIC stage's
+	// own failure (Phase 6's fix-up mechanism reacts only to
+	// integration_review, never to a different stage that happens to
+	// block while an earlier integration_review's own artifact is still
+	// sitting on disk from a prior attempt) keys on this field instead of
+	// re-reading a well-known artifact path and hoping it is fresh. Empty
+	// for every FinalState other than "blocked".
+	BlockedAtState string
+	// GateFailureReason is the exit gate's own failure reason for
+	// BlockedAtState (backend.EvaluateExitGate's vocabulary:
+	// verdict_reject, verdict_not_pass, commit_marker_missing, ...), or the
+	// subprocess flow's own "subprocess_<cause>" when the block was not a
+	// gate evaluation at all. Empty whenever BlockedAtState is.
+	GateFailureReason string
 }
 
 type SessionDriver struct {

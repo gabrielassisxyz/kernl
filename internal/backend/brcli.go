@@ -644,8 +644,141 @@ func (b *BrCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 	return nil, brUnimplemented("listWorkflows")
 }
 
+// Create is what Phase 6's fix-up beads need: a fix-up bead is a new bead in
+// the target repository's own tracker, created mid-run with no operator
+// involvement, so it has to exist here rather than fail loud like the rest
+// of this file.
+//
+// Two things measured against a live throwaway `br` workspace turned out
+// different from what had been assumed going in, and both are corrections
+// worth recording rather than re-deriving:
+//
+//  1. `br create --parent <id>` exists and creates a real parent-child
+//     dependency (`br dep list <parent> --direction up --type=parent-child`
+//     finds it) - unlike the assumption that parent-child could only be
+//     added afterward via a second `dep add` call. So ParentID maps directly
+//     onto `--parent`, and BrCliBackend.AddDependency is not used here: it
+//     has no --type flag at all, so it always creates br's default "blocks"
+//     edge, never "parent-child" - it would silently create the wrong kind
+//     of dependency for this purpose.
+//  2. `br create` has NO `--acceptance` and NO `--notes` flag (confirmed via
+//     `br create --help` and a live call, which br rejects at argument
+//     parsing with exit 2) - unlike `br update`, which supports both. So
+//     Acceptance/Notes/Invariants cannot be set in the same call that
+//     creates the bead; they are a second, immediate Update, not a silently
+//     dropped field.
+//
+// ProfileID and WorkflowID have no br create equivalent at all - not even a
+// two-step one - so a caller that sets either gets a loud refusal rather
+// than a bead that silently lacks it: this project already has a convention
+// for conveying a profile (the wf:profile: label, set via Update once the
+// bead's caller decides which profile it runs), and reinventing a second one
+// here would only create two ways to do the same thing.
 func (b *BrCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
-	return nil, brUnimplemented("create")
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br create requires a title - Fix: populate CreateBeadInput.Title")
+	}
+	if input.ProfileID != "" || input.WorkflowID != "" {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br create has no profile/workflow concept - ProfileID=%q WorkflowID=%q would be silently dropped - Fix: create the bead without them, then set the wf:profile:/wf:state: labels with Update, the same way epic children already get theirs", input.ProfileID, input.WorkflowID)
+	}
+
+	// Options are collected before the title, not after: "create" followed
+	// immediately by a bare title (the pre-existing shape) hands br a title
+	// beginning with "-" as the next flag instead of a positional argument -
+	// unlike every other value in this file, brValue cannot help here
+	// because the title is positional, not a flag's own value. Every field
+	// this adapter maps to a create-time flag is a value that already goes
+	// through brValue for the exact same reason; the title needs the other
+	// half of br's own escape mechanism instead: "--" ends flag parsing, so
+	// whatever follows - including one starting with "-" - is read as a
+	// positional argument, never a flag. This surface was previously
+	// unreachable (br create was unimplemented), so nothing exercised a
+	// hostile title before Phase 6 made Create callable at all - including
+	// from POST /api/beads, which accepts any string a caller sends.
+	args := []string{"create"}
+	if input.Type != "" {
+		args = append(args, brValue("--type", input.Type))
+	}
+	// Always sent: CreateBeadInput.Priority is a plain int, not a pointer
+	// like UpdateBeadInput.Priority, so this adapter has no way to tell "the
+	// caller wants br's own default" apart from "the caller wants P0" - Go's
+	// zero value already reads as the latter, and that is what gets sent.
+	args = append(args, brValue("--priority", strconv.Itoa(input.Priority)))
+	if input.Description != "" {
+		args = append(args, brValue("--description", input.Description))
+	}
+	if input.Assignee != "" {
+		args = append(args, brValue("--assignee", input.Assignee))
+	}
+	if input.Due != "" {
+		args = append(args, brValue("--due", input.Due))
+	}
+	if len(input.Labels) > 0 {
+		args = append(args, brValue("--labels", strings.Join(input.Labels, ",")))
+	}
+	if input.ParentID != "" {
+		args = append(args, brValue("--parent", input.ParentID))
+	}
+	if input.Estimate != 0 {
+		args = append(args, brValue("--estimate", strconv.Itoa(input.Estimate)))
+	}
+	args = append(args, "--", title)
+
+	out, err := b.run(context.Background(), repoPath, args...)
+	if err != nil {
+		return nil, err
+	}
+	// Unlike show/list/dep-list, `br create --json` prints one issue object,
+	// not an array - measured against a live create, not assumed from the
+	// other commands' envelope shapes.
+	var issue brIssue
+	if err := json.Unmarshal(out, &issue); err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: parsing `br create %q`: %w", title, err)
+	}
+	bead := issue.toBead()
+
+	notes := input.Notes
+	if len(input.Invariants) > 0 {
+		notes = embedInvariantsInNotes(notes, input.Invariants)
+	}
+	if input.Acceptance != "" || notes != "" {
+		if err := b.Update(bead.ID, UpdateBeadInput{Acceptance: input.Acceptance, Notes: notes}, repoPath); err != nil {
+			// The issue itself was already created (and linked, and
+			// labeled - everything create's own first call sets). Returning
+			// a plain error here would discard bead.ID entirely, and a
+			// caller told "nothing was created, retry" would call Create
+			// again for the same title and end up with two issues for one
+			// request. CreatePartialError carries the bead that DOES exist,
+			// so a caller can finish the one remaining step (write
+			// acceptance/notes directly) instead of re-creating it.
+			return nil, &CreatePartialError{Bead: &bead, error: fmt.Errorf("KERNL DISPATCH FAILURE: bead %s was created (and linked, if a parent was given) but writing its acceptance/notes failed: %w - Fix: run `br update %s --acceptance ... --notes ...` against the bead that already exists; do not call Create again for the same title, it would create a duplicate", bead.ID, err, bead.ID)}
+		}
+		bead.Acceptance = input.Acceptance
+		bead.Notes = notes
+	}
+	return &bead, nil
+}
+
+// CreatePartialError marks that Create's underlying issue creation
+// succeeded but a required follow-up write failed - today, only the
+// acceptance/notes update `br create` cannot do in one call (see Create's
+// own doc comment). Bead is never nil when this error is returned: a caller
+// using errors.As can recover the created bead's id and resume the one
+// remaining step, instead of treating "Create returned an error" as "Create
+// created nothing" and retrying the whole operation into a duplicate.
+type CreatePartialError struct {
+	Bead *Bead
+	error
+}
+
+// NewCreatePartialError builds a CreatePartialError from another package -
+// the embedded error field's name is unexported (it is literally "error"),
+// so a composite literal naming it can only be written inside this package;
+// this is the constructor any other caller that must fabricate one for a
+// test uses instead.
+func NewCreatePartialError(bead *Bead, err error) *CreatePartialError {
+	return &CreatePartialError{Bead: bead, error: err}
 }
 
 func (b *BrCliBackend) Delete(id string, repoPath string) error {
