@@ -342,3 +342,51 @@ func TestCascadeOnNodeDelete(t *testing.T) {
 		t.Errorf("edge-bc-not-via-a should survive, got count %d", bcCount)
 	}
 }
+
+// TestExists_TrueOnlyForTheExactTriple pins the three states an idempotent
+// writer needs to distinguish before deciding whether to call Create: no
+// edge at all, the exact (src, dst, type) triple, and a same-src-dst edge of
+// a different type (which must not count, since Exists is a check for
+// exactly the edge a retry would otherwise duplicate).
+func TestExists_TrueOnlyForTheExactTriple(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	mustCreateNode(t, g, "node-src", "test", "src")
+	mustCreateNode(t, g, "node-dst", "test", "dst")
+
+	ctx := context.Background()
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		exists, err := edges.Exists(ctx, tx, "node-src", "node-dst", edges.EdgeTypeHasDecision)
+		if err != nil {
+			return err
+		}
+		if exists {
+			t.Error("Exists = true before any edge was created")
+		}
+
+		if _, err := edges.Create(ctx, tx, edges.Edge{Src: "node-src", Dst: "node-dst", Type: edges.EdgeTypeRelated}, authorTester); err != nil {
+			return err
+		}
+		exists, err = edges.Exists(ctx, tx, "node-src", "node-dst", edges.EdgeTypeHasDecision)
+		if err != nil {
+			return err
+		}
+		if exists {
+			t.Error("Exists = true for has_decision after only a related edge was created between the same nodes")
+		}
+
+		if _, err := edges.Create(ctx, tx, edges.Edge{Src: "node-src", Dst: "node-dst", Type: edges.EdgeTypeHasDecision}, authorTester); err != nil {
+			return err
+		}
+		exists, err = edges.Exists(ctx, tx, "node-src", "node-dst", edges.EdgeTypeHasDecision)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			t.Error("Exists = false right after Create committed the exact triple in this same transaction")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

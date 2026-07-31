@@ -206,6 +206,12 @@ func (r *SessionRuntime) ResultObserved() bool {
 	return r.resultObserved
 }
 
+// IsError reports whether the dialect's own stream marked the turn that just
+// ended as a failure or incomplete response (claude's result.is_error,
+// codex's turn.failed, gemini's non-success result, copilot's session.error,
+// opencode's step_finish/session_error) - never inferred from timing or bead
+// state. The take-loop's follow-up gate uses this to tell a turn that ended
+// without finishing from one that ended because the agent was done.
 func (r *SessionRuntime) IsError() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -488,8 +494,19 @@ func (r *SessionRuntime) processNormalizedEvent(evtType string, obj map[string]a
 func (r *SessionRuntime) processClaudeEvent(evtType string, obj map[string]any, rawLine string, caps DialectCapabilities) {
 	switch evtType {
 	case "result":
+		// Claude's own stream-json result carries is_error, exactly like
+		// codex's turn.failed or gemini's non-success status - it is the
+		// dialect's own report of whether this turn finished or gave up, not
+		// a guess. Recording it here is what lets a consumer (the take-loop's
+		// follow-up gate) tell "the agent is done" from "the agent stopped
+		// without finishing" at the moment the turn ends, before the bead's
+		// own state has had a chance to reflect either outcome.
+		isErr, _ := obj["is_error"].(bool)
 		r.mu.Lock()
 		r.lastEventType = "result"
+		if isErr {
+			r.isError = true
+		}
 		tokenLogger := r.tokenLogger
 		dialect := r.dialect
 		beadID := r.beadID

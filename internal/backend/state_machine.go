@@ -1010,22 +1010,31 @@ func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
 	return b.String(), inComment
 }
 
-// missingDecisionRecordSections returns the canonical keys of the required
-// sections that are absent, or present but empty, from a decision record's
-// markdown content. A markdown heading is either ATX ("## Text") or setext
-// (text immediately followed by an "===" or "---" underline); either kind -
-// required or not - closes the previous section, so an unrelated heading the
-// implementer adds (e.g. a "## Context" preamble) cannot be folded into a
-// required section's body. Headings inside a fenced code block or an HTML
-// comment are not recognized, and a section body left with nothing but a
-// horizontal rule or a comment does not count as content - see
-// classifyDecisionRecordLines and isThematicBreak.
+// DecisionRecordSectionBodies parses a decision record's markdown content
+// and returns the extracted body text for every recognized section that
+// carries real content, keyed by the same canonical keys
+// missingDecisionRecordSections reports as missing (decision,
+// options_considered, trade_offs, rationale). A markdown heading is either
+// ATX ("## Text") or setext (text immediately followed by an "===" or "---"
+// underline); either kind - required or not - closes the previous section,
+// so an unrelated heading the implementer adds (e.g. a "## Context"
+// preamble) cannot be folded into a required section's body. Headings inside
+// a fenced code block or an HTML comment are not recognized, and a section
+// body left with nothing but a horizontal rule or a comment does not count
+// as content - see classifyDecisionRecordLines and isThematicBreak.
 //
 // This is deliberately not a full CommonMark implementation: it recognizes
 // exactly the block constructs an agent's decision record realistically
 // contains or could use to fake one (fences, comments, ATX/setext headings,
 // horizontal rules), not the entire spec.
-func missingDecisionRecordSections(content string) []string {
+//
+// Exported so a caller that already knows a decision_record exit gate passed
+// - and therefore that these bodies exist - can read the record into
+// structured data (e.g. a graph node) without re-parsing it with a second,
+// potentially divergent implementation of "what counts as a section". The
+// gate itself (missingDecisionRecordSections) is defined in terms of this
+// function precisely to guarantee the two can never disagree.
+func DecisionRecordSectionBodies(content string) map[string]string {
 	content = strings.TrimPrefix(content, "\uFEFF") // UTF-8 BOM, if present
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
@@ -1077,7 +1086,7 @@ func missingDecisionRecordSections(content string) []string {
 		}
 	}
 
-	found := make(map[string]bool, len(decisionRecordSections))
+	bodies := make(map[string]string, len(decisionRecordSections))
 	for i, h := range hits {
 		if h.key == "" {
 			continue
@@ -1095,13 +1104,22 @@ func missingDecisionRecordSections(content string) []string {
 		}
 		body := strings.TrimSpace(strings.Join(visibleLines, "\n"))
 		if body != "" {
-			found[h.key] = true
+			bodies[h.key] = body
 		}
 	}
+	return bodies
+}
+
+// missingDecisionRecordSections returns the canonical keys of the required
+// sections that are absent, or present but empty, from a decision record's
+// markdown content. See DecisionRecordSectionBodies for how a section and its
+// body are recognized.
+func missingDecisionRecordSections(content string) []string {
+	bodies := DecisionRecordSectionBodies(content)
 
 	var missing []string
 	for _, s := range decisionRecordSections {
-		if !found[s.key] {
+		if _, ok := bodies[s.key]; !ok {
 			missing = append(missing, s.key)
 		}
 	}

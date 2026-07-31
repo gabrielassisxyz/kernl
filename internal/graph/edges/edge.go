@@ -22,6 +22,11 @@ const (
 	EdgeTypeBlocks    EdgeType = "blocks"
 	EdgeTypePartOf    EdgeType = "part_of"
 	EdgeTypeLinksTo   EdgeType = "links_to"
+	// EdgeTypeHasDecision links a bead or epic (Src) to a Decision node
+	// (Dst) recording a design decision made during that unit of work. It
+	// exists so that link has a typed member of this closed set instead of
+	// a bare string literal typed by hand at each call site.
+	EdgeTypeHasDecision EdgeType = "has_decision"
 )
 
 // Edge models a directed relationship between two nodes.
@@ -107,6 +112,20 @@ func Create(ctx context.Context, tx *graph.WriteTx, edge Edge, author nodes.Auth
 	}
 
 	return id, nil
+}
+
+// Exists reports whether an edge with this exact (src, dst, type) triple
+// already exists. There is no uniqueness constraint on that triple at the
+// schema level, so this is the tool an idempotent writer uses to check
+// before calling Create - a retry that calls Create unconditionally would
+// mint a second, indistinguishable edge every time it runs.
+func Exists(ctx context.Context, tx *graph.WriteTx, src, dst string, t EdgeType) (bool, error) {
+	var count int
+	err := tx.QueryRow(`SELECT COUNT(*) FROM edges WHERE src = ? AND dst = ? AND label = ?`, src, dst, string(t)).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("edges.Exists: %w", err)
+	}
+	return count > 0, nil
 }
 
 // Delete removes an edge by ID. Validates author before deletion.

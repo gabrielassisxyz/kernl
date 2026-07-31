@@ -674,3 +674,50 @@ func TestDeleteTombstonePreservesAuthor(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestExists_TrueAfterCreateFalseForUnknownID covers the two states an
+// idempotent writer (a content-addressed create-if-not-exists) needs to
+// distinguish inside a single write transaction.
+func TestExists_TrueAfterCreateFalseForUnknownID(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	spec := fakeSpec{
+		meta: Meta{ID: "node-exists-1"},
+		fts:  FTSFields{Title: "exists check"},
+	}
+
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		exists, err := Exists(ctx, tx, "node-exists-1")
+		if err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("Exists = true before the node was ever created")
+		}
+
+		if _, err := createNode(ctx, tx, "test", spec, Author{Name: "test"}); err != nil {
+			return err
+		}
+
+		exists, err = Exists(ctx, tx, "node-exists-1")
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return fmt.Errorf("Exists = false right after createNode committed the row in this same transaction")
+		}
+
+		exists, err = Exists(ctx, tx, "node-never-created")
+		if err != nil {
+			return err
+		}
+		if exists {
+			return fmt.Errorf("Exists = true for an ID nothing ever created")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

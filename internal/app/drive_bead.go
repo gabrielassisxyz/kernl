@@ -71,6 +71,30 @@ type DriveBeadDeps struct {
 	// which tracker it is and how it reaches its store are both properties of
 	// the repository being worked on.
 	TrackerCommand string
+	// HeadSHAResolver reports a worktree's current HEAD SHA for the ledger
+	// and gate context. Nil defaults to GitHeadSHAResolver{} (the real
+	// git-shelling implementation, mirroring StageAttemptInput.DiffStats in
+	// attempt_ledger.go) - production call sites never need to set this;
+	// only tests inject a fake, so exercising this loop never requires a
+	// real git binary on the host (AGENTS.md §4).
+	HeadSHAResolver HeadSHAResolver
+}
+
+// HeadSHAResolver reports a worktree's current HEAD short SHA, or "" when it
+// cannot be determined. It exists as a seam so the bead-driving loop's own
+// tests do not have to shell out to the host's git binary just to get a
+// stable answer - the same reason attempt_ledger.go's DiffStatter exists.
+type HeadSHAResolver interface {
+	HeadSHA(worktree string) string
+}
+
+// GitHeadSHAResolver is the production HeadSHAResolver: git rev-parse
+// --short HEAD against the given worktree.
+type GitHeadSHAResolver struct{}
+
+// HeadSHA delegates to worktreeHeadSHA, the pre-existing implementation.
+func (GitHeadSHAResolver) HeadSHA(worktree string) string {
+	return worktreeHeadSHA(worktree)
 }
 
 // DriveBeadToTerminal advances a single bead through every agent-claimable
@@ -90,6 +114,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 	maxStages := deps.MaxStages
 	if maxStages <= 0 {
 		maxStages = 16
+	}
+	headSHA := deps.HeadSHAResolver
+	if headSHA == nil {
+		headSHA = GitHeadSHAResolver{}
 	}
 
 	var lastResult RunBeadResult
@@ -162,6 +190,29 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: activeState, Success: false}, err
 		}
 
+		// A decision_record gate on this stage needs the epic's own title
+		// to build its reference node (see recordDecisionIfGateType).
+		// Fetched here, before the agent runs, so a transient tracker
+		// failure or a concurrently deleted epic is discovered before an
+		// agent invocation is spent - rather than discarding a successful
+		// agent run and a passed gate afterward, the way a fetch made only
+		// after the gate had already passed would.
+		epicTitle := ""
+		if epicID != "" && epicID != deps.BeadID {
+			if gate, ok := wf.ExitGates[activeState]; ok && gate.Type == "decision_record" {
+				epicBead, epicErr := deps.Backend.Get(epicID, deps.RepoPath)
+				if epicErr != nil {
+					return RunBeadResult{FinalState: activeState, Success: false},
+						fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at stage %s needs its epic %s to record a decision, but the epic could not be fetched from %s: %w - Fix: confirm the epic bead still exists in the tracker at that repo path", deps.BeadID, activeState, epicID, deps.RepoPath, epicErr)
+				}
+				if epicBead == nil {
+					return RunBeadResult{FinalState: activeState, Success: false},
+						fmt.Errorf("KERNL DISPATCH FAILURE: bead %s at stage %s needs its epic %s to record a decision, but the epic was not found in %s - Fix: confirm the epic bead still exists in the tracker at that repo path", deps.BeadID, activeState, epicID, deps.RepoPath)
+				}
+				epicTitle = epicBead.Title
+			}
+		}
+
 		if deps.AgentStateStore != nil && activeStage.Kind == "subprocess" {
 			// Subprocess flow
 			runtimeState, err := deps.AgentStateStore.Load(deps.BeadID)
@@ -180,7 +231,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// Captured before dispatch so commit_marker gates can scope their
 			// scan to what this stage produced, not the branch's prior
 			// history (see resolveArtifactDir and backend.ExitGateContext).
-			baseSHA := worktreeHeadSHA(deps.Worktree)
+			baseSHA := headSHA.HeadSHA(deps.Worktree)
 			startTime := time.Now()
 			subprocessAgentID := "subprocess"
 			if len(activeStage.Subprocess.Command) > 0 {
@@ -225,7 +276,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					StartedAt:         startTime,
 					Duration:          time.Since(startTime),
 					BaseSHA:           baseSHA,
-					CommitSHA:         worktreeHeadSHA(deps.Worktree),
+					CommitSHA:         headSHA.HeadSHA(deps.Worktree),
 					Worktree:          deps.Worktree,
 					GatePassed:        false,
 					GateFailureReason: "subprocess_" + causeStr,
@@ -266,7 +317,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				BaseSHA:         baseSHA,
 			}
 			gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
-			commitSHA := worktreeHeadSHA(deps.Worktree)
+			commitSHA := headSHA.HeadSHA(deps.Worktree)
 			agentID := subprocessAgentID
 			// RunSubprocessStage only reaches here when the subprocess's own
 			// cmd.Run() returned no error, so it did exit cleanly - unlike
@@ -290,6 +341,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 			}
 			if gatePassed {
+				// Mirrors a decision_record gate's record into the graph
+				// before the bead is allowed to move on - a no-op for every
+				// other gate type. Run before the state transition, not
+				// after: a bead must not advance past a stage whose
+				// reasoning failed to persist (see recordDecisionIfGateType).
+				if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps, bead, epicID, epicTitle); err != nil {
+					return RunBeadResult{FinalState: activeState, Success: false}, err
+				}
 				nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 				if ok {
 					err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: nextState}, deps.RepoPath)
@@ -388,7 +447,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		// Captured before dispatch so commit_marker gates can scope their
 		// scan to what this stage produced, not the branch's prior history
 		// (see resolveArtifactDir and backend.ExitGateContext).
-		baseSHA := worktreeHeadSHA(deps.Worktree)
+		baseSHA := headSHA.HeadSHA(deps.Worktree)
 		startTime := time.Now()
 		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
@@ -406,7 +465,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				Duration:          time.Since(startTime),
 				ExitCode:          res.ExitCode,
 				BaseSHA:           baseSHA,
-				CommitSHA:         worktreeHeadSHA(deps.Worktree),
+				CommitSHA:         headSHA.HeadSHA(deps.Worktree),
 				Worktree:          deps.Worktree,
 				GatePassed:        false,
 				GateFailureReason: err.Error(),
@@ -433,7 +492,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				Duration:          time.Since(startTime),
 				ExitCode:          res.ExitCode,
 				BaseSHA:           baseSHA,
-				CommitSHA:         worktreeHeadSHA(deps.Worktree),
+				CommitSHA:         headSHA.HeadSHA(deps.Worktree),
 				Worktree:          deps.Worktree,
 				GatePassed:        false,
 				GateFailureReason: fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(res.ExitCode)),
@@ -465,7 +524,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			BaseSHA:         baseSHA,
 		}
 		gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
-		commitSHA := worktreeHeadSHA(deps.Worktree)
+		commitSHA := headSHA.HeadSHA(deps.Worktree)
 		if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 			AgentID:           agentInput.AgentName,
 			Dialect:           attemptDialect,
@@ -490,6 +549,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 		}
 		if gatePassed {
+			// Mirrors a decision_record gate's record into the graph before
+			// the bead is allowed to move on - a no-op for every other gate
+			// type. Run before the state transition, not after: a bead must
+			// not advance past a stage whose reasoning failed to persist
+			// (see recordDecisionIfGateType).
+			if err := recordDecisionIfGateType(ctx, wf, gateCtx, deps, bead, epicID, epicTitle); err != nil {
+				return RunBeadResult{FinalState: activeState, Success: false}, err
+			}
 			nextState, ok := backend.ForwardTransitionTarget(activeState, wf)
 			if ok {
 				err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: nextState}, deps.RepoPath)
