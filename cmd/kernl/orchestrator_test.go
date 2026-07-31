@@ -91,8 +91,55 @@ func TestOrchestratorStatsAggregatesAndFormatsTable(t *testing.T) {
 	if !strings.Contains(out, "claude") {
 		t.Errorf("table must list the claude agent, got: %q", out)
 	}
-	if !strings.Contains(out, "revert/fix-up rate is not reported") {
+	if !strings.Contains(out, "revert/fix-up rate is not part of this report") {
 		t.Errorf("table must carry the quality-column disclaimer, got: %q", out)
+	}
+}
+
+// TestQualityColumnNoteDoesNotReferToPosition guards against the note text
+// regressing to a phrasing like "the numbers below": the JSON surface has no
+// "below" for such a phrase to point at, so the note must name what it
+// qualifies instead of relying on where it happens to be printed.
+func TestQualityColumnNoteDoesNotReferToPosition(t *testing.T) {
+	lower := strings.ToLower(qualityColumnNote)
+	for _, positional := range []string{"below", "above"} {
+		if strings.Contains(lower, positional) {
+			t.Errorf("qualityColumnNote must not rely on print position, found %q in: %s", positional, qualityColumnNote)
+		}
+	}
+}
+
+// TestOrchestratorStatsNoteMatchesInTableAndJSON asserts the same note text
+// - byte for byte - reaches both surfaces: the human table (printed as
+// plain text) and --json (carried as the qualityColumnNote field). A note
+// that reads correctly in one surface but drifts in the other is exactly
+// the defect this bead fixes.
+func TestOrchestratorStatsNoteMatchesInTableAndJSON(t *testing.T) {
+	home := orchestratorTestHome(t)
+	now := time.Now()
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: 30 * time.Second, GatePassed: true,
+	})
+
+	var tableBuf bytes.Buffer
+	if err := runOrchestratorStats(&tableBuf, nil); err != nil {
+		t.Fatalf("runOrchestratorStats: %v", err)
+	}
+	if !strings.Contains(tableBuf.String(), qualityColumnNote) {
+		t.Errorf("human table must carry qualityColumnNote verbatim, got: %q", tableBuf.String())
+	}
+
+	var jsonBuf bytes.Buffer
+	if err := runOrchestratorStats(&jsonBuf, []string{"--json"}); err != nil {
+		t.Fatalf("runOrchestratorStats --json: %v", err)
+	}
+	var out orchestratorStatsOutput
+	if err := json.Unmarshal(jsonBuf.Bytes(), &out); err != nil {
+		t.Fatalf("not valid JSON: %v (%s)", err, jsonBuf.String())
+	}
+	if out.Note != qualityColumnNote {
+		t.Errorf("--json qualityColumnNote field must match the table's note, got: %q", out.Note)
 	}
 }
 
