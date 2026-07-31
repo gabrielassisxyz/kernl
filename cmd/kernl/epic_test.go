@@ -622,3 +622,37 @@ func TestConfirmShapeAnswers(t *testing.T) {
 		t.Errorf("n must abort with a marked error, got: %v", err)
 	}
 }
+
+// TestEpicAlreadyInTailStopsTheRewind is the regression test for the defect
+// that made the epic tail unresumable: driveEpic wrote ready_for_integration
+// unconditionally, so every re-run rewound an epic that had already passed
+// integration, and the commit_marker gate then refused forever because there
+// was no new commit left to make. A manual advance to ready_for_shipment was
+// observed being overwritten by the next run within seconds.
+func TestEpicAlreadyInTailStopsTheRewind(t *testing.T) {
+	// States the epic profile owns beyond its entry: reaching any of them
+	// means the tail has started and the run must resume, not restart.
+	for _, state := range []string{
+		"integration", "ready_for_integration_review", "integration_review",
+		"ready_for_shipment", "shipment", "awaiting_pr_review",
+	} {
+		if !epicAlreadyInTail(state) {
+			t.Errorf("epicAlreadyInTail(%q) = false; an epic at this state must not be rewound to ready_for_integration", state)
+		}
+	}
+
+	// The entry state itself is not "already in the tail" - writing it there
+	// is the no-op that puts a fresh epic onto the profile.
+	if epicAlreadyInTail("ready_for_integration") {
+		t.Error(`epicAlreadyInTail("ready_for_integration") = true; the entry state must still be written for a fresh epic`)
+	}
+
+	// Deliberately unchanged: "blocked" is not one of the profile's states,
+	// so a blocked epic is still rewound. That is the existing way an
+	// operator unsticks one, and changing it is a separate decision.
+	for _, state := range []string{"", "open", "blocked", "ready_for_implementation"} {
+		if epicAlreadyInTail(state) {
+			t.Errorf("epicAlreadyInTail(%q) = true; only the epic profile's own post-entry states count", state)
+		}
+	}
+}
