@@ -31,6 +31,20 @@ type Decision struct {
 	ImpactOnUse *string
 	DecidedAt   time.Time
 	Tags        []string
+	// RevertedAt and RevertReason record that the operator judged this
+	// decision wrong after the fact (the decision model's §6 middle row: the
+	// work stands, the decision does not). Both nil means never reverted;
+	// both set means it was. The node is marked, never deleted or
+	// recreated - the ID is content-addressed over the run, bead, epic and
+	// section bodies (see decisionRecordNodeID), so a delete-and-rewrite of
+	// identical content would converge on the exact same ID, and a node
+	// that once existed then silently vanished at that ID is a worse
+	// outcome than one that stays and says why. "This decision was reverted
+	// on <date> because <reason>" is itself information a reader needs
+	// months later, which is the same reason the record was written to the
+	// graph in the first place.
+	RevertedAt   *time.Time
+	RevertReason *string
 }
 
 // Meta returns the common metadata for this node.
@@ -50,6 +64,8 @@ func (d Decision) NodeAttrs() []byte {
 		"outcome":       d.Outcome,
 		"decided_at":    d.DecidedAt,
 		"impact_on_use": d.ImpactOnUse,
+		"reverted_at":   d.RevertedAt,
+		"revert_reason": d.RevertReason,
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -63,6 +79,9 @@ func (d Decision) FTSFields() FTSFields {
 	parts := []string{d.Body, d.Context, d.Outcome}
 	if d.ImpactOnUse != nil {
 		parts = append(parts, *d.ImpactOnUse)
+	}
+	if d.RevertReason != nil {
+		parts = append(parts, *d.RevertReason)
 	}
 	body := strings.Join(parts, " ")
 	return FTSFields{Title: d.Title, Body: body, Tags: strings.Join(d.Tags, " ")}
@@ -97,11 +116,13 @@ func GetDecision(ctx context.Context, tx *graph.ReadTx, id string) (*Decision, e
 	}
 
 	var attrs struct {
-		Body        string    `json:"body"`
-		Context     string    `json:"context"`
-		Outcome     string    `json:"outcome"`
-		DecidedAt   time.Time `json:"decided_at"`
-		ImpactOnUse *string   `json:"impact_on_use"`
+		Body         string     `json:"body"`
+		Context      string     `json:"context"`
+		Outcome      string     `json:"outcome"`
+		DecidedAt    time.Time  `json:"decided_at"`
+		ImpactOnUse  *string    `json:"impact_on_use"`
+		RevertedAt   *time.Time `json:"reverted_at"`
+		RevertReason *string    `json:"revert_reason"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -115,16 +136,18 @@ func GetDecision(ctx context.Context, tx *graph.ReadTx, id string) (*Decision, e
 	}
 
 	return &Decision{
-		ID:          id,
-		CreatedAt:   tryParseTime(createdAt.String),
-		UpdatedAt:   tryParseTime(updatedAt.String),
-		Title:       title.String,
-		Body:        attrs.Body,
-		Context:     attrs.Context,
-		Outcome:     attrs.Outcome,
-		DecidedAt:   attrs.DecidedAt,
-		ImpactOnUse: attrs.ImpactOnUse,
-		Tags:        tags,
+		ID:           id,
+		CreatedAt:    tryParseTime(createdAt.String),
+		UpdatedAt:    tryParseTime(updatedAt.String),
+		Title:        title.String,
+		Body:         attrs.Body,
+		Context:      attrs.Context,
+		Outcome:      attrs.Outcome,
+		DecidedAt:    attrs.DecidedAt,
+		ImpactOnUse:  attrs.ImpactOnUse,
+		Tags:         tags,
+		RevertedAt:   attrs.RevertedAt,
+		RevertReason: attrs.RevertReason,
 	}, nil
 }
 
@@ -180,11 +203,13 @@ func ListDecisions(ctx context.Context, tx *graph.ReadTx, f DecisionFilter) ([]*
 		}
 
 		var attrs struct {
-			Body        string    `json:"body"`
-			Context     string    `json:"context"`
-			Outcome     string    `json:"outcome"`
-			DecidedAt   time.Time `json:"decided_at"`
-			ImpactOnUse *string   `json:"impact_on_use"`
+			Body         string     `json:"body"`
+			Context      string     `json:"context"`
+			Outcome      string     `json:"outcome"`
+			DecidedAt    time.Time  `json:"decided_at"`
+			ImpactOnUse  *string    `json:"impact_on_use"`
+			RevertedAt   *time.Time `json:"reverted_at"`
+			RevertReason *string    `json:"revert_reason"`
 		}
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -198,16 +223,18 @@ func ListDecisions(ctx context.Context, tx *graph.ReadTx, f DecisionFilter) ([]*
 		}
 
 		out = append(out, &Decision{
-			ID:          id,
-			CreatedAt:   tryParseTime(createdAt.String),
-			UpdatedAt:   tryParseTime(updatedAt.String),
-			Title:       title.String,
-			Body:        attrs.Body,
-			Context:     attrs.Context,
-			Outcome:     attrs.Outcome,
-			DecidedAt:   attrs.DecidedAt,
-			ImpactOnUse: attrs.ImpactOnUse,
-			Tags:        tags,
+			ID:           id,
+			CreatedAt:    tryParseTime(createdAt.String),
+			UpdatedAt:    tryParseTime(updatedAt.String),
+			Title:        title.String,
+			Body:         attrs.Body,
+			Context:      attrs.Context,
+			Outcome:      attrs.Outcome,
+			DecidedAt:    attrs.DecidedAt,
+			ImpactOnUse:  attrs.ImpactOnUse,
+			Tags:         tags,
+			RevertedAt:   attrs.RevertedAt,
+			RevertReason: attrs.RevertReason,
 		})
 	}
 	return out, rows.Err()
