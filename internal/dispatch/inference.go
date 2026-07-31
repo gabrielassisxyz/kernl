@@ -62,6 +62,18 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+// completeChatProviders are the providers CompleteChat can actually finish a
+// request for: it knows their auth header and how to unwrap their response
+// envelope. llmendpoint.Resolve accepts a wider set - it also serves
+// internal/chat's ollama and gemini clients - so without this check a
+// provider outside this set would still resolve to a plausible URL, send an
+// openai-shaped body with no auth header, and fail downstream as an
+// unexplained empty response instead of a reason.
+var completeChatProviders = map[string]bool{
+	"anthropic": true,
+	"openai":    true,
+}
+
 // CompleteChat sends prompt to the configured LLM and returns its raw text
 // response. It is the only place in this repository that builds an LLM chat
 // request, resolves a provider's default endpoint, sets provider auth
@@ -73,6 +85,9 @@ type chatMessage struct {
 func CompleteChat(ctx context.Context, llmCfg config.LLMConfig, prompt string, maxTokens int) (string, error) {
 	if !llmCfg.IsSet() {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.provider is not set - Fix: set llm.provider (and llm.model / llm.api_key as the provider requires) in kernl.yaml")
+	}
+	if !completeChatProviders[llmCfg.Provider] {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.provider %q has no request/response support in dispatch.CompleteChat - Fix: set llm.provider to one of anthropic, openai in kernl.yaml", llmCfg.Provider)
 	}
 
 	reqBody, _ := json.Marshal(map[string]any{

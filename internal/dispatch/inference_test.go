@@ -70,3 +70,41 @@ func TestCompleteChat_UnknownProviderFailsLoud(t *testing.T) {
 		t.Errorf("error %q does not carry the KERNL DISPATCH FAILURE marker", got)
 	}
 }
+
+// TestCompleteChat_UnsupportedProviderRefusedBeforeDispatch covers a gap
+// between two provider lists: llmendpoint.Resolve knows how to build a URL
+// for ollama and gemini (internal/chat's ollama client, and the historical
+// gemini default, both need it to), but CompleteChat's auth-header and
+// response-parsing switches only handle anthropic and openai. Without a
+// guard, ollama/gemini would resolve to a plausible URL, dispatch a request
+// with no auth header, and fail downstream as an unexplained empty
+// response - or, for ollama, actually reach a live server and get back an
+// answer this function cannot parse. The server below answers instantly if
+// asked to; a passing test proves CompleteChat never asks it.
+func TestCompleteChat_UnsupportedProviderRefusedBeforeDispatch(t *testing.T) {
+	for _, provider := range []string{"ollama", "gemini"} {
+		t.Run(provider, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Errorf("CompleteChat dispatched a request for provider %q; it should have refused before reaching the network", provider)
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			llmCfg := config.LLMConfig{
+				Provider: provider,
+				APIKey:   "test-key",
+				Model:    "some-model",
+				Endpoint: server.URL,
+			}
+
+			_, err := CompleteChat(context.Background(), llmCfg, "hi", 128)
+			if err == nil {
+				t.Fatalf("expected an error for unsupported provider %q, got nil", provider)
+			}
+			got := err.Error()
+			if !strings.Contains(got, "KERNL DISPATCH FAILURE") || !strings.Contains(got, provider) {
+				t.Errorf("error %q does not name the KERNL DISPATCH FAILURE marker and the offending provider %q", got, provider)
+			}
+		})
+	}
+}
