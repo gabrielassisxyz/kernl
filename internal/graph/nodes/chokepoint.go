@@ -37,6 +37,21 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/internal/ids"
 )
 
+// Exists reports whether a node with this exact ID already exists,
+// regardless of type. It runs against a WriteTx rather than a ReadTx (unlike
+// Get*) because it exists for a caller that needs a check-before-create
+// inside the same write transaction as the create itself - a content-
+// addressed writer that must converge a retry on one node rather than
+// minting a duplicate for every attempt cannot do that check-and-insert
+// across two separate transactions without a race between them.
+func Exists(ctx context.Context, tx *graph.WriteTx, id string) (bool, error) {
+	var count int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE id = ?`, id).Scan(&count); err != nil {
+		return false, fmt.Errorf("nodes.Exists: %w", err)
+	}
+	return count > 0, nil
+}
+
 // createNode inserts a new node, its FTS index, tags, and initial revision.
 func createNode(ctx context.Context, tx *graph.WriteTx, nodeType string, spec NodeSpec, author Author) (string, error) {
 	if !author.Valid() {

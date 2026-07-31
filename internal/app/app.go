@@ -120,25 +120,16 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 		LogDir:        filepath.Join(stateDir, "logs"),
 	})
 
-	graphDBPath := cfg.Vault.Root
-	if graphDBPath == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for graph db path default: %w", err)
-		}
-		graphDBPath = filepath.Join(home, ".kernl")
+	graphPath, err := graphDBFilePath(cfg)
+	if err != nil {
+		return nil, err
 	}
-	// Ensure the directory exists before SQLite tries to open the file there  -
-	// otherwise the open fails with an opaque "unable to open database file"
-	// (e.g. a fresh container/data volume where ~/.kernl does not exist yet).
-	if err := os.MkdirAll(graphDBPath, 0o755); err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: creating graph db dir %s: %w", graphDBPath, err)
-	}
-	// Single graph database shared with the vault watcher (serve.go) and the
-	// capture CLI (capture.go), all keyed on this filename under the vault root.
-	g, err := graph.Open(context.Background(), graph.Config{
-		Path: filepath.Join(graphDBPath, ".kernl-graph.db"),
-	})
+	// Single graph database shared with the vault watcher (serve.go), the
+	// capture CLI (capture.go), and the decision-record write path
+	// (decision_record.go) - all keyed on this same resolved path, since a
+	// second independent derivation of it would risk writing to, or reading
+	// from, a different file than the rest of the process.
+	g, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
 	if err != nil {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: opening graph: %w", err)
 	}
@@ -155,6 +146,32 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 		Graph:         g,
 		autoClassify:  cfg.Inbox.AutoClassifyEnabled(),
 	}, nil
+}
+
+// graphDBFilePath resolves the single graph database file this process
+// reads and writes: the vault root when configured, else a fallback under
+// the user's home directory, both keyed on the same ".kernl-graph.db"
+// filename. It is a function, not inlined at each call site, because it is
+// called from two places (NewAppForRepo here and the decision-record write
+// path in decision_record.go) that must never derive this path differently -
+// a node written to one file and read back from another would look like the
+// write silently vanished.
+func graphDBFilePath(cfg *config.Config) (string, error) {
+	dir := cfg.Vault.Root
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir for graph db path default: %w", err)
+		}
+		dir = filepath.Join(home, ".kernl")
+	}
+	// Ensure the directory exists before SQLite tries to open the file there -
+	// otherwise the open fails with an opaque "unable to open database file"
+	// (e.g. a fresh container/data volume where ~/.kernl does not exist yet).
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating graph db dir %s: %w", dir, err)
+	}
+	return filepath.Join(dir, ".kernl-graph.db"), nil
 }
 
 func execSpawnFunc(ctx context.Context, cmd string, args []string, cwd string, env []string) (Process, io.Reader, io.Reader, error) {
