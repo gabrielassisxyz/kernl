@@ -21,9 +21,14 @@ From a fresh clone, in this order:
 ```bash
 cd web && npm install && npm run generate   # first: go:embed needs web/.output/public
 bin/install-hooks                           # once per clone
-./run.sh                                    # build + serve on :8080
+go build -o kernl ./cmd/kernl && ./kernl serve   # build + serve on :8080
 bin/ci                                      # before pushing
 ```
+
+Or, without a Go toolchain: `docker compose up --build` (see §11).
+
+The order matters and the first line is not optional: `//go:embed` resolves at compile
+time, so a build that runs before `npm run generate` fails outright. See §1's embed note.
 
 - **Backend/CLI:** Go 1.26+. Single binary built from `./cmd/kernl`.
 - **Orchestrator storage:** per repository, declared by `registry.repos[].memoryManager`. Two trackers are supported: **`br`** (beads_rust ≥ 0.2.10, SQLite) and **`bd`** (gastownhall/beads ≥ 1.0.4, Dolt embedded). `br` is what the repositories this orchestrator serves actually use, so it is the one a new target repository will need. This is the *product's* runtime store for executing epics, **not** this repo's own dev-task tracker; that is §6, and conflating the two is how a tracker ends up proposed as a backlog backend. `bv` is not used and stays out. `.beads/` is gitignored (no task data in the public repo).
@@ -34,7 +39,7 @@ bin/ci                                      # before pushing
 - **API:** REST JSON + SSE (not gRPC/WebSocket). REST emits **camelCase** JSON.
 - **Config:** YAML (`kernl.yaml`; copy from `kernl.yaml.example`). `kernl doctor` validates.
 - **LLM backing:** the DA brain currently points at a local openai-compat proxy; the orchestrator shells out to CLI agents (opencode/claude/codex/gemini).
-- **Run (use this):** `run.sh`, which regenerates the frontend, *then* builds, *then* serves (default :8080). Update installed binary: `update_binary.sh`.
+- **Run:** regenerate the frontend, *then* build, *then* serve (default :8080) - in that order, because the embed resolves at compile time. `docker compose up --build` does the whole sequence in one step.
 - **`go run ./cmd/kernl serve` is a trap whenever `web/` changed.** `//go:embed` bakes `web/.output/public` in at **compile time**, so a bare `go run`/`go build` ships whatever stale build is on disk: **the UI you test is not the UI you wrote, and nothing warns you.** It is only safe when you have not touched `web/`, or after a fresh `cd web && npm run generate`. See §10.
 - **Test (unit, hermetic):** `go test ./...`, run before every commit.
 - **Test (integration contracts, manual):** `go test -tags=integration ./...`.
@@ -52,7 +57,7 @@ bin/ci                                      # before pushing
 cd web && npm install && npm run generate   # produces web/.output/public
 ```
 
-`run.sh` and `bin/ci` do this for you. CI writes a placeholder for Go-only jobs and builds the web for real in the `test-web` job.
+`bin/ci` does this for you. CI writes a placeholder for Go-only jobs and builds the web for real in the `test-web` job.
 
 ## 2. Architectural Principles
 
@@ -129,12 +134,13 @@ cd web && npm install && npm run generate   # produces web/.output/public
 - **Embed:** `npm run generate` before any `go build` (see §1). The #1 trip-up.
 - **Web changes need a process restart:** `//go:embed` freezes `web/*` in memory; a running `kernl serve` won't see web edits until rebuilt and restarted.
 - **bd CLI drift:** `bd close --reason` is supported in bd 1.0.4, but `bd update --reason` is not; terminal updates preserve reasons via `bd update --append-notes`.
-- **br has no `--parent` and no `set-labels`.** An epic's children come from `br dep list <epic> --direction up`; asking the other direction returns the epic's own parents, which is nothing, so the epic loads with zero children and the run reports success having done no work. Those children then have to be fetched with `br show <ids...>`, because `br list` reports `dependency_count` but never the dependencies, and the epic's DAG is built from exactly those. Replacing a label set means removing what is there and adding what is wanted. `br list --limit` defaults to **50**, not unlimited.
+- **`br list` has no `--parent` filter, and getting the direction wrong reports success having done nothing.** An epic's children come from `br dep list <epic> --direction up`; asking the other direction returns the epic's own parents, which is nothing, so the epic loads with zero children and the run reports success having done no work. Those children then have to be fetched with `br show <ids...>`, because `br list` reports `dependency_count` but never the dependencies, and the epic's DAG is built from exactly those. `br list --limit` defaults to **50**, not unlimited.
+- **Read `--help` for the verb you are calling; br's flags are not uniform across verbs.** Measured against `br 0.2.10`, correcting two claims this file carried until 2026-07-31: `br update` **does** have `--set-labels` (repeatable, replacing), so a label set is replaced in one atomic call rather than remove-then-add; and `br create` **does** have `--parent`, which creates the parent-child dependency directly. What `br create` does **not** have is `--acceptance` or `--notes` - those exist only on `br update`, so a bead needing them takes a second immediate call. Extrapolating one verb's flags onto another is how both wrong claims got here.
 - **br's envelopes differ per command.** `show`, `ready`, `dep list` and `comments list` return arrays; `list` returns `{"issues":[…]}`. Failures come back as `{"error":{code,message,hint}}` on **stdout** with a non-zero exit, so a caller reading only the exit code loses the reason and one reading stdout as data decodes an error as an empty result. `br schema commands --format json` is the authority.
 - **Dolt embedded:** transactions are ACID; no manual file locking. Validate lock contention if the orchestrator and a manual `bd` run concurrently.
 - **SSE in Go:** `Content-Type: text/event-stream`, `fmt.Fprintf(w, "data: %s\n\n", js)`, flush.
 - **Vue 3 reactivity:** mutate reactive refs inside Vue's lifecycle, or updates are missed.
-- **`npm install` vs `npm ci` (breaks `run.sh`):** after adding/bumping a web dependency, always run `cd web && npm install` to fully refresh `package-lock.json`, then verify with `npm ci`. `npm install` is lenient and reconciles a partially-stale lock against the existing `node_modules`, so a broken lock (missing/mismatched transitive deps, e.g. `@emnapi/*`) can pass locally yet make `run.sh` fail at "Regenerating frontend", because that step runs the strict `npm ci`. Commit the lock only after `npm ci` succeeds from a clean state.
+- **`npm install` vs `npm ci` (breaks the frontend build):** after adding/bumping a web dependency, always run `cd web && npm install` to fully refresh `package-lock.json`, then verify with `npm ci`. `npm install` is lenient and reconciles a partially-stale lock against the existing `node_modules`, so a broken lock (missing/mismatched transitive deps, e.g. `@emnapi/*`) can pass locally yet make a clean frontend build fail, because `bin/ci` and the Docker build both run the strict `npm ci`. Commit the lock only after `npm ci` succeeds from a clean state.
   - **The npm binary's own version is part of this** (2026-07-18): a plain `npm install` under npm 11.6.2 wrote a lock its *own* `npm ci` then rejected (`@emnapi/*` missing + version-mismatched). `npx -y npm@latest install` produced a lock both accept, with an 11-line diff and no churn. If `npm install` → `npm ci` still disagrees, regenerate with `npm@latest` before suspecting anything else.
 - **Kill your dev server before running `bin/ci`** (2026-07-18): `nuxt dev` holds a lock, so `nuxt generate` aborts with `Another Nuxt dev is already running (PID …)`. That failure then cascades: every Go step reports `web/embed.go: pattern all:.output/public: no matching files found`, because the embed prerequisite never produced its output. The output accuses the Go build and the embed directive; the actual cause is a background process you started. `pgrep -af nuxt` before believing any of it.
 - **A gitignored tree can be invisible to search.** `local/`, `.beads/` and `web/.output/` are git-ignored, and some search tools skip ignored paths by default, returning zero hits and exit 0, which reads exactly like "it was never written down". Name the directory explicitly before concluding something is undocumented.
@@ -145,4 +151,4 @@ Standardized binary distribution:
 - **Release:** push a `v*` tag → `.github/workflows/release.yml` runs **goreleaser** (`.goreleaser.yaml`). It cross-compiles `./cmd/kernl` for linux+darwin × amd64+arm64 (`CGO_ENABLED=0`; the `before` hook runs `nuxt generate` so the web UI is embedded), publishes tar.gz archives + `checksums.txt` to a GitHub Release. **Windows is not a target** (syscall.Kill in watchdog.go is Unix-only). Windows users use Docker.
 - **Install (end users):** `install.sh` (curl|bash) downloads the right archive into `~/.local/bin/kernl`. AUR / Homebrew / mise are deferred.
 - **Docker (optional self-host of `serve`):** `Dockerfile` + `compose.yaml`: `docker compose up --build`, UI on :8080. Orchestration needs the host toolchain.
-- **Local dev:** `run.sh` (build binary + web) · `update_binary.sh` (install to ~/.local/bin).
+- **Local dev:** `go build -o kernl ./cmd/kernl` after `cd web && npm run generate`, or `docker compose up --build` for the whole sequence.
