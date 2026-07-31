@@ -26,7 +26,6 @@ func TestRenderIntegration_Content(t *testing.T) {
 	}
 	mustContain := []string{
 		"git merge --no-ff",
-		"stage: integration",
 		"merge_conflict",
 		"feat/e1",
 		"bin/ci",
@@ -41,6 +40,15 @@ func TestRenderIntegration_Content(t *testing.T) {
 	for _, banned := range []string{"bd update"} {
 		if strings.Contains(out, banned) {
 			t.Errorf("integration prompt must NOT name kernl's own tracker: found %q", banned)
+		}
+	}
+	// The exit gate now only asks whether the stage left any new commit -
+	// the "stage: integration" marker text it used to require the agent to
+	// type verbatim is gone, and so is the empty commit that existed only to
+	// carry it.
+	for _, banned := range []string{"stage: integration", "--allow-empty"} {
+		if strings.Contains(out, banned) {
+			t.Errorf("integration prompt must NOT instruct a marker commit: found %q", banned)
 		}
 	}
 	// The stack of the repository being integrated is not kernl's to assume.

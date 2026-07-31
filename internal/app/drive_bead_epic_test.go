@@ -447,8 +447,8 @@ func TestDriveEpic_BlocksWhenShipmentSkipsPR(t *testing.T) {
 }
 
 // TestDriveEpic_BlocksOnIntegrationConflict proves the integration commit_marker
-// gate stops the epic when the merge agent fails to leave a "stage: integration"
-// commit (e.g. an unresolved merge conflict where it bailed).
+// gate stops the epic when the merge agent fails to leave any new commit
+// (e.g. an unresolved merge conflict where it bailed).
 func TestDriveEpic_BlocksOnIntegrationConflict(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")

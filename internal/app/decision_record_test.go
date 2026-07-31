@@ -144,7 +144,7 @@ func TestSplitDecisionBody_InlineMentionOfHeadingTextIsNotABoundary(t *testing.T
 func TestRecordDecisionIfGateType_NoOpForOtherGateTypes(t *testing.T) {
 	wf := backend.WorkflowDescriptor{
 		ExitGates: map[string][]backend.WorkflowExitGate{
-			"implementation": {{Type: "commit_marker", Path: "stage: implementation"}},
+			"implementation": {{Type: "commit_marker"}},
 		},
 	}
 	gateCtx := backend.ExitGateContext{FromState: "implementation"}

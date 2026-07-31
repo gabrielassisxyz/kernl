@@ -103,10 +103,9 @@ type SubprocessSpec struct {
 }
 
 type StageArtifact struct {
-	Path         string `json:"path,omitempty"          yaml:"path,omitempty"`
-	Kind         string `json:"kind,omitempty"          yaml:"kind,omitempty"`
-	CommitMarker string `json:"commitMarker,omitempty"  yaml:"commit_marker,omitempty"`
-	MustEndWith  string `json:"mustEndWith,omitempty"   yaml:"must_end_with,omitempty"`
+	Path        string `json:"path,omitempty"          yaml:"path,omitempty"`
+	Kind        string `json:"kind,omitempty"          yaml:"kind,omitempty"`
+	MustEndWith string `json:"mustEndWith,omitempty"   yaml:"must_end_with,omitempty"`
 }
 
 type WorkflowTransition struct {
