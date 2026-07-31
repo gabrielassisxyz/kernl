@@ -204,6 +204,7 @@ Without --yes this is a dry-run preview: nothing is closed.
 			{Name: "--stale-warn-days", Value: "<n>", Description: "Warn when a PR is open longer than n days"},
 		},
 	},
+	orchestratorCommand,
 	{
 		Name:    "bookmark",
 		Summary: "Manage bookmarks",

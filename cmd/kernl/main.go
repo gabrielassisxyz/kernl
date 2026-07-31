@@ -22,15 +22,16 @@ var (
 )
 
 var (
-	doctorFn   func(configPath string, args []string) error         = runDoctor
-	serveFn    func(configPath string, port int, noOrch bool) error = runServe
-	epicFn     func(v verbContext, args []string) error             = runEpic
-	beadFn     func(v verbContext, args []string) error             = runBead
-	sweepFn    func(configPath string, args []string) error         = runSweep
-	bookmarkFn func(configPath string, args []string) error         = runBookmark
-	captureFn  func(configPath string, args []string) error         = runCapture
-	planFn     func(configPath string, args []string) error         = runPlan
-	helpFn     func() error                                         = printHelp
+	doctorFn       func(configPath string, args []string) error         = runDoctor
+	serveFn        func(configPath string, port int, noOrch bool) error = runServe
+	epicFn         func(v verbContext, args []string) error             = runEpic
+	beadFn         func(v verbContext, args []string) error             = runBead
+	sweepFn        func(configPath string, args []string) error         = runSweep
+	orchestratorFn func(w io.Writer, args []string) error               = runOrchestrator
+	bookmarkFn     func(configPath string, args []string) error         = runBookmark
+	captureFn      func(configPath string, args []string) error         = runCapture
+	planFn         func(configPath string, args []string) error         = runPlan
+	helpFn         func() error                                         = printHelp
 
 	// GUI-parity verbs: thin clients of the running server's REST API.
 	taskFn     func(v verbContext, args []string) error = runTask
@@ -242,6 +243,8 @@ func Dispatch(args []string) error {
 		return beadFn(vctx, args[1:])
 	case "sweep":
 		return sweepFn(configPath, args[1:])
+	case "orchestrator":
+		return orchestratorFn(os.Stdout, args[1:])
 	case "bookmark":
 		return bookmarkFn(configPath, args[1:])
 	case "capture":
