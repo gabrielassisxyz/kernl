@@ -325,6 +325,76 @@ func TestSessionRuntime_ClaudeResultDetection(t *testing.T) {
 	}
 }
 
+// TestSessionRuntime_ClaudeResultCleanIsNotError pins the clean-completion
+// half of claude's is_error handling: a result with is_error:false (or the
+// field simply absent, as in TestSessionRuntime_ClaudeResultDetection above)
+// must never mark the turn as failed. This is the case the take-loop's
+// follow-up gate (internal/terminal.HandleTakeLoopTurnEnded) relies on to
+// tell a stage that finished from one that didn't.
+func TestSessionRuntime_ClaudeResultCleanIsNotError(t *testing.T) {
+	r := newTestRuntime("claude", true)
+	pw := &pipeWriter{}
+	r.SetStdin(pw)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(`{"type":"result","is_error":false,"result":"done"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	r.WaitDrained()
+
+	if !r.ResultObserved() {
+		t.Error("claude result event should set resultObserved")
+	}
+	if r.IsError() {
+		t.Error("claude result with is_error:false should not set isError")
+	}
+}
+
+// TestSessionRuntime_ClaudeResultErrorSetsIsError closes the gap this fix
+// found: processClaudeEvent used to discard the result event's own is_error
+// field entirely, so a claude turn that genuinely failed (max turns hit, a
+// tool error surfaced as the terminal event, etc.) was indistinguishable
+// from a clean completion at the exact call site that needs to tell them
+// apart (internal/terminal.HandleTakeLoopTurnEnded via TakeLoopContext.
+// TurnFailed). codex, gemini, copilot and opencode already set isError from
+// their own dialect-native failure signal; claude alone did not.
+func TestSessionRuntime_ClaudeResultErrorSetsIsError(t *testing.T) {
+	r := newTestRuntime("claude", true)
+	pw := &pipeWriter{}
+	r.SetStdin(pw)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(`{"type":"result","is_error":true,"result":"error_max_turns"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	r.WaitDrained()
+
+	if !r.ResultObserved() {
+		t.Error("claude result event should set resultObserved even when is_error is true")
+	}
+	if !r.IsError() {
+		t.Error("claude result with is_error:true should set isError")
+	}
+}
+
 func TestSessionRuntime_CodexTurnCompleted(t *testing.T) {
 	r := newTestRuntime("codex", true)
 	pw := &pipeWriter{}

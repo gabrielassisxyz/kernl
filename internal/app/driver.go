@@ -390,6 +390,7 @@ func (p *sessionPump) handleTurnEnded(reason string) bool {
 		FollowUpAttempts: &terminal.FollowUpCounter{},
 		Dialect:          p.runtime.Dialect(),
 		Capabilities:     p.runtime.Capabilities(),
+		TurnFailed:       p.runtime.IsError(),
 	}
 
 	deps := terminal.FollowUpDeps{

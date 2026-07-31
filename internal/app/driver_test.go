@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -171,12 +172,16 @@ func TestDriverRecordsTheAllowlistTheNudgeMustReuse(t *testing.T) {
 // sessionPump.handleTurnEnded in isolation: a SessionRuntime built the way
 // RunBead always builds one - dialect resolved from the command,
 // interactive=false because RunBead only ever dispatches one-shot - must
-// produce a TakeLoopContext whose capabilities refuse a follow-up loudly,
+// produce a TakeLoopContext whose capabilities refuse a follow-up loudly
+// when the turn genuinely didn't finish (is_error:true on claude's result),
 // AND that refusal must land on the pump where RunBead can find it after the
-// run. TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged below is the
-// end-to-end proof through the real spawn/drain/RunBead path; this one is
-// kept alongside it because it isolates the gate itself from the drain
-// timing.
+// run. The runtime is driven through its real Start/WaitDrained event
+// pipeline (not a hand-set field) so this exercises the same is_error
+// parsing production code path uses - see TakeLoopContext.TurnFailed.
+// TestDriverReportsFailureWhenOneShotClaudeTurnFailsAndCannotBeNudged below
+// is the end-to-end proof through the real spawn/drain/RunBead path; this
+// one is kept alongside it because it isolates the gate itself from the
+// spawn/drain timing.
 func TestSessionPumpRefusesFollowUpForOneShotClaude(t *testing.T) {
 	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
 	scm := newTestSCM()
@@ -184,6 +189,13 @@ func TestSessionPumpRefusesFollowUpForOneShotClaude(t *testing.T) {
 
 	dialect := adapter.ResolveDialect("claude")
 	runtime := session.NewSessionRuntimeWithCapabilities("kb-1", "/repo", string(dialect), false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stdout := strings.NewReader(`{"type":"result","is_error":true,"result":"error_max_turns"}` + "\n")
+	stderr := strings.NewReader("")
+	runtime.Start(ctx, stdout, stderr)
+	runtime.WaitDrained()
 
 	pump := &sessionPump{
 		scm:       scm,
@@ -218,14 +230,99 @@ func TestSessionPumpRefusesFollowUpForOneShotClaude(t *testing.T) {
 	}
 }
 
-// TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged drives the full
-// RunBead path: real spawn (fakeSpawner), real SessionRuntime.Start/
-// WaitDrained/Dispose, real sessionPump. Claude emits "result" (its
-// turn-ending event) and exits zero while the bead is left in an active,
-// non-terminal state, so the take-loop tries to nudge it and finds the
-// dialect has no follow-up path. RunBead must report that as a failure -
-// an exit-zero agent process is not the same thing as a stage that actually
-// finished, and DriveBeadToTerminal only halts on a non-nil error or
+// TestSessionPumpAllowsCleanTurnEndForOneShotClaude is
+// TestSessionPumpRefusesFollowUpForOneShotClaude's mirror: the same one-shot,
+// no-follow-up-path claude runtime, but the result event it observes reports
+// is_error:false - a clean completion. HandleTakeLoopTurnEnded must step
+// aside quietly (no proceed, no recorded error) rather than refuse a
+// follow-up nobody asked for.
+func TestSessionPumpAllowsCleanTurnEndForOneShotClaude(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	scm := newTestSCM()
+	scm.Connect("kb-1-claude")
+
+	dialect := adapter.ResolveDialect("claude")
+	runtime := session.NewSessionRuntimeWithCapabilities("kb-1", "/repo", string(dialect), false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stdout := strings.NewReader(`{"type":"result","is_error":false,"result":"done"}` + "\n")
+	stderr := strings.NewReader("")
+	runtime.Start(ctx, stdout, stderr)
+	runtime.WaitDrained()
+
+	pump := &sessionPump{
+		scm:       scm,
+		runtime:   runtime,
+		sessionID: "kb-1-claude",
+		beadID:    "kb-1",
+		repoPath:  "/repo",
+		backend:   be,
+	}
+
+	if proceed := pump.handleTurnEnded("turn_ended"); proceed {
+		t.Error("expected handleTurnEnded to return false: nothing to keep stdin open for on a clean turn end")
+	}
+	if err := pump.followUpError(); err != nil {
+		t.Errorf("expected no follow-up error recorded for a clean turn end, got: %v", err)
+	}
+}
+
+// TestSessionPumpSendsFollowUpForInteractiveDialectWhenTurnFails is
+// criterion 3 driven through the real event pipeline: an interactive
+// dialect (SupportsFollowUp=true) whose turn genuinely failed still gets
+// nudged - the capability-gated halt introduced by this fix is scoped to
+// dialects that cannot be nudged at all, not to every failed turn.
+func TestSessionPumpSendsFollowUpForInteractiveDialectWhenTurnFails(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	scm := newTestSCM()
+	scm.Connect("kb-1-opencode")
+
+	dialect := adapter.ResolveDialect("opencode")
+	runtime := session.NewSessionRuntimeWithCapabilities("kb-1", "/repo", string(dialect), true)
+	var stdin bytes.Buffer
+	runtime.SetStdin(&stdin)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stdout := strings.NewReader(`{"type":"session_error"}` + "\n")
+	stderr := strings.NewReader("")
+	runtime.Start(ctx, stdout, stderr)
+	runtime.WaitDrained()
+
+	pump := &sessionPump{
+		scm:       scm,
+		runtime:   runtime,
+		sessionID: "kb-1-opencode",
+		beadID:    "kb-1",
+		repoPath:  "/repo",
+		backend:   be,
+	}
+
+	if proceed := pump.handleTurnEnded("turn_ended"); !proceed {
+		t.Error("expected handleTurnEnded to return true: opencode supports follow-up and the turn failed")
+	}
+	if err := pump.followUpError(); err != nil {
+		t.Errorf("expected no error - opencode can be nudged, got: %v", err)
+	}
+	if stdin.Len() == 0 {
+		t.Error("expected a follow-up prompt written to stdin")
+	}
+	count, nudged := pump.followUpStats()
+	if !nudged || count != 1 {
+		t.Errorf("expected nudged=true count=1, got nudged=%v count=%d", nudged, count)
+	}
+}
+
+// TestDriverReportsFailureWhenOneShotClaudeTurnFailsAndCannotBeNudged drives
+// the full RunBead path: real spawn (fakeSpawner), real SessionRuntime.Start/
+// WaitDrained/Dispose, real sessionPump. Claude's "result" (its turn-ending
+// event) reports is_error:true - the turn genuinely didn't finish - while
+// the bead is left in an active, non-terminal state, so the take-loop tries
+// to nudge it and finds the dialect has no follow-up path. RunBead must
+// report that as a failure: a turn that ended without finishing, on a
+// dialect that cannot be nudged, is exactly the case PR #158 introduced this
+// halt for. DriveBeadToTerminal only halts on a non-nil error or
 // Success=false (internal/app/drive_bead.go), never on a log line.
 //
 // This exercises the WaitDrained fix for the drain race directly: before
@@ -233,9 +330,9 @@ func TestSessionPumpRefusesFollowUpForOneShotClaude(t *testing.T) {
 // the goroutine still reading the "result" line, and cancellation from
 // Dispose() usually won - see the inversion check in the PR description for
 // the failure mode this reproduces.
-func TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged(t *testing.T) {
+func TestDriverReportsFailureWhenOneShotClaudeTurnFailsAndCannotBeNudged(t *testing.T) {
 	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
-	spawn := &fakeSpawner{script: "{\"type\":\"result\"}\n"}
+	spawn := &fakeSpawner{script: "{\"type\":\"result\",\"is_error\":true,\"result\":\"error_max_turns\"}\n"}
 	scm := newTestSCM()
 	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: scm, LogDir: t.TempDir()})
 
@@ -244,13 +341,49 @@ func TestDriverReportsFailureWhenOneShotClaudeCannotBeNudged(t *testing.T) {
 	})
 
 	if err == nil {
-		t.Fatal("expected RunBead to return an error when the dialect cannot be nudged")
+		t.Fatal("expected RunBead to return an error when a genuinely failed turn cannot be nudged")
 	}
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") || !strings.Contains(err.Error(), "claude") {
 		t.Errorf("expected the error to carry KERNL DISPATCH FAILURE and name claude, got: %v", err)
 	}
 	if res.Success {
-		t.Error("expected Success=false - an exit-zero agent that could not be nudged did not finish the stage")
+		t.Error("expected Success=false - a turn that ended without finishing and could not be nudged did not finish the stage")
+	}
+}
+
+// TestDriverRunsToCompletionWhenOneShotClaudeFinishesCleanly is the
+// regression this fix closes. A real orchestrator run against a real target
+// repository did everything right - correct commit, clean worktree, a
+// decision record the strict parser accepts, verification through the
+// target repo's own bin/ci - and terminated normally: claude's "result"
+// event with the process exiting zero. The take-loop still refused a
+// follow-up for claude (SupportsFollowUp=false, no resume transport wired)
+// and reported the whole stage as KERNL DISPATCH FAILURE, because the bead
+// was still in its active state at turn-end - true on every turn end,
+// success or failure, since the exit gate only runs after RunBead returns
+// (see internal/app/drive_bead.go). This drives the same real
+// spawn/drain/RunBead path as
+// TestDriverReportsFailureWhenOneShotClaudeTurnFailsAndCannotBeNudged above,
+// changing only is_error to false, and must run to completion: no error, no
+// halt.
+func TestDriverRunsToCompletionWhenOneShotClaudeFinishesCleanly(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	spawn := &fakeSpawner{
+		script: "{\"type\":\"result\",\"is_error\":false,\"result\":\"done\"}\n",
+		onExit: func() { be.state["kb-1"] = "ready_for_review" },
+	}
+	scm := newTestSCM()
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: scm, LogDir: t.TempDir()})
+
+	res, err := d.RunBead(context.Background(), RunBeadInput{
+		BeadID: "kb-1", RepoPath: t.TempDir(), Command: "claude", AgentName: "claude",
+	})
+
+	if err != nil {
+		t.Fatalf("RunBead: expected the stage to run to completion, got: %v", err)
+	}
+	if !res.Success {
+		t.Error("expected Success=true for a clean, exit-zero completion")
 	}
 }
 
