@@ -27,6 +27,15 @@ const (
 	// exists so that link has a typed member of this closed set instead of
 	// a bare string literal typed by hand at each call site.
 	EdgeTypeHasDecision EdgeType = "has_decision"
+	// EdgeTypeRanBead links a workflow_run (Src) to a bead_reference node
+	// (Dst) for each bead that run drove. It is how a report composer
+	// starting from a run walks outward to the beads it drove, and from
+	// each of those to the decisions recorded against it via
+	// EdgeTypeHasDecision - the same container-points-at-contained
+	// direction that edge already uses, kept consistent here rather than
+	// invented afresh. A bare string literal at each call site would let
+	// that direction drift call site by call site with nothing to catch it.
+	EdgeTypeRanBead EdgeType = "ran_bead"
 )
 
 // Edge models a directed relationship between two nodes.
