@@ -668,6 +668,23 @@ func ResolveArtifactFSPath(raw, beadID, worktreePath, artifactDir string) string
 	return filepath.Join(worktreePath, ResolveArtifactPath(raw, beadID, artifactDir))
 }
 
+// FindExitGateByType returns the first gate of type gateType declared for
+// state, or ok=false if the state carries no gate of that type. ExitGates
+// holds a list per state precisely so a state can carry more than one gate
+// (e.g. worker's "implementation" carries both commit_marker and
+// decision_record); a caller that wants to know "does this state require
+// gate type X", or needs that gate's own Path to act on, starts here instead
+// of re-deriving the same scan - EvaluateExitGate itself does not use this,
+// since it needs every gate on the state, not one by type.
+func FindExitGateByType(wf WorkflowDescriptor, state, gateType string) (gate WorkflowExitGate, ok bool) {
+	for _, g := range wf.ExitGates[state] {
+		if g.Type == gateType {
+			return g, true
+		}
+	}
+	return WorkflowExitGate{}, false
+}
+
 // EvaluateExitGate decides whether a bead may advance past ctx.FromState
 // after its agent exited zero. A state with no declared gates - no entry,
 // or an empty list - passes (legacy agent_exit_zero). When a state declares

@@ -347,8 +347,8 @@ func readDecisionRecordSections(gate backend.WorkflowExitGate, gateCtx backend.E
 // had already succeeded; DriveBeadToTerminal pays that cost earlier, when
 // failing costs nothing but a retry of the fetch itself.
 func recordDecisionIfGateType(ctx context.Context, wf backend.WorkflowDescriptor, gateCtx backend.ExitGateContext, deps DriveBeadDeps, bead *backend.Bead, epicID, epicTitle string) error {
-	gate, ok := wf.ExitGates[gateCtx.FromState]
-	if !ok || gate.Type != "decision_record" {
+	gate, ok := backend.FindExitGateByType(wf, gateCtx.FromState, "decision_record")
+	if !ok {
 		return nil
 	}
 

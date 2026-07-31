@@ -199,7 +199,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		// after the gate had already passed would.
 		epicTitle := ""
 		if epicID != "" && epicID != deps.BeadID {
-			if gate, ok := wf.ExitGates[activeState]; ok && gate.Type == "decision_record" {
+			if _, ok := backend.FindExitGateByType(wf, activeState, "decision_record"); ok {
 				epicBead, epicErr := deps.Backend.Get(epicID, deps.RepoPath)
 				if epicErr != nil {
 					return RunBeadResult{FinalState: activeState, Success: false},
