@@ -201,13 +201,17 @@ func ingestTriggerHandler(svc *ingest.Service) http.HandlerFunc {
 		if !requireIngestEnabled(w, svc) {
 			return
 		}
-		// file_path and node_id are snake_case, unlike the rest of the API. Left
-		// as-is: cmd/kernl's `ingest trigger` posts this exact shape (see the
-		// matching note there), and renaming here without a coordinated change
-		// on that side would silently break the CLI instead of failing loud.
+		// filePath and nodeId now match the rest of the API's camelCase
+		// contract. cmd/kernl's `ingest trigger` and web/pages/ingest.vue both
+		// post this exact shape (see the matching notes there); encoding/json
+		// leaves an unmatched field at its zero value with no error, so an
+		// uncoordinated rename on one side alone doesn't fail here: it decodes
+		// to "", returns 202, and only fails later inside the detached
+		// goroutine below, once ProcessFile can't open an empty path. Move all
+		// three together.
 		var body struct {
-			FilePath string `json:"file_path"`
-			NodeID   string `json:"node_id"`
+			FilePath string `json:"filePath"`
+			NodeID   string `json:"nodeId"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			http.Error(w, "invalid json", http.StatusBadRequest)

@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -193,6 +195,49 @@ func TestIngestSourceCreatesLinkedReview(t *testing.T) {
 	}
 	if reviews[0].SourceNodeID != sourceID {
 		t.Fatalf("review SourceNodeID = %q, want %q", reviews[0].SourceNodeID, sourceID)
+	}
+}
+
+// TestIngestTriggerUsesFilePathAndNodeID is the load-bearing check on the
+// filePath/nodeId wire contract: encoding/json leaves an unmatched field at
+// its zero value with no error, so a body decoded against the wrong tags
+// still returns 202 and processes nothing, in silence. Posting a real file
+// and asserting the review that comes out carries the posted node id is the
+// only way to prove the server actually read filePath and nodeId, rather
+// than just accepting the request.
+func TestIngestTriggerUsesFilePathAndNodeID(t *testing.T) {
+	withFakeIngestLLM(t, `[{"type":"Create Page","title":"Trigger note","payload":"triggered content"}]`)
+	a, mux := newIngestApp(t)
+
+	testFile := filepath.Join(t.TempDir(), "trigger.md")
+	if err := os.WriteFile(testFile, []byte("triggered content"), 0644); err != nil {
+		t.Fatalf("write test file: %v", err)
+	}
+
+	body, _ := json.Marshal(map[string]string{"filePath": testFile, "nodeId": "trigger-node-1"})
+	req := httptest.NewRequest("POST", "/api/ingest/trigger", bytes.NewReader(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if n := waitForQueue(t, mux, 1); n < 1 {
+		t.Fatalf("expected the triggered file to produce a review item, queue=%d", n)
+	}
+	var reviews []*nodes.IngestReview
+	if err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		reviews, err = nodes.ListIngestReviews(context.Background(), tx, nodes.IngestReviewFilter{})
+		return err
+	}); err != nil {
+		t.Fatalf("ListIngestReviews: %v", err)
+	}
+	if len(reviews) != 1 {
+		t.Fatalf("expected 1 review, got %d", len(reviews))
+	}
+	if reviews[0].SourceNodeID != "trigger-node-1" {
+		t.Fatalf("review SourceNodeID = %q, want %q (nodeId did not reach the handler)", reviews[0].SourceNodeID, "trigger-node-1")
 	}
 }
 

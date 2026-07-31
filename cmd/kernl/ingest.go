@@ -304,11 +304,13 @@ func ingestTrigger(ctx context.Context, v verbContext, c *apiClient, asJSON bool
 	if err != nil {
 		return err
 	}
-	// snake_case, unlike the rest of the API: this handler predates the
-	// camelCase contract and still reads file_path / node_id.
-	body := map[string]string{"file_path": path}
+	// camelCase, matching the rest of the API: internal/api/ingest.go decodes
+	// filePath / nodeId. encoding/json leaves an unmatched field at its zero
+	// value with no error, so this key set and the server's tags must move
+	// together or the server silently receives an empty path.
+	body := map[string]string{"filePath": path}
 	if strings.TrimSpace(node) != "" {
-		body["node_id"] = node
+		body["nodeId"] = node
 	}
 	raw, err := c.post(ctx, "/api/ingest/trigger", body)
 	if err != nil {
