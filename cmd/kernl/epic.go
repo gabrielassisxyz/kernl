@@ -751,6 +751,34 @@ func buildIntegrationChildren(children []backend.Bead, epicArtifactDir string) [
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
+// epicAlreadyInTail reports whether an epic is already somewhere inside the
+// epic profile's own pipeline, in which case driveEpic must leave its state
+// alone and let DriveBeadToTerminal resume from it.
+//
+// Writing the entry state unconditionally made the epic tail unresumable.
+// Once integration has produced its marker commit there is nothing left to
+// merge, so no NEW commit can exist, and the commit_marker gate refuses an
+// ancestor on purpose (it was hardened for exactly that). An epic rewound to
+// ready_for_integration therefore fails that gate forever, parks at blocked,
+// and cannot be rescued by hand either: a manual advance to
+// ready_for_shipment was observed being overwritten by the next run seconds
+// later. The message the run prints on failure - "re-run kernl epic run <id>
+// to resume" - was false for every epic past integration.
+//
+// "blocked" is deliberately NOT treated as being in the tail. It is not one
+// of the profile's own states, and rewinding a blocked epic to the entry is
+// the existing way an operator unsticks one; taking that away is a separate
+// decision from fixing the rewind, and it is not this change's to take. What
+// this does buy a blocked epic is that a deliberate advance now sticks.
+func epicAlreadyInTail(state string) bool {
+	for _, s := range backend.BuiltinProfileDescriptor("epic").States {
+		if s == state {
+			return state != "ready_for_integration"
+		}
+	}
+	return false
+}
+
 func driveEpic(ctx context.Context, d epicDrive) error {
 	// Named locals for the body below, which predates the struct. The struct
 	// exists for the call sites: five of these are strings, and a positional
@@ -765,9 +793,13 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
 	}
 	labels := setWFLabel(epicBead.Labels, "wf:profile:", "epic")
-	labels = setWFLabel(labels, "wf:state:", "ready_for_integration")
-	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "ready_for_integration", SetLabels: labels}, repoPath); err != nil {
-		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to ready_for_integration: %w", epicID, err)
+	if !epicAlreadyInTail(epicBead.State) {
+		labels = setWFLabel(labels, "wf:state:", "ready_for_integration")
+		if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "ready_for_integration", SetLabels: labels}, repoPath); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to ready_for_integration: %w", epicID, err)
+		}
+	} else if err := a.Backend.Update(epicID, backend.UpdateBeadInput{SetLabels: labels}, repoPath); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: cannot put epic %s on the epic profile: %w", epicID, err)
 	}
 
 	stopBefore := ""
