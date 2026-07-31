@@ -8,7 +8,7 @@ require (
 	github.com/hymkor/trash-go v0.3.0
 	golang.org/x/mod v0.38.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.54.0
+	modernc.org/sqlite v1.55.0
 	pgregory.net/rapid v1.3.0
 )
 
