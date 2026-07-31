@@ -644,8 +644,98 @@ func (b *BrCliBackend) ListWorkflows(repoPath string) ([]WorkflowDescriptor, err
 	return nil, brUnimplemented("listWorkflows")
 }
 
+// Create is what Phase 6's fix-up beads need: a fix-up bead is a new bead in
+// the target repository's own tracker, created mid-run with no operator
+// involvement, so it has to exist here rather than fail loud like the rest
+// of this file.
+//
+// Two things measured against a live throwaway `br` workspace turned out
+// different from what had been assumed going in, and both are corrections
+// worth recording rather than re-deriving:
+//
+//  1. `br create --parent <id>` exists and creates a real parent-child
+//     dependency (`br dep list <parent> --direction up --type=parent-child`
+//     finds it) - unlike the assumption that parent-child could only be
+//     added afterward via a second `dep add` call. So ParentID maps directly
+//     onto `--parent`, and BrCliBackend.AddDependency is not used here: it
+//     has no --type flag at all, so it always creates br's default "blocks"
+//     edge, never "parent-child" - it would silently create the wrong kind
+//     of dependency for this purpose.
+//  2. `br create` has NO `--acceptance` and NO `--notes` flag (confirmed via
+//     `br create --help` and a live call, which br rejects at argument
+//     parsing with exit 2) - unlike `br update`, which supports both. So
+//     Acceptance/Notes/Invariants cannot be set in the same call that
+//     creates the bead; they are a second, immediate Update, not a silently
+//     dropped field.
+//
+// ProfileID and WorkflowID have no br create equivalent at all - not even a
+// two-step one - so a caller that sets either gets a loud refusal rather
+// than a bead that silently lacks it: this project already has a convention
+// for conveying a profile (the wf:profile: label, set via Update once the
+// bead's caller decides which profile it runs), and reinventing a second one
+// here would only create two ways to do the same thing.
 func (b *BrCliBackend) Create(input CreateBeadInput, repoPath string) (*Bead, error) {
-	return nil, brUnimplemented("create")
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br create requires a title - Fix: populate CreateBeadInput.Title")
+	}
+	if input.ProfileID != "" || input.WorkflowID != "" {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br create has no profile/workflow concept - ProfileID=%q WorkflowID=%q would be silently dropped - Fix: create the bead without them, then set the wf:profile:/wf:state: labels with Update, the same way epic children already get theirs", input.ProfileID, input.WorkflowID)
+	}
+
+	args := []string{"create", title}
+	if input.Type != "" {
+		args = append(args, brValue("--type", input.Type))
+	}
+	// Always sent: CreateBeadInput.Priority is a plain int, not a pointer
+	// like UpdateBeadInput.Priority, so this adapter has no way to tell "the
+	// caller wants br's own default" apart from "the caller wants P0" - Go's
+	// zero value already reads as the latter, and that is what gets sent.
+	args = append(args, brValue("--priority", strconv.Itoa(input.Priority)))
+	if input.Description != "" {
+		args = append(args, brValue("--description", input.Description))
+	}
+	if input.Assignee != "" {
+		args = append(args, brValue("--assignee", input.Assignee))
+	}
+	if input.Due != "" {
+		args = append(args, brValue("--due", input.Due))
+	}
+	if len(input.Labels) > 0 {
+		args = append(args, brValue("--labels", strings.Join(input.Labels, ",")))
+	}
+	if input.ParentID != "" {
+		args = append(args, brValue("--parent", input.ParentID))
+	}
+	if input.Estimate != 0 {
+		args = append(args, brValue("--estimate", strconv.Itoa(input.Estimate)))
+	}
+
+	out, err := b.run(context.Background(), repoPath, args...)
+	if err != nil {
+		return nil, err
+	}
+	// Unlike show/list/dep-list, `br create --json` prints one issue object,
+	// not an array - measured against a live create, not assumed from the
+	// other commands' envelope shapes.
+	var issue brIssue
+	if err := json.Unmarshal(out, &issue); err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: parsing `br create %q`: %w", title, err)
+	}
+	bead := issue.toBead()
+
+	notes := input.Notes
+	if len(input.Invariants) > 0 {
+		notes = embedInvariantsInNotes(notes, input.Invariants)
+	}
+	if input.Acceptance != "" || notes != "" {
+		if err := b.Update(bead.ID, UpdateBeadInput{Acceptance: input.Acceptance, Notes: notes}, repoPath); err != nil {
+			return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s was created (and linked, if a parent was given) but writing its acceptance/notes failed: %w - Fix: run `br update %s --acceptance ... --notes ...` by hand; do not call Create again for the same title, it would create a duplicate bead", bead.ID, err, bead.ID)
+		}
+		bead.Acceptance = input.Acceptance
+		bead.Notes = notes
+	}
+	return &bead, nil
 }
 
 func (b *BrCliBackend) Delete(id string, repoPath string) error {

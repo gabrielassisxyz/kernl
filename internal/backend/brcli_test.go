@@ -518,6 +518,114 @@ func TestBrCliClose(t *testing.T) {
 	}
 }
 
+// Create is what Phase 6's fix-up beads need. `br create --json` prints one
+// issue object, not an array - unlike show/list/dep-list - and ParentID maps
+// directly onto --parent, which a live `br create --help` (and a throwaway
+// workspace) confirmed exists and creates a real parent-child dependency.
+func TestBrCliCreate(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"create Fix the thing": `{"id":"kb-new-1","title":"Fix the thing","status":"open","priority":1,"issue_type":"bug","labels":["kernl:fixup"],"parent":"ep-1"}`,
+	})
+
+	bead, err := NewBrCliBackend(repo).Create(CreateBeadInput{
+		Title:       "Fix the thing",
+		Description: "it is broken",
+		Type:        "bug",
+		Priority:    1,
+		Labels:      []string{"kernl:fixup"},
+		ParentID:    "ep-1",
+	}, repo)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if bead.ID != "kb-new-1" || bead.Type != "bug" || bead.ParentID != "ep-1" || bead.Priority != 1 {
+		t.Errorf("got %+v", bead)
+	}
+
+	joined := strings.Join(fake.calledWith(), "\n")
+	for _, want := range []string{"create Fix the thing", "--type=bug", "--priority=1", "--description=it is broken", "--labels=kernl:fixup", "--parent=ep-1"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("calls %v must contain %q", fake.calledWith(), want)
+		}
+	}
+}
+
+// br create has no --acceptance or --notes flag at all (confirmed against a
+// live `br create --help` and a live rejected call, exit 2) - unlike br
+// update, which has both. So a caller asking for either gets a second,
+// immediate update call, not a silently dropped field.
+func TestBrCliCreateWritesAcceptanceAndNotesAsASecondUpdate(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"create Bare title": `{"id":"kb-new-2","title":"Bare title","status":"open","priority":2,"issue_type":"task"}`,
+		"update kb-new-2":   `[{"id":"kb-new-2","status":"open"}]`,
+	})
+
+	bead, err := NewBrCliBackend(repo).Create(CreateBeadInput{
+		Title:      "Bare title",
+		Acceptance: "must do X",
+		Notes:      "some notes",
+	}, repo)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if bead.Acceptance != "must do X" || bead.Notes != "some notes" {
+		t.Errorf("got %+v", bead)
+	}
+
+	joined := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(joined, "update kb-new-2 --acceptance=must do X --notes=some notes") {
+		t.Errorf("acceptance/notes must arrive as a second update call, calls: %v", fake.calledWith())
+	}
+}
+
+// br has no separate storage for invariants - they live entirely inside the
+// notes field (see embedInvariantsInNotes) - so Create must embed them the
+// same way Rewind already does, not drop them because create itself cannot
+// carry them directly.
+func TestBrCliCreateEmbedsInvariantsIntoNotes(t *testing.T) {
+	repo := brRepo(t)
+	fake := newFakeBr(t, map[string]string{
+		"create Inv title": `{"id":"kb-new-3","title":"Inv title","status":"open","priority":2,"issue_type":"task"}`,
+		"update kb-new-3":  `[{"id":"kb-new-3","status":"open"}]`,
+	})
+
+	if _, err := NewBrCliBackend(repo).Create(CreateBeadInput{
+		Title:      "Inv title",
+		Invariants: []Invariant{{Kind: "must", Condition: "never delete X"}},
+	}, repo); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	joined := strings.Join(fake.calledWith(), "\n")
+	if !strings.Contains(joined, "must: never delete X") {
+		t.Errorf("invariants must be embedded into the notes update, calls: %v", fake.calledWith())
+	}
+}
+
+// ProfileID/WorkflowID have no br create equivalent, not even a two-step
+// one - an accepted-and-discarded field is worse than a refused one.
+func TestBrCliCreateRejectsProfileAndWorkflowID(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{})
+
+	if _, err := NewBrCliBackend(repo).Create(CreateBeadInput{Title: "x", ProfileID: "worker"}, repo); err == nil {
+		t.Fatal("ProfileID must be refused, not silently dropped")
+	}
+	if _, err := NewBrCliBackend(repo).Create(CreateBeadInput{Title: "x", WorkflowID: "wf"}, repo); err == nil {
+		t.Fatal("WorkflowID must be refused, not silently dropped")
+	}
+}
+
+func TestBrCliCreateRequiresTitle(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{})
+	if _, err := NewBrCliBackend(repo).Create(CreateBeadInput{}, repo); err == nil {
+		t.Fatal("an empty title must be refused")
+	}
+}
+
 // The port names the blocker first; br names the dependent first.
 func TestBrCliAddDependencyPassesTheDependentFirst(t *testing.T) {
 	repo := brRepo(t)
@@ -631,9 +739,6 @@ func TestBrCliUnimplementedMethodsFailLoud(t *testing.T) {
 	repo := brRepo(t)
 	be := NewBrCliBackend(repo)
 
-	if _, err := be.Create(CreateBeadInput{Title: "x"}, repo); err == nil {
-		t.Error("create must fail loud rather than pretend")
-	}
 	if _, err := be.Query("status = open", nil, repo); err == nil {
 		t.Error("query must fail loud rather than return nothing")
 	}
