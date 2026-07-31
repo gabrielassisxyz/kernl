@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,23 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
+
+// TestExitCodeFromErr_DistinguishesCleanSignalAndNoProcess proves finding
+// 3's fix: exitCodeFromErr never fabricates a code. A nil error means a
+// real, observed clean exit (0). Any other error that is not the child
+// process's own *exec.ExitError means no exit status was ever observed at
+// all, and must report that as nil, not a made-up 1.
+func TestExitCodeFromErr_DistinguishesCleanSignalAndNoProcess(t *testing.T) {
+	if got := exitCodeFromErr(nil); got == nil || *got != 0 {
+		t.Errorf("nil error -> ExitCode = %v, want 0", got)
+	}
+
+	// A non-*exec.ExitError failure (e.g. proc.Wait() itself erroring)
+	// means no exit status was ever observed.
+	if got := exitCodeFromErr(errors.New("wait: some other failure")); got != nil {
+		t.Errorf("non-ExitError -> ExitCode = %v, want nil (no process exit observed)", *got)
+	}
+}
 
 type fakeBackend struct {
 	mu    sync.Mutex
