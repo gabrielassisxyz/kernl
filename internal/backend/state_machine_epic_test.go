@@ -258,6 +258,39 @@ func TestEvaluateExitGate_EpicTypes(t *testing.T) {
 	}
 }
 
+// TestEvaluateExitGate_ArtifactVerdictRequiresExactLastLine proves the gate
+// checks the trimmed LAST LINE for exact equality, not the whole document
+// for a trailing substring. HasSuffix(whole document, "VERDICT: PASS") is
+// true for a single line reading "NOT A VALID VERDICT: PASS" - that string
+// IS its own suffix - which would pass a document carrying no real sentinel
+// at all. The same shape applies to REJECT.
+//
+// Inversion: reading this test against evaluateSingleExitGate with the
+// exact-line comparison replaced by the original
+// strings.HasSuffix(trimmed, "VERDICT: PASS") check makes the first
+// assertion below fail: ok comes back true instead of false, because the
+// fabricated line genuinely is a suffix of itself. Confirmed by hand.
+func TestEvaluateExitGate_ArtifactVerdictRequiresExactLastLine(t *testing.T) {
+	wf := BuiltinProfileDescriptor("epic")
+	dir := t.TempDir()
+	artifactDir := t.TempDir()
+	reviewFile := filepath.Join(artifactDir, "integration-review.md")
+
+	if err := os.WriteFile(reviewFile, []byte("NOT A VALID VERDICT: PASS"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"}); ok {
+		t.Errorf("a fabricated line ending in the PASS sentinel as a substring must not pass the gate, got ok=%v reason=%q", ok, reason)
+	}
+
+	if err := os.WriteFile(reviewFile, []byte("NOT A VALID VERDICT: REJECT"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "integration_review", WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"}); ok || strings.HasPrefix(reason, "verdict_reject") {
+		t.Errorf("a fabricated line ending in the REJECT sentinel as a substring must read as verdict_not_pass, not a real rejection: ok=%v reason=%q", ok, reason)
+	}
+}
+
 // TestEvaluateExitGate_IntegrationReviewRecognizesReject proves the Phase 6
 // distinction this gate exists to make: a reviewer that deliberately
 // rejects (VERDICT: REJECT) still fails the gate - a rejection is not a

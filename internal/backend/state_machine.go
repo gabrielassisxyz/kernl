@@ -768,8 +768,19 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		if err != nil {
 			return false, "artifact_missing: " + abs
 		}
+		// The document must END WITH the literal line "VERDICT: PASS" (or,
+		// for integration_review, "VERDICT: REJECT") - not merely contain
+		// that text as a trailing substring. HasSuffix on the whole blob
+		// would let "NOT A VALID VERDICT: PASS" (one line, no real
+		// sentinel at all) pass the gate, because that string IS a suffix
+		// of itself. Comparing the trimmed LAST LINE by exact equality is
+		// what "ends with the literal line" actually means.
 		trimmed := strings.TrimSpace(string(data))
-		if strings.HasSuffix(trimmed, "VERDICT: PASS") {
+		lastLine := trimmed
+		if idx := strings.LastIndexByte(trimmed, '\n'); idx != -1 {
+			lastLine = strings.TrimSpace(trimmed[idx+1:])
+		}
+		if lastLine == "VERDICT: PASS" {
 			return true, ""
 		}
 		// integration_review is the only stage with anywhere to send a
@@ -784,7 +795,7 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		// fix-up path to hand a rejection to, so REJECT is deliberately not
 		// recognized for them: a non-PASS verdict there still means only
 		// "this did not pass."
-		if ctx.FromState == "integration_review" && strings.HasSuffix(trimmed, "VERDICT: REJECT") {
+		if ctx.FromState == "integration_review" && lastLine == "VERDICT: REJECT" {
 			return false, "verdict_reject: " + abs
 		}
 		return false, "verdict_not_pass: " + abs
@@ -1043,38 +1054,41 @@ func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
 	return b.String(), inComment
 }
 
-// DecisionRecordSectionBodies parses a decision record's markdown content
-// and returns the extracted body text for every recognized section that
-// carries real content, keyed by the same canonical keys
-// missingDecisionRecordSections reports as missing (decision,
-// options_considered, trade_offs, rationale). A markdown heading is either
-// ATX ("## Text") or setext (text immediately followed by an "===" or "---"
-// underline); either kind - required or not - closes the previous section,
-// so an unrelated heading the implementer adds (e.g. a "## Context"
-// preamble) cannot be folded into a required section's body. Headings inside
-// a fenced code block or an HTML comment are not recognized, and a section
-// body left with nothing but a horizontal rule or a comment does not count
-// as content - see classifyDecisionRecordLines and isThematicBreak.
+// MarkdownSectionsByHeading walks content's ATX/setext headings - fence and
+// HTML-comment aware, via classifyDecisionRecordLines - and returns the body
+// text under every heading keyFn recognizes. It is the generic engine
+// DecisionRecordSectionBodies is built from, extracted so a second caller
+// with a different heading vocabulary (ParseIntegrationRejection, Phase 6's
+// integration_review rejection) tells a real heading apart from one hidden
+// inside an example fence or an HTML comment using the exact same,
+// already-hardened distinction - not a second, naively regexp-only parser
+// that a hidden-then-later-revealed heading could defeat.
+//
+// keyFn maps one heading's own text to the canonical key a caller cares
+// about; ok=false means this heading is not recognized - it still closes the
+// previous section (an unrelated "## Context" preamble does not get folded
+// into whatever section precedes it), but contributes no body of its own.
+//
+// dupKey names the first recognized key two or more real (non-fenced,
+// non-commented) headings both produced, or "" when every recognized key
+// was seen at most once. Which of two same-keyed headings should win is not
+// decidable content: silently keeping the last one lets whichever heading an
+// author (or an adversarial agent) places last override one placed first in
+// plain view. DecisionRecordSectionBodies discards dupKey, preserving its
+// existing last-one-wins behavior for every caller it already has; a caller
+// that must instead refuse an ambiguous document checks dupKey itself.
 //
 // This is deliberately not a full CommonMark implementation: it recognizes
-// exactly the block constructs an agent's decision record realistically
-// contains or could use to fake one (fences, comments, ATX/setext headings,
-// horizontal rules), not the entire spec.
-//
-// Exported so a caller that already knows a decision_record exit gate passed
-// - and therefore that these bodies exist - can read the record into
-// structured data (e.g. a graph node) without re-parsing it with a second,
-// potentially divergent implementation of "what counts as a section". The
-// gate itself (missingDecisionRecordSections) is defined in terms of this
-// function precisely to guarantee the two can never disagree.
-func DecisionRecordSectionBodies(content string) map[string]string {
+// exactly the block constructs a hand-written or agent-written document
+// realistically contains or could use to hide content in (fences, comments,
+// ATX/setext headings, horizontal rules), not the entire spec.
+func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (key string, ok bool)) (sections map[string]string, dupKey string) {
 	content = strings.TrimPrefix(content, "\uFEFF") // UTF-8 BOM, if present
 	content = strings.ReplaceAll(content, "\r\n", "\n")
 	content = strings.ReplaceAll(content, "\r", "\n")
 
 	lines := strings.Split(content, "\n")
 	parsed := classifyDecisionRecordLines(lines)
-	byHeading := decisionRecordSectionKeyByHeading()
 
 	type headingHit struct {
 		key          string
@@ -1094,8 +1108,9 @@ func DecisionRecordSectionBodies(content string) map[string]string {
 				prevTrimmed := strings.TrimSpace(parsed[i-1].visible)
 				if prevTrimmed != "" && !isAtxHeadingText(prevTrimmed) && !isThematicBreak(prevTrimmed) &&
 					!setextEqualsRe.MatchString(prevTrimmed) && !setextDashesRe.MatchString(prevTrimmed) {
+					key, _ := keyFn(prevTrimmed)
 					hits = append(hits, headingHit{
-						key:          byHeading[normalizeDecisionHeading(prevTrimmed)],
+						key:          key,
 						headingStart: i - 1,
 						bodyStart:    i + 1,
 					})
@@ -1111,19 +1126,25 @@ func DecisionRecordSectionBodies(content string) map[string]string {
 		}
 
 		if m := decisionRecordHeadingRe.FindStringSubmatch(parsed[i].visible); m != nil {
+			key, _ := keyFn(m[1])
 			hits = append(hits, headingHit{
-				key:          byHeading[normalizeDecisionHeading(m[1])],
+				key:          key,
 				headingStart: i,
 				bodyStart:    i + 1,
 			})
 		}
 	}
 
-	bodies := make(map[string]string, len(decisionRecordSections))
+	bodies := make(map[string]string)
+	seen := make(map[string]bool, len(hits))
 	for i, h := range hits {
 		if h.key == "" {
 			continue
 		}
+		if seen[h.key] && dupKey == "" {
+			dupKey = h.key
+		}
+		seen[h.key] = true
 		bodyEnd := len(parsed)
 		if i+1 < len(hits) {
 			bodyEnd = hits[i+1].headingStart
@@ -1140,7 +1161,35 @@ func DecisionRecordSectionBodies(content string) map[string]string {
 			bodies[h.key] = body
 		}
 	}
-	return bodies
+	return bodies, dupKey
+}
+
+// DecisionRecordSectionBodies parses a decision record's markdown content
+// and returns the extracted body text for every recognized section that
+// carries real content, keyed by the same canonical keys
+// missingDecisionRecordSections reports as missing (decision,
+// options_considered, trade_offs, rationale). A markdown heading is either
+// ATX ("## Text") or setext (text immediately followed by an "===" or "---"
+// underline); either kind - required or not - closes the previous section,
+// so an unrelated heading the implementer adds (e.g. a "## Context"
+// preamble) cannot be folded into a required section's body. Headings inside
+// a fenced code block or an HTML comment are not recognized, and a section
+// body left with nothing but a horizontal rule or a comment does not count
+// as content - see classifyDecisionRecordLines and isThematicBreak.
+//
+// Exported so a caller that already knows a decision_record exit gate passed
+// - and therefore that these bodies exist - can read the record into
+// structured data (e.g. a graph node) without re-parsing it with a second,
+// potentially divergent implementation of "what counts as a section". The
+// gate itself (missingDecisionRecordSections) is defined in terms of this
+// function precisely to guarantee the two can never disagree.
+func DecisionRecordSectionBodies(content string) map[string]string {
+	byHeading := decisionRecordSectionKeyByHeading()
+	sections, _ := MarkdownSectionsByHeading(content, func(headingText string) (string, bool) {
+		key, ok := byHeading[normalizeDecisionHeading(headingText)]
+		return key, ok
+	})
+	return sections
 }
 
 // missingDecisionRecordSections returns the canonical keys of the required
