@@ -51,6 +51,10 @@ func runSweep(configPath string, args []string) error {
 		FailureThreshold: flags.failureThreshold,
 		BackoffMinutes:   flags.backoffMinutes,
 		PRStaleWarnDays:  flags.staleWarnDays,
+		// Without this, closeAll's success and the no-pr_url skip only ever
+		// reached the log package (stderr), so a --yes run that closed
+		// epics printed nothing an operator watching stdout would see.
+		ReportHook: func(msg string) { fmt.Println(msg) },
 	}
 
 	s := sweep.New(adapter, ghAdapter, cfg)
