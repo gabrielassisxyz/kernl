@@ -90,14 +90,14 @@ queue_actions:
   ready_for_shipment_review: shipment_review
 exit_gates:
   qa:
-    type: "artifact_verdict"
-    path: "qa_verdict.txt"
+    - type: "artifact_verdict"
+      path: "qa_verdict.txt"
   integration_review:
-    type: "artifact_verdict"
-    path: "<artifact_dir>/integration-review.md"
+    - type: "artifact_verdict"
+      path: "<artifact_dir>/integration-review.md"
   shipment_review:
-    type: "artifact_verdict"
-    path: "<artifact_dir>/shipment-review.md"
+    - type: "artifact_verdict"
+      path: "<artifact_dir>/shipment-review.md"
 stages:
   planning:
     role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code."

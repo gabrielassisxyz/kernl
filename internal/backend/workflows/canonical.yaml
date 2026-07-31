@@ -83,8 +83,8 @@ owners:
   shipment_review: agent
 exit_gates:
   implementation:
-    type: decision_record
-    path: "<artifact_dir>/decision-record.md"
+    - type: decision_record
+      path: "<artifact_dir>/decision-record.md"
 stages:
   planning:
     role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code."

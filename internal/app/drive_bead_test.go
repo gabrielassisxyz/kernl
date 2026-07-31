@@ -501,9 +501,9 @@ print(json.dumps({"context_payload": new_payload}))
 			"ready_for_sub2":           "sub2",
 			"ready_for_implementation": "implementation",
 		},
-		ExitGates: map[string]backend.WorkflowExitGate{
-			"sub1": {Type: "artifact_verdict", Path: "gate_artifact.txt"},
-			"sub2": {Type: "artifact_verdict", Path: "gate_artifact.txt"},
+		ExitGates: map[string][]backend.WorkflowExitGate{
+			"sub1": {{Type: "artifact_verdict", Path: "gate_artifact.txt"}},
+			"sub2": {{Type: "artifact_verdict", Path: "gate_artifact.txt"}},
 		},
 		Stages: map[string]backend.StageContract{
 			"planning": {Role: "worker", Kind: "native"},
@@ -627,8 +627,8 @@ print(json.dumps({"context_payload": new_payload}))
 		QueueActions: map[string]string{
 			"ready_for_sub": "sub",
 		},
-		ExitGates: map[string]backend.WorkflowExitGate{
-			"sub": {Type: "artifact_verdict", Path: "gate_artifact.txt"},
+		ExitGates: map[string][]backend.WorkflowExitGate{
+			"sub": {{Type: "artifact_verdict", Path: "gate_artifact.txt"}},
 		},
 		Stages: map[string]backend.StageContract{
 			"sub": {

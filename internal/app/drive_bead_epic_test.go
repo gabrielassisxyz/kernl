@@ -97,12 +97,41 @@ func (b *epicFakeBackend) Capabilities() backend.BackendCapabilities {
 	return backend.BackendCapabilities{}
 }
 
+// fakeDecisionRecord is a minimal decision record satisfying the
+// decision_record exit gate's four required sections (see
+// missingDecisionRecordSections in internal/backend/state_machine.go). Only
+// workerArtifactDriver writes this: worker's "implementation" state carries
+// the decision_record gate alongside commit_marker, but epic's "integration"
+// deliberately does not (it is a merge stage, not an implementer's stage -
+// see canonicalImplementationExitGates in internal/backend/state_machine.go),
+// so artifactDriver below must never write one.
+const fakeDecisionRecord = `# Decision record
+
+## Decision
+
+Use the fake artifact driver's canned content.
+
+## Options Considered
+
+1. Write a real decision.
+2. Write a minimal but complete fake one.
+
+## Trade-offs
+
+A real decision is more realistic but couples this test to prose that has
+nothing to do with what it verifies.
+
+## Rationale
+
+Option 2 wins: the gate only checks structure, not content.
+`
+
 // workerArtifactDriver simulates a worker child agent that produces each
-// stage's exit-gate output: a "stage: implementation" marker commit, then a
-// PASS verdict artifact for implementation_review. The verdict is written to
-// the same artifact directory kernl itself resolves (StateDir/run/<epic>/
-// <bead>/, not the worktree), so the driver mirrors what applyOpencodePermissions
-// would tell the agent to do.
+// stage's exit-gate output: a "stage: implementation" marker commit plus a
+// decision record, then a PASS verdict artifact for implementation_review.
+// Artifacts are written to the same directory kernl itself resolves
+// (StateDir/run/<epic>/<bead>/, not the worktree), so the driver mirrors what
+// applyOpencodePermissions would tell the agent to do.
 type workerArtifactDriver struct {
 	be       *epicFakeBackend
 	beadID   string
@@ -118,6 +147,9 @@ func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBe
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
 		}
+		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
+		_ = os.MkdirAll(dir, 0o755)
+		_ = os.WriteFile(filepath.Join(dir, "decision-record.md"), []byte(fakeDecisionRecord), 0o644)
 	case "implementation_review":
 		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 		_ = os.MkdirAll(dir, 0o755)
@@ -209,6 +241,69 @@ func TestDriveWorker_BlocksWhenImplementationSkipsCommit(t *testing.T) {
 	}
 }
 
+// markerOnlyDriver simulates a worker child that produces the
+// commit_marker's own commit but never a decision record - the case
+// commit_marker alone cannot distinguish. Its only use is
+// TestDriveWorker_BlocksWhenImplementationSkipsDecisionRecord, which needs a
+// driver that clears commit_marker while still failing decision_record;
+// workerArtifactDriver cannot be reused for that because it always writes
+// both together.
+type markerOnlyDriver struct {
+	worktree string
+}
+
+func (d *markerOnlyDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
+	cmd := exec.Command("git", "-C", d.worktree, "commit", "--allow-empty", "-m", "stage: implementation: did the work")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %v: %s", err, out)
+	}
+	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses"}, nil
+}
+
+// TestDriveWorker_BlocksWhenImplementationSkipsDecisionRecord proves the
+// decision_record gate on worker's "implementation" state is load-bearing on
+// its own, not merely riding along with commit_marker: a driver that writes
+// the marker commit but never a decision record must still block. Without
+// this test, an evaluation bypass that always reported decision_record as
+// passing would go unnoticed - see TestDriveWorker_StopsAtAwaitingIntegration,
+// whose driver always writes both artifacts and so cannot tell that gate
+// evaluation matters at all.
+func TestDriveWorker_BlocksWhenImplementationSkipsDecisionRecord(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+	worktree := t.TempDir()
+	for _, args := range [][]string{
+		{"init"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"},
+		{"commit", "--allow-empty", "-m", "base"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", worktree}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	be := newEpicFakeBackend()
+	be.put(&backend.Bead{
+		ID: "kernl-c3", Type: "task", Title: "No Decision Record Child", State: "ready_for_implementation",
+		ProfileID: "worker",
+	})
+
+	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand: "bd",
+		StateDir:       t.TempDir(),
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         &markerOnlyDriver{worktree: worktree},
+		Config:         newDriveTestConfig(),
+		BeadID:         "kernl-c3",
+		RepoPath:       t.TempDir(),
+		Worktree:       worktree,
+	})
+	if res.Success || res.FinalState != "blocked" {
+		t.Fatalf("worker should block when implementation writes a marker commit but no decision record; got %+v", res)
+	}
+}
+
 // artifactDriver simulates an agent that produces each epic stage's exit-gate
 // artifact, keyed on the bead's current (already-advanced) state. The verdict
 // is written to the same artifact directory kernl itself resolves
@@ -224,6 +319,11 @@ func (d *artifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResu
 	bd, _ := d.be.Get(d.epicID, "")
 	switch bd.State {
 	case "integration":
+		// No decision-record write here: epic's "integration" does not carry
+		// a decision_record gate (see fakeDecisionRecord's doc comment
+		// above), so this driver must not manufacture one - doing so would
+		// make TestDriveEpic_ReachesAwaitingPRReview pass even if gate
+		// evaluation for that state were silently disabled.
 		cmd := exec.Command("git", "-C", d.worktree, "commit", "--allow-empty", "-m", "stage: integration: merged children")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return RunBeadResult{Success: false}, fmt.Errorf("integration commit: %v: %s", err, out)

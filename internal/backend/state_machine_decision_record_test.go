@@ -12,8 +12,8 @@ import (
 // shape of any builtin profile.
 func decisionRecordGateWorkflow() WorkflowDescriptor {
 	return WorkflowDescriptor{
-		ExitGates: map[string]WorkflowExitGate{
-			"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+		ExitGates: map[string][]WorkflowExitGate{
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
 		},
 	}
 }
@@ -268,9 +268,9 @@ func TestEvaluateExitGate_DecisionRecord_NeverResolvesInsideWorktree(t *testing.
 // "autopilot" declares no exit gates at all.
 func TestBuiltinProfile_AutopilotWithPR_CarriesDecisionRecordGate(t *testing.T) {
 	withPR := BuiltinProfileDescriptor("autopilot_with_pr")
-	gate, ok := withPR.ExitGates["implementation"]
-	if !ok || gate.Type != "decision_record" || gate.Path != "<artifact_dir>/decision-record.md" {
-		t.Errorf("autopilot_with_pr implementation gate = %+v, ok=%v; want decision_record/<artifact_dir>/decision-record.md", gate, ok)
+	gates := withPR.ExitGates["implementation"]
+	if len(gates) != 1 || gates[0].Type != "decision_record" || gates[0].Path != "<artifact_dir>/decision-record.md" {
+		t.Errorf("autopilot_with_pr implementation gates = %+v; want exactly one decision_record/<artifact_dir>/decision-record.md", gates)
 	}
 
 	stage, ok := withPR.Stages["implementation"]

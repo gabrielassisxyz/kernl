@@ -143,8 +143,8 @@ func TestSplitDecisionBody_InlineMentionOfHeadingTextIsNotABoundary(t *testing.T
 
 func TestRecordDecisionIfGateType_NoOpForOtherGateTypes(t *testing.T) {
 	wf := backend.WorkflowDescriptor{
-		ExitGates: map[string]backend.WorkflowExitGate{
-			"implementation": {Type: "commit_marker", Path: "stage: implementation"},
+		ExitGates: map[string][]backend.WorkflowExitGate{
+			"implementation": {{Type: "commit_marker", Path: "stage: implementation"}},
 		},
 	}
 	gateCtx := backend.ExitGateContext{FromState: "implementation"}
@@ -159,7 +159,7 @@ func TestRecordDecisionIfGateType_NoOpForOtherGateTypes(t *testing.T) {
 }
 
 func TestRecordDecisionIfGateType_NoOpWhenNoGateForState(t *testing.T) {
-	wf := backend.WorkflowDescriptor{ExitGates: map[string]backend.WorkflowExitGate{}}
+	wf := backend.WorkflowDescriptor{ExitGates: map[string][]backend.WorkflowExitGate{}}
 	gateCtx := backend.ExitGateContext{FromState: "implementation"}
 
 	if err := recordDecisionIfGateType(context.Background(), wf, gateCtx, DriveBeadDeps{}, &backend.Bead{ID: "kb-1"}, "kb-1", ""); err != nil {
@@ -660,8 +660,8 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 	}
 
 	wf := backend.WorkflowDescriptor{
-		ExitGates: map[string]backend.WorkflowExitGate{
-			"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+		ExitGates: map[string][]backend.WorkflowExitGate{
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
 		},
 	}
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: artifactDir, BeadID: beadID}
@@ -940,8 +940,8 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 		QueueStates:  []string{"ready_for_implementation"},
 		ActionStates: []string{"implementation"},
 		QueueActions: map[string]string{"ready_for_implementation": "implementation"},
-		ExitGates: map[string]backend.WorkflowExitGate{
-			"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+		ExitGates: map[string][]backend.WorkflowExitGate{
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
 		},
 		Stages: map[string]backend.StageContract{
 			"implementation": {

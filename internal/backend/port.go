@@ -46,27 +46,33 @@ func ErrResult[T any](err *BackendError) BackendResult[T] {
 }
 
 type WorkflowDescriptor struct {
-	ID                string                      `json:"id"`
-	BackingWorkflowID string                      `json:"backingWorkflowId"`
-	Label             string                      `json:"label"`
-	Mode              string                      `json:"mode"`
-	InitialState      string                      `json:"initialState"`
-	States            []string                    `json:"states"`
-	TerminalStates    []string                    `json:"terminalStates"`
-	Transitions       []WorkflowTransition        `json:"transitions,omitempty"`
-	FinalCutState     string                      `json:"finalCutState,omitempty"`
-	RetakeState       string                      `json:"retakeState"`
-	PromptProfileID   string                      `json:"promptProfileId"`
-	ProfileID         string                      `json:"profileId,omitempty"`
-	Owners            map[string]ActionOwnerKind  `json:"owners,omitempty"`
-	StateOwners       map[string]ActionOwnerKind  `json:"stateOwners,omitempty"`
-	QueueActions      map[string]string           `json:"queueActions,omitempty"`
-	QueueStates       []string                    `json:"queueStates,omitempty"`
-	ActionStates      []string                    `json:"actionStates,omitempty"`
-	ReviewQueueStates []string                    `json:"reviewQueueStates,omitempty"`
-	HumanQueueStates  []string                    `json:"humanQueueStates,omitempty"`
-	ExitGates         map[string]WorkflowExitGate `json:"exitGates,omitempty"`
-	Stages            map[string]StageContract    `json:"stages,omitempty" yaml:"stages,omitempty"`
+	ID                string                     `json:"id"`
+	BackingWorkflowID string                     `json:"backingWorkflowId"`
+	Label             string                     `json:"label"`
+	Mode              string                     `json:"mode"`
+	InitialState      string                     `json:"initialState"`
+	States            []string                   `json:"states"`
+	TerminalStates    []string                   `json:"terminalStates"`
+	Transitions       []WorkflowTransition       `json:"transitions,omitempty"`
+	FinalCutState     string                     `json:"finalCutState,omitempty"`
+	RetakeState       string                     `json:"retakeState"`
+	PromptProfileID   string                     `json:"promptProfileId"`
+	ProfileID         string                     `json:"profileId,omitempty"`
+	Owners            map[string]ActionOwnerKind `json:"owners,omitempty"`
+	StateOwners       map[string]ActionOwnerKind `json:"stateOwners,omitempty"`
+	QueueActions      map[string]string          `json:"queueActions,omitempty"`
+	QueueStates       []string                   `json:"queueStates,omitempty"`
+	ActionStates      []string                   `json:"actionStates,omitempty"`
+	ReviewQueueStates []string                   `json:"reviewQueueStates,omitempty"`
+	HumanQueueStates  []string                   `json:"humanQueueStates,omitempty"`
+	// ExitGates lists, per state, every gate that must pass before a bead
+	// advances - not a single gate, because a state can carry more than one
+	// legitimate exit condition (e.g. "you committed work" and "you recorded
+	// the decision" are different questions, both worth answering). All
+	// gates declared for a state must pass; EvaluateExitGate reports every
+	// failure, not just the first.
+	ExitGates map[string][]WorkflowExitGate `json:"exitGates,omitempty"`
+	Stages    map[string]StageContract      `json:"stages,omitempty" yaml:"stages,omitempty"`
 }
 
 type WorkflowExitGate struct {
