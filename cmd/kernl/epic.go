@@ -447,6 +447,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if runWorkflowName == "" {
 		runWorkflowName = "worker"
 	}
+	runStartedAt := time.Now()
 	runID, err := app.StartWorkflowRun(context.Background(), a.Graph, app.StartWorkflowRunInput{
 		EntryPoint:     "epic run",
 		Title:          epicBead.Title,
@@ -457,33 +458,74 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		VerifyCommand:  verifyCommand,
 		TrackerCommand: trackerCommand,
 		DryRun:         dryRun,
-		StartedAt:      time.Now(),
+		StartedAt:      runStartedAt,
 	})
 	if err != nil {
 		return err
+	}
+	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
+	// when none is: ComposeRunReport's own doc comment on why that must
+	// never fail the close is the reason a missing llm.provider is not
+	// checked here.
+	var impactComposer app.ImpactComposer
+	if a.Config.LLM.IsSet() {
+		impactComposer = app.LLMImpactComposer{LLM: a.Config.LLM}
 	}
 	defer func() {
 		status, failure := "completed", ""
 		if err != nil {
 			status, failure = "failed", err.Error()
 		}
+		finishedAt := time.Now()
+
+		// Composed and written before the run record closes, and on every
+		// path out of this function including failure - a report of what
+		// failed is worth more than no report, and the run's own status is
+		// one of the facts its header states.
+		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
+			Graph:      a.Graph,
+			Composer:   impactComposer,
+			RunID:      runID,
+			Status:     status,
+			FinishedAt: finishedAt,
+			Beads:      beadRunOutcomes(a.Backend, repoPath, runBeads),
+			StateDir:   a.StateDir,
+			EpicID:     epicID,
+		})
+		if reportErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for epic %s failed: %v\n", epicID, reportErr)
+		} else {
+			out(fmt.Sprintf("run report: %s\n", reportPath))
+		}
+
 		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
 			Status:     status,
-			FinishedAt: time.Now(),
+			FinishedAt: finishedAt,
 			Failure:    failure,
 		})
-		if closeErr == nil {
-			return
-		}
-		if err != nil {
+		switch {
+		case closeErr == nil:
+		case err != nil:
 			err = fmt.Errorf("%w - additionally, closing workflow run %s failed: %v", err, runID, closeErr)
-			return
+		default:
+			// The dispatch itself succeeded; only the run record failed to
+			// close. Reporting that as a plain success would leave a run stuck
+			// at "running" with no report ever composed for it, and nothing
+			// short of reading this error would reveal that happened.
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", epicID, runID, closeErr)
 		}
-		// The dispatch itself succeeded; only the run record failed to
-		// close. Reporting that as a plain success would leave a run stuck
-		// at "running" with no report ever composed for it, and nothing
-		// short of reading this error would reveal that happened.
-		err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", epicID, runID, closeErr)
+
+		// A report that could not be written is escalated only when the run
+		// would otherwise report plain success. An unresolved field 4 is
+		// swallowed by design (ComposeRunReport's doc comment says why); a
+		// report file that does not exist at all is not the same thing,
+		// because the operator judges a run by reading one. When the run
+		// already failed, the stderr warning above is the record and
+		// escalating would only overwrite a more specific failure with a
+		// vaguer one.
+		if reportErr != nil && err == nil {
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: epic %s completed successfully but its run report could not be written: %w", epicID, reportErr)
+		}
 	}()
 
 	doneSet := resumePlan.DoneSet()
@@ -517,6 +559,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 				AgentStateStore: stateStore,
 				VerifyCommand:   verifyCommand,
 				TrackerCommand:  trackerCommand,
+				RunID:           runID,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
@@ -564,7 +607,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
 	if err := driveEpic(context.Background(), epicDrive{
 		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
-		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree,
+		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree, RunID: runID,
 		StateStore: stateStore, Shipment: plan, Out: out,
 	}); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
@@ -589,6 +632,25 @@ func confirmShape(in io.Reader, out func(string), shapeID string) error {
 		return nil
 	}
 	return fmt.Errorf("KERNL DISPATCH FAILURE: aborted at shape confirmation (answered %q) - re-run kernl epic run and answer y, or use --autonomous", answer)
+}
+
+// beadRunOutcomes resolves each run bead's current tracker state for the run
+// report's header and summary. It is best-effort, not fail-loud, on purpose:
+// ComposeRunReport's own doc comment already establishes that composing the
+// report must never fail the run, and a bead whose state cannot be re-read
+// at the very end of a run (the tracker briefly unreachable, a bead deleted
+// mid-run) is exactly that same class of problem, not a reason to lose the
+// report entirely.
+func beadRunOutcomes(be backend.BackendPort, repoPath string, runBeads []app.BeadRef) []app.BeadRunOutcome {
+	out := make([]app.BeadRunOutcome, 0, len(runBeads))
+	for _, ref := range runBeads {
+		state := "unknown"
+		if bead, err := be.Get(ref.ID, repoPath); err == nil && bead != nil {
+			state = bead.State
+		}
+		out = append(out, app.BeadRunOutcome{ID: ref.ID, Title: ref.Title, FinalState: state})
+	}
+	return out
 }
 
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto
@@ -663,6 +725,10 @@ type epicDrive struct {
 	StateStore     *workflow.AgentStateStore
 	Shipment       shipmentPlan
 	Out            func(string)
+	// RunID is the same workflow run the children ran under: integration and
+	// shipment are stages of that one run, not a second one, so a decision
+	// recorded here belongs to the same report as a child's.
+	RunID string
 }
 
 // buildIntegrationChildren pairs each child bead with its own artifact
@@ -726,6 +792,7 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 		},
 		VerifyCommand:  d.VerifyCommand,
 		TrackerCommand: d.TrackerCommand,
+		RunID:          d.RunID,
 		BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
 			switch in.State {
 			case "integration":

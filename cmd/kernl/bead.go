@@ -251,6 +251,7 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	// definition performs none - must never reach it, exactly like every
 	// other write below this line. It closes via the defer immediately
 	// after, on every path out of this function from here on.
+	runStartedAt := time.Now()
 	runID, err := app.StartWorkflowRun(context.Background(), a.Graph, app.StartWorkflowRunInput{
 		EntryPoint:     "bead run",
 		Title:          bead.Title,
@@ -261,10 +262,18 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		VerifyCommand:  verifyCommand,
 		TrackerCommand: trackerCommand,
 		DryRun:         false,
-		StartedAt:      time.Now(),
+		StartedAt:      runStartedAt,
 	})
 	if err != nil {
 		return app.RunBeadResult{}, err
+	}
+	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
+	// when none is: ComposeRunReport's own doc comment on why that must
+	// never fail the close is the reason a missing llm.provider is not
+	// checked here.
+	var impactComposer app.ImpactComposer
+	if a.Config.LLM.IsSet() {
+		impactComposer = app.LLMImpactComposer{LLM: a.Config.LLM}
 	}
 	defer func() {
 		// DriveBeadToTerminal is returned directly below, and it legitimately
@@ -282,32 +291,71 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		case !result.Success:
 			status, failure = "failed", fmt.Sprintf("bead %s did not reach a successful terminal state - stopped at %q", beadID, result.FinalState)
 		}
+		finishedAt := time.Now()
+
+		// Composed and written before the run record closes, and on every
+		// path out of this function including failure - a report of what
+		// failed is worth more than no report, and the run's own status is
+		// one of the facts its header states. A standalone bead is its own
+		// report scope (EpicID: bead.ID): refuseEpicManagedBead above already
+		// refused any bead with a parent, so bead.ID and epicIDFor(bead)
+		// agree here without calling that unexported helper.
+		finalState := result.FinalState
+		if finalState == "" {
+			finalState = bead.State
+		}
+		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
+			Graph:      a.Graph,
+			Composer:   impactComposer,
+			RunID:      runID,
+			Status:     status,
+			FinishedAt: finishedAt,
+			Beads:      []app.BeadRunOutcome{{ID: bead.ID, Title: bead.Title, FinalState: finalState}},
+			StateDir:   a.StateDir,
+			EpicID:     bead.ID,
+		})
+		if reportErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for bead %s failed: %v\n", beadID, reportErr)
+		} else {
+			fmt.Printf("run report: %s\n", reportPath)
+		}
+
 		closeErr := app.CloseWorkflowRun(context.Background(), a.Graph, runID, app.CloseWorkflowRunInput{
 			Status:     status,
-			FinishedAt: time.Now(),
+			FinishedAt: finishedAt,
 			Failure:    failure,
 		})
-		if closeErr == nil {
-			return
-		}
-		if err != nil {
+
+		switch {
+		case closeErr == nil:
+		case err != nil:
 			err = fmt.Errorf("%w - additionally, closing workflow run %s failed: %v", err, runID, closeErr)
-			return
-		}
-		if !result.Success {
+		case !result.Success:
 			// The dispatch itself already failed (result.Success == false)
 			// with no Go error to carry that fact past this defer - branching
 			// on err alone here would report only the close failure and lose
 			// the original one, and runBeadCmd's own "!res.Success" check
 			// never runs once err stops being nil.
 			err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s did not reach a successful terminal state (stopped at %q), and its workflow run record %s also failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", beadID, result.FinalState, runID, closeErr)
-			return
+		default:
+			// The dispatch itself succeeded; only the run record failed to
+			// close. Reporting plain success here would leave a run stuck at
+			// "running" with no report ever composed for it, and nothing short
+			// of reading this error would reveal that happened.
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", beadID, runID, closeErr)
 		}
-		// The dispatch itself succeeded; only the run record failed to
-		// close. Reporting plain success here would leave a run stuck at
-		// "running" with no report ever composed for it, and nothing short
-		// of reading this error would reveal that happened.
-		err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s completed successfully but its workflow run record %s failed to close: %w - Fix: the run node in the graph is stuck at status \"running\"; investigate the graph db directly", beadID, runID, closeErr)
+
+		// A report that could not be written is escalated only when the
+		// command would otherwise report plain success. An unresolved
+		// field 4 is swallowed by design (ComposeRunReport's doc comment
+		// says why); a report file that does not exist at all is not the
+		// same thing, because the operator judges a run by reading one. On
+		// every other path the command already exits non-zero and the
+		// stderr warning above is the record, so escalating there would
+		// only overwrite a more specific failure with a vaguer one.
+		if reportErr != nil && err == nil && result.Success {
+			err = fmt.Errorf("KERNL DISPATCH FAILURE: bead %s completed successfully but its run report could not be written: %w", beadID, reportErr)
+		}
 	}()
 
 	stateStore, err := workflow.NewAgentStateStore(filepath.Join(a.StateDir, "agentstate"))
@@ -331,6 +379,7 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		AgentStateStore: stateStore,
 		VerifyCommand:   verifyCommand,
 		TrackerCommand:  trackerCommand,
+		RunID:           runID,
 		Log: func(stage int, state string) {
 			fmt.Printf("bead %s [stage %d] %s\n", beadID, stage, state)
 		},

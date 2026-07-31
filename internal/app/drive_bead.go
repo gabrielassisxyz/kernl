@@ -71,6 +71,14 @@ type DriveBeadDeps struct {
 	// which tracker it is and how it reaches its store are both properties of
 	// the repository being worked on.
 	TrackerCommand string
+	// RunID is the workflow_run node id StartWorkflowRun returned for this
+	// dispatch. recordDecisionIfGateType threads it into
+	// WriteDecisionRecordNode so a decision is linked to the run that
+	// produced it by an edge, not by inference from which beads that run
+	// happened to drive - see WriteDecisionRecordNode's own doc comment.
+	// Both CLI call sites (cmd/kernl/epic.go, cmd/kernl/bead.go) always have
+	// one by the time they call DriveBeadToTerminal.
+	RunID string
 	// HeadSHAResolver reports a worktree's current HEAD SHA for the ledger
 	// and gate context. Nil defaults to GitHeadSHAResolver{} (the real
 	// git-shelling implementation, mirroring StageAttemptInput.DiffStats in

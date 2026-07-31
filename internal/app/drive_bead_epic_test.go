@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 // epicFakeBackend persists state, labels, and description so description-based
@@ -182,16 +183,30 @@ func TestDriveWorker_StopsAtAwaitingIntegration(t *testing.T) {
 	})
 
 	stateDir := t.TempDir()
+	cfg := newDriveTestConfig()
+	cfg.Vault = config.VaultConfig{Root: t.TempDir()}
+	graphPath, err := graphDBFilePath(cfg)
+	if err != nil {
+		t.Fatalf("graphDBFilePath: %v", err)
+	}
+	// The worker profile's implementation stage carries a decision_record
+	// exit gate, so this drive writes a real Decision node - which now needs
+	// the run it belongs to to already exist.
+	runID := seedRunAtPath(t, graphPath, "Child", []BeadRef{
+		{ID: "kernl-c1", Title: "Child", TrackerKind: "bd", RepoPath: "/repo"},
+	})
+
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand: "bd",
 		StateDir:       stateDir,
 		VerifyCommand:  "bin/ci",
 		Backend:        be,
 		Driver:         &workerArtifactDriver{be: be, beadID: "kernl-c1", worktree: worktree, stateDir: stateDir},
-		Config:         newDriveTestConfig(),
+		Config:         cfg,
 		BeadID:         "kernl-c1",
 		RepoPath:       t.TempDir(),
 		Worktree:       worktree,
+		RunID:          runID,
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
