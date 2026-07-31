@@ -201,6 +201,38 @@ func RegisterBeadRoutes(mux *http.ServeMux, a *app.App) {
 		}
 		json.NewEncoder(w).Encode(bead)
 	})
+
+	// revert-decision is the decision model's §6 middle row: one decision
+	// was wrong, the work stands, so the bead reopens carrying that decision
+	// as a constraint. See app.RevertDecisionAndReopenBead for why this is
+	// composed as one operation rather than left as two separate calls a
+	// client could invoke out of order or only halfway.
+	mux.HandleFunc("POST /api/beads/{id}/revert-decision", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		id := r.PathValue("id")
+		var body struct {
+			DecisionID  string `json:"decisionId"`
+			TargetState string `json:"targetState"`
+			Reason      string `json:"reason"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		result, err := app.RevertDecisionAndReopenBead(r.Context(), a.Graph, a.Backend, repoPath, app.RevertDecisionInput{
+			BeadID:      id,
+			DecisionID:  body.DecisionID,
+			TargetState: body.TargetState,
+			Reason:      body.Reason,
+		})
+		if err != nil {
+			slog.Error("KERNL DISPATCH FAILURE: revert decision for bead", "error", err, "beadId", id)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":      "reverted",
+			"decisionId":  result.DecisionID,
+			"targetState": result.TargetState,
+		})
+	})
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
