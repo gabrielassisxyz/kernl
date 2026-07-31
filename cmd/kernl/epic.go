@@ -456,7 +456,13 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	runBeads := make([]app.BeadRef, 0, len(ep.Children)+1)
 	runBeads = append(runBeads, app.BeadRef{ID: epicID, Title: epicBead.Title})
 	for _, child := range ep.Children {
-		runBeads = append(runBeads, app.BeadRef{ID: child.ID, Title: child.Title})
+		// IsFixup must be read here, from the child's own labels, and
+		// carried into StartWorkflowRun: that call's own bead_reference
+		// write is the first one for this run, and it is the only chance -
+		// a later one (recordDecisionIfGateType, once this child's
+		// implementation stage runs) is a no-op against an id that already
+		// exists.
+		runBeads = append(runBeads, app.BeadRef{ID: child.ID, Title: child.Title, IsFixup: app.HasLabel(child.Labels, app.IntegrationFixupLabel)})
 	}
 	runWorkflowName := customProfileID
 	if runWorkflowName == "" {
@@ -828,58 +834,81 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 		stopBefore = "shipment"
 	}
 
-	res, err := app.DriveBeadToTerminal(ctx, app.DriveBeadDeps{
-		Backend:         a.Backend,
-		Driver:          a.Driver,
-		Config:          a.Config,
-		StateDir:        a.StateDir,
-		BeadID:          epicID,
-		RepoPath:        repoPath,
-		Worktree:        epicWorktree,
-		AgentStateStore: stateStore,
-		StopBeforeState: stopBefore,
-		Log: func(stage int, state string) {
-			ts := time.Now().Format("15:04:05")
-			out(fmt.Sprintf("[%s] epic %s [stage %d] %s\n", ts, epicID, stage, state))
-			a.EpicEvents.Publish(epic.EpicEvent{Type: epic.BeadStateChanged, EpicID: ep.ID, BeadID: epicID, Detail: state, Time: time.Now().Unix()})
-		},
-		VerifyCommand:  d.VerifyCommand,
-		TrackerCommand: d.TrackerCommand,
-		RunID:          d.RunID,
-		BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
-			switch in.State {
-			case "integration":
-				children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
-				cs := buildIntegrationChildren(children, in.ArtifactDir)
-				s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
-					EpicID: epicID, EpicTitle: in.Bead.Title,
-					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch, Children: cs,
-					VerifyCommand: in.VerifyCommand, TrackerCommand: in.TrackerCommand,
-				})
-				if perr != nil {
+	res, err := app.DriveEpicIntegrationTail(ctx, app.DriveEpicIntegrationTailDeps{
+		EpicID: epicID,
+		DriveBeadDeps: app.DriveBeadDeps{
+			Backend:         a.Backend,
+			Driver:          a.Driver,
+			Config:          a.Config,
+			StateDir:        a.StateDir,
+			BeadID:          epicID,
+			RepoPath:        repoPath,
+			Worktree:        epicWorktree,
+			AgentStateStore: stateStore,
+			StopBeforeState: stopBefore,
+			Log: func(stage int, state string) {
+				ts := time.Now().Format("15:04:05")
+				out(fmt.Sprintf("[%s] epic %s [stage %d] %s\n", ts, epicID, stage, state))
+				a.EpicEvents.Publish(epic.EpicEvent{Type: epic.BeadStateChanged, EpicID: ep.ID, BeadID: epicID, Detail: state, Time: time.Now().Unix()})
+			},
+			VerifyCommand:  d.VerifyCommand,
+			TrackerCommand: d.TrackerCommand,
+			RunID:          d.RunID,
+			BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
+				switch in.State {
+				case "integration":
+					children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
+					cs := buildIntegrationChildren(children, in.ArtifactDir)
+					s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
+						EpicID: epicID, EpicTitle: in.Bead.Title,
+						EpicBranch: "feat/" + epicID, BaseBranch: baseBranch, Children: cs,
+						VerifyCommand: in.VerifyCommand, TrackerCommand: in.TrackerCommand,
+					})
+					if perr != nil {
+						return app.BuildBeadStagePrompt(in)
+					}
+					return s
+				case "integration_review":
+					artifactPath := backend.ResolveArtifactPath("<artifact_dir>/integration-review.md", epicID, in.ArtifactDir)
+					s, perr := prompt.RenderIntegrationReview(prompt.IntegrationReviewInput{
+						EpicID: epicID, EpicTitle: in.Bead.Title,
+						ArtifactPath: artifactPath, VerifyCommand: in.VerifyCommand, TrackerCommand: in.TrackerCommand,
+					})
+					if perr != nil {
+						return app.BuildBeadStagePrompt(in)
+					}
+					return s
+				case "shipment":
+					s, perr := prompt.RenderShipment(prompt.ShipmentInput{
+						EpicID: epicID, EpicTitle: in.Bead.Title,
+						EpicBranch: "feat/" + epicID, BaseBranch: baseBranch,
+						RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
+						RepoSlug: plan.Destination.RepoSlug, TrackerCommand: in.TrackerCommand,
+					})
+					if perr != nil {
+						// Falling back to the generic prompt here would drop the
+						// verified destination and hand the agent the ambiguity
+						// back. The stage does not run without one.
+						out(fmt.Sprintf("KERNL DISPATCH FAILURE: cannot render the shipment prompt for epic %s: %v\n", epicID, perr))
+						return ""
+					}
+					return s
+				default:
 					return app.BuildBeadStagePrompt(in)
 				}
-				return s
-			case "shipment":
-				s, perr := prompt.RenderShipment(prompt.ShipmentInput{
-					EpicID: epicID, EpicTitle: in.Bead.Title,
-					EpicBranch: "feat/" + epicID, BaseBranch: baseBranch,
-					RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
-					RepoSlug: plan.Destination.RepoSlug, TrackerCommand: in.TrackerCommand,
-				})
-				if perr != nil {
-					// Falling back to the generic prompt here would drop the
-					// verified destination and hand the agent the ambiguity
-					// back. The stage does not run without one.
-					out(fmt.Sprintf("KERNL DISPATCH FAILURE: cannot render the shipment prompt for epic %s: %v\n", epicID, perr))
-					return ""
-				}
-				return s
-			default:
-				return app.BuildBeadStagePrompt(in)
-			}
+			},
 		},
 	})
+	// A fix-up bead was created and the epic rewound to ready_for_integration
+	// - a graceful, expected pause, not a failure: re-running `epic run`
+	// discovers the new bead as a real child and, once it reaches
+	// awaiting_integration, this function runs again and re-attempts
+	// integration. Checked before err: DriveEpicIntegrationTail always
+	// returns a nil error alongside a non-empty FixupBeadID.
+	if res.FixupBeadID != "" {
+		out(fmt.Sprintf("epic %s: integration review rejected with a fix-up - created bead %s, epic rewound to ready_for_integration; re-run `kernl epic run %s` once it reaches awaiting_integration\n", epicID, res.FixupBeadID, epicID))
+		return nil
+	}
 	if err != nil {
 		return err
 	}
