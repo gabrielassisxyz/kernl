@@ -23,16 +23,18 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 	if err != nil {
 		return err
 	}
-	var dryRun bool
+	var stopBeforeShipment bool
 	var positional []string
 	for _, arg := range args {
 		switch arg {
-		case "--dry-run":
-			dryRun = true
+		case "--stop-before-shipment", "--dry-run":
+			// --dry-run is the accepted alias - see runEpicRun's flag parsing
+			// for why the flag was renamed.
+			stopBeforeShipment = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return usagef("KERNL DISPATCH FAILURE: unknown epic merge flag %q%s - valid: --dry-run, --repo",
-					arg, didYouMean(arg, []string{"--dry-run", "--repo"}))
+				return usagef("KERNL DISPATCH FAILURE: unknown epic merge flag %q%s - valid: --stop-before-shipment, --dry-run, --repo",
+					arg, didYouMean(arg, []string{"--stop-before-shipment", "--dry-run", "--repo"}))
 			}
 			positional = append(positional, arg)
 		}
@@ -50,9 +52,15 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 	// epic merge drives the same integration -> shipment tail as epic run, so
 	// it needs the same verified destination. Containing only one of the two
 	// entry points would leave the other publishing wherever it liked.
-	plan, err := resolveShipmentPlan(repoEntry, dryRun, out)
+	plan, err := resolveShipmentPlan(repoEntry, stopBeforeShipment, out)
 	if err != nil {
 		return err
+	}
+	if stopBeforeShipment {
+		// Unlike epic run, epic merge never touches the children - it only
+		// drives the epic bead itself, so integration is the whole effect,
+		// not the smaller half of it.
+		out("--stop-before-shipment: integration and integration_review still run for real and commit onto the epic branch (epic merge does not run children) - only the push and pull request are withheld, and that merge cannot be redone\n")
 	}
 
 	ep, err := epic.LoadEpic(a.Backend, epicID, repoPath)
