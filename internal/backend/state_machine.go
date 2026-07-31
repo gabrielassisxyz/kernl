@@ -745,7 +745,59 @@ var decisionRecordSections = []decisionRecordSection{
 	{key: "rationale", heading: "Rationale"},
 }
 
-var decisionRecordHeadingRe = regexp.MustCompile(`(?m)^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$`)
+// decisionRecordHeadingRe matches an ATX heading ("## Text", 1-6 hashes)
+// against a single already-comment-stripped line. It intentionally does not
+// require exactly two hashes - any level is accepted, matching how the rest
+// of this parser is level-agnostic.
+var decisionRecordHeadingRe = regexp.MustCompile(`^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$`)
+
+// setextEqualsRe and setextDashesRe match a setext heading's underline line
+// (CommonMark: one or more "=" makes the preceding paragraph an H1, one or
+// more "-" makes it an H2) once trimmed of surrounding whitespace.
+var setextEqualsRe = regexp.MustCompile(`^=+$`)
+var setextDashesRe = regexp.MustCompile(`^-+$`)
+
+// isThematicBreak reports whether a trimmed line is a markdown horizontal
+// rule: three or more of the same character from {-, *, _}, optionally
+// separated by whitespace. It exists so a section body consisting of nothing
+// but a presentation token does not read as content (review finding: "a
+// horizontal rule ... counts as content"), and so a "---" is not mistaken
+// for real paragraph text when deciding whether it is eligible to become a
+// setext heading's underline. Written as an explicit scan rather than a
+// regexp with a backreference, since Go's regexp package (RE2) does not
+// support backreferences.
+func isThematicBreak(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	for _, ch := range []byte{'-', '*', '_'} {
+		ok := true
+		count := 0
+		for i := 0; i < len(trimmed); i++ {
+			if trimmed[i] == ch {
+				count++
+				continue
+			}
+			if trimmed[i] == ' ' || trimmed[i] == '\t' {
+				continue
+			}
+			ok = false
+			break
+		}
+		if ok && count >= 3 {
+			return true
+		}
+	}
+	return false
+}
+
+// isAtxHeadingText reports whether a trimmed line reads as an ATX heading -
+// used both to recognize real ATX headings and to disqualify a line from
+// being reinterpreted as setext heading text (a line that already opens its
+// own heading block cannot also be "paragraph text" for the next line).
+func isAtxHeadingText(trimmed string) bool {
+	return decisionRecordHeadingRe.MatchString(trimmed)
+}
 
 // normalizeDecisionHeading collapses a markdown heading to lowercase
 // alphanumerics separated by single spaces, so "Trade-offs", "Trade offs"
@@ -775,26 +827,160 @@ func decisionRecordSectionKeyByHeading() map[string]string {
 	return m
 }
 
-// missingDecisionRecordSections returns the canonical keys of the required
-// sections that are absent, or present but empty, from a decision record's
-// markdown content. Any markdown heading - required or not - closes the
-// previous section, so an unrelated heading the implementer adds (e.g. a
-// "## Context" preamble) cannot be folded into a required section's body.
-func missingDecisionRecordSections(content string) []string {
-	byHeading := decisionRecordSectionKeyByHeading()
-	lines := strings.Split(content, "\n")
+// decisionRecordLine is one line of a decision record after block-context
+// resolution: fenced code blocks and HTML comments are tracked across line
+// boundaries so their content is never mistaken for a heading, and comment
+// interiors are blanked (not deleted, so line numbers stay aligned) so they
+// never count as section content either.
+type decisionRecordLine struct {
+	visible string // comment-stripped text; equals the raw line outside comments and fences
+	inFence bool   // true for a fence delimiter line or any line inside one
+}
 
-	type headingHit struct {
-		key       string
-		bodyStart int
-	}
-	var hits []headingHit
+// classifyDecisionRecordLines walks a decision record's lines once, tracking
+// fenced-code-block state and HTML-comment state, and returns the
+// comment-stripped, fence-flagged view the rest of the parser reads instead
+// of the raw lines. This is the fix for two bypasses: a heading fenced as
+// example code, and a heading (or a section's entire body) hidden inside an
+// HTML comment - neither is a real, visible heading or a real, visible
+// section body, and the two amount to writing nothing while the file on disk
+// looks complete.
+func classifyDecisionRecordLines(lines []string) []decisionRecordLine {
+	fenceOpenRe := regexp.MustCompile("^[ \t]{0,3}(`{3,}|~{3,})")
+
+	out := make([]decisionRecordLine, len(lines))
+	inFence := false
+	var fenceChar byte
+	fenceLen := 0
+	inComment := false
+
 	for i, line := range lines {
-		m := decisionRecordHeadingRe.FindStringSubmatch(line)
-		if m == nil {
+		if inFence {
+			out[i] = decisionRecordLine{visible: line, inFence: true}
+			leading := strings.TrimLeft(line, " \t")
+			if len(leading) >= fenceLen {
+				run := 0
+				for run < len(leading) && leading[run] == fenceChar {
+					run++
+				}
+				if run >= fenceLen && strings.TrimSpace(leading[run:]) == "" {
+					inFence = false
+				}
+			}
 			continue
 		}
-		hits = append(hits, headingHit{key: byHeading[normalizeDecisionHeading(m[1])], bodyStart: i + 1})
+
+		if m := fenceOpenRe.FindString(line); m != "" {
+			marker := strings.TrimLeft(m, " \t")
+			fenceChar = marker[0]
+			fenceLen = len(marker)
+			inFence = true
+			out[i] = decisionRecordLine{visible: line, inFence: true}
+			continue
+		}
+
+		visible, stillOpen := stripHTMLCommentFromLine(line, inComment)
+		inComment = stillOpen
+		out[i] = decisionRecordLine{visible: visible, inFence: false}
+	}
+	return out
+}
+
+// stripHTMLCommentFromLine blanks any "<!-- ... -->" span on one line,
+// carrying comment state across the line boundary in both directions (a
+// comment opened here and closed later, or closed here having opened on an
+// earlier line). It handles more than one comment per line by design - a
+// single-line "<!-- a --> real text <!-- b -->" leaves only "real text".
+func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
+	var b strings.Builder
+	i := 0
+	for i < len(line) {
+		if inComment {
+			idx := strings.Index(line[i:], "-->")
+			if idx == -1 {
+				return b.String(), true
+			}
+			i += idx + len("-->")
+			inComment = false
+			continue
+		}
+		idx := strings.Index(line[i:], "<!--")
+		if idx == -1 {
+			b.WriteString(line[i:])
+			break
+		}
+		b.WriteString(line[i : i+idx])
+		i += idx + len("<!--")
+		inComment = true
+	}
+	return b.String(), inComment
+}
+
+// missingDecisionRecordSections returns the canonical keys of the required
+// sections that are absent, or present but empty, from a decision record's
+// markdown content. A markdown heading is either ATX ("## Text") or setext
+// (text immediately followed by an "===" or "---" underline); either kind -
+// required or not - closes the previous section, so an unrelated heading the
+// implementer adds (e.g. a "## Context" preamble) cannot be folded into a
+// required section's body. Headings inside a fenced code block or an HTML
+// comment are not recognized, and a section body left with nothing but a
+// horizontal rule or a comment does not count as content - see
+// classifyDecisionRecordLines and isThematicBreak.
+//
+// This is deliberately not a full CommonMark implementation: it recognizes
+// exactly the block constructs an agent's decision record realistically
+// contains or could use to fake one (fences, comments, ATX/setext headings,
+// horizontal rules), not the entire spec.
+func missingDecisionRecordSections(content string) []string {
+	content = strings.TrimPrefix(content, "\uFEFF") // UTF-8 BOM, if present
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	lines := strings.Split(content, "\n")
+	parsed := classifyDecisionRecordLines(lines)
+	byHeading := decisionRecordSectionKeyByHeading()
+
+	type headingHit struct {
+		key          string
+		headingStart int // first line belonging to the heading marker itself
+		bodyStart    int // first line after the heading marker
+	}
+	var hits []headingHit
+
+	for i := 0; i < len(parsed); i++ {
+		if parsed[i].inFence {
+			continue
+		}
+		trimmed := strings.TrimSpace(parsed[i].visible)
+
+		if trimmed != "" && (setextEqualsRe.MatchString(trimmed) || setextDashesRe.MatchString(trimmed)) {
+			if i > 0 && !parsed[i-1].inFence {
+				prevTrimmed := strings.TrimSpace(parsed[i-1].visible)
+				if prevTrimmed != "" && !isAtxHeadingText(prevTrimmed) && !isThematicBreak(prevTrimmed) &&
+					!setextEqualsRe.MatchString(prevTrimmed) && !setextDashesRe.MatchString(prevTrimmed) {
+					hits = append(hits, headingHit{
+						key:          byHeading[normalizeDecisionHeading(prevTrimmed)],
+						headingStart: i - 1,
+						bodyStart:    i + 1,
+					})
+					continue
+				}
+			}
+			// Not adjacent to eligible paragraph text: a run of 3+ is a
+			// thematic break, stripped from body content below; anything
+			// shorter is left as plain (non-heading) content - CommonMark's
+			// own handling of that edge case is genuinely ambiguous and it
+			// does not arise in a real decision record.
+			continue
+		}
+
+		if m := decisionRecordHeadingRe.FindStringSubmatch(parsed[i].visible); m != nil {
+			hits = append(hits, headingHit{
+				key:          byHeading[normalizeDecisionHeading(m[1])],
+				headingStart: i,
+				bodyStart:    i + 1,
+			})
+		}
 	}
 
 	found := make(map[string]bool, len(decisionRecordSections))
@@ -802,11 +988,18 @@ func missingDecisionRecordSections(content string) []string {
 		if h.key == "" {
 			continue
 		}
-		bodyEnd := len(lines)
+		bodyEnd := len(parsed)
 		if i+1 < len(hits) {
-			bodyEnd = hits[i+1].bodyStart - 1
+			bodyEnd = hits[i+1].headingStart
 		}
-		body := strings.TrimSpace(strings.Join(lines[h.bodyStart:bodyEnd], "\n"))
+		var visibleLines []string
+		for j := h.bodyStart; j < bodyEnd; j++ {
+			if !parsed[j].inFence && isThematicBreak(strings.TrimSpace(parsed[j].visible)) {
+				continue
+			}
+			visibleLines = append(visibleLines, parsed[j].visible)
+		}
+		body := strings.TrimSpace(strings.Join(visibleLines, "\n"))
 		if body != "" {
 			found[h.key] = true
 		}
