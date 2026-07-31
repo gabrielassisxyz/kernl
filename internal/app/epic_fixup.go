@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -9,18 +10,13 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
-// IntegrationFixupLabel marks a bead CreateFixupBead-equivalent code created:
-// both the label the run report checks (via BeadReference.IsFixup, set from
-// this label in recordDecisionIfGateType) and the fact a fix-up bead's own
-// decisions get sorted first in the report because of it.
+// IntegrationFixupLabel marks a bead this package created via the fix-up
+// mechanism: both the label the run report checks (via
+// BeadReference.IsFixup, set from this label in recordDecisionIfGateType)
+// and the durable fact findExistingFixupChild reads back from the tracker
+// itself, never from mutable prose - see that function's own doc comment
+// for why.
 const IntegrationFixupLabel = "kernl:fixup"
-
-// fixupCreatedMarkerPrefix is prepended to the epic bead's description the
-// same way revert_decision.go's revertedDecisionMarkerPrefix is: a durable,
-// greppable fact placed where DriveEpicIntegrationTail's cap check
-// (epicAlreadyHasFixup) can read it back on a later run of the same epic,
-// without a second storage mechanism next to the tracker record itself.
-const fixupCreatedMarkerPrefix = "<!-- kernl:fixup-created:"
 
 // HasLabel reports whether label is present in labels verbatim. Exported so
 // cmd/kernl can check a bead's own labels (e.g. IntegrationFixupLabel) when
@@ -37,12 +33,51 @@ func HasLabel(labels []string, label string) bool {
 	return false
 }
 
-// epicAlreadyHasFixup reports whether description already carries the
-// fixupCreatedMarkerPrefix - this epic already spawned one fix-up bead, so
-// per §7 a second integration_review rejection must escalate rather than
-// create another one.
-func epicAlreadyHasFixup(description string) bool {
-	return strings.Contains(description, fixupCreatedMarkerPrefix)
+// fixupWorkerCycleCompleteStates are the states a fix-up bead (driven under
+// the "worker" profile, like any other epic child) reaches once its own
+// implementation cycle is over - reached the profile's own terminal state
+// (awaiting_integration, handed to the epic; or abandoned, gave up), or
+// closed/shipped by hand. See findExistingFixupChild's own doc comment for
+// why this - and not merely "does a fix-up child exist at all" - is the cap
+// this package checks.
+var fixupWorkerCycleCompleteStates = map[string]bool{
+	"awaiting_integration": true,
+	"abandoned":            true,
+	"closed":               true,
+	"shipped":              true,
+}
+
+// findExistingFixupChild lists epicID's own children and returns the one
+// carrying IntegrationFixupLabel, or nil if none exists.
+//
+// The cap this package enforces - "a fix-up cannot spawn a fix-up" - reads
+// this instead of a marker in the epic's own description, for two reasons
+// measured against how the tracker actually gets used, not assumed:
+//
+//  1. A description is mutable prose. A crash between creating the fix-up
+//     bead and writing the marker leaves the marker never written at all; a
+//     later `POST /api/beads/{id}` or `bead refine-scope --description`
+//     replaces the field wholesale (the same "read-modify-write with no
+//     compare-and-swap" gap RevertDecisionAndReopenBead's own doc comment
+//     already accepts for a different write) and erases a marker that WAS
+//     written. Either way the cap silently stops applying.
+//  2. A bead is durable and nothing but this package's own writes touches
+//     its labels. The fix-up bead already carries ParentID=epicID (this is
+//     how the epic's own next `epic run` discovers it as a real child), so
+//     the same List call every other reader of an epic's children already
+//     uses is enough - no second storage mechanism next to the tracker
+//     record itself.
+func findExistingFixupChild(be backend.BackendPort, repoPath, epicID string) (*backend.Bead, error) {
+	children, err := be.List(&backend.BeadListFilters{Parent: epicID}, repoPath)
+	if err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing epic %s's children to check its fix-up history failed: %w", epicID, err)
+	}
+	for i := range children {
+		if HasLabel(children[i].Labels, IntegrationFixupLabel) {
+			return &children[i], nil
+		}
+	}
+	return nil, nil
 }
 
 // EpicIntegrationTailResult reports what happened driving the epic bead's
@@ -53,16 +88,17 @@ func epicAlreadyHasFixup(description string) bool {
 // operator can resolve.
 type EpicIntegrationTailResult struct {
 	RunBeadResult
-	// FixupBeadID is non-empty when this call created a fix-up bead and
-	// rewound the epic to ready_for_integration - a graceful, expected
-	// pause, not a failure: re-running `kernl epic run <epicID>` discovers
-	// the new bead as a real child (it is linked via CreateBeadInput.ParentID)
-	// and, once it reaches awaiting_integration, re-attempts integration.
+	// FixupBeadID is non-empty when this call created (or resumed) a
+	// fix-up bead and rewound the epic to ready_for_integration - a
+	// graceful, expected pause, not a failure: re-running `kernl epic run
+	// <epicID>` discovers the bead as a real child (it is linked via
+	// CreateBeadInput.ParentID) and, once it reaches awaiting_integration,
+	// re-attempts integration.
 	FixupBeadID string
 	// Escalated is true when this integration_review rejection needs the
 	// operator: the reviewer declared a decision, declared nothing this
-	// package could parse, or this epic already spawned one fix-up bead and
-	// a fix-up cannot spawn a fix-up.
+	// package could parse, or this epic already has a fix-up bead that
+	// completed its own cycle and a fix-up cannot spawn a fix-up.
 	Escalated bool
 	// EscalationReason is set whenever Escalated is true - the text the CLI
 	// surfaces, naming why, rather than the same generic "blocked" message
@@ -94,6 +130,19 @@ func DriveEpicIntegrationTail(ctx context.Context, deps DriveEpicIntegrationTail
 	if err != nil || res.Success || res.FinalState != "blocked" {
 		return EpicIntegrationTailResult{RunBeadResult: res}, err
 	}
+	// The gate that blocked this bead must have been integration_review's
+	// own - not a different stage's failure while an integration-review.md
+	// from an EARLIER attempt happens to still sit on disk at the same
+	// well-known path. Without this check, re-reading that stale file would
+	// find its old REJECT verdict and dispatch a fix-up for a rejection
+	// that already has nothing to do with the CURRENT failure. res.BlockedAtState
+	// answers this whether the block just happened (the gate-failure branch
+	// set it directly) or is being revisited on a retry (the bead was
+	// already "blocked" on entry, and DriveBeadToTerminal recovers it from
+	// the still-stale wf:state:* label - see stateFromStaleLabel).
+	if res.BlockedAtState != "integration_review" {
+		return EpicIntegrationTailResult{RunBeadResult: res}, err
+	}
 
 	artifactDir, dirErr := resolveArtifactDir(deps.StateDir, deps.EpicID, deps.EpicID)
 	if dirErr != nil {
@@ -109,24 +158,36 @@ func DriveEpicIntegrationTail(ctx context.Context, deps DriveEpicIntegrationTail
 		return EpicIntegrationTailResult{RunBeadResult: res}, err
 	}
 	trimmed := strings.TrimSpace(string(data))
-	if !strings.HasSuffix(trimmed, "VERDICT: REJECT") {
+	if !hasExactLastLine(trimmed, "VERDICT: REJECT") {
 		return EpicIntegrationTailResult{RunBeadResult: res}, err
 	}
 
-	epicBead, getErr := deps.Backend.Get(deps.EpicID, deps.RepoPath)
-	if getErr != nil || epicBead == nil {
-		return EpicIntegrationTailResult{RunBeadResult: res},
-			fmt.Errorf("KERNL DISPATCH FAILURE: integration_review rejected epic %s but the epic could not be re-read to check its fix-up history: %v", deps.EpicID, getErr)
+	existingFixup, listErr := findExistingFixupChild(deps.Backend, deps.RepoPath, deps.EpicID)
+	if listErr != nil {
+		return EpicIntegrationTailResult{RunBeadResult: res}, listErr
 	}
+	// A fix-up child that exists but has NOT yet completed its own worker
+	// cycle is not evidence the cap was already used - it is evidence a
+	// PRIOR attempt got as far as creating (and linking) the bead and then
+	// failed before the epic was rewound (see finalizeFixupBead). The
+	// executor always drives every child, including this one, to a
+	// terminal state before this tail ever runs again, so "exists but not
+	// yet terminal" can only mean that earlier rewind never completed.
+	alreadyFixedUp := existingFixup != nil && fixupWorkerCycleCompleteStates[existingFixup.State]
 
 	rejection := ParseIntegrationRejection(trimmed)
-	action := DecideFixupAction(rejection, epicAlreadyHasFixup(epicBead.Description))
+	action := DecideFixupAction(rejection, alreadyFixedUp)
 
 	switch action {
 	case FixupActionCreateBead:
-		return createFixupBeadAndRewind(deps, epicBead, rejection)
+		if existingFixup != nil {
+			// Resume the still-pending fix-up instead of creating a second
+			// bead for the same rejection.
+			return finalizeFixupBead(deps, existingFixup, rejection)
+		}
+		return createFixupBead(deps, rejection)
 	case FixupActionEscalateAlreadyFixedUp:
-		reason := fmt.Sprintf("integration review rejected epic %s again, but it already created one fix-up bead - a fix-up cannot spawn a fix-up; resolve it by hand (see %s)", deps.EpicID, reviewPath)
+		reason := fmt.Sprintf("integration review rejected epic %s again, but fix-up bead %s already completed its own cycle - a fix-up cannot spawn a fix-up; resolve it by hand (see %s)", deps.EpicID, existingFixup.ID, reviewPath)
 		return EpicIntegrationTailResult{RunBeadResult: res, Escalated: true, EscalationReason: reason},
 			fmt.Errorf("KERNL DISPATCH FAILURE: %s", reason)
 	default: // FixupActionEscalateDecisionOrAmbiguous
@@ -134,6 +195,20 @@ func DriveEpicIntegrationTail(ctx context.Context, deps DriveEpicIntegrationTail
 		return EpicIntegrationTailResult{RunBeadResult: res, Escalated: true, EscalationReason: reason},
 			fmt.Errorf("KERNL DISPATCH FAILURE: %s", reason)
 	}
+}
+
+// hasExactLastLine reports whether the trimmed last line of content equals
+// want exactly - the same "end with the literal line" test
+// evaluateSingleExitGate's artifact_verdict case uses, so this wrapper and
+// the gate it is reacting to can never disagree about what counts as a
+// rejection (a plain HasSuffix over the whole document would also match a
+// fabricated line like "NOT A VALID VERDICT: REJECT").
+func hasExactLastLine(content, want string) bool {
+	lastLine := content
+	if idx := strings.LastIndexByte(content, '\n'); idx != -1 {
+		lastLine = strings.TrimSpace(content[idx+1:])
+	}
+	return lastLine == want
 }
 
 // escalationReasonForAmbiguousOrDecision renders the operator-facing message
@@ -149,22 +224,18 @@ func escalationReasonForAmbiguousOrDecision(rejection *IntegrationRejection, rev
 	return fmt.Sprintf("integration review rejected with a decision only the operator can make: %s (see %s for the full context)", rejection.Question, reviewPath)
 }
 
-// createFixupBeadAndRewind is the FixupActionCreateBead branch: create the
-// fix-up bead as a real child of the epic, mark the epic so a second
-// rejection escalates instead of creating a second one, then rewind the
-// epic to ready_for_integration so a later `epic run` re-attempts
-// integration once the fix-up bead reaches awaiting_integration.
+// createFixupBead is the first-time half of FixupActionCreateBead: create
+// the fix-up bead as a real child of the epic, then hand off to
+// finalizeFixupBead for the step every path (fresh create or resume) shares.
 //
-// The three steps are NOT safe to retry blindly if a later one fails: unlike
-// RevertDecisionAndReopenBead (which validates everything before its first
-// durable write), there is no id to check "already created?" against before
-// Create itself runs, so a Create that succeeds followed by a failed Update
-// or Rewind leaves a fix-up bead that exists but is not yet marked or not
-// yet resumable. Each failure below names the exact manual recovery instead
-// of promising an automatic one - the same trade-off bead D's own retry
-// story already accepted for a different two-step write, recorded there as
-// deliberate rather than an oversight.
-func createFixupBeadAndRewind(deps DriveEpicIntegrationTailDeps, epicBead *backend.Bead, rejection *IntegrationRejection) (EpicIntegrationTailResult, error) {
+// A Create that fails is NOT always "nothing happened": br create's own
+// issue creation can succeed while the acceptance/notes follow-up it
+// performs internally fails (see BrCliBackend.Create). That case comes back
+// as a *backend.CreatePartialError carrying the bead that DOES exist, and
+// is resumed from here rather than treated as a clean failure that makes
+// retrying safe - retrying blind on a false "nothing was created" is
+// exactly what would create a duplicate.
+func createFixupBead(deps DriveEpicIntegrationTailDeps, rejection *IntegrationRejection) (EpicIntegrationTailResult, error) {
 	title, _ := decisionTitleAndContext(rejection.WhatIsWrong)
 	input := backend.CreateBeadInput{
 		Title:       "fix-up: " + title,
@@ -176,18 +247,38 @@ func createFixupBeadAndRewind(deps DriveEpicIntegrationTailDeps, epicBead *backe
 	}
 	fixup, err := deps.Backend.Create(input, deps.RepoPath)
 	if err != nil {
-		return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: integration review rejected epic %s with a fix-up declared, but creating the fix-up bead failed: %w - Fix: this repository's tracker needs a working Create (BackendPort.Create); the epic is still blocked and nothing was linked to it, so retrying this call is safe", deps.EpicID, err)
+		var partial *backend.CreatePartialError
+		if !errors.As(err, &partial) || partial.Bead == nil {
+			return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: integration review rejected epic %s with a fix-up declared, but creating the fix-up bead failed: %w - Fix: this repository's tracker needs a working Create (BackendPort.Create); nothing was created, so retrying is safe", deps.EpicID, err)
+		}
+		// The issue itself (and its ParentID link, and its label) was
+		// already created - only its acceptance/notes follow-up failed.
+		// finalizeFixupBead below fills in what is missing.
+		fixup = partial.Bead
 	}
+	return finalizeFixupBead(deps, fixup, rejection)
+}
 
-	marker := fixupCreatedMarkerPrefix + fixup.ID + " -->"
-	newDescription := marker + "\n\n" + epicBead.Description
-	if err := deps.Backend.Update(deps.EpicID, backend.UpdateBeadInput{Description: newDescription}, deps.RepoPath); err != nil {
-		return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: fix-up bead %s was created for epic %s but marking the epic as fixed-up failed: %w - Fix: without this marker a second rejection could create a second fix-up bead; write %q into the epic's description by hand, or fix the tracker error, before re-running - do not re-run blindly, it would create a duplicate fix-up bead", fixup.ID, deps.EpicID, err, marker)
+// finalizeFixupBead is the one remaining step whether fixup was just
+// created or is being resumed from a prior, incomplete attempt: make sure
+// it carries the rejection's own acceptance criteria (a partial Create may
+// have skipped this), then rewind the epic to ready_for_integration so a
+// later `epic run` re-attempts integration once the bead reaches
+// awaiting_integration.
+//
+// rejection is never nil here: DecideFixupAction only reaches this path
+// when rejection.Kind == review.KindFixup, which requires a non-nil
+// rejection by construction (see ParseIntegrationRejection).
+func finalizeFixupBead(deps DriveEpicIntegrationTailDeps, fixup *backend.Bead, rejection *IntegrationRejection) (EpicIntegrationTailResult, error) {
+	if fixup.Acceptance == "" && rejection.Acceptance != "" {
+		if err := deps.Backend.Update(fixup.ID, backend.UpdateBeadInput{Acceptance: rejection.Acceptance}, deps.RepoPath); err != nil {
+			return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: fix-up bead %s exists for epic %s but still lacks its acceptance criteria: %w - Fix: retry once the tracker issue is resolved; the bead will not be duplicated", fixup.ID, deps.EpicID, err)
+		}
 	}
 
 	reason := "integration review rejected: " + rejection.WhatIsWrong
 	if err := deps.Backend.Rewind(deps.EpicID, "ready_for_integration", reason, deps.RepoPath); err != nil {
-		return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: fix-up bead %s created and linked to epic %s, but rewinding the epic to ready_for_integration failed: %w - Fix: the epic is still blocked; retry once the tracker issue is resolved - the fix-up bead and its marker are already in place and will not be duplicated", fixup.ID, deps.EpicID, err)
+		return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: fix-up bead %s exists for epic %s, but rewinding the epic to ready_for_integration failed: %w - Fix: the epic is still blocked; retry once the tracker issue is resolved - the fix-up bead will not be duplicated", fixup.ID, deps.EpicID, err)
 	}
 
 	return EpicIntegrationTailResult{
