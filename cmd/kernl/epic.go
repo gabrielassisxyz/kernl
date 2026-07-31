@@ -700,7 +700,7 @@ type shipmentPlan struct {
 func resolveShipmentPlan(repoEntry config.RepoEntry, dryRun bool, out func(string)) (shipmentPlan, error) {
 	plan := shipmentPlan{Allowed: repoEntry.Shipment.AllowedRemotes, DryRun: dryRun}
 	if dryRun {
-		out("dry-run: the run stops before shipment - nothing is pushed and no pull request is opened\n")
+		out("dry-run: integration and integration_review still run for real and commit onto the epic branch - only the push and pull request are withheld, and that merge cannot be redone\n")
 		return plan, nil
 	}
 	dest, err := shipment.ResolveDestination(repoEntry.Path, repoEntry.Shipment.Remote, repoEntry.Shipment.AllowedRemotes, nil)

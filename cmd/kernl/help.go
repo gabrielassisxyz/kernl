@@ -124,7 +124,11 @@ the others drive the orchestrator locally.`,
 					{Name: "--workflow", Value: "<path>", Description: "Use a custom workflow YAML instead of the default profile"},
 					{Name: "--autonomous", Description: "Let the DA infer the workflow shape without prompting"},
 					{Name: "--interactive", Description: "With --autonomous: confirm the inferred shape first"},
-					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+					{Name: "--dry-run", Description: "Run children and the epic's own integration for real; only shipment is withheld",
+						Continuation: []string{
+							"integration commits a real merge onto the epic branch, so this consumes that",
+							"stage - a later real run can find nothing left to merge and get stuck",
+						}},
 					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
@@ -137,11 +141,15 @@ Use it to recover a blocked epic; it does not run the children.
 
 Shipment pushes to the remote declared in registry.repos[].shipment.allowedRemotes
 and refuses any other. With no allow-list configured it refuses to push at all;
-use --dry-run to stop before shipment.
+use --dry-run to run integration for real and withhold only shipment.
 
 {{flags}}`,
 				Flags: []commandFlag{
-					{Name: "--dry-run", Description: "Stop before shipment: nothing is pushed and no pull request is opened"},
+					{Name: "--dry-run", Description: "Run integration and integration_review for real; only shipment is withheld",
+						Continuation: []string{
+							"integration commits a real merge onto the epic branch, so this consumes that",
+							"stage - a later real run can find nothing left to merge and get stuck",
+						}},
 					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
 				},
 			},
@@ -175,7 +183,8 @@ running 'kernl serve'.`,
 				Usage:   "kernl bead run [--dry-run] [--repo <path|name>] <bead-id>",
 				Details: `--dry-run validates everything it can without writing anything, then stops
 before the first change - the same refusal a real run would give, none of
-its side effects.
+its side effects. 'kernl epic run --dry-run' means something weaker: it
+still dispatches and commits for real, withholding only shipment.
 
 {{flags}}`,
 				Flags: []commandFlag{
