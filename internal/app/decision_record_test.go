@@ -14,6 +14,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
+	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
 const wellFormedDecisionRecord = "## Decision\n\n" +
@@ -458,6 +459,15 @@ func seedStandInNodes(t *testing.T, g *graph.Graph, beadID, epicID string) (stri
 	return beadID, epicID
 }
 
+// fakeHeadSHAResolver is a named fake HeadSHAResolver: a fixed answer with
+// no process spawned, so a DriveBeadToTerminal test never shells out to the
+// host's real git binary just to fill in a ledger/gate-context field it
+// does not otherwise depend on (AGENTS.md §4: unit tests must not touch the
+// host).
+type fakeHeadSHAResolver struct{ sha string }
+
+func (f fakeHeadSHAResolver) HeadSHA(worktree string) string { return f.sha }
+
 // --- DriveBeadToTerminal wiring: the two gatePassed call sites this bead
 // added, exercised end to end rather than as an isolated unit. ---
 
@@ -482,16 +492,17 @@ func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		TrackerCommand: "bd",
-		StateDir:       t.TempDir(),
-		VerifyCommand:  "bin/ci",
-		Backend:        be,
-		Driver:         driver,
-		Config:         cfg,
-		BeadID:         "kb-1",
-		RepoPath:       "/tmp/repo",
-		Worktree:       "/tmp/worktree",
-		MaxStages:      16,
+		TrackerCommand:  "bd",
+		StateDir:        t.TempDir(),
+		VerifyCommand:   "bin/ci",
+		Backend:         be,
+		Driver:          driver,
+		Config:          cfg,
+		BeadID:          "kb-1",
+		RepoPath:        "/tmp/repo",
+		Worktree:        "/tmp/worktree",
+		MaxStages:       16,
+		HeadSHAResolver: fakeHeadSHAResolver{sha: "deadbeef"},
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
@@ -552,16 +563,17 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 
 	driver := &scriptedDriver{be: be}
 	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
-		TrackerCommand: "bd",
-		StateDir:       stateDir,
-		VerifyCommand:  "bin/ci",
-		Backend:        be,
-		Driver:         driver,
-		Config:         cfg,
-		BeadID:         "kb-2",
-		RepoPath:       "/tmp/repo",
-		Worktree:       "/tmp/worktree",
-		MaxStages:      16,
+		TrackerCommand:  "bd",
+		StateDir:        stateDir,
+		VerifyCommand:   "bin/ci",
+		Backend:         be,
+		Driver:          driver,
+		Config:          cfg,
+		BeadID:          "kb-2",
+		RepoPath:        "/tmp/repo",
+		Worktree:        "/tmp/worktree",
+		MaxStages:       16,
+		HeadSHAResolver: fakeHeadSHAResolver{sha: "deadbeef"},
 	})
 	if err != nil {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
@@ -585,5 +597,140 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 	}
 	if len(decisions) != 1 {
 		t.Fatalf("expected 1 decision written by the real orchestration path, got %d", len(decisions))
+	}
+}
+
+// TestDriveBeadToTerminal_SubprocessDecisionRecordGateWritesQueryableNode
+// covers the subprocess branch's own recordDecisionIfGateType call
+// (drive_bead.go's subprocess flow, mirroring the native flow's), which
+// nothing previously exercised: a test that never sets AgentStateStore or a
+// "subprocess"-kind stage cannot reach that branch at all, so deleting the
+// call there would still leave every other test in this file green. This
+// one registers a real subprocess-kind workflow (the same
+// backend.RegisterWorkflow pattern drive_bead_test.go's own subprocess
+// tests use) with a decision_record gate on its one action state, runs a
+// real (but trivial) subprocess script, and asserts a Decision node lands
+// in the graph exactly as the native-flow test proves for the native path.
+func TestDriveBeadToTerminal_SubprocessDecisionRecordGateWritesQueryableNode(t *testing.T) {
+	scriptPath := createTestPythonScript(t, `#!/usr/bin/env python3
+import sys
+import json
+
+req = json.load(sys.stdin)
+print(json.dumps({"context_payload": req.get("context_payload", "")}))
+`)
+
+	backend.ClearWorkflowRegistry()
+	t.Cleanup(backend.ClearWorkflowRegistry)
+	customWf := backend.WorkflowDescriptor{
+		ID:             "subprocess-decision-record",
+		InitialState:   "ready_for_implementation",
+		States:         []string{"ready_for_implementation", "implementation", "shipped"},
+		TerminalStates: []string{"shipped"},
+		Transitions: []backend.WorkflowTransition{
+			{From: "ready_for_implementation", To: "implementation"},
+			{From: "implementation", To: "shipped"},
+		},
+		QueueStates:  []string{"ready_for_implementation"},
+		ActionStates: []string{"implementation"},
+		QueueActions: map[string]string{"ready_for_implementation": "implementation"},
+		ExitGates: map[string]backend.WorkflowExitGate{
+			"implementation": {Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+		},
+		Stages: map[string]backend.StageContract{
+			"implementation": {
+				Role: "subprocess",
+				Kind: "subprocess",
+				Subprocess: &backend.SubprocessSpec{
+					Command: []string{scriptPath},
+				},
+			},
+		},
+	}
+	backend.RegisterWorkflow(customWf)
+
+	be := newPersistingBackend()
+	be.beads["kb-sub-1"] = &backend.Bead{
+		ID:        "kb-sub-1",
+		ParentID:  "kb-epic-sub-1",
+		State:     "ready_for_implementation",
+		ProfileID: "subprocess-decision-record",
+	}
+
+	cfg := newDriveTestConfig()
+	vaultRoot := t.TempDir()
+	cfg.Vault = config.VaultConfig{Root: vaultRoot}
+
+	graphPath, err := graphDBFilePath(cfg)
+	if err != nil {
+		t.Fatalf("graphDBFilePath: %v", err)
+	}
+	g, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	seedStandInNodes(t, g, "kb-sub-1", "kb-epic-sub-1")
+	if err := g.Close(); err != nil {
+		t.Fatalf("closing seed graph: %v", err)
+	}
+
+	stateDir := t.TempDir()
+	artifactDir := filepath.Join(stateDir, "run", "kb-epic-sub-1", "kb-sub-1")
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	storeDir := t.TempDir()
+	store, err := workflow.NewAgentStateStore(storeDir)
+	if err != nil {
+		t.Fatalf("NewAgentStateStore: %v", err)
+	}
+	if err := store.Save("kb-sub-1", workflow.AgentRuntime{ContextPayload: "initial"}); err != nil {
+		t.Fatalf("store.Save: %v", err)
+	}
+
+	driver := &scriptedDriver{be: be}
+	res, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand:  "bd",
+		StateDir:        stateDir,
+		VerifyCommand:   "bin/ci",
+		Backend:         be,
+		Driver:          driver,
+		Config:          cfg,
+		BeadID:          "kb-sub-1",
+		RepoPath:        "/tmp/repo",
+		Worktree:        t.TempDir(),
+		AgentStateStore: store,
+		MaxStages:       16,
+		HeadSHAResolver: fakeHeadSHAResolver{sha: "deadbeef"},
+	})
+	if err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got %+v", res)
+	}
+	if bd, _ := be.Get("kb-sub-1", ""); bd.State != "shipped" {
+		t.Fatalf("expected final state shipped, got %q", bd.State)
+	}
+
+	g2, err := graph.Open(context.Background(), graph.Config{Path: graphPath})
+	if err != nil {
+		t.Fatalf("re-opening graph: %v", err)
+	}
+	defer g2.Close()
+	var decisions []*nodes.Decision
+	if err := g2.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		decisions, err = nodes.ListDecisions(context.Background(), tx, nodes.DecisionFilter{Tags: []string{PhaseThreeDecisionTag}})
+		return err
+	}); err != nil {
+		t.Fatalf("ListDecisions: %v", err)
+	}
+	if len(decisions) != 1 {
+		t.Fatalf("expected 1 decision written by the subprocess orchestration path, got %d", len(decisions))
 	}
 }
