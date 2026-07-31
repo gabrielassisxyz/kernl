@@ -309,6 +309,34 @@ func TestEpicRunWiresExecutorAndServesGUI(t *testing.T) {
 	}
 }
 
+// The flag was renamed to --stop-before-shipment because "dry-run" overstated
+// what it withholds (see help.go), but --dry-run stays a working alias so
+// nothing already invoking it breaks. Both spellings must print the same
+// epic-run-scoped warning naming children - resolveShipmentPlan no longer
+// prints anything itself, so a caller that forgot to print its own line
+// would surface here as a run with no warning at all.
+func TestEpicRunAcceptsDryRunAsStopBeforeShipmentAlias(t *testing.T) {
+	for _, flag := range []string{"--stop-before-shipment", "--dry-run"} {
+		t.Run(flag, func(t *testing.T) {
+			fakeApp := testAppWithDiamondEpic(t, epicRunSuccessSpawn)
+			var lines []string
+			err := runEpicWithApp(fakeApp, "kernl.yaml", []string{"run", flag, "e"}, func(line string) {
+				lines = append(lines, line)
+			})
+			if err != nil {
+				t.Fatalf("epic run %s: %v", flag, err)
+			}
+			joined := strings.Join(lines, "")
+			if !strings.Contains(joined, "--stop-before-shipment:") {
+				t.Fatalf("%s must print the stop-before-shipment warning; got %q", flag, joined)
+			}
+			if !strings.Contains(joined, "children still implement and get reviewed for real") {
+				t.Errorf("%s: warning must name children as the bigger effect, not only the epic's own integration; got %q", flag, joined)
+			}
+		})
+	}
+}
+
 // TestEpicRunCreatesAndClosesAWorkflowRunLinkedToEveryChild is the
 // acceptance test for wiring app.StartWorkflowRun/CloseWorkflowRun into epic
 // run: a successful run (here, --dry-run so it never reaches the one stage
