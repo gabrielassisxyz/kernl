@@ -68,6 +68,23 @@ func TestRenderShipment_BodyGoesThroughAFileNotAShellArgument(t *testing.T) {
 	}
 }
 
+// The "keep any scratch inside the worktree" instruction governs the
+// tracker-update command right below it, not the PR body file step 2 just
+// told the agent to write outside the worktree. RenderShipment replaces the
+// generic stage prompt wholesale, so its own text is the only guidance the
+// shipment agent gets - two instructions in the same document that disagree
+// about where a file belongs is exactly the incoherence this recipe must not
+// contain.
+func TestRenderShipment_ScratchInstructionDoesNotContradictTheBodyFileStep(t *testing.T) {
+	out, err := prompt.RenderShipment(sampleShipmentInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "this does not apply to the pull request body file from step 2, which belongs outside it") {
+		t.Errorf("the scratch instruction must scope itself away from the PR body file:\n%s", out)
+	}
+}
+
 func TestRenderShipment_RefusesWithoutPRBodyPath(t *testing.T) {
 	in := sampleShipmentInput()
 	in.PRBodyPath = ""
