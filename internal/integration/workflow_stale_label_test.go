@@ -102,7 +102,15 @@ func TestWorkflowStaleLabelLoop(t *testing.T) {
 	}
 
 	// ---- 3. Write fake-agent script ----
-	fakeAgentPath := filepath.Join(repoPath, "fake-agent.sh")
+	//
+	// The name matters: ResolveAgentForPool refuses a command that matches
+	// no dialect, so a stand-in called "fake-agent.sh" is rejected before it
+	// is ever spawned. This one is named for the dialect it has always been
+	// dispatched as - the argv builder answered an unrecognised command with
+	// claude's flags, so that is what this script was already receiving,
+	// silently. Spelling it out makes the dependency visible instead of
+	// resting on a fallback that no longer exists.
+	fakeAgentPath := filepath.Join(repoPath, "fake-claude-agent.sh")
 	fakeAgentSrc := `#!/bin/bash
 set -eu
 bid="${BEAD_ID:?}"
