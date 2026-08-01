@@ -1,0 +1,55 @@
+package adapter
+
+import "fmt"
+
+// BuildAnswerModeArgs builds the argv for asking a CLI one question and
+// reading one plain-text answer off stdout.
+//
+// This is not BuildPromptModeArgs with different flags, it is a different
+// job. A stage dispatch wants an agent with tools, a working tree, and an
+// event stream to follow; this wants a sentence back and nothing touched. The
+// two dialects below are the ones that can be asked for exactly that and were
+// measured doing it - their stdout is the answer, with no framing to parse
+// off it:
+//
+//	claude  `-p <prompt>`                -> the answer, verbatim
+//	pi      `-p --no-tools <prompt>`     -> the answer, verbatim
+//
+// Every other dialect is refused rather than guessed at, and the two reasons
+// are different. codex `exec` prints its own framing around the answer
+// ("Reading additional input from stdin...") and refuses to run outside a
+// trusted git directory at all, so its stdout is not an answer. agy has no
+// way to disable its tools: `-p` does return the answer verbatim, but a
+// composer that only needs a paragraph should not be able to edit files, and
+// there is no flag to promise that.
+//
+// Both supported forms deliberately omit any permission-bypass flag. Asking
+// for a paragraph is not work that needs write access, and a dialect that has
+// to ask before touching anything is a dialect that will not touch anything
+// when nobody is there to answer.
+func BuildAnswerModeArgs(agent AgentTarget, prompt string) (PromptModeArgs, error) {
+	cmd := agent.Command
+	if cmd == "" {
+		cmd = "claude"
+	}
+
+	switch ResolveDialect(cmd) {
+	case DialectClaude:
+		args := []string{"-p", prompt}
+		if agent.Model != "" {
+			args = append(args, "--model", agent.Model)
+		}
+		return PromptModeArgs{Command: cmd, Args: args}, nil
+	case DialectPi:
+		args := []string{"-p", "--no-tools"}
+		if agent.Model != "" {
+			args = append(args, "--model", agent.Model)
+		}
+		args = append(args, prompt)
+		return PromptModeArgs{Command: cmd, Args: args}, nil
+	default:
+		return PromptModeArgs{}, fmt.Errorf(
+			"KERNL DISPATCH FAILURE: agent command %q cannot be asked a plain question - its one-shot output carries framing around the answer, or it offers no way to run without tools - Fix: point llm.agent at an agent whose command is claude or pi",
+			cmd)
+	}
+}
