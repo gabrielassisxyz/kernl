@@ -928,7 +928,7 @@ var decisionRecordSections = []decisionRecordSection{
 // against a single already-comment-stripped line. It intentionally does not
 // require exactly two hashes - any level is accepted, matching how the rest
 // of this parser is level-agnostic.
-var decisionRecordHeadingRe = regexp.MustCompile(`^[ \t]{0,3}#{1,6}[ \t]+(.+?)[ \t]*$`)
+var decisionRecordHeadingRe = regexp.MustCompile(`^[ \t]{0,3}(#{1,6})[ \t]+(.+?)[ \t]*$`)
 
 // setextEqualsRe and setextDashesRe match a setext heading's underline line
 // (CommonMark: one or more "=" makes the preceding paragraph an H1, one or
@@ -1107,8 +1107,17 @@ func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
 //
 // keyFn maps one heading's own text to the canonical key a caller cares
 // about; ok=false means this heading is not recognized - it still closes the
-// previous section (an unrelated "## Context" preamble does not get folded
-// into whatever section precedes it), but contributes no body of its own.
+// previous section when it sits at the same depth or shallower (an unrelated
+// "## Context" preamble does not get folded into whatever section precedes
+// it), but contributes no body of its own.
+//
+// Depth is what decides that. A section runs until the next heading at its
+// own level or above; a DEEPER heading is part of its body, because that is
+// what nesting means and what an author writing "## Options Considered"
+// followed by "### 1." plainly intends. Treating any heading as a terminator
+// made exactly that document read as an empty section - a decision record
+// with four well-written sections was rejected for a missing one, and the
+// twenty minutes of work it documented was discarded with it.
 //
 // dupKey names the first recognized key two or more real (non-fenced,
 // non-commented) headings both produced, or "" when every recognized key
@@ -1135,6 +1144,10 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 		key          string
 		headingStart int // first line belonging to the heading marker itself
 		bodyStart    int // first line after the heading marker
+		// level is the heading's depth (1 for "#" or a "===" underline, 2
+		// for "##" or "---", and so on). A section ends at the next heading
+		// of the SAME OR SHALLOWER depth; a deeper one is its own content.
+		level int
 	}
 	var hits []headingHit
 
@@ -1150,10 +1163,15 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 				if prevTrimmed != "" && !isAtxHeadingText(prevTrimmed) && !isThematicBreak(prevTrimmed) &&
 					!setextEqualsRe.MatchString(prevTrimmed) && !setextDashesRe.MatchString(prevTrimmed) {
 					key, _ := keyFn(prevTrimmed)
+					level := 2
+					if setextEqualsRe.MatchString(trimmed) {
+						level = 1
+					}
 					hits = append(hits, headingHit{
 						key:          key,
 						headingStart: i - 1,
 						bodyStart:    i + 1,
+						level:        level,
 					})
 					continue
 				}
@@ -1167,11 +1185,12 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 		}
 
 		if m := decisionRecordHeadingRe.FindStringSubmatch(parsed[i].visible); m != nil {
-			key, _ := keyFn(m[1])
+			key, _ := keyFn(m[2])
 			hits = append(hits, headingHit{
 				key:          key,
 				headingStart: i,
 				bodyStart:    i + 1,
+				level:        len(m[1]),
 			})
 		}
 	}
@@ -1186,9 +1205,16 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 			dupKey = h.key
 		}
 		seen[h.key] = true
+		// Scan forward for the next heading at this depth or shallower.
+		// Stopping at the immediately following heading regardless of depth
+		// is what made a section whose content is organised into
+		// subheadings read as empty.
 		bodyEnd := len(parsed)
-		if i+1 < len(hits) {
-			bodyEnd = hits[i+1].headingStart
+		for j := i + 1; j < len(hits); j++ {
+			if hits[j].level <= h.level {
+				bodyEnd = hits[j].headingStart
+				break
+			}
 		}
 		var visibleLines []string
 		for j := h.bodyStart; j < bodyEnd; j++ {
