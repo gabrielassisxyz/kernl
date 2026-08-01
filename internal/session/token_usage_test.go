@@ -287,3 +287,142 @@ func TestLogTokenUsageForEvent_NoExtraction(t *testing.T) {
 		t.Errorf("expected 0 calls for non-matching event, got %d", len(logger.calls))
 	}
 }
+
+// piAgentEndFixture is the tail of a real `pi -p --mode json` run (pi 0.81,
+// litellm/kimi-k2.7), trimmed to the fields this code reads. Keeping the
+// captured shape rather than an invented one is what makes this a contract
+// test: pi nests counts under "usage" with camelCase keys and its own
+// spelling ("input"/"output", not codex's "input_tokens"), which is exactly
+// the kind of drift a hand-written fixture would paper over.
+func piAgentEndFixture() map[string]any {
+	return map[string]any{
+		"type": "agent_end",
+		"messages": []any{
+			map[string]any{
+				"role":    "user",
+				"content": []any{map[string]any{"type": "text", "text": "Reply with exactly: HELLO"}},
+			},
+			map[string]any{
+				"role":     "assistant",
+				"provider": "litellm",
+				"model":    "kimi-k2.7",
+				"usage": map[string]any{
+					"input":       float64(4901),
+					"output":      float64(22),
+					"cacheRead":   float64(0),
+					"cacheWrite":  float64(0),
+					"reasoning":   float64(18),
+					"totalTokens": float64(4923),
+					"cost":        map[string]any{"total": float64(0)},
+				},
+				"stopReason": "stop",
+			},
+		},
+		"willRetry": false,
+	}
+}
+
+func TestExtractTokenUsageFromEvent_PiAgentEnd(t *testing.T) {
+	got := ExtractTokenUsageFromEvent(adapter.DialectPi, piAgentEndFixture())
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.InputTokens != 4901 {
+		t.Errorf("InputTokens = %d, want 4901", got.InputTokens)
+	}
+	if got.OutputTokens != 22 {
+		t.Errorf("OutputTokens = %d, want 22", got.OutputTokens)
+	}
+	if got.TotalTokens != 4923 {
+		t.Errorf("TotalTokens = %d, want 4923", got.TotalTokens)
+	}
+	if got.ReasoningTokens == nil || *got.ReasoningTokens != 18 {
+		t.Errorf("ReasoningTokens = %v, want 18", got.ReasoningTokens)
+	}
+	// pi reports the concrete model, unlike codex - this is the field that
+	// keeps the stage-attempt ledger from recording modelResolved: false.
+	if got.Model == nil || *got.Model != "kimi-k2.7" {
+		t.Errorf("Model = %v, want kimi-k2.7", got.Model)
+	}
+	// A zero cost is a reported zero, not silence: the proxy bills nothing,
+	// and nil here would mean "pi did not say", which is a different fact.
+	if got.CostUSD == nil || *got.CostUSD != 0 {
+		t.Errorf("CostUSD = %v, want a reported 0", got.CostUSD)
+	}
+}
+
+func TestExtractTokenUsageFromEvent_PiSumsEveryAssistantMessage(t *testing.T) {
+	parsed := map[string]any{
+		"type": "agent_end",
+		"messages": []any{
+			map[string]any{
+				"role":  "assistant",
+				"model": "kimi-k2.7",
+				"usage": map[string]any{"input": float64(100), "output": float64(10), "totalTokens": float64(110)},
+			},
+			map[string]any{
+				"role":  "assistant",
+				"model": "glm-5.2",
+				"usage": map[string]any{"input": float64(200), "output": float64(20), "totalTokens": float64(220)},
+			},
+		},
+	}
+	got := ExtractTokenUsageFromEvent(adapter.DialectPi, parsed)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.InputTokens != 300 || got.OutputTokens != 30 || got.TotalTokens != 330 {
+		t.Errorf("counts = %d/%d/%d, want 300/30/330", got.InputTokens, got.OutputTokens, got.TotalTokens)
+	}
+	// Last model wins: pi can cycle models mid-session, and the one that
+	// produced the final answer is what "what ran here" means.
+	if got.Model == nil || *got.Model != "glm-5.2" {
+		t.Errorf("Model = %v, want glm-5.2", got.Model)
+	}
+}
+
+func TestExtractTokenUsageFromEvent_PiIgnoresNonTerminalEvents(t *testing.T) {
+	parsed := piAgentEndFixture()
+	parsed["type"] = "message_end"
+	if got := ExtractTokenUsageFromEvent(adapter.DialectPi, parsed); got != nil {
+		t.Errorf("message_end yielded %+v, want nil - only agent_end carries the run's totals", got)
+	}
+}
+
+func TestExtractTokenUsageFromEvent_PiUserOnlyConversationReportsNothing(t *testing.T) {
+	parsed := map[string]any{
+		"type": "agent_end",
+		"messages": []any{
+			map[string]any{"role": "user", "content": []any{}},
+		},
+	}
+	if got := ExtractTokenUsageFromEvent(adapter.DialectPi, parsed); got != nil {
+		t.Errorf("got %+v, want nil - no assistant usage is silence, not a zero-token measurement", got)
+	}
+}
+
+func TestCapabilitiesForDialect_PiAndAgyAreOneShotOnly(t *testing.T) {
+	for _, dialect := range []string{"pi", "agy"} {
+		for _, interactive := range []bool{false, true} {
+			caps := CapabilitiesForDialect(dialect, interactive)
+			if caps.SupportsInteractive {
+				t.Errorf("%s: SupportsInteractive = true, want false - no interactive transport is wired for it", dialect)
+			}
+			if caps.PromptTransport != TransportCLIArg {
+				t.Errorf("%s: PromptTransport = %q, want %q", dialect, caps.PromptTransport, TransportCLIArg)
+			}
+			if caps.SupportsFollowUp {
+				t.Errorf("%s: SupportsFollowUp = true, want false - a one-shot dispatch opens no channel to nudge", dialect)
+			}
+		}
+	}
+}
+
+func TestCapabilitiesForDialect_PiResultDetectionIsAgentSettled(t *testing.T) {
+	if got := CapabilitiesForDialect("pi", false).ResultDetection; got != ResultDetectionAgentSettled {
+		t.Errorf("ResultDetection = %q, want %q - pi emits no \"result\" event", got, ResultDetectionAgentSettled)
+	}
+	if got := CapabilitiesForDialect("agy", false).ResultDetection; got != ResultDetectionNone {
+		t.Errorf("agy ResultDetection = %q, want none - it prints plain text", got)
+	}
+}

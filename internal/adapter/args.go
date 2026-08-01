@@ -182,6 +182,26 @@ func BuildPromptModeArgs(agent AgentTarget, prompt string) PromptModeArgs {
 			args = append(args, "-m", agent.Model)
 		}
 		return PromptModeArgs{Command: cmd, Args: args}
+	case DialectPi:
+		// pi takes `[options] [messages...]`, so the prompt is the trailing
+		// positional. --mode json is what makes it emit the NDJSON stream
+		// this repository's session runtime reads; without it pi prints
+		// prose and every event-derived signal goes dark.
+		args := []string{"-p", "--mode", "json"}
+		if agent.Model != "" {
+			args = append(args, "--model", agent.Model)
+		}
+		args = append(args, prompt)
+		return PromptModeArgs{Command: cmd, Args: args}
+	case DialectAgy:
+		// agy has no JSON output mode: -p prints the answer as plain text,
+		// which the runtime forwards as raw stdout. See agyOneShotCapabilities
+		// for what that costs (no turn events, no token usage).
+		args := []string{"-p", prompt, "--dangerously-skip-permissions"}
+		if agent.Model != "" {
+			args = append(args, "--model", agent.Model)
+		}
+		return PromptModeArgs{Command: cmd, Args: args}
 	default:
 		return BuildClaudePromptModeArgs(agent, prompt)
 	}

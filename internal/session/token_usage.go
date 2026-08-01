@@ -157,9 +157,97 @@ func ExtractTokenUsageFromEvent(dialect adapter.AgentDialect, parsed map[string]
 			return nil
 		}
 		return normalizeClaudeResultUsage(parsed)
+	case adapter.DialectPi:
+		if evtType != "agent_end" {
+			return nil
+		}
+		return normalizePiAgentEndUsage(parsed)
 	default:
 		return nil
 	}
+}
+
+// normalizePiAgentEndUsage reads pi's terminal "agent_end" event, whose
+// "messages" array is the whole conversation. Only assistant messages carry a
+// usage object, and a multi-step run produces several, so the counts are
+// summed rather than read off one of them - taking the last would report a
+// single model call as the cost of the whole stage.
+//
+// The model is the last assistant message's, not the first: pi can cycle
+// models mid-session, and the one that produced the final answer is the one
+// that answers "what ran here".
+func normalizePiAgentEndUsage(obj map[string]any) *TokenUsageCounts {
+	messages, _ := obj["messages"].([]any)
+	if len(messages) == 0 {
+		return nil
+	}
+
+	counts := &TokenUsageCounts{}
+	var cacheRead, cacheWrite, reasoning int64
+	var cost float64
+	sawUsage, sawCacheRead, sawCacheWrite, sawReasoning, sawCost := false, false, false, false, false
+
+	for _, raw := range messages {
+		msg, _ := raw.(map[string]any)
+		if msg == nil {
+			continue
+		}
+		usage, _ := msg["usage"].(map[string]any)
+		if usage == nil {
+			continue
+		}
+		input := readCount(usage["input"])
+		output := readCount(usage["output"])
+		if input < 0 || output < 0 {
+			continue
+		}
+		sawUsage = true
+		counts.InputTokens += input
+		counts.OutputTokens += output
+		if total := readCount(usage["totalTokens"]); total >= 0 {
+			counts.TotalTokens += total
+		} else {
+			counts.TotalTokens += input + output
+		}
+		if v := readOptionalCount(usage["cacheRead"]); v != nil {
+			cacheRead += *v
+			sawCacheRead = true
+		}
+		if v := readOptionalCount(usage["cacheWrite"]); v != nil {
+			cacheWrite += *v
+			sawCacheWrite = true
+		}
+		if v := readOptionalCount(usage["reasoning"]); v != nil {
+			reasoning += *v
+			sawReasoning = true
+		}
+		if costObj, _ := usage["cost"].(map[string]any); costObj != nil {
+			if v := readOptionalFloat(costObj["total"]); v != nil {
+				cost += *v
+				sawCost = true
+			}
+		}
+		if model := readOptionalString(msg["model"]); model != nil {
+			counts.Model = model
+		}
+	}
+
+	if !sawUsage {
+		return nil
+	}
+	if sawCacheRead {
+		counts.CacheReadTokens = &cacheRead
+	}
+	if sawCacheWrite {
+		counts.CacheWriteTokens = &cacheWrite
+	}
+	if sawReasoning {
+		counts.ReasoningTokens = &reasoning
+	}
+	if sawCost {
+		counts.CostUSD = &cost
+	}
+	return counts
 }
 
 func LogTokenUsageForEvent(logger TokenUsageLogger, dialect adapter.AgentDialect, parsed map[string]any, beadID string) {

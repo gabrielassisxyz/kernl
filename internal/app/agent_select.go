@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 
+	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/dispatch"
@@ -32,6 +33,15 @@ func ResolveAgentForPool(cfg *config.Config, pool string) (RunBeadInput, error) 
 	agentID, agentCfg, err := dispatch.SelectFromPoolWithID(poolCfg, cfg.Settings.Agents)
 	if err != nil {
 		return RunBeadInput{}, fmt.Errorf("KERNL DISPATCH FAILURE: selecting agent from pool %q: %w", pool, err)
+	}
+
+	// Reject a command no dialect speaks here, before any stage runs. The
+	// argv builders answer an unrecognised command with claude's flags, so
+	// without this check a typo (or a CLI kernl has no dialect for) is only
+	// discovered as that CLI rejecting claude's arguments, in a log, with
+	// nothing naming the agent entry that chose it.
+	if _, dialectErr := adapter.ResolveDialectStrict(agentCfg.Command); dialectErr != nil {
+		return RunBeadInput{}, fmt.Errorf("agent %q in pool %q: %w", agentID, pool, dialectErr)
 	}
 
 	// The model is NOT appended here: each CLI names it differently

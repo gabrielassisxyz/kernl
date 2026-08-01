@@ -483,6 +483,15 @@ func (r *SessionRuntime) processNormalizedEvent(evtType string, obj map[string]a
 		r.processGeminiEvent(evtType, obj, rawLine, caps)
 	case "opencode":
 		r.processOpenCodeEvent(evtType, obj, rawLine, caps)
+	case "pi":
+		r.processPiEvent(evtType, obj, rawLine, caps)
+	case "agy":
+		// agy prints plain text, so nothing here ever parses as an event and
+		// this case is never reached from readStdout. It is spelled out
+		// anyway so the switch enumerates every dialect: falling into
+		// default would read as an oversight rather than as the measured
+		// fact that agy has no stream to process.
+		r.emit("stdout", rawLine)
 	default:
 		r.emit("stdout", rawLine)
 		if evtType == "result" {
@@ -624,6 +633,43 @@ func (r *SessionRuntime) processGeminiEvent(evtType string, obj map[string]any, 
 			return
 		}
 		r.isError = true
+		r.mu.Unlock()
+		r.emit("stdout", rawLine)
+		r.handleTurnEnd("turn_ended")
+	default:
+		r.mu.Lock()
+		r.lastEventType = evtType
+		r.mu.Unlock()
+		r.emit("stdout", rawLine)
+	}
+}
+
+// processPiEvent reads pi's NDJSON stream (`pi -p --mode json`), measured
+// against pi 0.81. Two events carry meaning beyond being printed:
+//
+//	session       - the first line, carrying the session id pi assigned
+//	agent_settled - the last line, after which the process exits
+//
+// pi's per-turn boundary is "turn_end", but a one-shot dispatch has exactly
+// one turn and "agent_settled" is the event that means the agent has stopped
+// for good, so that is what ends the turn here.
+//
+// No error signal is derived: unlike claude's is_error or gemini's status,
+// pi's failure shape has not been observed on this stream, and inventing one
+// from the field names would make a stage that failed look like a stage that
+// finished.
+func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawLine string, caps DialectCapabilities) {
+	if sid, _ := obj["id"].(string); sid != "" && evtType == "session" {
+		r.mu.Lock()
+		if r.capturedSessionID == "" {
+			r.capturedSessionID = sid
+		}
+		r.mu.Unlock()
+	}
+	switch evtType {
+	case "agent_settled":
+		r.mu.Lock()
+		r.lastEventType = "agent_settled"
 		r.mu.Unlock()
 		r.emit("stdout", rawLine)
 		r.handleTurnEnd("turn_ended")
