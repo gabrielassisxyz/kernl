@@ -291,12 +291,12 @@ func TestEvaluateExitGate_ArtifactVerdictRequiresExactLastLine(t *testing.T) {
 	}
 }
 
-// TestEvaluateExitGate_IntegrationReviewRecognizesReject proves the Phase 6
-// distinction this gate exists to make: a reviewer that deliberately
-// rejects (VERDICT: REJECT) still fails the gate - a rejection is not a
-// pass - but with a reason distinguishable from every other way this gate
-// fails, so the caller can tell "the reviewer did its job and said no" apart
-// from "the reviewer produced nothing coherent."
+// TestEvaluateExitGate_ReviewStagesRecognizeReject proves the distinction this
+// gate exists to make: a reviewer that deliberately rejects (VERDICT: REJECT)
+// still fails the gate - a rejection is not a pass - but with a reason
+// distinguishable from every other way this gate fails, so the caller can tell
+// "the reviewer did its job and said no" apart from "the reviewer produced
+// nothing coherent."
 //
 // Inversion: reading this test against a state_machine.go with the REJECT
 // branch removed (i.e. reverting to the pre-Phase-6 two-way PASS/not-PASS
@@ -306,7 +306,7 @@ func TestEvaluateExitGate_ArtifactVerdictRequiresExactLastLine(t *testing.T) {
 // case's reason reads "verdict_not_pass: <path>", not
 // "verdict_reject: <path>", which is exactly the collapse Phase 6 exists to
 // undo.
-func TestEvaluateExitGate_IntegrationReviewRecognizesReject(t *testing.T) {
+func TestEvaluateExitGate_ReviewStagesRecognizeReject(t *testing.T) {
 	wf := BuiltinProfileDescriptor("epic")
 	dir := t.TempDir()
 	artifactDir := t.TempDir()
@@ -323,10 +323,21 @@ func TestEvaluateExitGate_IntegrationReviewRecognizesReject(t *testing.T) {
 		t.Errorf("reason = %q, want the verdict_reject prefix so a caller can tell a deliberate rejection apart from a generic failure", reason)
 	}
 
-	// Every other artifact_verdict stage has no fix-up path to hand a
-	// rejection to, so REJECT is not recognized there: the reason must stay
-	// the generic verdict_not_pass, unchanged from before Phase 6.
-	for _, state := range []string{"plan_review", "implementation_review", "shipment_review"} {
+	// implementation_review now has somewhere to send a rejection too: the
+	// bead goes back to the workflow's retake state carrying the review, so
+	// its REJECT has to arrive distinguishable for the same reason
+	// integration_review's does.
+	//
+	// plan_review and shipment_review still have nowhere to send one, and
+	// must keep reading as the generic verdict_not_pass - promoting them
+	// would turn "this did not pass" into "send the work back" at stages
+	// where nothing is listening for that.
+	cases := map[string]string{
+		"implementation_review": "verdict_reject: ",
+		"plan_review":           "verdict_not_pass: ",
+		"shipment_review":       "verdict_not_pass: ",
+	}
+	for state, wantPrefix := range cases {
 		t.Run(state, func(t *testing.T) {
 			otherWf := WorkflowDescriptor{
 				ExitGates: map[string][]WorkflowExitGate{state: {{Type: "artifact_verdict", Path: "<artifact_dir>/review.md"}}},
@@ -339,8 +350,31 @@ func TestEvaluateExitGate_IntegrationReviewRecognizesReject(t *testing.T) {
 			if ok {
 				t.Fatalf("%s must not pass on VERDICT: REJECT", state)
 			}
+			if !strings.HasPrefix(reason, wantPrefix) {
+				t.Errorf("%s reason = %q, want the %q prefix", state, reason, wantPrefix)
+			}
+		})
+	}
+
+	// A verdict gate failing for any other reason must NOT read as a
+	// rejection, at either stage that acts on one: an unfinished reviewer is
+	// not a reviewer saying no, and treating it as one sends work back on the
+	// strength of a truncated file.
+	for _, state := range []string{"integration_review", "implementation_review"} {
+		t.Run(state+"/incoherent", func(t *testing.T) {
+			otherWf := WorkflowDescriptor{
+				ExitGates: map[string][]WorkflowExitGate{state: {{Type: "artifact_verdict", Path: "<artifact_dir>/partial.md"}}},
+			}
+			path := filepath.Join(artifactDir, "partial.md")
+			if err := os.WriteFile(path, []byte("I was still writing when"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			ok, reason := EvaluateExitGate(otherWf, ExitGateContext{FromState: state, WorktreePath: dir, ArtifactDir: artifactDir, BeadID: "kernl-e1"})
+			if ok {
+				t.Fatalf("%s must not pass on an unfinished review", state)
+			}
 			if !strings.HasPrefix(reason, "verdict_not_pass: ") {
-				t.Errorf("%s reason = %q, want verdict_not_pass (REJECT is only recognized for integration_review)", state, reason)
+				t.Errorf("%s reason = %q, want verdict_not_pass - only an explicit REJECT is a rejection", state, reason)
 			}
 		})
 	}

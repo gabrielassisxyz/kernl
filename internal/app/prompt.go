@@ -49,6 +49,14 @@ type StagePromptInput struct {
 	// "none found" line for it either way, rather than silently omitting
 	// the section (see that function's own doc comment for why).
 	RelevantDecisions []RelevantDecision
+	// RejectedReview is the full text of an implementation review that
+	// ended in "VERDICT: REJECT", carried into the implementer's prompt when
+	// the bead has been sent back to be fixed. Empty is the normal case -
+	// a first attempt, or a review that passed - and renders nothing at all,
+	// unlike RelevantDecisions: "no reviewer has rejected this" is the
+	// default state of the world and does not need saying, while "no prior
+	// decision was found" is a search result worth reporting.
+	RejectedReview string
 }
 
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
@@ -62,6 +70,7 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 	fmt.Fprintf(&b, "# Bead %s - %s\n\n", in.Bead.ID, in.Bead.Title)
 
 	renderRole(&b, hasContract, contract)
+	renderRejectedReview(&b, in.RejectedReview)
 	renderRelatedDecisions(&b, in.RelevantDecisions)
 	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderOutput(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
@@ -181,6 +190,27 @@ func renderDecisionRecord(b *strings.Builder, hasContract bool, contract backend
 // of the prompt, from this feature never having run at all - which is
 // exactly the silent failure mode that let the original defect through. One
 // explicit line costs nothing and removes that ambiguity.
+// renderRejectedReview puts a reviewer's rejection at the top of the
+// implementer's prompt, above everything else the stage says.
+//
+// Position is the point. This bead has been implemented once already and sent
+// back; an implementer who reads the bead description first will start by
+// re-deriving work that exists, and find the objection only after deciding
+// how to proceed. The objection IS the task now.
+//
+// Empty renders nothing at all - see StagePromptInput.RejectedReview on why
+// this section is silent by default while "related decisions" is not.
+func renderRejectedReview(b *strings.Builder, review string) {
+	if strings.TrimSpace(review) == "" {
+		return
+	}
+	b.WriteString("## This work was reviewed and rejected - read this first\n\n")
+	b.WriteString("You are not implementing this bead from scratch. A previous implementation exists on this branch, a reviewer rejected it, and the rejection below is what you have to answer. Fix what it names. Do not start over, and do not re-litigate the bead's scope: if you believe the reviewer is wrong, say so in your decision record and explain why, rather than ignoring the objection.\n\n")
+	b.WriteString("```\n")
+	b.WriteString(strings.TrimSpace(review))
+	b.WriteString("\n```\n\n")
+}
+
 func renderRelatedDecisions(b *strings.Builder, decisions []RelevantDecision) {
 	b.WriteString("## Related decisions already made\n\n")
 	if len(decisions) == 0 {

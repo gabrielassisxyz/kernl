@@ -130,6 +130,11 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 	var lastResult RunBeadResult
 	prevState := ""
+	// reviewRewinds counts how many times a rejected implementation has been
+	// handed back to an implementer in THIS call - the budget that stops a
+	// reviewer and an implementer disagreeing in a loop. See
+	// implementationReviewRewindLimit.
+	reviewRewinds := 0
 
 	for i := 0; i < maxStages; i++ {
 		bead, err := deps.Backend.Get(deps.BeadID, deps.RepoPath)
@@ -384,6 +389,21 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					}
 				}
 			} else {
+				// A reviewer that deliberately rejected the work has somewhere
+				// to send it: back to the implementer, with the review left on
+				// file for them to answer. Every other gate failure still blocks.
+				if isDeliberateRejection(activeState, gateReason) {
+					rewound, rewindErr := rewindAfterReviewRejection(deps, wf, gateReason, reviewRewinds)
+					if rewindErr != nil {
+						return RunBeadResult{FinalState: activeState, Success: false}, rewindErr
+					}
+					if rewound {
+						reviewRewinds++
+						_ = deps.Backend.Comment(deps.BeadID, "review_rejected: "+gateReason, deps.RepoPath)
+						prevState = bead.State
+						continue
+					}
+				}
 				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
 				_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
 				return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}, nil
@@ -432,6 +452,15 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		if deps.BuildPrompt == nil {
 			relevantDecisions = relatedDecisionsForPrompt(ctx, deps, bead)
 		}
+		// A rewind is worth nothing if the implementer cannot see why the
+		// work came back. The review artifact says so itself - it is only
+		// carried when it ends in a REJECT - so no separate "this is a
+		// retry" flag has to be kept in sync with the bead's state.
+		var rejectedReview string
+		if activeState == "implementation" {
+			rejectedReview = readRejectedReview(
+				backend.ResolveArtifactPath("<artifact_dir>/implementation-review.md", deps.BeadID, artifactDir))
+		}
 		promptInput := StagePromptInput{
 			Bead:              bead,
 			State:             activeState,
@@ -443,6 +472,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			Dialect:           adapter.ResolveDialect(agentInput.Command),
 			ArtifactDir:       artifactDir,
 			RelevantDecisions: relevantDecisions,
+			RejectedReview:    rejectedReview,
 		}
 		var prompt string
 		if deps.BuildPrompt != nil {
@@ -608,6 +638,21 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				}
 			}
 		} else {
+			// A reviewer that deliberately rejected the work has somewhere
+			// to send it: back to the implementer, with the review left on
+			// file for them to answer. Every other gate failure still blocks.
+			if isDeliberateRejection(activeState, gateReason) {
+				rewound, rewindErr := rewindAfterReviewRejection(deps, wf, gateReason, reviewRewinds)
+				if rewindErr != nil {
+					return RunBeadResult{FinalState: activeState, Success: false}, rewindErr
+				}
+				if rewound {
+					reviewRewinds++
+					_ = deps.Backend.Comment(deps.BeadID, "review_rejected: "+gateReason, deps.RepoPath)
+					prevState = bead.State
+					continue
+				}
+			}
 			_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
 			_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
 			return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}, nil

@@ -743,6 +743,16 @@ func joinExitGateFailures(failures []string) string {
 // state carries several gates, each one's reason already names which check
 // failed - joining them (see EvaluateExitGate) does not need to add another
 // layer of prefixing on top.
+// rejectableVerdictStates are the review stages whose "VERDICT: REJECT" is
+// acted on rather than merely failed. Adding a state here without also giving
+// it a destination for the rejection turns a review that says "this is wrong"
+// into a review that says "this did not pass", which is the same outcome by a
+// more confusing route.
+var rejectableVerdictStates = map[string]bool{
+	"integration_review":    true,
+	"implementation_review": true,
+}
+
 func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed bool, reason string) {
 	if gate.Type == "" || gate.Type == "agent_exit_zero" {
 		return true, ""
@@ -784,19 +794,21 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		if lastLine == "VERDICT: PASS" {
 			return true, ""
 		}
-		// integration_review is the only stage with anywhere to send a
-		// rejection: the orchestrator-autonomy decision model's §7 fix-up
-		// mechanism reads this exact reason string to tell a reviewer's
-		// deliberate "this is wrong" apart from every other way this gate
-		// fails (missing file, a reviewer that ran out of budget, one that
-		// wrote incoherent output) - those must keep reading as
-		// verdict_not_pass, the same generic stage failure they always
-		// were, not silently become rejections. No other artifact_verdict
-		// stage (plan_review, implementation_review, shipment_review) has a
-		// fix-up path to hand a rejection to, so REJECT is deliberately not
-		// recognized for them: a non-PASS verdict there still means only
-		// "this did not pass."
-		if ctx.FromState == "integration_review" && lastLine == "VERDICT: REJECT" {
+		// Two stages have somewhere to send a rejection, and only those two:
+		// integration_review hands one to the §7 fix-up mechanism, and
+		// implementation_review hands one back to its own implementer
+		// (DriveBeadToTerminal rewinds the bead to the workflow's retake
+		// state). This exact reason string is what both read to tell a
+		// reviewer's deliberate "this is wrong" apart from every other way
+		// the gate fails - missing file, a reviewer that ran out of budget,
+		// one that wrote incoherent output. Those must keep reading as
+		// verdict_not_pass, the same generic stage failure they always were,
+		// rather than silently becoming rejections that send work back.
+		//
+		// plan_review and shipment_review still have nowhere to send one, so
+		// REJECT stays unrecognised for them: a non-PASS verdict there means
+		// only "this did not pass."
+		if rejectableVerdictStates[ctx.FromState] && lastLine == "VERDICT: REJECT" {
 			return false, "verdict_reject: " + abs
 		}
 		return false, "verdict_not_pass: " + abs
