@@ -815,14 +815,27 @@ func buildIntegrationChildren(children []backend.Bead, epicArtifactDir string) [
 	return cs
 }
 
-// buildReviewedChildren pairs each child with the criteria it was implemented
-// against, which is what the integration reviewer grades the merge by. It
-// carries none of the branch and artifact paths buildIntegrationChildren does:
-// by review time every child branch is already merged, so naming them again
-// would describe work that no longer exists to do.
+// buildReviewedChildren pairs each MERGED child with the criteria it was
+// implemented against, which is what the integration reviewer grades the merge
+// by. It carries none of the branch and artifact paths buildIntegrationChildren
+// does: by review time every listed branch is already merged, so naming them
+// again would describe work that no longer exists to do.
+//
+// The filter is the same one buildIntegrationChildren applies, and it has to
+// be: the prompt introduces this list as "children merged into this branch",
+// so listing a child that was not merged states something untrue and the
+// reviewer grades against it. A real epic was rejected for exactly that -
+// two children the operator had deliberately deferred were listed as merged,
+// were correctly found absent from the branch, and the review concluded the
+// epic was unfinished. Integration was taught this in one place and the
+// review was left listing everything, which is how one fix covered half a
+// defect.
 func buildReviewedChildren(children []backend.Bead) []prompt.ReviewedChild {
 	cs := make([]prompt.ReviewedChild, 0, len(children))
 	for _, c := range children {
+		if c.State != string(workflow.StatusAwaitingIntegration) {
+			continue
+		}
 		cs = append(cs, prompt.ReviewedChild{ID: c.ID, Title: c.Title, Acceptance: c.Acceptance})
 	}
 	return cs
