@@ -115,11 +115,29 @@ type ServerConfig struct {
 	Host string `yaml:"host,omitempty"`
 }
 
+// DefaultFixupBudget is orchestrator.fixupBudget when the operator states
+// none.
+//
+// Three, not one: the cap it replaced allowed a single fix-up round per epic
+// and sent the second rejection to a human, on the premise that a reviewer
+// rejecting twice is describing something another round will not fix. That
+// premise did not hold - two rejections were two different defects, each pass
+// fixed what it was named, and the escalation cost a day. Three leaves room
+// for a loop that is genuinely converging while still surfacing one that is
+// not, on the same day rather than at the end of a budget nobody watches.
+const DefaultFixupBudget = 3
+
 type OrchestratorConfig struct {
 	WorktreeRoot       string `yaml:"worktreeRoot,omitempty"`
 	MaxConcurrentBeads int    `yaml:"maxConcurrentBeads,omitempty"`
 	RunStatePath       string `yaml:"runStatePath,omitempty"`
 	StageRetryAttempts int    `yaml:"stageRetryAttempts,omitempty"`
+	// FixupBudget is how many fix-up rounds one epic may spend on integration
+	// review rejections before the next one goes to the operator, however
+	// cheap it would be to undo. It is the hard stop that keeps "cheap to
+	// reverse" from being an unbounded loop, since a reviewer can always find
+	// something. Unset defaults to DefaultFixupBudget.
+	FixupBudget int `yaml:"fixupBudget,omitempty"`
 	// OpencodeConfigPath overrides the permission allowlist handed to a
 	// dispatched opencode agent. It is deliberately not defaulted here: unset
 	// means kernl writes and uses its own file, while a path that is set and
@@ -246,6 +264,9 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Orchestrator.StageRetryAttempts == 0 {
 		cfg.Orchestrator.StageRetryAttempts = 2
+	}
+	if cfg.Orchestrator.FixupBudget == 0 {
+		cfg.Orchestrator.FixupBudget = DefaultFixupBudget
 	}
 	if cfg.Orchestrator.WorktreeRoot == "" {
 		home, err := os.UserHomeDir()

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 // countingJudge is a named fake (AGENTS.md §4) that records how often it was
@@ -34,7 +36,7 @@ func fixupRejection() *IntegrationRejection {
 }
 
 func cleanFacts() ReversibilityFacts {
-	return ReversibilityFacts{EpicID: "ep-1", ChangeSummary: " 3 files changed, 40 insertions(+)", Budget: FixupBudget}
+	return ReversibilityFacts{EpicID: "ep-1", ChangeSummary: " 3 files changed, 40 insertions(+)", Budget: config.DefaultFixupBudget}
 }
 
 // --- The mechanical layers: certain answers, decided without a model. ---
@@ -81,7 +83,7 @@ func TestDecideFixupAction_IrreversibleSurfaceEscalatesWithoutAskingTheMayor(t *
 func TestDecideFixupAction_ExhaustedBudgetEscalatesEvenWhenReversalIsCheap(t *testing.T) {
 	judge := cheapJudge()
 	facts := cleanFacts()
-	facts.FixupsSpent = FixupBudget
+	facts.FixupsSpent = config.DefaultFixupBudget
 
 	got := DecideFixupAction(context.Background(), fixupRejection(), facts, judge)
 
@@ -277,8 +279,8 @@ func TestGatherReversibilityFacts_MeasuresTheBranch(t *testing.T) {
 	if strings.Join(facts.IrreversibleSurfacesTouched, ",") != strings.Join(want, ",") {
 		t.Errorf("touched = %v, want %v - a subtree pattern, a glob and an exact path all match", facts.IrreversibleSurfacesTouched, want)
 	}
-	if facts.FixupsSpent != 2 || facts.Budget != FixupBudget {
-		t.Errorf("spent/budget = %d/%d, want 2/%d", facts.FixupsSpent, facts.Budget, FixupBudget)
+	if facts.FixupsSpent != 2 || facts.Budget != config.DefaultFixupBudget {
+		t.Errorf("spent/budget = %d/%d, want 2/%d", facts.FixupsSpent, facts.Budget, config.DefaultFixupBudget)
 	}
 }
 
@@ -338,5 +340,41 @@ func TestMatchesSurface(t *testing.T) {
 		if got := matchesSurface(tc.path, tc.pattern); got != tc.want {
 			t.Errorf("matchesSurface(%q, %q) = %v, want %v", tc.path, tc.pattern, got, tc.want)
 		}
+	}
+}
+
+// The budget is the operator's to set, and an unset one must still be a
+// budget: a facts struct built by hand - in a test, or by any caller that did
+// not load a config through config.Load - would otherwise remove the hard stop
+// entirely, which is the unbounded loop it exists to prevent.
+func TestGatherReversibilityFacts_BudgetComesFromConfigAndNeverDisappears(t *testing.T) {
+	cases := map[string]struct {
+		given int
+		want  int
+	}{
+		"the operator's own number": {given: 7, want: 7},
+		"unset falls back":          {given: 0, want: config.DefaultFixupBudget},
+		"negative falls back":       {given: -1, want: config.DefaultFixupBudget},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			facts, err := GatherReversibilityFacts(GatherReversibilityFactsInput{
+				EpicBranch: "feat/ep-1", Budget: tc.given,
+				Inspector: fakeInspector{summary: "1 file changed"},
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if facts.Budget != tc.want {
+				t.Errorf("budget = %d, want %d", facts.Budget, tc.want)
+			}
+		})
+	}
+}
+
+// fixupBudget is read on a path where the config can legitimately be absent.
+func TestFixupBudget_NilConfigStillBudgets(t *testing.T) {
+	if got := fixupBudget(nil); got != config.DefaultFixupBudget {
+		t.Errorf("fixupBudget(nil) = %d, want %d", got, config.DefaultFixupBudget)
 	}
 }
