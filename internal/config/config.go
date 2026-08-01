@@ -66,6 +66,17 @@ type RepoEntry struct {
 	// it is the repository's own bin/ci, which must exist: a repository that
 	// cannot say how it is verified gets no work dispatched into it.
 	VerifyCommand string `yaml:"verifyCommand,omitempty"`
+	// PRTextCommand is how this repository says "this prose is acceptable". It
+	// reads the pull request's title and body on stdin and refuses with a
+	// non-zero exit, exactly the shape a repository's own prose gate already
+	// has. Shipment runs it before opening the pull request, and kernl runs it
+	// again over what was published.
+	//
+	// Unset means this repository declares no rule about prose, which passes.
+	// It never means refuse: verifyCommand has a default worth falling back to
+	// (bin/ci), and a text gate has none - inventing one would impose kernl's
+	// own writing rules on every repository it ships for.
+	PRTextCommand string `yaml:"prTextCommand,omitempty"`
 	// IrreversibleSurfaces lists the paths this repository considers expensive
 	// to undo - migrations, a published API surface, generated artifacts,
 	// lockfiles. A branch that touched one sends an integration review

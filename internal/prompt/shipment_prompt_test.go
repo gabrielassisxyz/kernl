@@ -165,3 +165,51 @@ func TestRenderShipment_RefusesWithoutDestination(t *testing.T) {
 		}
 	}
 }
+
+// The failure this step exists for: a pull request was opened whose code
+// passed every check, and whose body was refused on the spot by a prose gate
+// the repository already owned and already ran. kernl cannot intercept the
+// text - the agent writes the body AND calls gh - so the instruction to check
+// it before publishing is where the failure is actually prevented.
+func TestRenderShipment_ChecksThePullRequestTextBeforePublishing(t *testing.T) {
+	in := sampleShipmentInput()
+	in.PRTextCommand = "bin/slop-guard --stdin 'PR text'"
+
+	out, err := prompt.RenderShipment(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"bin/slop-guard --stdin 'PR text'",
+		// Title and body both: the title is published prose too.
+		`{ echo "Test epic"; echo; cat /home/agent/.kernl/state/run/e1/e1/pr-body.md; } | bin/slop-guard --stdin 'PR text'`,
+		"Do not run gh until that command exits zero",
+		// A refused body is prose, and rewriting prose is never a reason to
+		// start editing code.
+		"never a reason to touch code",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("shipment prompt missing %q\n---\n%s\n---", want, out)
+		}
+	}
+	// The step must come before the publish, or it is describing something
+	// that already happened.
+	if strings.Index(out, "bin/slop-guard") > strings.Index(out, "gh pr create") {
+		t.Error("the text check is rendered after gh pr create, so it would check text that is already published")
+	}
+}
+
+// A repository that declares no prose rule gets no step. A rendered step
+// naming an empty command is an instruction to run something the agent has to
+// invent.
+func TestRenderShipment_NoTextCommandRendersNoStep(t *testing.T) {
+	out, err := prompt.RenderShipment(sampleShipmentInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unwanted := range []string{"2b.", "exits zero"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("shipment prompt contains %q for a repository that declares no text gate\n---\n%s\n---", unwanted, out)
+		}
+	}
+}

@@ -40,6 +40,12 @@ type ShipmentInput struct {
 	// so it cannot be swept into the target repository's own diff the way
 	// in-worktree scratch was (archeion PR #40).
 	PRBodyPath string
+	// PRTextCommand is registry.repos[].prTextCommand: how this repository
+	// says the prose it publishes is acceptable. Empty renders no step at all,
+	// because a repository that declares no rule about prose has nothing for
+	// the agent to run - and a step naming an empty command would have it
+	// invent one.
+	PRTextCommand string
 }
 
 const shipmentTemplate = `You are the kernl shipment agent for epic {{.EpicID}}: "{{.EpicTitle}}".
@@ -59,7 +65,10 @@ Procedure:
 2. Write a summary of the epic and its merged children as the pull request body to this file, using your normal file-write tool (not a shell heredoc or echo):
    {{.PRBodyPath}}
    Do NOT pass the body inline as a --body argument: a double-quoted shell string does not turn \n into a real line break, and a body built that way publishes as one line with the escape sequences left in it.
-3. gh pr create --repo {{.RepoSlug}} --base {{.BaseBranch}} --head {{.EpicBranch}} --title "{{.EpicTitle}}" --body-file {{.PRBodyPath}}
+{{if .PRTextCommand}}2b. This repository refuses prose it does not accept, and it refuses it on a pull request too. Check the text you just wrote BEFORE publishing it:
+   { echo "{{.EpicTitle}}"; echo; cat {{.PRBodyPath}}; } | {{.PRTextCommand}}
+   A non-zero exit means this text is not publishable here. Read what it printed, rewrite the offending part of {{.PRBodyPath}}, and run it again until it passes. Only the text changes at this step: a refused pull request body is never a reason to touch code. Do not run gh until that command exits zero. The same check runs again over what you published, so skipping it publishes something that has to be edited afterwards anyway.
+{{end}}3. gh pr create --repo {{.RepoSlug}} --base {{.BaseBranch}} --head {{.EpicBranch}} --title "{{.EpicTitle}}" --body-file {{.PRBodyPath}}
 4. If gh reports the PR already exists: run
    gh pr list --repo {{.RepoSlug}} --head {{.EpicBranch}} --json url
    to fetch the existing PR URL, then write "pr_url: <url>" and "merge_outcome: pr_already_exists" to the epic bead description and finish (this is success-equivalent).
