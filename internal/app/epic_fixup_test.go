@@ -109,7 +109,7 @@ func (b *fixupFakeBackend) Rewind(id, targetState, reason, _ string) error {
 }
 
 // List answers the Parent filter only - the one shape
-// findExistingFixupChild (epic_fixup.go) actually exercises.
+// surveyFixupChildren (epic_fixup.go) actually exercises.
 func (b *fixupFakeBackend) List(filters *backend.BeadListFilters, _ string) ([]backend.Bead, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -181,7 +181,14 @@ func epicIntegrationTailDeps(t *testing.T, be *fixupFakeBackend, epicID string) 
 	}
 
 	deps := DriveEpicIntegrationTailDeps{
-		EpicID: epicID,
+		EpicID:     epicID,
+		EpicBranch: "feat/" + epicID,
+		BaseBranch: "master",
+		// Nothing published, nothing irreversible touched: the ordinary
+		// pre-shipment state, where the reversibility question is the mayor's
+		// to answer and not a fact's.
+		Inspector: fakeInspector{summary: " 2 files changed, 12 insertions(+)"},
+		Judge:     cheapJudge(),
 		DriveBeadDeps: DriveBeadDeps{
 			Backend:        be,
 			Driver:         &scriptedDriver{},
@@ -326,16 +333,19 @@ func TestDriveEpicIntegrationTail_FixupCreatesLinkedBeadAndRewinds(t *testing.T)
 		t.Error("the fix-up bead must carry the reviewer's own acceptance criteria")
 	}
 
-	// The cap is derived from the real child (List by Parent, checking the
-	// label), never from the epic's own description - a description is
-	// mutable prose a later edit can erase (see findExistingFixupChild's
-	// own doc comment).
-	existing, err := findExistingFixupChild(be, "/tmp/repo", "ep-fixup")
+	// The budget is derived from the real children (List by Parent, checking
+	// the label), never from the epic's own description - a description is
+	// mutable prose a later edit can erase (see surveyFixupChildren's own
+	// doc comment).
+	history, err := surveyFixupChildren(be, "/tmp/repo", "ep-fixup")
 	if err != nil {
-		t.Fatalf("findExistingFixupChild: %v", err)
+		t.Fatalf("surveyFixupChildren: %v", err)
 	}
-	if existing == nil || existing.ID != res.FixupBeadID {
-		t.Errorf("findExistingFixupChild = %+v, want the bead just created (%s)", existing, res.FixupBeadID)
+	if history.Pending == nil || history.Pending.ID != res.FixupBeadID {
+		t.Errorf("pending fix-up = %+v, want the bead just created (%s)", history.Pending, res.FixupBeadID)
+	}
+	if history.Spent != 0 {
+		t.Errorf("spent = %d, want 0 - a bead that has not run yet has spent no round", history.Spent)
 	}
 
 	epicBead, _ := be.Get("ep-fixup", "")
@@ -384,56 +394,143 @@ func TestDriveEpicIntegrationTail_AmbiguousEscalates(t *testing.T) {
 	}
 }
 
-// TestDriveEpicIntegrationTail_SecondRejectionEscalatesEvenWhenDeclaredFixup
-// is the cap: proves a fix-up cannot spawn a fix-up. Without this cap, a
-// run spends the day repairing itself and nobody finds out until evening -
-// the exact failure mode §7 names.
+// TestDriveEpicIntegrationTail_SecondCheapRejectionKeepsGoing is the rule
+// this gate replaced the one-fix-up cap with: what decides whether a human is
+// woken up is how expensive the change would be to undo, not whether an
+// automatic budget ran out.
 //
-// Inversion: reading this test against DecideFixupAction with the
-// "epicAlreadyFixedUp" check removed (or reordered after the Kind switch)
-// makes it fail at "expected exactly one Create call (the first one),
-// got 2" - a second, real fix-up bead gets created instead of an
-// escalation. Confirmed by hand: removing that check's early return lets
-// the classification fall through to FixupActionCreateBead because the new
-// rejection legitimately declares "fixup" on its own.
-func TestDriveEpicIntegrationTail_SecondRejectionEscalatesEvenWhenDeclaredFixup(t *testing.T) {
+// The cap's own justification was that "a reviewer that rejects the same work
+// twice is describing something the loop is not going to fix by running
+// again". That premise did not hold in practice: the two rejections that
+// motivated this were different defects, each pass fixed exactly what it was
+// told to, and the escalation cost a day for nothing. Nothing is published at
+// this point, so another round is a branch operation, and the run continues.
+//
+// Inversion: reading this test against a DecideFixupAction that still
+// escalates once a single round has been spent makes it fail at "expected a
+// second fix-up bead" - len(be.created) stays 1. Confirmed by hand.
+func TestDriveEpicIntegrationTail_SecondCheapRejectionKeepsGoing(t *testing.T) {
 	be := newFixupFakeBackend()
-	deps, artifactDir := epicIntegrationTailDeps(t, be, "ep-cap")
+	deps, artifactDir := epicIntegrationTailDeps(t, be, "ep-second")
 	writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
 
 	first, err := DriveEpicIntegrationTail(context.Background(), deps)
 	if err != nil || first.FixupBeadID == "" {
 		t.Fatalf("first rejection must create the fix-up bead: res=%+v err=%v", first, err)
 	}
-	if len(be.created) != 1 {
-		t.Fatalf("expected exactly one Create call (the first one), got %d", len(be.created))
-	}
 
-	// A later run: the fix-up bead's own worker cycle completed (the
-	// executor always drives every child to a terminal state before this
-	// tail runs again - see DriveEpicIntegrationTail's own doc comment on
-	// alreadyFixedUp), its branch got merged, the epic is back at
-	// integration_review, and integration_review rejects again - and this
-	// time it ALSO declares "fixup", the same clean declaration as the
-	// first time.
-	fixup, _ := be.Get(first.FixupBeadID, "")
-	fixup.State = "awaiting_integration"
-	be.put(fixup)
-	epicBead, _ := be.Get("ep-cap", "")
-	epicBead.State = "integration_review"
-	be.put(epicBead)
+	// A later run: the first fix-up bead completed its own worker cycle, its
+	// branch got merged, the epic is back at integration_review, and the
+	// reviewer rejects again - a different defect, declared cleanly as a
+	// fix-up.
+	completeFixupCycle(t, be, first.FixupBeadID, "ep-second")
 	writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
 
 	second, err := DriveEpicIntegrationTail(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("a second rejection that is cheap to reverse must not escalate: %v", err)
+	}
+	if second.Escalated || second.FixupBeadID == "" {
+		t.Fatalf("got %+v, want a second fix-up bead and no escalation", second)
+	}
+	if len(be.created) != 2 {
+		t.Errorf("expected a second fix-up bead, got %d Create calls", len(be.created))
+	}
+	if second.ReversibilityCause != GateCheapToReverse {
+		t.Errorf("cause = %q, want %q recorded on the path that continued", second.ReversibilityCause, GateCheapToReverse)
+	}
+	if second.ReversibilityReason == "" {
+		t.Error("a gate that kept going without saying why is the failure this replaced, in the other direction")
+	}
+}
+
+// The budget is what keeps "cheap to reverse" from being an unbounded loop: a
+// reviewer can always find something, and a run that repairs itself all day
+// while nobody finds out is the failure the old cap aimed at, even though the
+// cap itself was set at the wrong number.
+func TestDriveEpicIntegrationTail_ExhaustedBudgetEscalates(t *testing.T) {
+	be := newFixupFakeBackend()
+	deps, artifactDir := epicIntegrationTailDeps(t, be, "ep-budget")
+
+	for round := 0; round < FixupBudget; round++ {
+		writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
+		res, err := DriveEpicIntegrationTail(context.Background(), deps)
+		if err != nil || res.FixupBeadID == "" {
+			t.Fatalf("round %d must still be inside the budget: res=%+v err=%v", round, res, err)
+		}
+		completeFixupCycle(t, be, res.FixupBeadID, "ep-budget")
+	}
+
+	writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
+	spent, err := DriveEpicIntegrationTail(context.Background(), deps)
 	if err == nil {
-		t.Fatal("a second rejection on an already-fixed-up epic must escalate, not create a second fix-up bead")
+		t.Fatal("a rejection past the fix-up budget must escalate")
 	}
-	if !second.Escalated || second.FixupBeadID != "" {
-		t.Errorf("got %+v", second)
+	if !spent.Escalated || spent.ReversibilityCause != GateBudgetExhausted {
+		t.Errorf("got %+v, want an escalation caused by %q", spent, GateBudgetExhausted)
 	}
-	if len(be.created) != 1 {
-		t.Errorf("expected exactly one Create call (the first one), got %d - a fix-up spawned a fix-up", len(be.created))
+	if len(be.created) != FixupBudget {
+		t.Errorf("expected exactly %d fix-up beads, got %d", FixupBudget, len(be.created))
 	}
+}
+
+// A branch that already exists outside this machine is not something a branch
+// operation can take back, and no opinion is needed to establish that.
+func TestDriveEpicIntegrationTail_PublishedBranchEscalates(t *testing.T) {
+	be := newFixupFakeBackend()
+	deps, artifactDir := epicIntegrationTailDeps(t, be, "ep-published")
+	deps.Inspector = fakeInspector{refs: []string{"refs/remotes/origin/feat/ep-published"}, summary: "1 file changed"}
+	judge := cheapJudge()
+	deps.Judge = judge
+	writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
+
+	res, err := DriveEpicIntegrationTail(context.Background(), deps)
+	if err == nil {
+		t.Fatal("a rejection on a published branch must escalate")
+	}
+	if res.ReversibilityCause != GatePublished {
+		t.Errorf("cause = %q, want %q", res.ReversibilityCause, GatePublished)
+	}
+	if judge.calls != 0 {
+		t.Errorf("the mayor was asked %d times about a branch that is already published", judge.calls)
+	}
+	if len(be.created) != 0 {
+		t.Error("no fix-up bead may be created on the escalating path")
+	}
+}
+
+// Git failing to answer must never read as "nothing published, nothing
+// irreversible touched": those are the two answers that let a run carry on
+// alone.
+func TestDriveEpicIntegrationTail_UnmeasurableFactsEscalate(t *testing.T) {
+	be := newFixupFakeBackend()
+	deps, artifactDir := epicIntegrationTailDeps(t, be, "ep-nogit")
+	deps.Inspector = fakeInspector{err: errors.New("not a git repository")}
+	writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
+
+	res, err := DriveEpicIntegrationTail(context.Background(), deps)
+	if err == nil {
+		t.Fatal("facts that could not be measured must escalate")
+	}
+	if res.ReversibilityCause != GateReversibilityUnknown {
+		t.Errorf("cause = %q, want %q", res.ReversibilityCause, GateReversibilityUnknown)
+	}
+	if len(be.created) != 0 {
+		t.Error("no fix-up bead may be created while the facts are unknown")
+	}
+}
+
+// completeFixupCycle moves a fix-up bead through its own worker cycle and puts
+// the epic back at integration_review: the state a later `epic run` finds once
+// the executor has driven every child to a terminal state.
+func completeFixupCycle(t *testing.T, be *fixupFakeBackend, fixupID, epicID string) {
+	t.Helper()
+	fixup, _ := be.Get(fixupID, "")
+	fixup.State = "awaiting_integration"
+	be.put(fixup)
+	epicBead, _ := be.Get(epicID, "")
+	epicBead.State = "integration_review"
+	be.put(epicBead)
 }
 
 // TestDriveEpicIntegrationTail_ResumesRewindAfterATransientFailure is the

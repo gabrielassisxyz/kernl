@@ -493,6 +493,14 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if err != nil {
 		return err
 	}
+	// The reversibility gate asks that same actor a different question, once
+	// an integration review rejects. Resolved here, with everything else the
+	// run needs, so a broken llm.agent is refused before any work is done
+	// rather than at the moment a rejection needs judging.
+	reversibilityMayor, err := app.NewMayor(a.Config)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		status, failure := "completed", ""
 		if err != nil {
@@ -631,6 +639,11 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
 		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree, RunID: runID,
 		StateStore: stateStore, Shipment: plan, Out: out,
+		IrreversibleSurfaces: repoEntry.IrreversibleSurfaces,
+		// The same actor the run report's mayor is, asked a different
+		// question: nothing else in kernl has an opinion worth having about
+		// what a change costs to undo.
+		Judge: app.MayorReversibilityJudge{Mayor: reversibilityMayor},
 	}); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
@@ -753,6 +766,15 @@ type epicDrive struct {
 	StateStore     *workflow.AgentStateStore
 	Shipment       shipmentPlan
 	Out            func(string)
+	// IrreversibleSurfaces is what this repository declares it cannot cheaply
+	// undo (registry.repos[].irreversibleSurfaces). An integration rejection
+	// on a branch that touched one goes to the operator instead of another
+	// automatic fix-up round.
+	IrreversibleSurfaces []string
+	// Judge answers how expensive an integration rejection would be to
+	// reverse. Nil when no mayor is configured, which escalates rather than
+	// guessing.
+	Judge app.ReversibilityJudge
 	// RunID is the same workflow run the children ran under: integration and
 	// shipment are stages of that one run, not a second one, so a decision
 	// recorded here belongs to the same report as a child's.
@@ -836,7 +858,11 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 	}
 
 	res, err := app.DriveEpicIntegrationTail(ctx, app.DriveEpicIntegrationTailDeps{
-		EpicID: epicID,
+		EpicID:               epicID,
+		EpicBranch:           "feat/" + epicID,
+		BaseBranch:           baseBranch,
+		IrreversibleSurfaces: d.IrreversibleSurfaces,
+		Judge:                d.Judge,
 		DriveBeadDeps: app.DriveBeadDeps{
 			Backend:         a.Backend,
 			Driver:          a.Driver,
@@ -909,6 +935,11 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 	// integration. Checked before err: DriveEpicIntegrationTail always
 	// returns a nil error alongside a non-empty FixupBeadID.
 	if res.FixupBeadID != "" {
+		// The judgment that let this continue is printed, not only the fact
+		// that it did. A gate that decides on its own to keep a run going and
+		// leaves no trace of why is the same problem as one that escalates
+		// silently, only harder to notice.
+		out(fmt.Sprintf("epic %s: reversibility gate continued [%s]: %s\n", epicID, res.ReversibilityCause, res.ReversibilityReason))
 		out(fmt.Sprintf("epic %s: integration review rejected with a fix-up - created bead %s, epic rewound to ready_for_integration; re-run `kernl epic run %s` once it reaches awaiting_integration\n", epicID, res.FixupBeadID, epicID))
 		return nil
 	}

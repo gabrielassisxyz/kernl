@@ -71,7 +71,7 @@ type LLMImpactComposer struct {
 // later reader the composer looked at this decision and had nothing to
 // say, which is not what happened.
 func (c LLMImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact) (string, error) {
-	p := prompt.RenderImpactOnUse(prompt.ImpactOnUseInput{
+	return c.Ask(ctx, prompt.RenderImpactOnUse(prompt.ImpactOnUseInput{
 		DecisionTitle:     in.DecisionTitle,
 		DecisionContext:   in.DecisionContext,
 		OptionsConsidered: in.OptionsConsidered,
@@ -79,8 +79,15 @@ func (c LLMImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact)
 		Outcome:           in.Outcome,
 		RepoPath:          in.RepoPath,
 		BeadTitle:         in.BeadTitle,
-	})
-	text, err := dispatch.CompleteChat(ctx, c.LLM, p, impactComposerMaxTokens)
+	}))
+}
+
+// Ask implements Mayor: one question to the configured provider, one answer
+// back. It carries the same token bound and the same emptiness rule as
+// ComposeImpact, because both questions want a few sentences and neither has
+// any use for a blank one.
+func (c LLMImpactComposer) Ask(ctx context.Context, question string) (string, error) {
+	text, err := dispatch.CompleteChat(ctx, c.LLM, question, impactComposerMaxTokens)
 	if err != nil {
 		return "", err
 	}
