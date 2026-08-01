@@ -76,7 +76,11 @@ section "go test (integration contracts) - advisory, manual-only (see AGENTS.md 
 # Not part of the hard gate: needs a real bd. Full e2e tests are split behind
 # extra tags: `bde2e` for bd fixture workflows and `realagent` for real agents.
 if command -v bd >/dev/null 2>&1; then
-    go test -tags=integration ./... || skip "integration failures above (advisory - real bd contract drift)"
+    # The message names no cause. It used to assert "real bd contract drift",
+    # which reads as a known, external, already-understood condition - so a
+    # genuine regression introduced by the very change being tested was
+    # scrolled past three times before anyone read the failure itself.
+    go test -tags=integration ./... || skip "integration failures above (advisory - read them: this gate does not fail the build, and a regression here looks exactly like drift)"
 else
     skip "bd not installed: go install github.com/gastownhall/beads@v1.0.4"
 fi
