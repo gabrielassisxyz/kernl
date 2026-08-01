@@ -785,18 +785,31 @@ type epicDrive struct {
 	RunID string
 }
 
-// buildIntegrationChildren pairs each child bead with its own artifact
-// directory, which sits beside the epic's under the same run root
+// buildIntegrationChildren pairs each FINISHED child bead with its own
+// artifact directory, which sits beside the epic's under the same run root
 // (<StateDir>/run/<epicID>/<id> - see resolveArtifactDir in
 // internal/app/drive_bead.go). Before exit-gate artifacts moved outside the
 // worktree, a child's plan and review verdicts arrived for free once its
 // branch was merged; now that they never travel in a commit, the
 // integration agent has no way to read a sibling's artifacts unless the
 // path is named explicitly here, alongside the branch it already names.
+//
+// "Finished" is awaiting_integration and nothing else, because that state is
+// the profile's own way of saying "done, handed to the epic". Every child used
+// to be listed regardless of state, which names a kernl/<id> branch for beads
+// that have none: one deferred by the operator, one closed without ever being
+// implemented. The integration agent is then told to merge a ref that does not
+// exist, and the prompt's only escape hatch is merge_conflict, which that is
+// not - so it improvises. The worse half is a child closed as INVALID whose
+// branch still carries commits: listing it merges work somebody deliberately
+// threw away.
 func buildIntegrationChildren(children []backend.Bead, epicArtifactDir string) []prompt.Child {
 	runRoot := filepath.Dir(epicArtifactDir)
 	cs := make([]prompt.Child, 0, len(children))
 	for _, c := range children {
+		if c.State != string(workflow.StatusAwaitingIntegration) {
+			continue
+		}
 		cs = append(cs, prompt.Child{ID: c.ID, Branch: "kernl/" + c.ID, ArtifactDir: filepath.Join(runRoot, c.ID)})
 	}
 	return cs
@@ -901,7 +914,15 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 			BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
 				switch in.State {
 				case "integration":
-					children, _ := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
+					children, listErr := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
+					if listErr != nil {
+						// Merging whatever a failed listing returned is the
+						// one outcome worse than not merging: an empty list
+						// reads as "this epic has no work", and integration
+						// would commit nothing and call it done.
+						out(fmt.Sprintf("KERNL DISPATCH FAILURE: cannot read epic %s's children to decide what to merge: %v\n", epicID, listErr))
+						return ""
+					}
 					cs := buildIntegrationChildren(children, in.ArtifactDir)
 					s, perr := prompt.RenderIntegration(prompt.IntegrationInput{
 						EpicID: epicID, EpicTitle: in.Bead.Title,
