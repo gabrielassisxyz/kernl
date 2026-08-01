@@ -90,6 +90,14 @@ registry:
       # repository that cannot say how it is verified gets no work dispatched
       # into it. Set it for anything else - "cargo test --all", "make check".
       # verifyCommand: bin/ci
+      # How this repository says a pull request's PROSE is acceptable. It reads
+      # the title and body on stdin and refuses with a non-zero exit. Shipment
+      # runs it before opening the pull request, and kernl runs it again over
+      # what was published, so a stage that skipped it does not read as success.
+      # Unset means this repository declares no rule about prose, which
+      # publishes as before: verifyCommand has a sane default to fall back on
+      # (bin/ci), and a text gate has none worth inventing.
+      # prTextCommand: bin/slop-guard --stdin 'PR text'
       # What this repository cannot cheaply take back. When an integration
       # review rejects, the orchestrator decides between another automatic
       # fix-up round and the operator on one criterion: how expensive the

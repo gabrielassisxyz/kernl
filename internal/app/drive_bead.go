@@ -742,6 +742,21 @@ func formatExitCode(code *int) string {
 // .kernl/<bead>/*.md in a diff because these used to live inside the
 // worktree instead.
 func resolveArtifactDir(stateDir, epicID, beadID string) (string, error) {
+	dir, err := ArtifactDirPath(stateDir, epicID, beadID)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating artifact dir %s for bead %s: %w", dir, beadID, err)
+	}
+	return dir, nil
+}
+
+// ArtifactDirPath is the same location without creating it. Exported because a
+// reader outside this package - the CLI checking what shipment published -
+// has to find an artifact a stage already wrote, and re-deriving the layout at
+// that call site is how two places end up disagreeing about where it is.
+func ArtifactDirPath(stateDir, epicID, beadID string) (string, error) {
 	if stateDir == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for bead %s, so kernl has nowhere of its own to write exit-gate artifacts outside the worktree - Fix: set DriveBeadDeps.StateDir (app.DefaultStateDir() outside tests)", beadID)
 	}
@@ -759,10 +774,6 @@ func resolveArtifactDir(stateDir, epicID, beadID string) (string, error) {
 	// under runRoot before anything is created or granted access to it.
 	if escapesRoot(runRoot, dir) {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: artifact dir %s for bead %s escapes %s - Fix: epic/parent id %q and bead id %q must resolve to a path beneath it", dir, beadID, runRoot, epicID, beadID)
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating artifact dir %s for bead %s: %w", dir, beadID, err)
 	}
 	return dir, nil
 }

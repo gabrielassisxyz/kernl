@@ -726,6 +726,10 @@ type shipmentPlan struct {
 	Destination shipment.Destination
 	Allowed     []string
 	DryRun      bool
+	// TextCommand is registry.repos[].prTextCommand: what this repository runs
+	// over a pull request's title and body to say the prose is publishable.
+	// Empty means it declares none, which publishes as before.
+	TextCommand string
 }
 
 // resolveShipmentPlan settles where a run may publish before a single agent is
@@ -740,7 +744,7 @@ type shipmentPlan struct {
 // calling this, rather than this shared function guessing at a scope it does
 // not have.
 func resolveShipmentPlan(repoEntry config.RepoEntry, stopBeforeShipment bool, out func(string)) (shipmentPlan, error) {
-	plan := shipmentPlan{Allowed: repoEntry.Shipment.AllowedRemotes, DryRun: stopBeforeShipment}
+	plan := shipmentPlan{Allowed: repoEntry.Shipment.AllowedRemotes, DryRun: stopBeforeShipment, TextCommand: repoEntry.PRTextCommand}
 	if stopBeforeShipment {
 		return plan, nil
 	}
@@ -935,7 +939,7 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 						EpicBranch: "feat/" + epicID, BaseBranch: baseBranch,
 						RemoteName: plan.Destination.RemoteName, RemoteURL: plan.Destination.RemoteURL,
 						RepoSlug: plan.Destination.RepoSlug, TrackerCommand: in.TrackerCommand,
-						PRBodyPath: prBodyPath,
+						PRBodyPath: prBodyPath, PRTextCommand: plan.TextCommand,
 					})
 					if perr != nil {
 						// Falling back to the generic prompt here would drop the
@@ -975,8 +979,50 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 	if err := verifyPublishedPullRequest(a, epicID, repoPath, plan); err != nil {
 		return err
 	}
+	if err := verifyPublishedPullRequestText(a, epicID, epicBead.Title, repoPath, plan); err != nil {
+		return err
+	}
 	out(fmt.Sprintf("epic %s → %s\n", epicID, res.FinalState))
 	return nil
+}
+
+// verifyPublishedPullRequestText runs the repository's own prose gate over the
+// pull request shipment published.
+//
+// The shipment prompt already tells the agent to run this before calling gh,
+// which is where the failure is actually prevented: kernl cannot intercept the
+// text, because the agent composes the body AND opens the pull request. That
+// makes the prompt step the gate and this the backstop - an agent that skips
+// it publishes prose the repository refuses, and without this the run reports
+// plain success while the pull request is already red. That is exactly what
+// happened: a pull request whose code passed every check was refused on two
+// em-dashes in its body, and nothing in the run had ever looked at the one
+// artifact the stage writes entirely by itself.
+//
+// Unlike verifyPublishedPullRequest, a failure here does NOT block the epic.
+// Publishing to a repository the operator never allowed is unsafe and the work
+// has to stop; prose the gate refuses is a pull request that exists, is
+// awaiting review, and needs its text edited. Marking the epic blocked would
+// say the work is broken when it is the writing that is.
+func verifyPublishedPullRequestText(a *app.App, epicID, epicTitle, repoPath string, plan shipmentPlan) error {
+	if plan.DryRun || strings.TrimSpace(plan.TextCommand) == "" {
+		return nil
+	}
+	artifactDir, err := app.ArtifactDirPath(a.StateDir, epicID, epicID)
+	if err != nil {
+		return err
+	}
+	bodyPath := filepath.Join(artifactDir, "pr-body.md")
+	body, readErr := os.ReadFile(bodyPath)
+	if readErr != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s published a pull request, but its body file %s cannot be read, so %s's own text gate could not be applied to what went out: %w - Fix: read the pull request on GitHub and check its text by hand", epicID, bodyPath, repoPath, readErr)
+	}
+	return shipment.CheckPRText(shipment.PRTextCheckInput{
+		RepoPath: repoPath,
+		Command:  plan.TextCommand,
+		Title:    epicTitle,
+		Body:     string(body),
+	})
 }
 
 // verifyPublishedPullRequest checks, after shipment has run, that the pull
