@@ -53,21 +53,32 @@ type CLIImpactComposer struct {
 // the deliberate judgment that this decision has nothing worth saying about
 // it. See nonEmptyCompletion.
 func (c CLIImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact) (string, error) {
+	return c.Ask(ctx, prompt.RenderImpactOnUse(prompt.ImpactOnUseInput{
+		DecisionTitle:     in.DecisionTitle,
+		DecisionContext:   in.DecisionContext,
+		OptionsConsidered: in.OptionsConsidered,
+		TradeOffs:         in.TradeOffs,
+		Outcome:           in.Outcome,
+		RepoPath:          in.RepoPath,
+		BeadTitle:         in.BeadTitle,
+	}))
+}
+
+// Ask implements Mayor: it spawns the agent CLI in answer mode on one question
+// and returns its whole answer, trimmed.
+//
+// Splitting this out of ComposeImpact is what lets a second question (see
+// MayorReversibilityJudge) reach the same actor without a second copy of the
+// answer-mode plumbing, and without the tool-less, throwaway-directory
+// property that makes it safe having to be re-established somewhere else.
+func (c CLIImpactComposer) Ask(ctx context.Context, question string) (string, error) {
 	if strings.TrimSpace(c.Agent.Command) == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.agent %q has no command - Fix: set settings.agents.%s.command in kernl.yaml", c.AgentID, c.AgentID)
 	}
 
 	built, err := adapter.BuildAnswerModeArgs(
 		adapter.AgentTarget{Command: c.Agent.Command, Model: c.Agent.Model},
-		prompt.RenderImpactOnUse(prompt.ImpactOnUseInput{
-			DecisionTitle:     in.DecisionTitle,
-			DecisionContext:   in.DecisionContext,
-			OptionsConsidered: in.OptionsConsidered,
-			TradeOffs:         in.TradeOffs,
-			Outcome:           in.Outcome,
-			RepoPath:          in.RepoPath,
-			BeadTitle:         in.BeadTitle,
-		}))
+		question)
 	if err != nil {
 		return "", fmt.Errorf("llm.agent %q: %w", c.AgentID, err)
 	}
@@ -84,7 +95,7 @@ func (c CLIImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact)
 	}
 	out, err := run(ctx, built.Command, built.Args, workDir)
 	if err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.agent %q (%s) could not answer the impact question: %w", c.AgentID, built.Command, err)
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: llm.agent %q (%s) could not answer the question it was asked: %w", c.AgentID, built.Command, err)
 	}
 	return nonEmptyCompletion(out)
 }
@@ -123,6 +134,23 @@ func RunAnswerCommand(ctx context.Context, command string, args []string, workDi
 	return string(out), nil
 }
 
+// Mayor is the tool-less actor kernl asks a question it cannot answer from
+// facts alone: today the decision record's impact field, and whether an
+// integration rejection would be expensive to reverse. One method, because
+// every such question is the same shape - text in, text out, no repository,
+// no tools, nothing recorded in the stage-attempt ledger.
+type Mayor interface {
+	Ask(ctx context.Context, question string) (string, error)
+}
+
+// mayor is what both configured actors are: the same object answers both
+// questions, and the two interfaces exist separately only so a caller states
+// which one it needs.
+type mayor interface {
+	Mayor
+	ImpactComposer
+}
+
 // NewImpactComposer picks the mayor from configuration: the agent CLI named
 // by llm.agent when there is one, the provider API at llm.endpoint otherwise,
 // and nothing at all when neither is configured.
@@ -137,6 +165,30 @@ func RunAnswerCommand(ctx context.Context, command string, args []string, workDi
 // as a run finding out at shipment that it has nowhere it is allowed to
 // publish - the reason that check moved to startup too.
 func NewImpactComposer(cfg *config.Config) (ImpactComposer, error) {
+	m, err := newMayor(cfg)
+	if err != nil || m == nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// NewMayor resolves the same actor NewImpactComposer resolves, for the caller
+// that wants to ask it something other than the impact question. A nil Mayor
+// with a nil error means none is configured, which every caller must handle on
+// its own terms: the run report drops a field, the reversibility gate hands
+// the rejection to the operator.
+func NewMayor(cfg *config.Config) (Mayor, error) {
+	m, err := newMayor(cfg)
+	if err != nil || m == nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// newMayor returns the interface value, never a typed nil: an unconfigured llm
+// must come back as a nil interface, or every "is a mayor configured" check in
+// the codebase silently answers yes.
+func newMayor(cfg *config.Config) (mayor, error) {
 	if cfg == nil {
 		return nil, nil
 	}

@@ -90,6 +90,19 @@ registry:
       # repository that cannot say how it is verified gets no work dispatched
       # into it. Set it for anything else - "cargo test --all", "make check".
       # verifyCommand: bin/ci
+      # What this repository cannot cheaply take back. When an integration
+      # review rejects, the orchestrator decides between another automatic
+      # fix-up round and the operator on one criterion: how expensive the
+      # change would be to undo. A branch that touched one of these paths goes
+      # to the operator without anything being asked of a model.
+      # A pattern ending in "/" claims that whole subtree; anything else is a
+      # glob over the repository-relative path. Unset means this repository
+      # declares none, which reads as "no mechanical reason to escalate" - it
+      # never means "everything here is irreversible".
+      # irreversibleSurfaces:
+      #   - migrations/
+      #   - db/schema.sql
+      #   - openapi/*.yaml
       # Shipment is the only stage that acts outside the machine: it pushes and
       # opens a pull request. Declare where that is allowed to land. With no
       # allowedRemotes the stage refuses to push at all - a repository that has

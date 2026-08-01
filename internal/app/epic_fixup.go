@@ -13,7 +13,7 @@ import (
 // IntegrationFixupLabel marks a bead this package created via the fix-up
 // mechanism: both the label the run report checks (via
 // BeadReference.IsFixup, set from this label in recordDecisionIfGateType)
-// and the durable fact findExistingFixupChild reads back from the tracker
+// and the durable fact surveyFixupChildren reads back from the tracker
 // itself, never from mutable prose - see that function's own doc comment
 // for why.
 const IntegrationFixupLabel = "kernl:fixup"
@@ -37,9 +37,9 @@ func HasLabel(labels []string, label string) bool {
 // the "worker" profile, like any other epic child) reaches once its own
 // implementation cycle is over - reached the profile's own terminal state
 // (awaiting_integration, handed to the epic; or abandoned, gave up), or
-// closed/shipped by hand. See findExistingFixupChild's own doc comment for
-// why this - and not merely "does a fix-up child exist at all" - is the cap
-// this package checks.
+// closed/shipped by hand. See surveyFixupChildren's own doc comment for why
+// this - and not merely "does a fix-up child exist at all" - is what counts a
+// round as spent.
 var fixupWorkerCycleCompleteStates = map[string]bool{
 	"awaiting_integration": true,
 	"abandoned":            true,
@@ -47,12 +47,25 @@ var fixupWorkerCycleCompleteStates = map[string]bool{
 	"shipped":              true,
 }
 
-// findExistingFixupChild lists epicID's own children and returns the one
-// carrying IntegrationFixupLabel, or nil if none exists.
+// fixupHistory is what an epic's own children say about the fix-up rounds it
+// has already spent, and the one it may still be in the middle of.
+type fixupHistory struct {
+	// Pending is a fix-up child that exists but has NOT yet completed its own
+	// worker cycle - evidence a prior attempt created and linked the bead and
+	// then failed before the epic was rewound (see finalizeFixupBead), not
+	// evidence of a round already spent.
+	Pending *backend.Bead
+	// Spent counts the fix-up children that did complete their cycle. This is
+	// the number the budget is measured against.
+	Spent int
+}
+
+// surveyFixupChildren lists epicID's own children and sorts the fix-up ones
+// into that history.
 //
-// The cap this package enforces - "a fix-up cannot spawn a fix-up" - reads
-// this instead of a marker in the epic's own description, for two reasons
-// measured against how the tracker actually gets used, not assumed:
+// The budget this package enforces is counted from the tracker itself rather
+// than from a marker in the epic's own description, for two reasons measured
+// against how the tracker actually gets used, not assumed:
 //
 //  1. A description is mutable prose. A crash between creating the fix-up
 //     bead and writing the marker leaves the marker never written at all; a
@@ -60,24 +73,32 @@ var fixupWorkerCycleCompleteStates = map[string]bool{
 //     replaces the field wholesale (the same "read-modify-write with no
 //     compare-and-swap" gap RevertDecisionAndReopenBead's own doc comment
 //     already accepts for a different write) and erases a marker that WAS
-//     written. Either way the cap silently stops applying.
+//     written. Either way the budget silently stops applying.
 //  2. A bead is durable and nothing but this package's own writes touches
 //     its labels. The fix-up bead already carries ParentID=epicID (this is
 //     how the epic's own next `epic run` discovers it as a real child), so
 //     the same List call every other reader of an epic's children already
 //     uses is enough - no second storage mechanism next to the tracker
 //     record itself.
-func findExistingFixupChild(be backend.BackendPort, repoPath, epicID string) (*backend.Bead, error) {
+func surveyFixupChildren(be backend.BackendPort, repoPath, epicID string) (fixupHistory, error) {
 	children, err := be.List(&backend.BeadListFilters{Parent: epicID}, repoPath)
 	if err != nil {
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: listing epic %s's children to check its fix-up history failed: %w", epicID, err)
+		return fixupHistory{}, fmt.Errorf("KERNL DISPATCH FAILURE: listing epic %s's children to check its fix-up history failed: %w", epicID, err)
 	}
+	var history fixupHistory
 	for i := range children {
-		if HasLabel(children[i].Labels, IntegrationFixupLabel) {
-			return &children[i], nil
+		if !HasLabel(children[i].Labels, IntegrationFixupLabel) {
+			continue
+		}
+		if fixupWorkerCycleCompleteStates[children[i].State] {
+			history.Spent++
+			continue
+		}
+		if history.Pending == nil {
+			history.Pending = &children[i]
 		}
 	}
-	return nil, nil
+	return history, nil
 }
 
 // EpicIntegrationTailResult reports what happened driving the epic bead's
@@ -96,14 +117,23 @@ type EpicIntegrationTailResult struct {
 	// re-attempts integration.
 	FixupBeadID string
 	// Escalated is true when this integration_review rejection needs the
-	// operator: the reviewer declared a decision, declared nothing this
-	// package could parse, or this epic already has a fix-up bead that
-	// completed its own cycle and a fix-up cannot spawn a fix-up.
+	// operator: something about it is expensive to undo, or it is not a
+	// reversibility question at all (the reviewer asked for a decision, or
+	// declared nothing this package could parse).
 	Escalated bool
 	// EscalationReason is set whenever Escalated is true - the text the CLI
 	// surfaces, naming why, rather than the same generic "blocked" message
 	// a hard stage failure would also produce.
 	EscalationReason string
+	// ReversibilityCause names which gate fired, on both paths: the cause of
+	// an escalation, or GateCheapToReverse when the run continued. Carried out of
+	// here so the CLI can print it verbatim - an escalation nobody can grep
+	// for later is the failure mode this gate replaced, and a silent
+	// "continue" would be the same failure in the other direction.
+	ReversibilityCause GateCause
+	// ReversibilityReason is the judgment behind that cause, including the
+	// mayor's own words when it was asked.
+	ReversibilityReason string
 }
 
 // DriveEpicIntegrationTailDeps is DriveBeadDeps plus what only the fix-up
@@ -114,6 +144,20 @@ type DriveEpicIntegrationTailDeps struct {
 	// this call - named separately because a fix-up bead's ParentID must be
 	// exactly this, not re-derived from the (already-blocked) epic bead.
 	EpicID string
+	// EpicBranch and BaseBranch bound the range the reversibility facts are
+	// measured over: what this epic changed, and against what.
+	EpicBranch string
+	BaseBranch string
+	// IrreversibleSurfaces is registry.repos[].irreversibleSurfaces for the
+	// repository being worked on. Empty means the repository declares none.
+	IrreversibleSurfaces []string
+	// Inspector is the git seam GatherReversibilityFacts measures through.
+	// Nil defaults to the real one; only tests inject a fake.
+	Inspector BranchInspector
+	// Judge answers whether a rejection would be expensive to undo. Nil means
+	// nothing is configured to answer it, and an unanswered gate escalates -
+	// it never continues by default.
+	Judge ReversibilityJudge
 }
 
 // DriveEpicIntegrationTail drives the epic bead exactly as
@@ -162,39 +206,54 @@ func DriveEpicIntegrationTail(ctx context.Context, deps DriveEpicIntegrationTail
 		return EpicIntegrationTailResult{RunBeadResult: res}, err
 	}
 
-	existingFixup, listErr := findExistingFixupChild(deps.Backend, deps.RepoPath, deps.EpicID)
+	history, listErr := surveyFixupChildren(deps.Backend, deps.RepoPath, deps.EpicID)
 	if listErr != nil {
 		return EpicIntegrationTailResult{RunBeadResult: res}, listErr
 	}
-	// A fix-up child that exists but has NOT yet completed its own worker
-	// cycle is not evidence the cap was already used - it is evidence a
-	// PRIOR attempt got as far as creating (and linking) the bead and then
-	// failed before the epic was rewound (see finalizeFixupBead). The
-	// executor always drives every child, including this one, to a
-	// terminal state before this tail ever runs again, so "exists but not
-	// yet terminal" can only mean that earlier rewind never completed.
-	alreadyFixedUp := existingFixup != nil && fixupWorkerCycleCompleteStates[existingFixup.State]
 
 	rejection := ParseIntegrationRejection(trimmed)
-	action := DecideFixupAction(rejection, alreadyFixedUp)
-
-	switch action {
-	case FixupActionCreateBead:
-		if existingFixup != nil {
-			// Resume the still-pending fix-up instead of creating a second
-			// bead for the same rejection.
-			return finalizeFixupBead(deps, existingFixup, rejection)
-		}
-		return createFixupBead(deps, rejection)
-	case FixupActionEscalateAlreadyFixedUp:
-		reason := fmt.Sprintf("integration review rejected epic %s again, but fix-up bead %s already completed its own cycle - a fix-up cannot spawn a fix-up; resolve it by hand (see %s)", deps.EpicID, existingFixup.ID, reviewPath)
-		return EpicIntegrationTailResult{RunBeadResult: res, Escalated: true, EscalationReason: reason},
-			fmt.Errorf("KERNL DISPATCH FAILURE: %s", reason)
-	default: // FixupActionEscalateDecisionOrAmbiguous
-		reason := escalationReasonForAmbiguousOrDecision(rejection, reviewPath)
-		return EpicIntegrationTailResult{RunBeadResult: res, Escalated: true, EscalationReason: reason},
-			fmt.Errorf("KERNL DISPATCH FAILURE: %s", reason)
+	facts, factsErr := GatherReversibilityFacts(GatherReversibilityFactsInput{
+		EpicID:               deps.EpicID,
+		RepoPath:             deps.RepoPath,
+		BaseBranch:           deps.BaseBranch,
+		EpicBranch:           deps.EpicBranch,
+		IrreversibleSurfaces: deps.IrreversibleSurfaces,
+		FixupsSpent:          history.Spent,
+		Inspector:            deps.Inspector,
+	})
+	if factsErr != nil {
+		// Continuing on a facts struct that could not be measured would read
+		// "not published, nothing irreversible touched" - the two answers that
+		// let a run proceed without a human - from a failure to look.
+		return escalate(res, GateReversibilityUnknown, factsErr.Error(), deps.EpicID, reviewPath)
 	}
+	decision := DecideFixupAction(ctx, rejection, facts, deps.Judge)
+
+	if decision.Action == FixupActionEscalate {
+		return escalate(res, decision.Cause, decision.Reason, deps.EpicID, reviewPath)
+	}
+	if history.Pending != nil {
+		// Resume the still-pending fix-up instead of creating a second bead
+		// for the same rejection.
+		return finalizeFixupBead(deps, history.Pending, rejection, decision)
+	}
+	return createFixupBead(deps, rejection, decision)
+}
+
+// escalate renders one escalation the same way whichever gate produced it: the
+// cause, the reason, and the artifact to go read. The cause is spelled out
+// verbatim so a run's output can be grepped for the gate that fired, rather
+// than for the prose that happened to describe it.
+func escalate(res RunBeadResult, cause GateCause, reason, epicID, reviewPath string) (EpicIntegrationTailResult, error) {
+	text := fmt.Sprintf("integration review rejected epic %s and it escalates [%s]: %s (see %s)", epicID, cause, reason, reviewPath)
+	return EpicIntegrationTailResult{
+			RunBeadResult:       res,
+			Escalated:           true,
+			EscalationReason:    text,
+			ReversibilityCause:  cause,
+			ReversibilityReason: reason,
+		},
+		fmt.Errorf("KERNL DISPATCH FAILURE: %s", text)
 }
 
 // hasExactLastLine reports whether the trimmed last line of content equals
@@ -211,19 +270,6 @@ func hasExactLastLine(content, want string) bool {
 	return lastLine == want
 }
 
-// escalationReasonForAmbiguousOrDecision renders the operator-facing message
-// for the two cases DecideFixupAction folds together: a well-formed decision
-// declaration, or a rejection this package could not parse at all. Naming
-// which one happened is worth the branch even though the action taken is
-// identical, because a message that always said "ambiguous" would leave the
-// operator re-deriving a real question the reviewer already wrote down.
-func escalationReasonForAmbiguousOrDecision(rejection *IntegrationRejection, reviewPath string) string {
-	if rejection == nil {
-		return fmt.Sprintf("integration review rejected, but its declaration in %s could not be parsed as a fixup or a decision - an unparseable declaration is treated as ambiguous, and per the orchestrator-autonomy decision model's §7 an ambiguous rejection must escalate rather than be guessed into a fix-up", reviewPath)
-	}
-	return fmt.Sprintf("integration review rejected with a decision only the operator can make: %s (see %s for the full context)", rejection.Question, reviewPath)
-}
-
 // createFixupBead is the first-time half of FixupActionCreateBead: create
 // the fix-up bead as a real child of the epic, then hand off to
 // finalizeFixupBead for the step every path (fresh create or resume) shares.
@@ -235,7 +281,7 @@ func escalationReasonForAmbiguousOrDecision(rejection *IntegrationRejection, rev
 // is resumed from here rather than treated as a clean failure that makes
 // retrying safe - retrying blind on a false "nothing was created" is
 // exactly what would create a duplicate.
-func createFixupBead(deps DriveEpicIntegrationTailDeps, rejection *IntegrationRejection) (EpicIntegrationTailResult, error) {
+func createFixupBead(deps DriveEpicIntegrationTailDeps, rejection *IntegrationRejection, decision FixupDecision) (EpicIntegrationTailResult, error) {
 	title, _ := decisionTitleAndContext(rejection.WhatIsWrong)
 	input := backend.CreateBeadInput{
 		Title:       "fix-up: " + title,
@@ -256,7 +302,7 @@ func createFixupBead(deps DriveEpicIntegrationTailDeps, rejection *IntegrationRe
 		// finalizeFixupBead below fills in what is missing.
 		fixup = partial.Bead
 	}
-	return finalizeFixupBead(deps, fixup, rejection)
+	return finalizeFixupBead(deps, fixup, rejection, decision)
 }
 
 // finalizeFixupBead is the one remaining step whether fixup was just
@@ -269,7 +315,7 @@ func createFixupBead(deps DriveEpicIntegrationTailDeps, rejection *IntegrationRe
 // rejection is never nil here: DecideFixupAction only reaches this path
 // when rejection.Kind == review.KindFixup, which requires a non-nil
 // rejection by construction (see ParseIntegrationRejection).
-func finalizeFixupBead(deps DriveEpicIntegrationTailDeps, fixup *backend.Bead, rejection *IntegrationRejection) (EpicIntegrationTailResult, error) {
+func finalizeFixupBead(deps DriveEpicIntegrationTailDeps, fixup *backend.Bead, rejection *IntegrationRejection, decision FixupDecision) (EpicIntegrationTailResult, error) {
 	if fixup.Acceptance == "" && rejection.Acceptance != "" {
 		if err := deps.Backend.Update(fixup.ID, backend.UpdateBeadInput{Acceptance: rejection.Acceptance}, deps.RepoPath); err != nil {
 			return EpicIntegrationTailResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: fix-up bead %s exists for epic %s but still lacks its acceptance criteria: %w - Fix: retry once the tracker issue is resolved; the bead will not be duplicated", fixup.ID, deps.EpicID, err)
@@ -282,7 +328,9 @@ func finalizeFixupBead(deps DriveEpicIntegrationTailDeps, fixup *backend.Bead, r
 	}
 
 	return EpicIntegrationTailResult{
-		RunBeadResult: RunBeadResult{FinalState: "ready_for_integration", Success: true},
-		FixupBeadID:   fixup.ID,
+		RunBeadResult:       RunBeadResult{FinalState: "ready_for_integration", Success: true},
+		FixupBeadID:         fixup.ID,
+		ReversibilityCause:  decision.Cause,
+		ReversibilityReason: decision.Reason,
 	}, nil
 }

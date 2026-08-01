@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -133,44 +135,140 @@ func ParseIntegrationRejection(content string) *IntegrationRejection {
 }
 
 // FixupAction is what driveEpic does in response to one integration_review
-// rejection, once the artifact has been parsed and the epic's own fix-up
-// history is known.
+// rejection, once the artifact has been parsed and the branch's own
+// reversibility facts are known.
 type FixupAction int
 
 const (
 	// FixupActionCreateBead: dispatch a normal fix-up bead, with normal
 	// autonomy.
 	FixupActionCreateBead FixupAction = iota
-	// FixupActionEscalateAlreadyFixedUp: this epic already spawned one
-	// fix-up bead and integration_review rejected again - a fix-up cannot
-	// spawn a fix-up (§7), so this always escalates regardless of what the
-	// new rejection declares.
-	FixupActionEscalateAlreadyFixedUp
-	// FixupActionEscalateDecisionOrAmbiguous: the reviewer declared a
-	// decision, or declared nothing this package can parse - either way,
-	// something here needs the operator's judgment, not a bead any pool may
-	// pick up.
-	FixupActionEscalateDecisionOrAmbiguous
+	// FixupActionEscalate: hand this rejection to the operator. Which of the
+	// gates fired is in GateCause, not in a constant of its own: every
+	// caller does the same thing with all of them, and the difference is
+	// something to report, not to branch on.
+	FixupActionEscalate
 )
 
-// DecideFixupAction is the pure §7 policy. It takes no I/O so every branch -
-// including the ambiguous one, which is the one a caller is most tempted to
-// skip - is a table test, not a fixture.
+// GateCause names which gate decided one rejection, on both paths: the one
+// that stopped it, or the one that let it continue. It is a string, and it is
+// printed verbatim, so a decision can be found later by grepping a run's own
+// output for the gate that fired rather than by re-deriving it from prose.
+type GateCause string
+
+const (
+	// GateCheapToReverse: the mayor judged undoing this later to be cheap,
+	// which is the only cause that continues.
+	GateCheapToReverse GateCause = "cheap_to_reverse"
+	// GatePublished: this branch already exists outside the machine. Undoing
+	// published work is not a branch operation any more.
+	GatePublished GateCause = "published"
+	// GateIrreversibleSurface: the branch changed a path this repository
+	// declares expensive to undo.
+	GateIrreversibleSurface GateCause = "irreversible_surface"
+	// GateBudgetExhausted: this epic has spent its fix-up budget. "Cheap to
+	// reverse" is otherwise an unbounded loop, since a reviewer can always
+	// find something.
+	GateBudgetExhausted GateCause = "fixup_budget_exhausted"
+	// GateDecisionOrAmbiguous: the reviewer declared a decision, or declared
+	// nothing this package can parse - either way something here needs the
+	// operator's judgment, not a bead any pool may pick up.
+	GateDecisionOrAmbiguous GateCause = "decision_or_ambiguous"
+	// GateExpensiveToReverse: the mayor judged undoing this later to be
+	// expensive.
+	GateExpensiveToReverse GateCause = "expensive_to_reverse"
+	// GateReversibilityUnknown: the question could not be answered at all - no
+	// mayor is configured, or the one configured failed or answered something
+	// undecidable. An unanswered gate stops; it never continues.
+	GateReversibilityUnknown GateCause = "reversibility_unknown"
+)
+
+// FixupDecision is the outcome of the policy, with the reason that produced
+// it. Every path sets Reason, including the one that continues: the point of
+// moving the human gate from "the budget ran out" to "this would be expensive
+// to undo" is lost if the new gate leaves no record of what it decided.
+type FixupDecision struct {
+	Action FixupAction
+	Cause  GateCause
+	Reason string
+}
+
+// DecideFixupAction is the policy for one integration_review rejection.
 //
-// The cap is checked first and unconditionally: an epic that already spawned
-// one fix-up bead escalates no matter how cleanly this new rejection
-// classifies itself, because the rule this defends against is "a fix-up
-// bead cannot spawn a fix-up bead" - not "a fix-up bead cannot spawn an
-// ambiguous one."
-func DecideFixupAction(rejection *IntegrationRejection, epicAlreadyFixedUp bool) FixupAction {
-	if epicAlreadyFixedUp {
-		return FixupActionEscalateAlreadyFixedUp
+// The gate for human attention is how expensive the change would be to undo,
+// not whether an automatic budget ran out. A two-way door the orchestrator
+// walks through on its own; a one-way door is what the operator is for. Before
+// shipment almost everything is a two-way door - it is a branch, nothing is
+// published - so this deliberately hands far fewer rejections to a human than
+// the one-fix-up cap it replaces.
+//
+// Three layers, in this order, and the order is the point: the cheap, certain
+// answers come first, and the mayor is asked only what nothing else can
+// answer. Among the escalating layers the order decides only which reason gets
+// reported, since all of them stop; the layer that must come before the mayor
+// is the budget, because exhausting it escalates whatever the mayor thinks.
+func DecideFixupAction(ctx context.Context, rejection *IntegrationRejection, facts ReversibilityFacts, judge ReversibilityJudge) FixupDecision {
+	if facts.Published {
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GatePublished,
+			Reason: fmt.Sprintf("this branch is already published (%s), so undoing it is no longer a branch operation", facts.PublishedDetail),
+		}
 	}
+	if len(facts.IrreversibleSurfacesTouched) > 0 {
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GateIrreversibleSurface,
+			Reason: fmt.Sprintf("the branch changed %s, which this repository declares irreversible in registry.repos[].irreversibleSurfaces", strings.Join(facts.IrreversibleSurfacesTouched, ", ")),
+		}
+	}
+	if facts.Budget > 0 && facts.FixupsSpent >= facts.Budget {
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GateBudgetExhausted,
+			Reason: fmt.Sprintf("this epic has spent %d of its %d fix-up rounds, and a loop that keeps repairing itself because each round is cheap to reverse never ends on its own", facts.FixupsSpent, facts.Budget),
+		}
+	}
+	// Not a reversibility question at all: the reviewer either asked for a
+	// choice to be made, or declared something this package cannot read, and
+	// per the decision model an unreadable declaration is treated exactly like
+	// an explicit "decision" rather than guessed into a fix-up.
 	if rejection == nil {
-		return FixupActionEscalateDecisionOrAmbiguous
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GateDecisionOrAmbiguous,
+			Reason: "the reviewer's declaration could not be parsed as a fixup or a decision, and an ambiguous rejection escalates rather than being guessed into a fix-up",
+		}
 	}
-	if rejection.Kind == review.KindFixup {
-		return FixupActionCreateBead
+	if rejection.Kind != review.KindFixup {
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GateDecisionOrAmbiguous,
+			Reason: "the reviewer raised a decision only the operator can make: " + rejection.Question,
+		}
 	}
-	return FixupActionEscalateDecisionOrAmbiguous
+
+	if judge == nil {
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GateReversibilityUnknown,
+			Reason: "nothing is wired to judge how expensive this would be to undo - Fix: set llm.provider and llm.endpoint, or llm.agent, in kernl.yaml",
+		}
+	}
+	verdict, err := judge.JudgeReversibility(ctx, ReversibilityQuestion{
+		EpicID:        facts.EpicID,
+		Objection:     rejection.WhatIsWrong,
+		ChangeSummary: facts.ChangeSummary,
+	})
+	if err != nil {
+		return FixupDecision{
+			Action: FixupActionEscalate,
+			Cause:  GateReversibilityUnknown,
+			Reason: fmt.Sprintf("how expensive this would be to undo could not be established: %v", err),
+		}
+	}
+	if verdict.Expensive {
+		return FixupDecision{Action: FixupActionEscalate, Cause: GateExpensiveToReverse, Reason: verdict.Reason}
+	}
+	return FixupDecision{Action: FixupActionCreateBead, Cause: GateCheapToReverse, Reason: verdict.Reason}
 }

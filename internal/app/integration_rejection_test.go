@@ -211,37 +211,3 @@ func TestParseIntegrationRejection_HeadingMatchIsCaseAndSpaceInsensitive(t *test
 		t.Fatalf("got %+v", r)
 	}
 }
-
-// --- DecideFixupAction: the pure §7 policy, including the two rules that
-// matter most - the ambiguous case escalates, and the cap wins even over a
-// clean fixup declaration. ---
-
-func TestDecideFixupAction(t *testing.T) {
-	fixup := &IntegrationRejection{Kind: review.KindFixup, WhatIsWrong: "x", Acceptance: "y"}
-	decision := &IntegrationRejection{Kind: review.KindDecision, WhatIsWrong: "x", Question: "y"}
-
-	cases := []struct {
-		name               string
-		rejection          *IntegrationRejection
-		epicAlreadyFixedUp bool
-		want               FixupAction
-	}{
-		{"fixup, no prior fix-up -> create a bead", fixup, false, FixupActionCreateBead},
-		{"decision, no prior fix-up -> escalate", decision, false, FixupActionEscalateDecisionOrAmbiguous},
-		{"ambiguous (nil), no prior fix-up -> escalate", nil, false, FixupActionEscalateDecisionOrAmbiguous},
-		// The cap: a second rejection on an epic that already spawned one
-		// fix-up bead escalates NO MATTER what this new rejection declares -
-		// "a fix-up cannot spawn a fix-up" is a rule about the epic's own
-		// history, not about how well this rejection classifies itself.
-		{"fixup declared, but epic already fixed up -> escalate (the cap)", fixup, true, FixupActionEscalateAlreadyFixedUp},
-		{"decision declared, epic already fixed up -> escalate (the cap)", decision, true, FixupActionEscalateAlreadyFixedUp},
-		{"ambiguous, epic already fixed up -> escalate (the cap)", nil, true, FixupActionEscalateAlreadyFixedUp},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := DecideFixupAction(tc.rejection, tc.epicAlreadyFixedUp); got != tc.want {
-				t.Errorf("got %v, want %v", got, tc.want)
-			}
-		})
-	}
-}

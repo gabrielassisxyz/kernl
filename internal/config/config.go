@@ -65,8 +65,19 @@ type RepoEntry struct {
 	// VerifyCommand is what an agent runs before declaring a stage done. Unset,
 	// it is the repository's own bin/ci, which must exist: a repository that
 	// cannot say how it is verified gets no work dispatched into it.
-	VerifyCommand string         `yaml:"verifyCommand,omitempty"`
-	Shipment      ShipmentConfig `yaml:"shipment,omitempty"`
+	VerifyCommand string `yaml:"verifyCommand,omitempty"`
+	// IrreversibleSurfaces lists the paths this repository considers expensive
+	// to undo - migrations, a published API surface, generated artifacts,
+	// lockfiles. A branch that touched one sends an integration review
+	// rejection to the operator instead of another fix-up round, because only
+	// the repository knows what it cannot cheaply take back.
+	//
+	// A pattern ending in "/" matches that whole subtree; anything else is
+	// matched with path.Match against the repository-relative path. Unset means
+	// this repository declares nothing, which reads as "no mechanical reason to
+	// escalate" - never as "everything here is irreversible".
+	IrreversibleSurfaces []string       `yaml:"irreversibleSurfaces,omitempty"`
+	Shipment             ShipmentConfig `yaml:"shipment,omitempty"`
 }
 
 // ShipmentConfig declares where a repository is allowed to publish. It has no
