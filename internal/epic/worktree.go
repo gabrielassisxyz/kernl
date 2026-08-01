@@ -153,7 +153,7 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 		// `rm -rf ~/.kernl/worktrees/<epic>` between every failed epic run.
 		slog.Warn("worktree leftover detected, auto-cleaning",
 			"path", path, "epic", epicID, "bead", beadID)
-		if err := m.removeLeftover(path, beadID); err != nil {
+		if err := m.removeLeftover(path); err != nil {
 			return "", fmt.Errorf("KERNL DISPATCH FAILURE: worktree path %s exists and auto-clean failed - %w - Fix: remove the directory manually", path, err)
 		}
 	}
@@ -170,9 +170,6 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 	// .git/worktrees/<name>/ still claims the path is registered. Without
 	// this, `git worktree add` fails with "missing but already registered".
 	_, _ = m.gitRun(m.repoPath, "worktree", "prune")
-	// Also force-delete any stale bead branch from a prior run so we don't
-	// collide with `add -b kernl/<bead>`.
-	_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+beadID)
 
 	if m.baseBranch == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no base branch for %s - bead branch kernl/%s has nothing to be cut from - Fix: pass the branch resolved by ResolveBaseBranch to NewWorktreeManager", m.repoPath, beadID)
@@ -185,8 +182,8 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 		baseBranch = epicBranch
 	}
 
-	if _, err := m.gitRun(m.repoPath, "worktree", "add", path, "-b", "kernl/"+beadID, baseBranch); err != nil {
-		return "", fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for bead %s based on %s - %w - Fix: verify the repo at %s is clean and the branch %s exists", beadID, baseBranch, err, m.repoPath, baseBranch)
+	if err := m.addBeadWorktree(path, beadID, baseBranch); err != nil {
+		return "", err
 	}
 
 	if err := m.mergeDependencyBranches(path, beadID, baseBranch, depBeadIDs); err != nil {
@@ -194,6 +191,34 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 	}
 
 	return path, nil
+}
+
+// addBeadWorktree checks out kernl/<beadID> at path. If the branch already
+// exists it is reused rather than recreated: a bead that reached
+// implementation and committed work before blocking at a later gate carries
+// that work on this branch, and an epic re-run must resume it instead of
+// force-deleting and recutting the branch (which is how that work used to be
+// lost silently). Only when the branch is genuinely new is it cut fresh from
+// baseBranch.
+func (m *WorktreeManager) addBeadWorktree(path, beadID, baseBranch string) error {
+	branchName := "kernl/" + beadID
+
+	out, err := m.gitRun(m.repoPath, "branch", "--list", branchName)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: checking bead branch %s - %w - Fix: verify the repo exists at %s", branchName, err, m.repoPath)
+	}
+
+	if strings.TrimSpace(out) != "" {
+		if _, err := m.gitRun(m.repoPath, "worktree", "add", path, branchName); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed reusing bead branch %s - %w - Fix: %s is likely already checked out in another worktree; run `git worktree list` in %s to find it, remove that worktree (or its stale registration with `git worktree prune`), then retry", branchName, err, branchName, m.repoPath)
+		}
+		return nil
+	}
+
+	if _, err := m.gitRun(m.repoPath, "worktree", "add", path, "-b", branchName, baseBranch); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: git worktree add failed for bead %s based on %s - %w - Fix: verify the repo at %s is clean and the branch %s exists", beadID, baseBranch, err, m.repoPath, baseBranch)
+	}
+	return nil
 }
 
 // mergeDependencyBranches merges each dependency's branch (kernl/<dep>) into the
@@ -216,16 +241,20 @@ func (m *WorktreeManager) mergeDependencyBranches(path, beadID, baseBranch strin
 	return nil
 }
 
-// removeLeftover deletes a stranded worktree from a previous failed run.
-// Tries `git worktree remove --force` first so git's bookkeeping stays
+// removeLeftover deletes a stranded worktree checkout from a previous failed
+// run. Tries `git worktree remove --force` first so git's bookkeeping stays
 // consistent; falls back to plain os.RemoveAll when gitRun is unwired
 // (hermetic tests, or paths that were never registered with git).
-func (m *WorktreeManager) removeLeftover(path, beadID string) error {
+//
+// It deliberately does not touch the bead branch: the worktree directory can
+// be left behind by a crash even though the branch already carries committed
+// work, and Add reuses that branch right after this returns. Deleting it here
+// would discard the work before the caller ever gets a chance to resume it.
+func (m *WorktreeManager) removeLeftover(path string) error {
 	if m.gitRun != nil {
 		// Best effort - ignore exit codes since the path may have been removed
 		// from git's index already.
 		_, _ = m.gitRun(m.repoPath, "worktree", "remove", "--force", path)
-		_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+beadID)
 	}
 	return os.RemoveAll(path)
 }
