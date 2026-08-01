@@ -776,6 +776,19 @@ func buildIntegrationChildren(children []backend.Bead, epicArtifactDir string) [
 	return cs
 }
 
+// buildReviewedChildren pairs each child with the criteria it was implemented
+// against, which is what the integration reviewer grades the merge by. It
+// carries none of the branch and artifact paths buildIntegrationChildren does:
+// by review time every child branch is already merged, so naming them again
+// would describe work that no longer exists to do.
+func buildReviewedChildren(children []backend.Bead) []prompt.ReviewedChild {
+	cs := make([]prompt.ReviewedChild, 0, len(children))
+	for _, c := range children {
+		cs = append(cs, prompt.ReviewedChild{ID: c.ID, Title: c.Title, Acceptance: c.Acceptance})
+	}
+	return cs
+}
+
 // driveEpic puts the epic bead on the epic profile and drives it through
 // integration -> integration_review -> shipment, ending at awaiting_pr_review.
 // The BuildPrompt override injects epic-specific integration/shipment prompts.
@@ -871,8 +884,18 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 					return s
 				case "integration_review":
 					artifactPath := backend.ResolveArtifactPath("<artifact_dir>/integration-review.md", epicID, in.ArtifactDir)
+					children, listErr := a.Backend.List(&backend.BeadListFilters{Parent: epicID}, in.RepoPath)
+					if listErr != nil {
+						// Falling through with no children would tell the
+						// reviewer this epic commissioned nothing, which is a
+						// different statement from "kernl could not look" - and
+						// the reviewer grades against exactly that text.
+						out(fmt.Sprintf("KERNL DISPATCH FAILURE: cannot read epic %s's children for the integration review scope: %v\n", epicID, listErr))
+						return ""
+					}
 					s, perr := prompt.RenderIntegrationReview(prompt.IntegrationReviewInput{
 						EpicID: epicID, EpicTitle: in.Bead.Title,
+						EpicDescription: in.Bead.Description, Children: buildReviewedChildren(children),
 						ArtifactPath: artifactPath, VerifyCommand: in.VerifyCommand, TrackerCommand: in.TrackerCommand,
 					})
 					if perr != nil {
