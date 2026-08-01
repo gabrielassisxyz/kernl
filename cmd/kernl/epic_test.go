@@ -729,3 +729,37 @@ func TestBuildIntegrationChildren_AllFinishedIsUnchanged(t *testing.T) {
 		t.Errorf("expected all 3 finished children, got %d", len(cs))
 	}
 }
+
+// The integration review's prompt introduces its list as "children merged into
+// this branch". A child that was never merged - deferred by the operator,
+// closed before it was implemented - makes that sentence untrue, and the
+// reviewer grades the merge against it.
+//
+// That is not hypothetical. A real epic was rejected because two deliberately
+// deferred children were listed as merged, were correctly found absent from
+// the branch, and the review concluded the epic was unfinished. The five that
+// did land all passed their own checks.
+func TestBuildReviewedChildren_GradesOnlyAgainstWhatWasMerged(t *testing.T) {
+	children := []backend.Bead{
+		{ID: "c1", Title: "merged", Acceptance: "a1", State: "awaiting_integration"},
+		{ID: "c2", Title: "deferred by the operator", Acceptance: "a2", State: "deferred"},
+		{ID: "c3", Title: "closed without work", Acceptance: "a3", State: "closed"},
+		{ID: "c4", Title: "still being implemented", Acceptance: "a4", State: "implementation"},
+		{ID: "c5", Title: "also merged", Acceptance: "a5", State: "awaiting_integration"},
+	}
+
+	cs := buildReviewedChildren(children)
+
+	var got []string
+	for _, c := range cs {
+		got = append(got, c.ID)
+	}
+	if strings.Join(got, ",") != "c1,c5" {
+		t.Errorf("reviewed children = %v, want only the two that were merged", got)
+	}
+	for _, c := range cs {
+		if c.Acceptance == "" {
+			t.Errorf("child %s lost its acceptance criteria, which is what the reviewer grades against", c.ID)
+		}
+	}
+}
