@@ -1,0 +1,101 @@
+package app
+
+import (
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+
+	"github.com/gabrielassisxyz/kernl/internal/backend"
+)
+
+// implementationReviewRewindLimit is how many times one call to
+// DriveBeadToTerminal will hand a rejected implementation back to an
+// implementer before it gives up and blocks the bead.
+//
+// One, matching the integration fix-up's own cap and for the same reason: a
+// reviewer that rejects the same work twice is describing something the loop
+// is not going to fix by running again. The second rejection is a signal for
+// a human, not a third attempt.
+//
+// The budget is per call, deliberately. An operator who re-runs the bead is
+// making a decision, and a decision is exactly what an exhausted automatic
+// budget is asking for.
+const implementationReviewRewindLimit = 1
+
+// verdictRejectReasonPrefix is the gate reason backend.evaluateSingleExitGate
+// writes for a review that ended in "VERDICT: REJECT" - a deliberate
+// rejection, as opposed to verdict_not_pass, which is every other way a
+// verdict gate fails (missing artifact, truncated output, a reviewer that ran
+// out of budget). Only the first sends work back.
+const verdictRejectReasonPrefix = "verdict_reject:"
+
+// isDeliberateRejection reports whether a gate failure at this state is a
+// reviewer rejecting the work, rather than the stage failing some other way.
+func isDeliberateRejection(state, gateReason string) bool {
+	return state == "implementation_review" && strings.HasPrefix(gateReason, verdictRejectReasonPrefix)
+}
+
+// rewindAfterReviewRejection sends a rejected bead back to the stage that can
+// answer the rejection, and reports whether it did.
+//
+// It answers false - leaving the caller to block the bead exactly as before -
+// in three cases, each of which is a rejection with nowhere to go:
+//
+//   - the budget is spent (see implementationReviewRewindLimit)
+//   - the workflow declares no retake state, so there is no stage to return to
+//   - the retake state is the reviewing stage itself, which would re-review
+//     the same unchanged work forever
+//
+// A tracker that refuses the rewind is an error, not a quiet block: the bead
+// would otherwise be left reading "blocked" while this function reported it
+// had been sent back.
+func rewindAfterReviewRejection(deps DriveBeadDeps, wf backend.WorkflowDescriptor, gateReason string, rewindsUsed int) (bool, error) {
+	if rewindsUsed >= implementationReviewRewindLimit {
+		slog.Info("DRIVE_TRACE review rejection not rewound: budget spent",
+			"bead", deps.BeadID, "limit", implementationReviewRewindLimit)
+		return false, nil
+	}
+	retake := strings.TrimSpace(wf.RetakeState)
+	if retake == "" || retake == "implementation_review" {
+		slog.Info("DRIVE_TRACE review rejection not rewound: no retake state",
+			"bead", deps.BeadID, "workflow", wf.ID, "retake", retake)
+		return false, nil
+	}
+
+	reason := fmt.Sprintf("implementation_review rejected this work (%s); returning it to %s to be answered", gateReason, retake)
+	if err := deps.Backend.Rewind(deps.BeadID, retake, reason, deps.RepoPath); err != nil {
+		return false, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s was rejected at implementation_review and could not be returned to %s: %w - Fix: the bead is left at implementation_review; retry once the tracker accepts the update", deps.BeadID, retake, err)
+	}
+	slog.Info("DRIVE_TRACE review rejection rewound", "bead", deps.BeadID, "to", retake)
+	return true, nil
+}
+
+// readRejectedReview returns the text of a review artifact that ends in
+// "VERDICT: REJECT", or "" for anything else.
+//
+// The artifact is its own record of whether it rejected, so the next
+// implementer's prompt needs no separate flag to decide whether to carry it:
+// a review that passed, a review that was never written, and a review that
+// failed some other way all read as "nothing to answer" here. A REJECT left
+// on disk from an earlier attempt is not stale for this purpose either - it
+// means the last review of this bead did reject, which is exactly what the
+// implementer needs to know.
+func readRejectedReview(path string) string {
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	trimmed := strings.TrimSpace(string(data))
+	lastLine := trimmed
+	if idx := strings.LastIndexByte(trimmed, '\n'); idx != -1 {
+		lastLine = strings.TrimSpace(trimmed[idx+1:])
+	}
+	if lastLine != "VERDICT: REJECT" {
+		return ""
+	}
+	return trimmed
+}
