@@ -605,8 +605,8 @@ func TestAutonomousLookupHonorsConfigPath(t *testing.T) {
 func TestBuildIntegrationChildren_UsesEachChildsOwnArtifactDir(t *testing.T) {
 	epicArtifactDir := "/home/user/.kernl/run/e1/e1"
 	children := []backend.Bead{
-		{ID: "c1"},
-		{ID: "c2"},
+		{ID: "c1", State: "awaiting_integration"},
+		{ID: "c2", State: "awaiting_integration"},
 	}
 
 	cs := buildIntegrationChildren(children, epicArtifactDir)
@@ -682,5 +682,50 @@ func TestEpicAlreadyInTailStopsTheRewind(t *testing.T) {
 		if epicAlreadyInTail(state) {
 			t.Errorf("epicAlreadyInTail(%q) = true; only the epic profile's own post-entry states count", state)
 		}
+	}
+}
+
+// Only a child that reached awaiting_integration has a kernl/<id> branch to
+// merge. Listing the rest names refs that do not exist - a bead the operator
+// deferred, one closed before it was ever implemented - and the integration
+// prompt has no way to say "that branch is not there": its only escape hatch
+// is merge_conflict, which this is not.
+//
+// The case that costs more than a confused agent is the last one below: a
+// child closed as INVALID whose branch still carries the commits of the
+// attempts that were thrown away. Listing it merges work somebody decided
+// against.
+func TestBuildIntegrationChildren_MergesOnlyChildrenThatFinished(t *testing.T) {
+	children := []backend.Bead{
+		{ID: "c1", State: "awaiting_integration"},
+		{ID: "c2", State: "deferred"},
+		{ID: "c3", State: "blocked"},
+		{ID: "c4", State: "awaiting_integration"},
+		{ID: "c5", State: "closed"},
+		{ID: "c6", State: "ready_for_implementation"},
+	}
+
+	cs := buildIntegrationChildren(children, "/home/user/.kernl/run/e1/e1")
+
+	var got []string
+	for _, c := range cs {
+		got = append(got, c.ID)
+	}
+	if strings.Join(got, ",") != "c1,c4" {
+		t.Errorf("children to merge = %v, want only the two in awaiting_integration", got)
+	}
+}
+
+// An epic whose children all finished before this filter existed still merges
+// every one of them: the change narrows what is listed, it does not change
+// what a healthy epic does.
+func TestBuildIntegrationChildren_AllFinishedIsUnchanged(t *testing.T) {
+	children := []backend.Bead{
+		{ID: "c1", State: "awaiting_integration"},
+		{ID: "c2", State: "awaiting_integration"},
+		{ID: "c3", State: "awaiting_integration"},
+	}
+	if cs := buildIntegrationChildren(children, "/home/user/.kernl/run/e1/e1"); len(cs) != 3 {
+		t.Errorf("expected all 3 finished children, got %d", len(cs))
 	}
 }
