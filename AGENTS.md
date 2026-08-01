@@ -38,7 +38,7 @@ time, so a build that runs before `npm run generate` fails outright. See §1's e
 - **Frontend:** Vue 3 (Composition API) + **Nuxt**, in `web/`. Built to static (`nuxt generate` → `web/.output/public`) and **embedded into the Go binary** via `//go:embed` (see `web/embed.go`).
 - **API:** REST JSON + SSE (not gRPC/WebSocket). REST emits **camelCase** JSON.
 - **Config:** YAML (`kernl.yaml`; copy from `kernl.yaml.example`). `kernl doctor` validates.
-- **LLM backing:** the DA brain currently points at a local openai-compat proxy; the orchestrator shells out to CLI agents (opencode/claude/codex/gemini).
+- **LLM backing:** the DA brain currently points at a local openai-compat proxy; the orchestrator shells out to CLI agents (claude/codex/copilot/opencode/gemini/pi/agy). A `settings.agents.<id>.command` outside that list is rejected when the agent is resolved from its pool, not discovered as a spawned CLI refusing another dialect's flags.
 - **Run:** regenerate the frontend, *then* build, *then* serve (default :8080) - in that order, because the embed resolves at compile time. `docker compose up --build` does the whole sequence in one step.
 - **`go run ./cmd/kernl serve` is a trap whenever `web/` changed.** `//go:embed` bakes `web/.output/public` in at **compile time**, so a bare `go run`/`go build` ships whatever stale build is on disk: **the UI you test is not the UI you wrote, and nothing warns you.** It is only safe when you have not touched `web/`, or after a fresh `cd web && npm run generate`. See §10.
 - **Test (unit, hermetic):** `go test ./...`, run before every commit.

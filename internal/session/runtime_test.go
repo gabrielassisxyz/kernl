@@ -1095,3 +1095,82 @@ func TestSessionRuntime_TurnEndDedup(t *testing.T) {
 		t.Errorf("onTurnEnded should fire exactly once, fired %d times", turnEndedCount)
 	}
 }
+
+func TestSessionRuntime_PiAgentSettledEndsTheTurn(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// The real order from `pi -p --mode json`: the session line first, the
+	// per-turn boundary next, and agent_settled last.
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fbd83-f97c-7137-aa40-7ff3f1d2445e"}` + "\n" +
+			`{"type":"turn_end"}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	time.Sleep(100 * time.Millisecond)
+
+	if !r.ResultObserved() {
+		t.Error("pi agent_settled should set resultObserved")
+	}
+}
+
+func TestSessionRuntime_PiTurnEndAloneIsNotTheEnd(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// turn_end closes a turn, not the process: pi can open another one. A
+	// stage treated as finished here would be read as complete while the
+	// agent is still working.
+	stdout := strings.NewReader(`{"type":"turn_end"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	time.Sleep(100 * time.Millisecond)
+
+	if r.ResultObserved() {
+		t.Error("pi turn_end alone should not set resultObserved")
+	}
+}
+
+func TestSessionRuntime_PiCapturesItsSessionID(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fbd83-f97c-7137-aa40-7ff3f1d2445e"}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	time.Sleep(100 * time.Millisecond)
+
+	if got := r.CapturedSessionID(); got != "019fbd83-f97c-7137-aa40-7ff3f1d2445e" {
+		t.Errorf("CapturedSessionID() = %q, want pi's own session id", got)
+	}
+}

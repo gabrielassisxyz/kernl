@@ -23,7 +23,21 @@ func TestResolveDialect(t *testing.T) {
 		{"/home/user/.local/bin/opencode", DialectOpenCode},
 		{"gemini", DialectGemini},
 		{"gemini-cli", DialectGemini},
-		{"unknown-binary", DialectClaude},
+		{"pi", DialectPi},
+		{"/home/user/.local/bin/pi", DialectPi},
+		{"PI", DialectPi},
+		{"agy", DialectAgy},
+		{"/home/user/.local/bin/agy", DialectAgy},
+		// "pi" is a substring of "copilot": the exact-name rule for pi must
+		// not be allowed to claim copilot's dispatch.
+		{"copilot", DialectCopilot},
+		// An unrecognised command is unknown, not claude. Dispatching it as
+		// claude is the defect DialectUnknown exists to close.
+		{"unknown-binary", DialectUnknown},
+		{"pip", DialectUnknown},
+		{"agy-wrapper", DialectUnknown},
+		// Empty stays claude: every argv builder answers an unset command
+		// with claude, so "unset" is a different answer from "wrong".
 		{"", DialectClaude},
 	}
 	for _, tt := range tests {
@@ -31,6 +45,56 @@ func TestResolveDialect(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("ResolveDialect(%q) = %q, want %q", tt.command, got, tt.want)
 		}
+	}
+}
+
+func TestResolveDialectStrict_RejectsUnknownCommand(t *testing.T) {
+	_, err := ResolveDialectStrict("unknown-binary")
+	if err == nil {
+		t.Fatal("ResolveDialectStrict(\"unknown-binary\") returned nil error, want a dispatch failure")
+	}
+	msg := err.Error()
+	for _, want := range []string{"KERNL DISPATCH FAILURE", "unknown-binary", "Fix:", "pi", "agy"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q does not mention %q", msg, want)
+		}
+	}
+}
+
+func TestResolveDialectStrict_AcceptsEveryKnownDialect(t *testing.T) {
+	for _, command := range []string{"claude", "codex", "copilot", "opencode", "gemini", "pi", "agy", ""} {
+		if _, err := ResolveDialectStrict(command); err != nil {
+			t.Errorf("ResolveDialectStrict(%q) = %v, want no error", command, err)
+		}
+	}
+}
+
+func TestBuildPromptModeArgs_Pi(t *testing.T) {
+	got := BuildPromptModeArgs(AgentTarget{Command: "pi", Model: "litellm/kimi-k2.7"}, "do the thing")
+	want := []string{"-p", "--mode", "json", "--model", "litellm/kimi-k2.7", "do the thing"}
+	if got.Command != "pi" {
+		t.Errorf("Command = %q, want %q", got.Command, "pi")
+	}
+	if strings.Join(got.Args, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("Args = %q, want %q", got.Args, want)
+	}
+}
+
+func TestBuildPromptModeArgs_PiPromptStaysLastWithoutModel(t *testing.T) {
+	got := BuildPromptModeArgs(AgentTarget{Command: "pi"}, "do the thing")
+	if len(got.Args) == 0 || got.Args[len(got.Args)-1] != "do the thing" {
+		t.Errorf("Args = %q, want the prompt as the trailing positional", got.Args)
+	}
+}
+
+func TestBuildPromptModeArgs_Agy(t *testing.T) {
+	got := BuildPromptModeArgs(AgentTarget{Command: "agy", Model: "claude-opus-4-6-thinking"}, "do the thing")
+	want := []string{"-p", "do the thing", "--dangerously-skip-permissions", "--model", "claude-opus-4-6-thinking"}
+	if got.Command != "agy" {
+		t.Errorf("Command = %q, want %q", got.Command, "agy")
+	}
+	if strings.Join(got.Args, "\x00") != strings.Join(want, "\x00") {
+		t.Errorf("Args = %q, want %q", got.Args, want)
 	}
 }
 
