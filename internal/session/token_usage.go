@@ -31,10 +31,11 @@ type TokenUsageCounts struct {
 	CostUSD *float64
 	// Turns is claude's num_turns. Codex reports no turn count.
 	Turns *int64
-	// Model is the concrete model identifier the CLI itself reported (e.g.
-	// claude's "model" field on the result event). Nil means the dialect did
-	// not report one - codex never does - and the caller must fall back to
-	// whatever the operator configured, recording that it is a fallback.
+	// Model is the concrete model identifier the CLI itself reported (for
+	// claude, the single key of the result event's "modelUsage" map). Nil
+	// means the dialect did not report one - codex never does - and the
+	// caller must fall back to whatever the operator configured, recording
+	// that it is a fallback.
 	Model *string
 }
 
@@ -131,7 +132,7 @@ func normalizeClaudeResultUsage(obj map[string]any) *TokenUsageCounts {
 		TotalTokens:  inputTokens + outputTokens,
 		CostUSD:      readOptionalFloat(obj["total_cost_usd"]),
 		Turns:        readOptionalCount(obj["num_turns"]),
-		Model:        readOptionalString(obj["model"]),
+		Model:        claudeResultModel(obj),
 	}
 	if usageObj != nil {
 		counts.CacheReadTokens = readOptionalCount(usageObj["cache_read_input_tokens"])
@@ -256,4 +257,39 @@ func LogTokenUsageForEvent(logger TokenUsageLogger, dialect adapter.AgentDialect
 		return
 	}
 	logger.LogTokenUsage(beadID, *usage)
+}
+
+// claudeResultModel reads the concrete model out of claude's terminal
+// "result" event.
+//
+// A top-level "model" field is tried first and is no longer present: the
+// event observed from claude 2.x carries "modelUsage" instead, a map keyed by
+// the concrete identifier ("claude-opus-5") whose value repeats it as
+// "canonicalModel" alongside that model's own token and cost totals. Reading
+// only the old field is why a stage run on claude landed in the attempt
+// ledger as the configured ALIAS with modelResolved: false, discarding an
+// identifier the CLI had reported in full - and the ledger exists to answer
+// which model did the work, at what cost.
+//
+// More than one entry means the session cycled models, and there is then no
+// single answer to "what ran here". Nil is returned rather than a plausible
+// pick: the caller's fallback records the configured alias and flags it as
+// unresolved, which is true, where naming one of several would not be.
+func claudeResultModel(obj map[string]any) *string {
+	if model := readOptionalString(obj["model"]); model != nil {
+		return model
+	}
+	usage, _ := obj["modelUsage"].(map[string]any)
+	if len(usage) != 1 {
+		return nil
+	}
+	for name, entry := range usage {
+		if detail, ok := entry.(map[string]any); ok {
+			if canonical := readOptionalString(detail["canonicalModel"]); canonical != nil {
+				return canonical
+			}
+		}
+		return readOptionalString(name)
+	}
+	return nil
 }

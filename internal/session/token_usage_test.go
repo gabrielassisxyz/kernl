@@ -426,3 +426,107 @@ func TestCapabilitiesForDialect_PiResultDetectionIsAgentSettled(t *testing.T) {
 		t.Errorf("agy ResultDetection = %q, want none - it prints plain text", got)
 	}
 }
+
+// claudeResultFixture is the terminal "result" event of a real claude run
+// (the archeion arch-tws implementation stage, 2026-08-01), trimmed to the
+// fields this code reads. It carries NO top-level "model": the identifier
+// lives inside modelUsage, which is what made the attempt ledger record the
+// configured alias with modelResolved: false while the CLI had reported
+// "claude-opus-5" in full.
+func claudeResultFixture() map[string]any {
+	return map[string]any{
+		"type":           "result",
+		"is_error":       false,
+		"num_turns":      float64(82),
+		"total_cost_usd": 8.5378075,
+		"usage": map[string]any{
+			"input_tokens":                float64(145),
+			"output_tokens":               float64(61973),
+			"cache_read_input_tokens":     float64(10416875),
+			"cache_creation_input_tokens": float64(177932),
+		},
+		"modelUsage": map[string]any{
+			"claude-opus-5": map[string]any{
+				"inputTokens":    float64(145),
+				"outputTokens":   float64(61973),
+				"costUSD":        8.5378075,
+				"canonicalModel": "claude-opus-5",
+				"provider":       "firstParty",
+			},
+		},
+	}
+}
+
+func TestExtractTokenUsageFromEvent_ClaudeModelFromModelUsage(t *testing.T) {
+	got := ExtractTokenUsageFromEvent(adapter.DialectClaude, claudeResultFixture())
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.Model == nil || *got.Model != "claude-opus-5" {
+		t.Errorf("Model = %v, want claude-opus-5 - the CLI reported it and the ledger dropped it", got.Model)
+	}
+	if got.CostUSD == nil || *got.CostUSD != 8.5378075 {
+		t.Errorf("CostUSD = %v, want the reported cost", got.CostUSD)
+	}
+	if got.Turns == nil || *got.Turns != 82 {
+		t.Errorf("Turns = %v, want 82", got.Turns)
+	}
+}
+
+// The old shape must keep working: a top-level "model" wins over modelUsage
+// rather than being replaced by it.
+func TestExtractTokenUsageFromEvent_ClaudeTopLevelModelStillWins(t *testing.T) {
+	parsed := claudeResultFixture()
+	parsed["model"] = "claude-sonnet-9"
+	got := ExtractTokenUsageFromEvent(adapter.DialectClaude, parsed)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.Model == nil || *got.Model != "claude-sonnet-9" {
+		t.Errorf("Model = %v, want the top-level field to win", got.Model)
+	}
+}
+
+// A session that cycled models has no single answer to "what ran here", and
+// naming one of several would be a fabrication. Nil sends the caller to its
+// fallback, which records the configured alias and flags it unresolved -
+// which is true.
+func TestExtractTokenUsageFromEvent_ClaudeSeveralModelsReportsNone(t *testing.T) {
+	parsed := claudeResultFixture()
+	parsed["modelUsage"] = map[string]any{
+		"claude-opus-5":   map[string]any{"canonicalModel": "claude-opus-5"},
+		"claude-sonnet-5": map[string]any{"canonicalModel": "claude-sonnet-5"},
+	}
+	got := ExtractTokenUsageFromEvent(adapter.DialectClaude, parsed)
+	if got == nil {
+		t.Fatal("expected non-nil result - the token counts are still valid")
+	}
+	if got.Model != nil {
+		t.Errorf("Model = %v, want nil when several models ran", *got.Model)
+	}
+}
+
+func TestExtractTokenUsageFromEvent_ClaudeNoModelAnywhere(t *testing.T) {
+	parsed := claudeResultFixture()
+	delete(parsed, "modelUsage")
+	got := ExtractTokenUsageFromEvent(adapter.DialectClaude, parsed)
+	if got == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if got.Model != nil {
+		t.Errorf("Model = %v, want nil", *got.Model)
+	}
+}
+
+// The key is the fallback when canonicalModel is absent, so a future event
+// that drops the inner field still resolves the model.
+func TestExtractTokenUsageFromEvent_ClaudeFallsBackToTheModelUsageKey(t *testing.T) {
+	parsed := claudeResultFixture()
+	parsed["modelUsage"] = map[string]any{
+		"claude-opus-5": map[string]any{"outputTokens": float64(10)},
+	}
+	got := ExtractTokenUsageFromEvent(adapter.DialectClaude, parsed)
+	if got == nil || got.Model == nil || *got.Model != "claude-opus-5" {
+		t.Errorf("Model = %v, want the map key", got.Model)
+	}
+}
