@@ -1,6 +1,7 @@
 package epic
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -313,6 +314,128 @@ func TestAddCreatesBranchWithKernlPrefix(t *testing.T) {
 	}
 	if !foundKernlPrefix {
 		t.Errorf("branch name should be kernl/child-c, got: %v", addArgs)
+	}
+}
+
+// TestAddReusesExistingBeadBranchWithoutDeletingIt guards against the data
+// loss this package used to cause on every re-run: a bead that reached
+// implementation and committed real work to kernl/<bead>, then blocked at a
+// later gate, had its branch force-deleted and recreated empty the next time
+// the epic ran - discarding the commits with no recovery path. The branch
+// must be reused, and `branch -D` must never run against it.
+func TestAddReusesExistingBeadBranchWithoutDeletingIt(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fr.branch["kernl/child-a"] = true // simulates a prior run's committed work
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
+
+	_, err := wm.Add("e1", "child-a", nil)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	for _, call := range fr.calls {
+		if call[0] == "branch" && len(call) >= 2 && call[1] == "-D" {
+			t.Errorf("branch -D must never run against an existing bead branch, got: %v", call)
+		}
+	}
+
+	var addArgs []string
+	for _, call := range fr.calls {
+		if call[0] == "worktree" && call[1] == "add" {
+			addArgs = call
+			break
+		}
+	}
+	if addArgs == nil {
+		t.Fatal("git worktree add was never called")
+	}
+	for _, a := range addArgs {
+		if a == "-b" {
+			t.Errorf("an existing bead branch must be reused, not recreated with -b: %v", addArgs)
+		}
+	}
+	found := false
+	for _, a := range addArgs {
+		if a == "kernl/child-a" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("worktree add should check out the existing branch kernl/child-a: %v", addArgs)
+	}
+}
+
+// TestAddRecoversFromExistingPathReusesItsBranch covers the combined case: a
+// crashed run left both a stale worktree directory AND a bead branch with
+// committed work behind. Cleaning the leftover directory must not take the
+// branch down with it.
+func TestAddRecoversFromExistingPathReusesItsBranch(t *testing.T) {
+	root := t.TempDir()
+	existing := filepath.Join(root, "e1", "dup")
+	if err := os.MkdirAll(existing, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := newFakeGitRunner()
+	fr.branch["kernl/dup"] = true
+	wm := NewWorktreeManager(root, root, "main", fr.run, nil)
+
+	if _, err := wm.Add("e1", "dup", nil); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	for _, call := range fr.calls {
+		if call[0] == "branch" && len(call) >= 2 && call[1] == "-D" {
+			t.Errorf("recovering a leftover worktree must not delete its branch, got: %v", call)
+		}
+	}
+}
+
+// TestAddFailsLoudlyWhenBeadBranchAlreadyCheckedOutElsewhere covers the case
+// the reuse path introduces: `git worktree add <path> <branch>` refuses when
+// that branch is already checked out in another worktree. That failure must
+// reach the caller, not be swallowed the way the old unconditional
+// `branch -D` swallowed everything.
+func TestAddFailsLoudlyWhenBeadBranchAlreadyCheckedOutElsewhere(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+	fr.branch["kernl/child-a"] = true
+
+	wm := NewWorktreeManager(root, root, "main", func(dir string, args ...string) (string, error) {
+		if len(args) >= 2 && args[0] == "worktree" && args[1] == "add" && len(args) == 4 {
+			// 4 args ("worktree" "add" path branch) is the reuse call, distinct
+			// from the 6-arg fresh-branch call ("worktree" "add" path "-b" branch base).
+			return "", fmt.Errorf("fatal: 'kernl/child-a' is already used by worktree at '/other/path'")
+		}
+		return fr.run(dir, args...)
+	}, nil)
+
+	_, err := wm.Add("e1", "child-a", nil)
+	if err == nil {
+		t.Fatal("expected an error when the bead branch is already checked out elsewhere")
+	}
+	if !strings.Contains(err.Error(), "kernl/child-a") {
+		t.Errorf("error should name the conflicting branch, got: %v", err)
+	}
+}
+
+// TestAddFailsLoudlyWhenCheckingBeadBranchFails covers the other half of "no
+// discarded errors": if git itself cannot answer whether the branch exists,
+// Add must not silently fall through to either the reuse or the create path.
+func TestAddFailsLoudlyWhenCheckingBeadBranchFails(t *testing.T) {
+	root := t.TempDir()
+	fr := newFakeGitRunner()
+
+	wm := NewWorktreeManager(root, root, "main", func(dir string, args ...string) (string, error) {
+		if len(args) >= 3 && args[0] == "branch" && args[1] == "--list" && args[2] == "kernl/child-a" {
+			return "", fmt.Errorf("simulated git failure")
+		}
+		return fr.run(dir, args...)
+	}, nil)
+
+	if _, err := wm.Add("e1", "child-a", nil); err == nil {
+		t.Fatal("expected an error when checking the bead branch fails")
 	}
 }
 
