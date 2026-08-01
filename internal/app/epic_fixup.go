@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
 // IntegrationFixupLabel marks a bead this package created via the fix-up
@@ -219,6 +220,7 @@ func DriveEpicIntegrationTail(ctx context.Context, deps DriveEpicIntegrationTail
 		EpicBranch:           deps.EpicBranch,
 		IrreversibleSurfaces: deps.IrreversibleSurfaces,
 		FixupsSpent:          history.Spent,
+		Budget:               fixupBudget(deps.Config),
 		Inspector:            deps.Inspector,
 	})
 	if factsErr != nil {
@@ -238,6 +240,16 @@ func DriveEpicIntegrationTail(ctx context.Context, deps DriveEpicIntegrationTail
 		return finalizeFixupBead(deps, history.Pending, rejection, decision)
 	}
 	return createFixupBead(deps, rejection, decision)
+}
+
+// fixupBudget reads orchestrator.fixupBudget, tolerating a nil config so a
+// caller that never loaded one still gets the hard stop rather than an
+// unbounded loop.
+func fixupBudget(cfg *config.Config) int {
+	if cfg == nil {
+		return config.DefaultFixupBudget
+	}
+	return cfg.Orchestrator.FixupBudget
 }
 
 // escalate renders one escalation the same way whichever gate produced it: the

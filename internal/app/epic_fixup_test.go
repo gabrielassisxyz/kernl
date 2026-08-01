@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/config"
+
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
@@ -452,7 +454,7 @@ func TestDriveEpicIntegrationTail_ExhaustedBudgetEscalates(t *testing.T) {
 	be := newFixupFakeBackend()
 	deps, artifactDir := epicIntegrationTailDeps(t, be, "ep-budget")
 
-	for round := 0; round < FixupBudget; round++ {
+	for round := 0; round < config.DefaultFixupBudget; round++ {
 		writeReviewArtifact(t, artifactDir, fixupRejectionRecord)
 		res, err := DriveEpicIntegrationTail(context.Background(), deps)
 		if err != nil || res.FixupBeadID == "" {
@@ -469,8 +471,8 @@ func TestDriveEpicIntegrationTail_ExhaustedBudgetEscalates(t *testing.T) {
 	if !spent.Escalated || spent.ReversibilityCause != GateBudgetExhausted {
 		t.Errorf("got %+v, want an escalation caused by %q", spent, GateBudgetExhausted)
 	}
-	if len(be.created) != FixupBudget {
-		t.Errorf("expected exactly %d fix-up beads, got %d", FixupBudget, len(be.created))
+	if len(be.created) != config.DefaultFixupBudget {
+		t.Errorf("expected exactly %d fix-up beads, got %d", config.DefaultFixupBudget, len(be.created))
 	}
 }
 

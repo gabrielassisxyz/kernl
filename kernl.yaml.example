@@ -133,6 +133,13 @@ orchestrator:
   # maxConcurrentBeads: 5
   # Path to the SQLite run-state database (default: ~/.kernl/runstate.db).
   # runStatePath: /home/me/.kernl/runstate.db
+  # How many fix-up rounds one epic may spend on integration review rejections
+  # before the next one goes to you, however cheap it would be to undo
+  # (default: 3). It is the hard stop behind the reversibility gate: a reviewer
+  # can always find something, so without a bound "cheap to reverse" is a loop
+  # that repairs itself all day while nobody finds out. Raise it for a
+  # repository whose reviews converge slowly; lower it to be interrupted sooner.
+  # fixupBudget: 3
   # The permission allowlist handed to a dispatched opencode agent. Unset,
   # kernl writes and uses ~/.kernl/opencode-config.json, which you can then
   # edit. Set it and the file must exist: a path that was named and is missing

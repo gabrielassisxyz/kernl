@@ -5,19 +5,9 @@ import (
 	"os/exec"
 	"path"
 	"strings"
-)
 
-// FixupBudget is how many fix-up rounds one epic may spend before an
-// integration rejection goes to the operator no matter how cheap it would be
-// to reverse.
-//
-// It exists because "cheap to reverse" has no natural end: a reviewer can
-// always find something, and a loop with no bound repairs itself all day while
-// nobody finds out. Five is well above the one round the old cap allowed - the
-// two rejections that motivated this were different defects, and each pass
-// fixed what it was told to - and low enough that a genuinely stuck epic
-// surfaces the same day.
-const FixupBudget = 5
+	"github.com/gabrielassisxyz/kernl/internal/config"
+)
 
 // ReversibilityFacts are what an integration rejection is judged against
 // before anyone is asked anything. Everything here is measured, not inferred:
@@ -44,8 +34,8 @@ type ReversibilityFacts struct {
 	// FixupsSpent counts the fix-up beads this epic already drove through
 	// their own cycle.
 	FixupsSpent int
-	// Budget is FixupBudget, carried here so the decision and its reported
-	// reason read the same number.
+	// Budget is how many fix-up rounds this epic may spend, carried here so
+	// the decision and its reported reason read the same number.
 	Budget int
 }
 
@@ -125,6 +115,13 @@ type GatherReversibilityFactsInput struct {
 	// repository.
 	IrreversibleSurfaces []string
 	FixupsSpent          int
+	// Budget is orchestrator.fixupBudget. Zero or less falls back to
+	// config.DefaultFixupBudget rather than meaning "no budget": a budget of
+	// none is an unbounded loop, and this struct is built by hand in enough
+	// places (tests, and any caller that did not load a config through
+	// config.Load) that an unset field must not be the one that removes the
+	// hard stop.
+	Budget int
 	// Inspector defaults to GitBranchInspector{} when nil, the same way every
 	// other git seam in this package defaults to its real implementation.
 	Inspector BranchInspector
@@ -142,7 +139,11 @@ func GatherReversibilityFacts(in GatherReversibilityFactsInput) (ReversibilityFa
 		inspector = GitBranchInspector{}
 	}
 
-	facts := ReversibilityFacts{EpicID: in.EpicID, FixupsSpent: in.FixupsSpent, Budget: FixupBudget}
+	budget := in.Budget
+	if budget <= 0 {
+		budget = config.DefaultFixupBudget
+	}
+	facts := ReversibilityFacts{EpicID: in.EpicID, FixupsSpent: in.FixupsSpent, Budget: budget}
 
 	refs, err := inspector.PublishedRefs(in.RepoPath, in.EpicBranch)
 	if err != nil {
