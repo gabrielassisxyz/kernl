@@ -753,6 +753,17 @@ var rejectableVerdictStates = map[string]bool{
 	"implementation_review": true,
 }
 
+// IsRejectableVerdictState reports whether a rejection at this state has
+// somewhere to go. Exported for the prompt builder: a reviewer that is only
+// told how to spell approval invents its own word for the other outcome, and
+// an invented word is read as a review that produced no verdict rather than
+// as a rejection - which blocks the work for a human instead of sending it
+// back. The gate and the prompt have to agree on one word, so they read it
+// from the same place.
+func IsRejectableVerdictState(state string) bool {
+	return rejectableVerdictStates[state]
+}
+
 func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed bool, reason string) {
 	if gate.Type == "" || gate.Type == "agent_exit_zero" {
 		return true, ""

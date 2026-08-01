@@ -383,3 +383,63 @@ func TestBuildBeadStagePrompt_DecisionRecord_OmittedWhenNotDeclared(t *testing.T
 		t.Errorf("planning stage must not carry decision record instructions:\n%s", prompt)
 	}
 }
+
+// reviewStages is the contract shape a review stage carries: one artifact,
+// and a required trailing line that is the approval half of the exit gate's
+// vocabulary.
+func reviewStages() map[string]backend.StageContract {
+	return map[string]backend.StageContract{
+		"implementation_review": {
+			Role: "Review the implementation against the plan and acceptance criteria.",
+			OutputArtifact: backend.StageArtifact{
+				Path:        "<artifact_dir>/implementation-review.md",
+				MustEndWith: "VERDICT: PASS",
+			},
+		},
+		"planning": {
+			Role:           "Decompose the bead into an actionable plan.",
+			OutputArtifact: backend.StageArtifact{Path: "<artifact_dir>/plan.md"},
+		},
+	}
+}
+
+// A reviewer told only how to spell approval invents a word for the other
+// outcome. One wrote "VERDICT: FAIL" over reproducible findings; the gate
+// reads exactly one word, so that landed in the bucket for reviews that
+// produced no verdict at all - the bead blocked for a human, the findings
+// never reached an implementer, and the rewind budget untouched.
+func TestBuildBeadStagePrompt_ReviewStageNamesTheRejectionVerdict(t *testing.T) {
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "implementation_review",
+		Stages: reviewStages(), RepoPath: "/repo", Worktree: "/repo-worktree/kb-1",
+		VerifyCommand: "bin/ci", TrackerCommand: "br", ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	for _, want := range []string{
+		"`VERDICT: PASS`",
+		"`VERDICT: REJECT`",
+		// Naming the word is half of it: a reviewer also has to know that
+		// wording it differently costs it its own findings.
+		"FAIL",
+		"produced no verdict",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("review prompt missing %q\n---\n%s\n---", want, prompt)
+		}
+	}
+}
+
+// A stage whose rejection has nowhere to go must not advertise one. Telling a
+// planner to write REJECT produces a verdict the gate reads as a plain
+// failure, which is the same outcome by a more confusing route.
+func TestBuildBeadStagePrompt_NonReviewStageOffersNoRejectionVerdict(t *testing.T) {
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "planning",
+		Stages: reviewStages(), RepoPath: "/repo", Worktree: "/repo-worktree/kb-1",
+		VerifyCommand: "bin/ci", TrackerCommand: "br", ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	if strings.Contains(prompt, "VERDICT: REJECT") {
+		t.Errorf("a planning stage has no rejection to declare:\n%s", prompt)
+	}
+}
