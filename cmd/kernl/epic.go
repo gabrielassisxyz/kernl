@@ -487,10 +487,11 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
 	// when none is: ComposeRunReport's own doc comment on why that must
 	// never fail the close is the reason a missing llm.provider is not
-	// checked here.
-	var impactComposer app.ImpactComposer
-	if a.Config.LLM.IsSet() {
-		impactComposer = app.LLMImpactComposer{LLM: a.Config.LLM}
+	// checked here. A configured-but-broken llm.agent DOES stop the run, and
+	// stops it now rather than after the work: see NewImpactComposer.
+	impactComposer, err := app.NewImpactComposer(a.Config)
+	if err != nil {
+		return err
 	}
 	defer func() {
 		status, failure := "completed", ""
