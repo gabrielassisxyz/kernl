@@ -59,6 +59,15 @@ type StagePromptInput struct {
 	RejectedReview string
 }
 
+// The two verdict lines a review artifact can end with. They are the exit
+// gate's own vocabulary (see backend.evaluateSingleExitGate), named here so
+// the prompt that asks for them and the gate that reads them cannot drift
+// apart in wording.
+const (
+	passVerdictLine   = "VERDICT: PASS"
+	rejectVerdictLine = "VERDICT: REJECT"
+)
+
 // BuildBeadStagePrompt produces the prompt sent to the agent for one bead
 // at one workflow stage. When in.Stages has a contract for in.State it
 // renders a contract-aware prompt; otherwise it falls back to a generic
@@ -73,7 +82,7 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 	renderRejectedReview(&b, in.RejectedReview)
 	renderRelatedDecisions(&b, in.RelevantDecisions)
 	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
-	renderOutput(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
+	renderOutput(&b, hasContract, contract, in.State, in.Bead.ID, in.ArtifactDir)
 	renderDecisionRecord(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderForbidden(&b, hasContract, contract, in.TrackerCommand)
 	renderOperatingRules(&b, in.VerifyCommand, in.Dialect)
@@ -119,7 +128,7 @@ func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageCo
 	b.WriteString("\nSome inputs may not exist this run - e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. An input path outside your worktree is kernl's own artifact directory for this bead, named above as an absolute path - it is allowed. NEVER search for a missing input anywhere else outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
 }
 
-func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID, artifactDir string) {
+func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, state, beadID, artifactDir string) {
 	if !hasContract {
 		return
 	}
@@ -145,8 +154,27 @@ func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageCo
 	}
 	if artifact.MustEndWith != "" {
 		fmt.Fprintf(b, "The output must end with: `%s`\n", artifact.MustEndWith)
+		renderRejectionVerdict(b, state, artifact.MustEndWith)
 	}
 	b.WriteString("\n")
+}
+
+// renderRejectionVerdict tells a reviewer how to spell the other outcome.
+//
+// A stage told only how to write approval writes whatever it likes for the
+// opposite, and the exit gate reads exactly one word. A review that ended
+// "VERDICT: FAIL" - accurate English, with reproducible findings under it -
+// was read as a review that produced no verdict at all, so the bead was
+// blocked for a human instead of going back to the implementer with those
+// findings, and the rewind budget was never touched. The gate's own word had
+// only ever been written down in the custom integration_review prompt, which
+// is why that stage never hit this.
+func renderRejectionVerdict(b *strings.Builder, state, mustEndWith string) {
+	if !backend.IsRejectableVerdictState(state) || mustEndWith != passVerdictLine {
+		return
+	}
+	fmt.Fprintf(b, "If it does NOT pass, end with this line instead, exactly: `%s`\n", rejectVerdictLine)
+	b.WriteString("That is the only wording read as a deliberate rejection, and it is what sends the work back to be fixed with your review as the brief. Anything else - FAIL, NEEDS WORK, CHANGES REQUESTED, a verdict line you word yourself - is read as a review that produced no verdict, which blocks the bead for a human and throws your findings away.\n")
 }
 
 // renderDecisionRecord tells the agent about the second, independent
