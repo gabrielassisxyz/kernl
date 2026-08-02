@@ -111,6 +111,16 @@ registry:
       #   - migrations/
       #   - db/schema.sql
       #   - openapi/*.yaml
+      # What the Oracle reads to write a decision record's impact field: it
+      # has no access to this repository otherwise, so this is the only way
+      # it learns what the software is for. Listed files are sent VERBATIM
+      # to whatever llm.agent/llm.endpoint points at - nothing leaves this
+      # machine that was not named here. Unset defaults to README.md, then
+      # ROADMAP.md; a repository that keeps no ROADMAP.md is not a failure,
+      # it renders as "not found" in what the Oracle sees.
+      # contextDocs:
+      #   - README.md
+      #   - ROADMAP.md
       # Shipment is the only stage that acts outside the machine: it pushes and
       # opens a pull request. Declare where that is allowed to land. With no
       # allowedRemotes the stage refuses to push at all - a repository that has

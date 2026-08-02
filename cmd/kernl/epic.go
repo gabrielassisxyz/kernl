@@ -513,14 +513,15 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		// failed is worth more than no report, and the run's own status is
 		// one of the facts its header states.
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
-			Graph:      a.Graph,
-			Composer:   impactComposer,
-			RunID:      runID,
-			Status:     status,
-			FinishedAt: finishedAt,
-			Beads:      beadRunOutcomes(a.Backend, repoPath, runBeads),
-			StateDir:   a.StateDir,
-			EpicID:     epicID,
+			Graph:       a.Graph,
+			Composer:    impactComposer,
+			RunID:       runID,
+			Status:      status,
+			FinishedAt:  finishedAt,
+			Beads:       beadRunOutcomes(a.Backend, repoPath, runBeads),
+			StateDir:    a.StateDir,
+			EpicID:      epicID,
+			ContextDocs: repoEntry.ContextDocs,
 		})
 		if reportErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for epic %s failed: %v\n", epicID, reportErr)

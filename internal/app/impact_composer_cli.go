@@ -61,14 +61,15 @@ func (c CLIImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact)
 		Outcome:           in.Outcome,
 		RepoPath:          in.RepoPath,
 		BeadTitle:         in.BeadTitle,
+		RepositoryContext: in.RepositoryContext,
 	}))
 }
 
-// Ask implements Mayor: it spawns the agent CLI in answer mode on one question
+// Ask implements Oracle: it spawns the agent CLI in answer mode on one question
 // and returns its whole answer, trimmed.
 //
 // Splitting this out of ComposeImpact is what lets a second question (see
-// MayorReversibilityJudge) reach the same actor without a second copy of the
+// OracleReversibilityJudge) reach the same actor without a second copy of the
 // answer-mode plumbing, and without the tool-less, throwaway-directory
 // property that makes it safe having to be re-established somewhere else.
 func (c CLIImpactComposer) Ask(ctx context.Context, question string) (string, error) {

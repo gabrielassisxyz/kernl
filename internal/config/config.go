@@ -87,8 +87,18 @@ type RepoEntry struct {
 	// matched with path.Match against the repository-relative path. Unset means
 	// this repository declares nothing, which reads as "no mechanical reason to
 	// escalate" - never as "everything here is irreversible".
-	IrreversibleSurfaces []string       `yaml:"irreversibleSurfaces,omitempty"`
-	Shipment             ShipmentConfig `yaml:"shipment,omitempty"`
+	IrreversibleSurfaces []string `yaml:"irreversibleSurfaces,omitempty"`
+	// ContextDocs lists repository-relative paths, in the order they are
+	// read, that the Oracle sees when it writes a decision record's impact
+	// field: what this repository is for, since the Oracle itself has no
+	// repository access to find that out (see app.AssembleContext). The
+	// listed files are sent VERBATIM to whatever llm.agent/llm.endpoint
+	// points at - nothing leaves this machine that was not named here.
+	// Unset defaults to README.md, then ROADMAP.md; a repository that keeps
+	// no ROADMAP.md (this one, on purpose - see AGENTS.md §6) is not a
+	// failure, it renders as "not found" in the assembled text.
+	ContextDocs []string       `yaml:"contextDocs,omitempty"`
+	Shipment    ShipmentConfig `yaml:"shipment,omitempty"`
 }
 
 // ShipmentConfig declares where a repository is allowed to publish. It has no

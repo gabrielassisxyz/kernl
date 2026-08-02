@@ -306,14 +306,15 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 			finalState = bead.State
 		}
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
-			Graph:      a.Graph,
-			Composer:   impactComposer,
-			RunID:      runID,
-			Status:     status,
-			FinishedAt: finishedAt,
-			Beads:      []app.BeadRunOutcome{{ID: bead.ID, Title: bead.Title, FinalState: finalState}},
-			StateDir:   a.StateDir,
-			EpicID:     bead.ID,
+			Graph:       a.Graph,
+			Composer:    impactComposer,
+			RunID:       runID,
+			Status:      status,
+			FinishedAt:  finishedAt,
+			Beads:       []app.BeadRunOutcome{{ID: bead.ID, Title: bead.Title, FinalState: finalState}},
+			StateDir:    a.StateDir,
+			EpicID:      bead.ID,
+			ContextDocs: repoEntry.ContextDocs,
 		})
 		if reportErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for bead %s failed: %v\n", beadID, reportErr)
