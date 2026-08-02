@@ -36,6 +36,42 @@ func isDeliberateRejection(state, gateReason string) bool {
 	return state == "implementation_review" && strings.HasPrefix(gateReason, verdictRejectReasonPrefix)
 }
 
+// reviewRewindBudgetSpent reports whether this call has already used up
+// implementationReviewRewindLimit - shared by rewindAfterReviewRejection and
+// handleReviewRaisedDecision's own pre-check (finding 4 of the
+// fork/decision-gate hardening pass), so the two can never disagree about
+// whether a rewind is even worth attempting.
+func reviewRewindBudgetSpent(rewindsUsed int) bool {
+	return rewindsUsed >= implementationReviewRewindLimit
+}
+
+// reviewRewindHasNoRetakeState reports whether wf leaves nowhere for a
+// rejected implementation_review to be sent back to - either no retake state
+// at all, or one that points right back at the reviewing stage itself, which
+// would re-review the same unchanged work forever. Shared with
+// handleReviewRaisedDecision's own pre-check for the same reason
+// reviewRewindBudgetSpent is.
+func reviewRewindHasNoRetakeState(wf backend.WorkflowDescriptor) bool {
+	retake := strings.TrimSpace(wf.RetakeState)
+	return retake == "" || retake == "implementation_review"
+}
+
+// reviewRejectionCanBeRewound reports whether rewindAfterReviewRejection has
+// anywhere at all to send a rejected bead, without attempting the tracker
+// call itself. handleReviewRaisedDecision (review_decision_gate.go) calls
+// this BEFORE ever consulting the DA (finding 4): asking the DA for an
+// answer that could not be rewound to any stage anyway would spend a real
+// consultation and record a real decision that nothing could ever carry to
+// another attempt - the DA answered, review_decision_gate.go wrote
+// fork-answer.md and a comment naming the chosen option, and then the bead
+// blocked with that answer stranded, wasted work the operator has to notice
+// and repeat by hand. Extracted so this predicate and
+// rewindAfterReviewRejection's own checks can never drift apart into
+// disagreeing about whether a rewind is possible.
+func reviewRejectionCanBeRewound(wf backend.WorkflowDescriptor, rewindsUsed int) bool {
+	return !reviewRewindBudgetSpent(rewindsUsed) && !reviewRewindHasNoRetakeState(wf)
+}
+
 // rewindAfterReviewRejection sends a rejected bead back to the stage that can
 // answer the rejection, and reports whether it did.
 //
@@ -51,18 +87,18 @@ func isDeliberateRejection(state, gateReason string) bool {
 // would otherwise be left reading "blocked" while this function reported it
 // had been sent back.
 func rewindAfterReviewRejection(deps DriveBeadDeps, wf backend.WorkflowDescriptor, gateReason string, rewindsUsed int) (bool, error) {
-	if rewindsUsed >= implementationReviewRewindLimit {
+	if reviewRewindBudgetSpent(rewindsUsed) {
 		slog.Info("DRIVE_TRACE review rejection not rewound: budget spent",
 			"bead", deps.BeadID, "limit", implementationReviewRewindLimit)
 		return false, nil
 	}
-	retake := strings.TrimSpace(wf.RetakeState)
-	if retake == "" || retake == "implementation_review" {
+	if reviewRewindHasNoRetakeState(wf) {
 		slog.Info("DRIVE_TRACE review rejection not rewound: no retake state",
-			"bead", deps.BeadID, "workflow", wf.ID, "retake", retake)
+			"bead", deps.BeadID, "workflow", wf.ID, "retake", strings.TrimSpace(wf.RetakeState))
 		return false, nil
 	}
 
+	retake := strings.TrimSpace(wf.RetakeState)
 	reason := fmt.Sprintf("implementation_review rejected this work (%s); returning it to %s to be answered", gateReason, retake)
 	if err := deps.Backend.Rewind(deps.BeadID, retake, reason, deps.RepoPath); err != nil {
 		return false, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s was rejected at implementation_review and could not be returned to %s: %w - Fix: the bead is left at implementation_review; retry once the tracker accepts the update", deps.BeadID, retake, err)

@@ -86,6 +86,20 @@ type DriveBeadDeps struct {
 	// only tests inject a fake, so exercising this loop never requires a
 	// real git binary on the host (AGENTS.md §4).
 	HeadSHAResolver HeadSHAResolver
+	// DA is the actor an implementer's fork handover is asked. Nil means no
+	// DA is configured - the fork gate is off, and an implementer keeps
+	// deciding every fork alone, exactly as it does today. This is a
+	// supported state, not a failure: see app.NewDA's own doc comment on the
+	// same "nil, nil means off" contract app.NewOracle already established.
+	DA DA
+	// ContextDocs is registry.repos[].contextDocs for this repository -
+	// resolved once per run by the CLI call site, exactly like VerifyCommand
+	// and TrackerCommand, rather than this package re-deriving a RepoEntry
+	// lookup from Config.Registry.Repos by matching RepoPath. It feeds the
+	// same app.AssembleContext the Oracle already reads (Unit A of
+	// local/artifacts/plans/2026-08-01-composer-context-and-fork-gate-plan.md
+	// §2.3), reused here for the DA rather than a second context path.
+	ContextDocs []string
 }
 
 // HeadSHAResolver reports a worktree's current HEAD short SHA, or "" when it
@@ -135,6 +149,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 	// reviewer and an implementer disagreeing in a loop. See
 	// implementationReviewRewindLimit.
 	reviewRewinds := 0
+	// forkGateCalls counts how many fork handovers THIS call has already
+	// decided (re-entering the same stage each time) - the budget that stops
+	// an implementer and the DA looping forever. See forkHandoverLimit.
+	forkGateCalls := 0
 
 	for i := 0; i < maxStages; i++ {
 		bead, err := deps.Backend.Get(deps.BeadID, deps.RepoPath)
@@ -326,9 +344,57 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 			duration := time.Since(startTime)
 			gateDesc := ""
-			if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
+			freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath)
+			if ferr == nil && freshBead != nil {
 				gateDesc = freshBead.Description
 			}
+			commitSHA := headSHA.HeadSHA(deps.Worktree)
+			agentID := subprocessAgentID
+			// RunSubprocessStage only reaches here when the subprocess's own
+			// cmd.Run() returned no error, so it did exit cleanly - unlike
+			// the failure branch above, a real exit code (0) is available.
+			cleanExit := 0
+
+			// The fork gate is checked BEFORE the exit gate is ever
+			// evaluated, and skips it entirely when a handover applies: an
+			// implementer that handed a fork over stopped deliberately
+			// without committing, so decision_record/commit_marker would
+			// fail it - turning the handover into exactly the interruption
+			// this gate exists to prevent. See handleForkGate's own doc
+			// comment.
+			forkHandled, forkErr := handleForkGate(ctx, forkGateAttemptContext{
+				Deps:        deps,
+				WF:          wf,
+				Bead:        freshBead,
+				ActiveState: activeState,
+				ArtifactDir: artifactDir,
+				EpicID:      epicID,
+				CallsUsed:   forkGateCalls,
+				LedgerInput: StageAttemptInput{
+					AgentID:   agentID,
+					Dialect:   "subprocess",
+					BeadID:    deps.BeadID,
+					Stage:     activeState,
+					StartedAt: startTime,
+					Duration:  duration,
+					ExitCode:  &cleanExit,
+					BaseSHA:   baseSHA,
+					CommitSHA: commitSHA,
+					Worktree:  deps.Worktree,
+				},
+			})
+			if forkErr != nil {
+				return RunBeadResult{FinalState: activeState, Success: false}, forkErr
+			}
+			if forkHandled.Applied {
+				if forkHandled.Reenter {
+					forkGateCalls++
+					prevState = bead.State
+					continue
+				}
+				return forkHandled.Result, nil
+			}
+
 			gateCtx := backend.ExitGateContext{
 				FromState:       activeState,
 				WorktreePath:    deps.Worktree,
@@ -338,12 +404,6 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				BaseSHA:         baseSHA,
 			}
 			gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
-			commitSHA := headSHA.HeadSHA(deps.Worktree)
-			agentID := subprocessAgentID
-			// RunSubprocessStage only reaches here when the subprocess's own
-			// cmd.Run() returned no error, so it did exit cleanly - unlike
-			// the failure branch above, a real exit code (0) is available.
-			cleanExit := 0
 			if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 				AgentID:           agentID,
 				Dialect:           "subprocess",
@@ -390,23 +450,35 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				}
 			} else {
 				// A reviewer that deliberately rejected the work has somewhere
-				// to send it: back to the implementer, with the review left on
-				// file for them to answer. Every other gate failure still blocks.
-				if isDeliberateRejection(activeState, gateReason) {
-					rewound, rewindErr := rewindAfterReviewRejection(deps, wf, gateReason, reviewRewinds)
-					if rewindErr != nil {
-						return RunBeadResult{FinalState: activeState, Success: false}, rewindErr
-					}
-					if rewound {
-						reviewRewinds++
-						_ = deps.Backend.Comment(deps.BeadID, "review_rejected: "+gateReason, deps.RepoPath)
-						prevState = bead.State
-						continue
-					}
+				// to send it: back to the implementer (today's behavior), or,
+				// when it classified the rejection as needing an explicit
+				// approved decision, to the same DA a proactive fork handover
+				// reaches. Every other gate failure still blocks. Both
+				// dispatch paths (this one, subprocess; and the native flow
+				// below) call the SAME handleGateFailure rather than each
+				// inlining this decision - see that function's own doc
+				// comment for why.
+				handled, handleErr := handleGateFailure(ctx, gateFailureContext{
+					Deps:          deps,
+					WF:            wf,
+					Bead:          freshBead,
+					ActiveState:   activeState,
+					ArtifactDir:   artifactDir,
+					EpicID:        epicID,
+					GateReason:    gateReason,
+					ReviewRewinds: reviewRewinds,
+					ForkGateCalls: forkGateCalls,
+				})
+				if handleErr != nil {
+					return RunBeadResult{FinalState: activeState, Success: false}, handleErr
 				}
-				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
-				_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
-				return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}, nil
+				if handled.Reenter {
+					reviewRewinds = handled.ReviewRewinds
+					forkGateCalls = handled.ForkGateCalls
+					prevState = bead.State
+					continue
+				}
+				return handled.Result, nil
 			}
 
 			lastResult = RunBeadResult{FinalState: activeState, Success: true}
@@ -461,6 +533,15 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			rejectedReview = readRejectedReview(
 				backend.ResolveArtifactPath("<artifact_dir>/implementation-review.md", deps.BeadID, artifactDir))
 		}
+		// A stage that cannot hand a fork over must never be told it can
+		// (see StagePromptInput.ForkHandoverPath): both fields stay empty
+		// whenever forkHandoverArmed is false, which is every reviewer stage
+		// and every run with no DA configured - today's behavior.
+		var forkHandoverPath, forkAnswer string
+		if forkHandoverArmed(wf, activeState, deps.DA) {
+			forkHandoverPath = resolvedForkHandoverPath(deps.BeadID, artifactDir)
+			forkAnswer = readForkAnswerArtifact(deps.BeadID, artifactDir)
+		}
 		promptInput := StagePromptInput{
 			Bead:              bead,
 			State:             activeState,
@@ -473,6 +554,8 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			ArtifactDir:       artifactDir,
 			RelevantDecisions: relevantDecisions,
 			RejectedReview:    rejectedReview,
+			ForkHandoverPath:  forkHandoverPath,
+			ForkAnswer:        forkAnswer,
 		}
 		var prompt string
 		if deps.BuildPrompt != nil {
@@ -574,9 +657,55 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		// pr_url marker) see what the agent just wrote, not the stale snapshot
 		// from the top of this iteration.
 		gateDesc := ""
-		if freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath); ferr == nil && freshBead != nil {
+		freshBead, ferr := deps.Backend.Get(deps.BeadID, deps.RepoPath)
+		if ferr == nil && freshBead != nil {
 			gateDesc = freshBead.Description
 		}
+		commitSHA := headSHA.HeadSHA(deps.Worktree)
+
+		// The fork gate is checked BEFORE the exit gate is ever evaluated,
+		// and skips it entirely when a handover applies - see the
+		// subprocess flow's identical check above and handleForkGate's own
+		// doc comment for why this ordering is load-bearing.
+		forkHandled, forkErr := handleForkGate(ctx, forkGateAttemptContext{
+			Deps:        deps,
+			WF:          wf,
+			Bead:        freshBead,
+			ActiveState: activeState,
+			ArtifactDir: artifactDir,
+			EpicID:      epicID,
+			CallsUsed:   forkGateCalls,
+			LedgerInput: StageAttemptInput{
+				AgentID:         agentInput.AgentName,
+				Dialect:         attemptDialect,
+				ConfiguredModel: agentInput.Model,
+				Pool:            agentInput.Pool,
+				BeadID:          deps.BeadID,
+				Stage:           activeState,
+				SessionID:       res.SessionID,
+				StartedAt:       startTime,
+				Duration:        duration,
+				ExitCode:        res.ExitCode,
+				BaseSHA:         baseSHA,
+				CommitSHA:       commitSHA,
+				Worktree:        deps.Worktree,
+				FollowUpCount:   res.FollowUpCount,
+				Nudged:          res.Nudged,
+				Usage:           res.Usage,
+			},
+		})
+		if forkErr != nil {
+			return RunBeadResult{FinalState: activeState, Success: false}, forkErr
+		}
+		if forkHandled.Applied {
+			if forkHandled.Reenter {
+				forkGateCalls++
+				prevState = bead.State
+				continue
+			}
+			return forkHandled.Result, nil
+		}
+
 		gateCtx := backend.ExitGateContext{
 			FromState:       activeState,
 			WorktreePath:    deps.Worktree,
@@ -586,7 +715,6 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			BaseSHA:         baseSHA,
 		}
 		gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
-		commitSHA := headSHA.HeadSHA(deps.Worktree)
 		if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 			AgentID:           agentInput.AgentName,
 			Dialect:           attemptDialect,
@@ -639,23 +767,34 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			}
 		} else {
 			// A reviewer that deliberately rejected the work has somewhere
-			// to send it: back to the implementer, with the review left on
-			// file for them to answer. Every other gate failure still blocks.
-			if isDeliberateRejection(activeState, gateReason) {
-				rewound, rewindErr := rewindAfterReviewRejection(deps, wf, gateReason, reviewRewinds)
-				if rewindErr != nil {
-					return RunBeadResult{FinalState: activeState, Success: false}, rewindErr
-				}
-				if rewound {
-					reviewRewinds++
-					_ = deps.Backend.Comment(deps.BeadID, "review_rejected: "+gateReason, deps.RepoPath)
-					prevState = bead.State
-					continue
-				}
+			// to send it: back to the implementer (today's behavior), or,
+			// when it classified the rejection as needing an explicit
+			// approved decision, to the same DA a proactive fork handover
+			// reaches. Every other gate failure still blocks. Both dispatch
+			// paths (the subprocess flow above, and this native flow) call
+			// the SAME handleGateFailure rather than each inlining this
+			// decision - see that function's own doc comment for why.
+			handled, handleErr := handleGateFailure(ctx, gateFailureContext{
+				Deps:          deps,
+				WF:            wf,
+				Bead:          freshBead,
+				ActiveState:   activeState,
+				ArtifactDir:   artifactDir,
+				EpicID:        epicID,
+				GateReason:    gateReason,
+				ReviewRewinds: reviewRewinds,
+				ForkGateCalls: forkGateCalls,
+			})
+			if handleErr != nil {
+				return RunBeadResult{FinalState: activeState, Success: false}, handleErr
 			}
-			_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
-			_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
-			return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}, nil
+			if handled.Reenter {
+				reviewRewinds = handled.ReviewRewinds
+				forkGateCalls = handled.ForkGateCalls
+				prevState = bead.State
+				continue
+			}
+			return handled.Result, nil
 		}
 
 		lastResult = res

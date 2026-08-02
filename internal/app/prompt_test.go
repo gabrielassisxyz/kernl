@@ -429,6 +429,65 @@ func TestBuildBeadStagePrompt_ReviewStageNamesTheRejectionVerdict(t *testing.T) 
 	}
 }
 
+// TestBuildBeadStagePrompt_ImplementationReviewTeachesClassification proves
+// the generic stage-contract path - what implementation_review actually
+// uses in production - teaches a reviewer it MAY classify a rejection, using
+// review.All() to render the literal vocabulary. A reviewer never told it
+// can classify a rejection will never classify one, and the whole reviewer
+// backstop (plan §3.3's last bullet) becomes dead code - see
+// renderRejectionVerdict's own doc comment for the shipped precedent of
+// exactly this failure with the PASS/REJECT vocabulary itself.
+func TestBuildBeadStagePrompt_ImplementationReviewTeachesClassification(t *testing.T) {
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "implementation_review",
+		Stages: reviewStages(), RepoPath: "/repo", Worktree: "/repo-worktree/kb-1",
+		VerifyCommand: "bin/ci", TrackerCommand: "br", ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	for _, want := range []string{
+		"## Classification",
+		"`fixup`",
+		"`decision`",
+		"## Question for the operator",
+		"OPTIONAL",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("review prompt missing %q\n---\n%s\n---", want, prompt)
+		}
+	}
+}
+
+// TestBuildBeadStagePrompt_IntegrationReviewOffersNoClassification proves the
+// classification teaching is gated on state == "implementation_review"
+// specifically, narrower than backend.IsRejectableVerdictState: a
+// hypothetical generic-path stage literally named "integration_review"
+// would never be rewound by handleGateFailure at all (isDeliberateRejection
+// requires that exact state name), so teaching it this vocabulary would
+// promise a mechanism that does not fire for it. The REAL integration_review
+// stage already teaches its own classification through a wholly different,
+// custom template (internal/prompt/integration_review_prompt.go), untouched
+// by this pass.
+func TestBuildBeadStagePrompt_IntegrationReviewOffersNoClassification(t *testing.T) {
+	stages := map[string]backend.StageContract{
+		"integration_review": {
+			Role: "Review the integration.",
+			OutputArtifact: backend.StageArtifact{
+				Path:        "<artifact_dir>/integration-review.md",
+				MustEndWith: "VERDICT: PASS",
+			},
+		},
+	}
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "integration_review",
+		Stages: stages, RepoPath: "/repo", Worktree: "/repo-worktree/kb-1",
+		VerifyCommand: "bin/ci", TrackerCommand: "br", ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	if strings.Contains(prompt, "## Classification") {
+		t.Errorf("integration_review's generic-path prompt must not teach a classification mechanism that never fires for it:\n%s", prompt)
+	}
+}
+
 // A stage whose rejection has nowhere to go must not advertise one. Telling a
 // planner to write REJECT produces a verdict the gate reads as a plain
 // failure, which is the same outcome by a more confusing route.
@@ -441,5 +500,121 @@ func TestBuildBeadStagePrompt_NonReviewStageOffersNoRejectionVerdict(t *testing.
 
 	if strings.Contains(prompt, "VERDICT: REJECT") {
 		t.Errorf("a planning stage has no rejection to declare:\n%s", prompt)
+	}
+}
+
+// TestBuildBeadStagePrompt_ForkHandover_AbsentWhenEmpty proves a stage that
+// cannot hand a fork over (no DA configured, or a reviewer stage - see
+// StagePromptInput.ForkHandoverPath) is never told it can.
+func TestBuildBeadStagePrompt_ForkHandover_AbsentWhenEmpty(t *testing.T) {
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "implementation",
+		RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd",
+		ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	if strings.Contains(prompt, "fork") || strings.Contains(prompt, "Fork") {
+		t.Errorf("prompt must not mention a fork handover when ForkHandoverPath is empty:\n%s", prompt)
+	}
+}
+
+// TestBuildBeadStagePrompt_ForkHandover_PresentNamesPathAndHeadings proves
+// the section renders, names the absolute path verbatim, and lists all three
+// required headings when ForkHandoverPath is set.
+func TestBuildBeadStagePrompt_ForkHandover_PresentNamesPathAndHeadings(t *testing.T) {
+	path := "/home/user/.kernl/run/epic-1/kb-1/fork.md"
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "implementation",
+		RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd",
+		ArtifactDir:      "/home/user/.kernl/run/epic-1/kb-1",
+		ForkHandoverPath: path,
+	})
+
+	if !strings.Contains(prompt, path) {
+		t.Errorf("prompt must name the absolute fork handover path %q\n---\n%s\n---", path, prompt)
+	}
+	for _, heading := range []string{"## Fork", "## Options Considered", "## What Would Have To Agree"} {
+		if !strings.Contains(prompt, heading) {
+			t.Errorf("prompt missing required fork handover heading %q\n---\n%s\n---", heading, prompt)
+		}
+	}
+	if !strings.Contains(prompt, "does anything OUTSIDE this bead have to agree") {
+		t.Errorf("prompt must state the agreement criterion, not blast radius:\n%s", prompt)
+	}
+}
+
+// TestBuildBeadStagePrompt_ForkHandover_NamesOverrideOfOperatingRules proves
+// finding 6 of the fork/decision-gate hardening pass: renderOperatingRules
+// (rendered AFTER renderForkHandover in BuildBeadStagePrompt) tells the
+// implementer to commit and run the verify command - instructions that
+// directly contradict "STOP, do not commit" the moment a fork is handed
+// over. The fork-handover section must say, explicitly and naming both
+// instructions, that it overrides them for this case - an agent reading
+// top-to-bottom must not be able to end on "commit your work" by accident.
+func TestBuildBeadStagePrompt_ForkHandover_NamesOverrideOfOperatingRules(t *testing.T) {
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "implementation",
+		RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd",
+		ArtifactDir:      "/home/user/.kernl/run/epic-1/kb-1",
+		ForkHandoverPath: "/home/user/.kernl/run/epic-1/kb-1/fork.md",
+	})
+
+	if !strings.Contains(prompt, "OVERRIDES THE OPERATING RULES") {
+		t.Fatalf("prompt must explicitly say the fork-handover section overrides the operating rules:\n%s", prompt)
+	}
+	overrideIdx := strings.Index(prompt, "OVERRIDES THE OPERATING RULES")
+	rulesIdx := strings.Index(prompt, "## Operating rules")
+	if overrideIdx == -1 || rulesIdx == -1 || overrideIdx > rulesIdx {
+		t.Errorf("the override statement must render BEFORE the Operating rules section it overrides:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "do not run the verify command") {
+		t.Errorf("prompt must name the verify-command instruction it overrides:\n%s", prompt)
+	}
+}
+
+// TestBuildBeadStagePrompt_ForkAnswer_AbsentWhenEmpty proves the section is
+// silent when no fork was ever handed over - the normal case.
+func TestBuildBeadStagePrompt_ForkAnswer_AbsentWhenEmpty(t *testing.T) {
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: &backend.Bead{ID: "kb-1", Title: "Add dark mode"}, State: "implementation",
+		RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd",
+		ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	if strings.Contains(prompt, "has been decided") {
+		t.Errorf("prompt must not mention a decided fork when ForkAnswer is empty:\n%s", prompt)
+	}
+}
+
+// TestBuildBeadStagePrompt_ForkAnswer_RendersBeforeBeadDescription proves
+// renderForkAnswer runs before the bead's own description - the same
+// position renderRejectedReview takes and for the same reason: the answer IS
+// the task now, and an implementer that reads the description first would
+// start by re-deriving a question that is already settled.
+func TestBuildBeadStagePrompt_ForkAnswer_RendersBeforeBeadDescription(t *testing.T) {
+	const marker = "UNIQUE_BEAD_DESCRIPTION_MARKER_0193"
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead:     &backend.Bead{ID: "kb-1", Title: "Add dark mode", Description: marker},
+		State:    "implementation",
+		RepoPath: "/repo", Worktree: "/wt", VerifyCommand: "bin/ci", TrackerCommand: "bd",
+		ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+		ForkAnswer:  "CHOSEN: bm25\n\nIt is what the epic's siblings already assume.",
+	})
+
+	answerIdx := strings.Index(prompt, "has been decided")
+	descIdx := strings.Index(prompt, marker)
+	if answerIdx == -1 {
+		t.Fatalf("prompt must render the fork answer section:\n%s", prompt)
+	}
+	if descIdx == -1 {
+		t.Fatalf("prompt must still render the bead description:\n%s", prompt)
+	}
+	if answerIdx > descIdx {
+		t.Errorf("fork answer section (at %d) must render before the bead description (at %d):\n%s", answerIdx, descIdx, prompt)
+	}
+	for _, want := range []string{"CHOSEN: bm25", "not open for re-litigation"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q\n---\n%s\n---", want, prompt)
+		}
 	}
 }
