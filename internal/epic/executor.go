@@ -2,7 +2,6 @@ package epic
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -56,7 +55,6 @@ type Executor struct {
 	state      EpicState
 	tracker    *ParallelismTracker
 	sem        chan struct{}
-	failFast   bool
 	mu         sync.Mutex
 }
 
@@ -94,6 +92,10 @@ type beadResult struct {
 	err    error
 }
 
+// Run dispatches the epic's children to completion, continuously: a bead
+// starts as soon as its own dependencies are satisfied, never waiting on an
+// unrelated sibling from an earlier round. See dispatchLoop for the loop
+// itself.
 func (ex *Executor) Run(ctx context.Context) error {
 	ex.emit(EpicEvent{
 		Type:   SessionStarted,
@@ -101,46 +103,16 @@ func (ex *Executor) Run(ctx context.Context) error {
 		Time:   time.Now().Unix(),
 	})
 
-	for {
-		ex.mu.Lock()
-		ready := ex.deps.Epic.DAG.ReadySet(ex.done)
-		if len(ready) == 0 {
-			if len(ex.done) == len(ex.deps.Epic.Children) {
-				ex.state = EpicCompleted
-				ex.mu.Unlock()
-				return nil
-			}
-			var msg string
-			if ex.failFast {
-				msg = fmt.Sprintf("epic %s blocked after bead failure", ex.deps.Epic.ID)
-			} else {
-				ex.state = EpicFailed
-				msg = fmt.Sprintf("deadlock in epic %s: %d/%d children done", ex.deps.Epic.ID, len(ex.done), len(ex.deps.Epic.Children))
-			}
-			ex.mu.Unlock()
-			ex.emit(EpicEvent{
-				Type:   SessionError,
-				EpicID: ex.deps.Epic.ID,
-				Detail: msg,
-				Time:   time.Now().Unix(),
-			})
-			if ex.failFast {
-				return fmt.Errorf("KERNL DISPATCH FAILURE: %s - Fix: review failed beads and re-run", msg)
-			}
-			return fmt.Errorf("KERNL DISPATCH FAILURE: %s - Fix: check the DAG for missing dependencies or cycles", msg)
-		}
-		ex.mu.Unlock()
-
-		if err := ex.processWave(ctx, ready); err != nil {
-			ex.emit(EpicEvent{
-				Type:   SessionError,
-				EpicID: ex.deps.Epic.ID,
-				Detail: err.Error(),
-				Time:   time.Now().Unix(),
-			})
-			return err
-		}
+	if err := ex.dispatchLoop(ctx); err != nil {
+		ex.emit(EpicEvent{
+			Type:   SessionError,
+			EpicID: ex.deps.Epic.ID,
+			Detail: err.Error(),
+			Time:   time.Now().Unix(),
+		})
+		return err
 	}
+	return nil
 }
 
 func (ex *Executor) DoneSet() map[string]bool {
