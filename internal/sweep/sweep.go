@@ -1,11 +1,14 @@
 package sweep
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 )
 
 type Epic struct {
@@ -159,23 +162,67 @@ func (s *Sweeper) closeAll(e Epic, reason string) {
 	// them directly instead of pointing at a WARN on a different stream -
 	// the receipt goes through ReportHook (stdout in the CLI), the WARN
 	// stays on log (stderr), and "see above" is not true across streams.
-	var failedChildren []string
+	//
+	// A close that reports backend.ErrAlreadyClosed reached the desired end
+	// state before this run touched it - a re-run after a partial failure
+	// hits this on every bead the previous run did manage to close. That is
+	// not a failure, but it is also not something this run gets credit for,
+	// so it is tracked apart from both the ordinary closes and the failures.
+	var failedChildren []failedChild
+	var alreadyClosedChildren []string
 	for _, c := range e.Children {
-		if err := s.b.Close(c, reason); err != nil {
+		err := s.b.Close(c, reason)
+		switch {
+		case err == nil:
+		case errors.Is(err, backend.ErrAlreadyClosed):
+			alreadyClosedChildren = append(alreadyClosedChildren, c)
+		default:
 			log.Printf("WARN sweep: failed to close child %s: %v", c, err)
-			failedChildren = append(failedChildren, c)
-			continue
+			failedChildren = append(failedChildren, failedChild{ID: c, Cause: err})
 		}
 	}
 
 	var epicErr error
+	epicAlreadyClosed := false
 	if err := s.b.Close(e.ID, reason); err != nil {
-		log.Printf("WARN sweep: failed to close epic %s: %v", e.ID, err)
-		epicErr = err
+		if errors.Is(err, backend.ErrAlreadyClosed) {
+			epicAlreadyClosed = true
+		} else {
+			log.Printf("WARN sweep: failed to close epic %s: %v", e.ID, err)
+			epicErr = err
+		}
 	}
 
 	closedChildren := len(e.Children) - len(failedChildren)
-	s.report(closeReceipt(e.ID, closedChildren, len(e.Children), failedChildren, epicErr, reason))
+	s.report(closeReceipt(e.ID, closedChildren, len(e.Children), failedChildren, alreadyClosedChildren, epicErr, epicAlreadyClosed, reason))
+}
+
+// failedChild pairs a child that genuinely refused to close with the reason
+// it gave. The id alone was enough while every failure was equally opaque,
+// but a close now fails for reasons that differ in what the operator has to
+// do next - an unreachable tracker is retried, an epic holding open children
+// is not - and the receipt is the only account of the run that reaches
+// stdout.
+type failedChild struct {
+	ID    string
+	Cause error
+}
+
+// describeFailedChildren renders each failure as "id (cause)" so the receipt
+// carries the reason itself rather than pointing at the WARN that also
+// logged it. The two land on different streams (stdout vs stderr) with no
+// ordering between them, which is the same argument closeReceipt's own doc
+// comment already makes for naming the ids inline.
+func describeFailedChildren(failures []failedChild) []string {
+	out := make([]string, 0, len(failures))
+	for _, f := range failures {
+		if f.Cause == nil {
+			out = append(out, f.ID)
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s (%v)", f.ID, f.Cause))
+	}
+	return out
 }
 
 // closeReceipt renders the outcome of closeAll with the same detail the
@@ -186,16 +233,25 @@ func (s *Sweeper) closeAll(e Epic, reason string) {
 // streams (stdout vs stderr) with no guaranteed ordering between them, so a
 // cross-stream position reference can point at a line the reader never
 // sees.
-func closeReceipt(epicID string, closedChildren, totalChildren int, failedChildren []string, epicErr error, reason string) string {
+func closeReceipt(epicID string, closedChildren, totalChildren int, failedChildren []failedChild, alreadyClosedChildren []string, epicErr error, epicAlreadyClosed bool, reason string) string {
 	childDetail := fmt.Sprintf("%d/%d children closed", closedChildren, totalChildren)
+	if len(alreadyClosedChildren) > 0 {
+		childDetail += fmt.Sprintf(" (already closed: %s)", strings.Join(alreadyClosedChildren, ", "))
+	}
 	if len(failedChildren) > 0 {
-		childDetail += fmt.Sprintf(" (failed: %s)", strings.Join(failedChildren, ", "))
+		childDetail += fmt.Sprintf(" (failed: %s)", strings.Join(describeFailedChildren(failedChildren), ", "))
 	}
 
 	if epicErr != nil {
 		return fmt.Sprintf("sweep: epic %s NOT closed (%v), %s - reason: %s", epicID, epicErr, childDetail, reason)
 	}
-	if len(failedChildren) > 0 {
+	// An epic already closed before this run reached it (a re-run after a
+	// partial failure, most often) did not get closed BY this run, so the
+	// receipt says so instead of claiming a close that did not happen here.
+	if epicAlreadyClosed {
+		return fmt.Sprintf("sweep: epic %s already closed, %s - reason: %s", epicID, childDetail, reason)
+	}
+	if len(failedChildren) > 0 || len(alreadyClosedChildren) > 0 {
 		return fmt.Sprintf("sweep: closed epic %s, %s - reason: %s", epicID, childDetail, reason)
 	}
 	return fmt.Sprintf("sweep: closed epic %s and %d children - reason: %s", epicID, totalChildren, reason)

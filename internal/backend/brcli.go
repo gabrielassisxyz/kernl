@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -89,6 +90,32 @@ type brErrorBody struct {
 	Hint    string `json:"hint"`
 }
 
+// brCommandError is the structured form of run()'s envelope-error return.
+// run() still formats the same "KERNL DISPATCH FAILURE: ..." text every
+// existing caller already matches against (see Error() below), but a caller
+// that needs more than that text - Close, telling a bead that is already
+// closed apart from one br refuses for a real reason - recovers the
+// envelope's code and any payload that arrived on stdout ahead of it with
+// errors.As, instead of re-parsing the formatted string.
+type brCommandError struct {
+	code    string
+	message string
+	payload []byte
+	text    string
+}
+
+func (e *brCommandError) Error() string { return e.text }
+
+// ErrAlreadyClosed reports that Close's target was already in its terminal
+// state before this call ran - the call itself did nothing. Close returns
+// it as a non-nil error rather than masking the no-op as an ordinary
+// success, because "there was nothing to do" is information some callers
+// care about: a sweep re-run wants to say a bead was already closed rather
+// than claim this run closed it. A caller that only wants to know whether
+// the bead ended up closed can still treat this as success by checking
+// errors.Is(err, backend.ErrAlreadyClosed).
+var ErrAlreadyClosed = errors.New("bead already closed")
+
 // brValue renders a flag and its value as one argument.
 //
 // br's parser reads a value beginning with "-" as the next flag and exits 2 -
@@ -123,7 +150,12 @@ func (b *BrCliBackend) run(ctx context.Context, repoPath string, args ...string)
 		if envelope.Hint != "" {
 			hint = " - Hint: " + envelope.Hint
 		}
-		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br %s: %s: %s%s", strings.Join(args, " "), envelope.Code, envelope.Message, hint)
+		return nil, &brCommandError{
+			code:    envelope.Code,
+			message: envelope.Message,
+			payload: payload,
+			text:    fmt.Sprintf("KERNL DISPATCH FAILURE: br %s: %s: %s%s", strings.Join(args, " "), envelope.Code, envelope.Message, hint),
+		}
 	}
 	if runErr != nil {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br %s: %w: %s", strings.Join(args, " "), runErr, strings.TrimSpace(stderr.String()))
@@ -492,7 +524,7 @@ func (b *BrCliBackend) Close(id string, reason string, repoPath string) (*Termin
 	}
 	out, err := b.run(context.Background(), repoPath, args...)
 	if err != nil {
-		return nil, err
+		return b.recoverNoOpClose(id, repoPath, err)
 	}
 	var closed []brIssue
 	if err := json.Unmarshal(out, &closed); err != nil {
@@ -502,6 +534,58 @@ func (b *BrCliBackend) Close(id string, reason string, repoPath string) (*Termin
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br close %s reported no issue closed", id)
 	}
 	return &TerminalState{State: closed[0].Status, Reason: closed[0].CloseReason}, nil
+}
+
+// brCloseResult is `br close --json`'s per-issue result when at least one
+// target was skipped - printed on stdout ahead of the error envelope (see
+// splitBrOutput). brSkippedRow is the same {id, reason} shape `br reopen`
+// already returns for its own no-op case, reused here rather than inventing
+// a second vocabulary for the same {id, reason} pair.
+type brCloseResult struct {
+	Closed  []brIssue      `json:"closed"`
+	Skipped []brSkippedRow `json:"skipped"`
+}
+
+// recoverNoOpClose re-examines a close br refused with NOTHING_TO_DO.
+//
+// Measured live against br 0.2.19: that one code and exit status cover two
+// different situations - the target is already closed (this call was
+// redundant, not a failure), or a dependency refused it, e.g. an epic with
+// an open child (a real failure). This br version does name which one, in
+// the "skipped" document ahead of the envelope and in the envelope's own
+// hint - but that is prose from a CLI that has already changed its wording
+// once across a patch release (0.2.10 gave the identical hint for both
+// situations, measured against a live 0.2.10 install). Pattern-matching that
+// text again would only reproduce this exact bug the next time br's wording
+// moves. What the two situations cannot disagree about is the bead's own
+// recorded closed_at, so a re-read of the bead - not the error code, not the
+// message text - is what decides the outcome. The skip reason is still
+// surfaced, but only to word a genuine failure, never to decide one.
+func (b *BrCliBackend) recoverNoOpClose(id, repoPath string, closeErr error) (*TerminalState, error) {
+	var brErr *brCommandError
+	if !errors.As(closeErr, &brErr) || brErr.code != "NOTHING_TO_DO" {
+		return nil, closeErr
+	}
+
+	skipReason := brErr.message
+	var result brCloseResult
+	if json.Unmarshal(brErr.payload, &result) == nil {
+		for _, s := range result.Skipped {
+			if s.ID == id && s.Reason != "" {
+				skipReason = s.Reason
+				break
+			}
+		}
+	}
+
+	bead, getErr := b.Get(id, repoPath)
+	if getErr != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br close %s refused (%s), and re-reading its state to confirm also failed: %w", id, skipReason, getErr)
+	}
+	if bead.ClosedAt != "" {
+		return nil, fmt.Errorf("%s: %w", id, ErrAlreadyClosed)
+	}
+	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br close %s refused: %s", id, skipReason)
 }
 
 func (b *BrCliBackend) MarkTerminal(id string, targetState string, reason string, repoPath string) error {

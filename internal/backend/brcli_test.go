@@ -923,19 +923,87 @@ func TestBrCliPassesValuesThatLookLikeFlags(t *testing.T) {
 // issue emits its per-issue result and then the error envelope. Decoding the
 // whole buffer at once fails on the trailing document, so the envelope went
 // unseen and the caller got a bare exit status with an empty stderr.
+//
+// A close refused this way, on a bead that a re-read confirms is already
+// closed, is the desired end state - not a failure - so Close reports it
+// through ErrAlreadyClosed instead of a bare KERNL DISPATCH FAILURE. A
+// caller that only wants to know whether the bead ended up closed still
+// gets that from errors.Is; a caller building a receipt (sweep) can tell
+// this apart from an ordinary close.
+//
+// The fixtures below write the separator br puts between its summary and the
+// per-issue reason as a JSON escape rather than the literal character. It
+// decodes to exactly the byte br emits, so the fixture stays faithful to the
+// real envelope, while the repository's prose gate (bin/slop-guard) keeps
+// rejecting that character in text a person wrote. The gate's per-line
+// opt-out cannot be used here: the marker would have to sit inside the raw
+// string literal, which would corrupt the fixture.
 func TestBrCliFindsAnErrorEnvelopeAfterAResult(t *testing.T) {
 	repo := brRepo(t)
 	newFakeBr(t, map[string]string{
 		"close kb-1": `{"closed":[],"skipped":[{"id":"kb-1","reason":"already closed"}]}
-{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped","hint":"All specified issues were already closed or not found."}}`,
+{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped \u2014 kb-1: already closed","hint":"All specified issues were already closed or not found."}}`,
+		"show kb-1": `[{"id":"kb-1","status":"closed","closed_at":"2026-08-01T00:00:00Z","close_reason":"shipped"}]`,
 	})
 
 	_, err := NewBrCliBackend(repo).Close("kb-1", "shipped", repo)
 	if err == nil {
-		t.Fatal("expected br's reason to surface")
+		t.Fatal("a no-op close must still return an error a caller can recover from")
 	}
-	if !strings.Contains(err.Error(), "NOTHING_TO_DO") {
-		t.Errorf("error must carry br's own code, got: %v", err)
+	if !errors.Is(err, ErrAlreadyClosed) {
+		t.Errorf("expected errors.Is(err, ErrAlreadyClosed), got: %v", err)
+	}
+}
+
+// The same NOTHING_TO_DO code and exit status also cover a real refusal - an
+// epic close blocked by an open child. A re-read here finds the bead still
+// open, so this must stay a loud failure, and the message must name the
+// actual cause (the skip reason br gave) rather than a bare error code.
+func TestBrCliCloseRefusedForOpenChildrenStaysAFailure(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"close ep-1": `{"closed":[],"skipped":[{"id":"ep-1","reason":"epic has 1/1 open children (use --force to close anyway)"}]}
+{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped \u2014 ep-1: epic has 1/1 open children (use --force to close anyway)","hint":"Skipped issue(s) have open children. Close the children first, or re-run with --force to close anyway."}}`,
+		"show ep-1": `[{"id":"ep-1","status":"open"}]`,
+	})
+
+	_, err := NewBrCliBackend(repo).Close("ep-1", "merged", repo)
+	if err == nil {
+		t.Fatal("a close refused for open children must fail loud")
+	}
+	if errors.Is(err, ErrAlreadyClosed) {
+		t.Fatalf("an epic with an open child is not already closed, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "open children") {
+		t.Errorf("error must name the real cause instead of just the error code, got: %v", err)
+	}
+}
+
+// The bead's own state decides the outcome, not br's wording. Here br says
+// "already closed" in both the skip row and the envelope, and a re-read finds
+// the bead still open: the close did NOT reach the desired end state, so it
+// stays a failure however reassuring the message reads.
+//
+// This is the case that separates re-reading from string-matching, and it is
+// the whole reason the check is built this way. br 0.2.10 gave one identical
+// hint for two different situations and 0.2.19 gave each its own, so the
+// wording moved under a parser once already inside a patch release. An
+// implementation keyed to the phrase passes the two tests above and fails
+// here.
+func TestBrCliCloseTrustsTheBeadsStateOverBrsWording(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"close kb-9": `{"closed":[],"skipped":[{"id":"kb-9","reason":"already closed"}]}
+{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped \u2014 kb-9: already closed","hint":"All specified issues were already closed or not found."}}`,
+		"show kb-9": `[{"id":"kb-9","status":"open"}]`,
+	})
+
+	_, err := NewBrCliBackend(repo).Close("kb-9", "merged", repo)
+	if err == nil {
+		t.Fatal("a bead that is still open after a refused close must not report success")
+	}
+	if errors.Is(err, ErrAlreadyClosed) {
+		t.Fatalf("the re-read said open, so this is not ErrAlreadyClosed however br worded it, got: %v", err)
 	}
 }
 

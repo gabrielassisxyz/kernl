@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/sweep"
 )
 
@@ -291,5 +292,104 @@ func TestSweep_DryRun_ReportsPreviewThroughHook(t *testing.T) {
 	}
 	if len(reports) != 1 || !strings.Contains(reports[0], "would close epic e1") {
 		t.Fatalf("expected a dry-run preview report, got %v", reports)
+	}
+}
+
+// A child that was already closed before this sweep ran (a re-run after a
+// previous partial failure, most often) reached the desired end state
+// without this run's help. It must still count toward the closed total -
+// the epic's children did all end up closed - but the receipt must not
+// claim this run closed it, so an operator can tell a genuine close apart
+// from a no-op one.
+func TestSweep_ChildAlreadyClosed_CountsAsClosedAndReceiptSaysSo(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1", "c2"}}},
+		failIDs: map[string]error{"c1": backend.ErrAlreadyClosed},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	msg := reports[0]
+	if !strings.Contains(msg, "2/2 children closed") {
+		t.Fatalf("an already-closed child reached the desired end state and must count toward the total, got %q", msg)
+	}
+	if !strings.Contains(msg, "already closed: c1") {
+		t.Fatalf("receipt should name c1 as already closed rather than claim this run closed it, got %q", msg)
+	}
+	if strings.Contains(msg, "failed: c1") {
+		t.Fatalf("an already-closed child is not a failure, got %q", msg)
+	}
+}
+
+// A close refused for a reason other than "already closed" (br collapses
+// both under the same NOTHING_TO_DO code) is a genuine failure and must stay
+// one - the fake backend here returns an ordinary error, standing in for
+// whatever real cause the tracker gave, and closeAll must not treat it as
+// reaching the desired end state.
+func TestSweep_ChildRefusedForOtherReason_StaysAFailure(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}},
+		failIDs: map[string]error{"c1": errors.New("epic has 1/1 open children (use --force to close anyway)")},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	msg := reports[0]
+	if !strings.Contains(msg, "0/1 children closed") {
+		t.Fatalf("a genuinely refused close must not count toward the closed total, got %q", msg)
+	}
+	if !strings.Contains(msg, "failed: c1") || !strings.Contains(msg, "open children") {
+		t.Fatalf("receipt must name the real cause of the failure, got %q", msg)
+	}
+	if strings.Contains(msg, "already closed") {
+		t.Fatalf("a real refusal must not be reported as already closed, got %q", msg)
+	}
+}
+
+// The epic's own close gets the same already-closed treatment as a child's:
+// a re-run that finds the epic itself already closed (from a run that
+// succeeded despite an earlier partial failure) must not claim to have
+// closed it again.
+func TestSweep_EpicAlreadyClosed_ReceiptSaysSo(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}},
+		failIDs: map[string]error{"e1": backend.ErrAlreadyClosed},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	msg := reports[0]
+	if !strings.Contains(msg, "e1 already closed") {
+		t.Fatalf("receipt should say the epic was already closed rather than claim this run closed it, got %q", msg)
+	}
+	if strings.Contains(msg, "NOT closed") {
+		t.Fatalf("an already-closed epic is not a failure, got %q", msg)
 	}
 }
