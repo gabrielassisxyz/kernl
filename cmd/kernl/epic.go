@@ -389,7 +389,11 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		}
 	}
 
-	out(fmt.Sprintf("GUI at http://localhost:%d/?epic=%s\n", actualPort, epicID))
+	// /orchestrator/, not /: the home page never reads ?epic, so the query
+	// reached a route that consumes nothing and the operator landed on the
+	// dashboard wondering what broke. The trailing slash matters too, because
+	// nuxt generate emits orchestrator/index.html and the bare path only 301s.
+	out(fmt.Sprintf("GUI at http://localhost:%d/orchestrator/?epic=%s\n", actualPort, epicID))
 
 	// Only wire real git execution when the repo path is actually a git
 	// repo -- hermetic tests use t.TempDir() which is not a git repo, and
