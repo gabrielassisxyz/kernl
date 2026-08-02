@@ -577,6 +577,12 @@ func AutoRouteBackendWithDetection(repoPath string) (BackendPort, error) {
 // directory, written differently" to match, and diverging the comparison
 // between them would make a repo reachable from one caller and silently
 // unreachable from the other.
+//
+// This is deliberately a pure lexical comparison - no symlink resolution, no
+// tilde expansion, no filesystem access at all. It has to work for a path
+// that does not exist (a mistyped --repo is exactly that case), and it has
+// to stay hermetic for the tests that cover it; resolving anything against
+// the real filesystem would break both.
 func SameRepoPath(configured, requested string) bool {
 	return filepath.Clean(configured) == filepath.Clean(requested)
 }
