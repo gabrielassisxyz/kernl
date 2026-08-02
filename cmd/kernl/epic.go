@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -527,9 +528,15 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		// above already reads it, rather than reusing the epicBead fetched
 		// before this run started: shipment writes pr_url onto the epic
 		// bead's description mid-run, so that earlier copy would be stale
-		// on the one run where this field matters.
+		// on the one run where this field matters. The read is best-effort
+		// - a failure here degrades to an absent PRURL rather than failing
+		// the run, because the report must still be written - but the
+		// failure is logged, not swallowed, so a vanished field has a
+		// thread to pull instead of just being unexplained.
 		prURL := ""
-		if freshEpicBead, gErr := a.Backend.Get(epicID, repoPath); gErr == nil && freshEpicBead != nil {
+		if freshEpicBead, gErr := a.Backend.Get(epicID, repoPath); gErr != nil || freshEpicBead == nil {
+			slog.Warn("KERNL DISPATCH FAILURE: could not re-read the epic bead to check for a pull request URL - the run report will omit it", "epic", epicID, "err", gErr)
+		} else {
 			prURL = workflow.GetPRURL(freshEpicBead.Description)
 		}
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
