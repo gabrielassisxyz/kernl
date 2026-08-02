@@ -522,6 +522,16 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		// path out of this function including failure - a report of what
 		// failed is worth more than no report, and the run's own status is
 		// one of the facts its header states.
+		//
+		// prURL is read fresh here, the same way verifyPublishedPullRequest
+		// above already reads it, rather than reusing the epicBead fetched
+		// before this run started: shipment writes pr_url onto the epic
+		// bead's description mid-run, so that earlier copy would be stale
+		// on the one run where this field matters.
+		prURL := ""
+		if freshEpicBead, gErr := a.Backend.Get(epicID, repoPath); gErr == nil && freshEpicBead != nil {
+			prURL = workflow.GetPRURL(freshEpicBead.Description)
+		}
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
 			Graph:       a.Graph,
 			Composer:    impactComposer,
@@ -529,6 +539,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 			Status:      status,
 			FinishedAt:  finishedAt,
 			Beads:       beadRunOutcomes(a.Backend, repoPath, runBeads),
+			PRURL:       prURL,
 			StateDir:    a.StateDir,
 			EpicID:      epicID,
 			ContextDocs: repoEntry.ContextDocs,

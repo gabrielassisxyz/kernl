@@ -481,6 +481,56 @@ func TestComposeRunReport_NoDecisionsStillProducesReport(t *testing.T) {
 	}
 }
 
+// --- criterion: the pull request URL the shipment stage wrote lands in the
+// report, and stays silent (no empty field, no placeholder) when there is
+// none. ---
+
+func TestComposeRunReport_PRURLAppearsInHeaderWhenSet(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	stateDir := t.TempDir()
+
+	epic := BeadRef{ID: "kb-epic-8", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic})
+
+	in := baseReportInput(g, stateDir, runID, "kb-epic-8")
+	in.PRURL = "https://github.com/gabrielassisxyz/clarity-data-workflow/pull/30"
+	path, err := ComposeRunReport(context.Background(), in)
+	if err != nil {
+		t.Fatalf("ComposeRunReport: %v", err)
+	}
+
+	report, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(report), in.PRURL) {
+		t.Errorf("report is missing the pull request URL:\n%s", report)
+	}
+}
+
+func TestComposeRunReport_AbsentPRURLStaysSilent(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	stateDir := t.TempDir()
+
+	epic := BeadRef{ID: "kb-epic-9", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic})
+
+	in := baseReportInput(g, stateDir, runID, "kb-epic-9")
+	in.PRURL = ""
+	path, err := ComposeRunReport(context.Background(), in)
+	if err != nil {
+		t.Fatalf("ComposeRunReport: %v", err)
+	}
+
+	report, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(report)), "pull request") {
+		t.Errorf("report mentions a pull request with none set - want silence, not an empty field or placeholder:\n%s", report)
+	}
+}
+
 // --- criterion: the report lands under the run root and a hostile epicID
 // cannot escape it. ---
 

@@ -315,6 +315,14 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		if finalState == "" {
 			finalState = bead.State
 		}
+		// prURL is read fresh here rather than off the bead fetched before
+		// this run started: a standalone bead can reach its own shipment
+		// stage during DriveBeadToTerminal, which writes pr_url onto its
+		// description mid-run, after that earlier copy was taken.
+		prURL := ""
+		if freshBead, gErr := a.Backend.Get(bead.ID, repoPath); gErr == nil && freshBead != nil {
+			prURL = workflow.GetPRURL(freshBead.Description)
+		}
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
 			Graph:       a.Graph,
 			Composer:    impactComposer,
@@ -322,6 +330,7 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 			Status:      status,
 			FinishedAt:  finishedAt,
 			Beads:       []app.BeadRunOutcome{{ID: bead.ID, Title: bead.Title, FinalState: finalState}},
+			PRURL:       prURL,
 			StateDir:    a.StateDir,
 			EpicID:      bead.ID,
 			ContextDocs: repoEntry.ContextDocs,
