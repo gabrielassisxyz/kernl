@@ -40,7 +40,14 @@ func AssembleContext(repoPath string, docs []string) string {
 	remaining := contextBudgetBytes
 	for _, rel := range docs {
 		if remaining <= 0 {
-			break
+			// The budget was already spent by an earlier doc in this list -
+			// possibly spent EXACTLY, with nothing left over. Either way this
+			// entry still gets a line naming it as dropped: silently omitting
+			// it would read, to a reader of the prompt, exactly like it was
+			// never configured at all.
+			fmt.Fprintf(&out, "### %s\n\n`%s` was dropped: the %d KB context budget was already exhausted by an earlier entry.\n\n", rel, rel, contextBudgetBytes/1024)
+			slog.Warn("KERNL context assembler dropped a contextDocs entry: the budget was already exhausted", "file", rel, "repoPath", repoPath, "budgetBytes", contextBudgetBytes)
+			continue
 		}
 		section := renderContextDoc(repoPath, rel)
 		if len(section) <= remaining {
@@ -58,14 +65,54 @@ func AssembleContext(repoPath string, docs []string) string {
 }
 
 // renderContextDoc renders one file as its own subsection: a heading naming
-// it, then its content - or, when it does not exist, an explicit line
-// saying it was not found rather than silently contributing nothing.
+// it, then its content. Four cases, each rendered as an explicit line rather
+// than silently contributing nothing or a misleading one:
+//
+//   - the entry resolves outside repoPath (a misconfigured "../" or similar):
+//     rejected loudly, naming the entry and the config key that fixes it.
+//   - the file does not exist: the normal case for an unpublished doc (e.g.
+//     kernl's own ROADMAP.md, AGENTS.md §6) - not a failure.
+//   - any other read error (a directory, a permission error, I/O): a genuine
+//     failure of a configured resource (AGENTS.md §2), logged loud rather
+//     than folded into the same sentence as the "does not exist" case.
+//   - the file exists and is empty: said plainly, rather than leaving a
+//     heading with a blank body for the reader to puzzle over.
 func renderContextDoc(repoPath, rel string) string {
-	data, err := os.ReadFile(filepath.Join(repoPath, rel))
+	full, ok := contextDocWithinRepo(repoPath, rel)
+	if !ok {
+		slog.Warn("KERNL DISPATCH FAILURE: contextDocs entry resolves outside the repository", "file", rel, "repoPath", repoPath)
+		return fmt.Sprintf("### %s\n\n`%s` was rejected: it resolves outside this repository - Fix: correct registry.repos[].contextDocs.\n\n", rel, rel)
+	}
+	data, err := os.ReadFile(full)
 	if err != nil {
-		return fmt.Sprintf("### %s\n\n`%s` was not found in this repository - it publishes none.\n\n", rel, rel)
+		if os.IsNotExist(err) {
+			return fmt.Sprintf("### %s\n\n`%s` was not found in this repository - it publishes none.\n\n", rel, rel)
+		}
+		slog.Warn("KERNL DISPATCH FAILURE: contextDocs entry could not be read", "file", rel, "repoPath", repoPath, "error", err)
+		return fmt.Sprintf("### %s\n\n`%s` could not be read: %v.\n\n", rel, rel, err)
+	}
+	if len(data) == 0 {
+		return fmt.Sprintf("### %s\n\n`%s` is present but empty.\n\n", rel, rel)
 	}
 	return fmt.Sprintf("### %s\n\n%s\n\n", rel, strings.TrimRight(string(data), "\n"))
+}
+
+// contextDocWithinRepo joins repoPath and rel and confirms the cleaned
+// result stays inside repoPath, rejecting an entry like "../private.md" that
+// would otherwise read a sibling directory and forward it verbatim to
+// whatever llm.agent/llm.endpoint points at. This is operator-written
+// config, not hostile input, so it guards against a typo rather than an
+// attack - which is also why an ABSOLUTE rel needs no special case:
+// filepath.Join treats a second absolute argument as just another path
+// segment (filepath.Join("/repo", "/etc/passwd") == "/repo/etc/passwd"), so
+// it is already contained.
+func contextDocWithinRepo(repoPath, rel string) (string, bool) {
+	root := filepath.Clean(repoPath)
+	full := filepath.Join(root, rel)
+	if full == root || strings.HasPrefix(full, root+string(filepath.Separator)) {
+		return full, true
+	}
+	return "", false
 }
 
 // cutOnLineBoundary returns the largest prefix of s that fits within limit
