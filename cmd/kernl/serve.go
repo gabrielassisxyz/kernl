@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -31,22 +32,110 @@ type sweepRunner interface {
 
 var sweeperFactory = defaultSweeperFactory
 
+// repoSweepRunner is one registered repository's sweeper, named by its repo
+// path so a composite tick can report exactly which repository failed. A
+// repository whose backend never resolved (bad memoryManager, unresolvable
+// tracker) carries buildErr instead of a sw: Tick() returns that same error
+// every time, so a repository that never came up is reported every tick
+// alongside one that fails while running, instead of disappearing after the
+// one warning logged at startup.
+type repoSweepRunner struct {
+	repoPath string
+	sw       sweepRunner
+	buildErr error
+}
+
+func (r *repoSweepRunner) Tick() error {
+	if r.buildErr != nil {
+		return r.buildErr
+	}
+	return r.sw.Tick()
+}
+
+// compositeSweeper sweeps every registered repository per tick, in place of
+// the single sweeper defaultSweeperFactory used to build from
+// cfg.Registry.Repos[0] alone. internal/sweep.Sweeper's contract stays one
+// repository per sweeper; this drives N of those together.
+type compositeSweeper struct {
+	repos []*repoSweepRunner
+}
+
+// Tick sweeps every repository and carries on past a failing one: the
+// alternative (abort the whole tick on the first failure) was rejected,
+// because a repository whose path was removed fails forever, and aborting
+// would turn that one repository's permanent config error into a permanent
+// outage of automatic sweeping for every other registered repository too.
+//
+// A composite with nothing to sweep is refused rather than returned as
+// success: a tick that swept zero repositories must not read the same as a
+// tick that ran and found nothing to do (the latter returns nil, same as
+// today).
+func (c *compositeSweeper) Tick() error {
+	if len(c.repos) == 0 {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: sweep tick had no registered repository to sweep")
+	}
+
+	var failedRepos []string
+	var errs []error
+	for _, r := range c.repos {
+		if err := r.Tick(); err != nil {
+			// Logged every tick, with no de-duplication or suppression: a
+			// repeated error every interval is honest reporting of a
+			// repository that is still broken.
+			slog.Error("sweep tick failed for repository", "repo", r.repoPath, "error", err)
+			failedRepos = append(failedRepos, r.repoPath)
+			errs = append(errs, fmt.Errorf("%s: %w", r.repoPath, err))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return fmt.Errorf("KERNL DISPATCH FAILURE: sweep tick failed for %d of %d registered repositories (%s): %w",
+		len(failedRepos), len(c.repos), strings.Join(failedRepos, ", "), errors.Join(errs...))
+}
+
 func defaultSweeperFactory(cfg *config.Config) (sweepRunner, error) {
 	if len(cfg.Registry.Repos) == 0 {
 		return nil, nil
 	}
-	repoPath := cfg.Registry.Repos[0].Path
+
+	sweepCfg := sweep.Config{
+		PRStaleWarnDays:  cfg.Sweep.PRStaleWarnDays,
+		FailureThreshold: cfg.Sweep.FailureThreshold,
+		BackoffMinutes:   cfg.Sweep.BackoffMinutes,
+	}
+
+	runners := make([]*repoSweepRunner, 0, len(cfg.Registry.Repos))
+	var buildErrs []error
+	for _, repo := range cfg.Registry.Repos {
+		sw, err := buildRepoSweeper(cfg, repo.Path, sweepCfg)
+		if err != nil {
+			buildErrs = append(buildErrs, fmt.Errorf("%s: %w", repo.Path, err))
+			runners = append(runners, &repoSweepRunner{repoPath: repo.Path, buildErr: err})
+			continue
+		}
+		runners = append(runners, &repoSweepRunner{repoPath: repo.Path, sw: sw})
+	}
+
+	// Every registered repository failing to resolve a backend leaves
+	// nothing to sweep at all, which stays a refusal at startup, same as a
+	// single misconfigured repo always was. One bad repo among several
+	// healthy ones is a different case: it must not take the others down
+	// with it, so it is wrapped instead and reported every tick.
+	if len(buildErrs) == len(cfg.Registry.Repos) {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: no registered repository resolved a sweeper: %w", errors.Join(buildErrs...))
+	}
+
+	return &compositeSweeper{repos: runners}, nil
+}
+
+func buildRepoSweeper(cfg *config.Config, repoPath string, sweepCfg sweep.Config) (sweepRunner, error) {
 	b, err := backend.AutoRouteFromConfig(cfg, repoPath)
 	if err != nil {
 		return nil, err
 	}
 	adapter := &sweepBackendAdapter{b: b, dir: repoPath}
 	ghAdapter := &ghCliAdapter{}
-	sweepCfg := sweep.Config{
-		PRStaleWarnDays:  cfg.Sweep.PRStaleWarnDays,
-		FailureThreshold: cfg.Sweep.FailureThreshold,
-		BackoffMinutes:   cfg.Sweep.BackoffMinutes,
-	}
 	return sweep.New(adapter, ghAdapter, sweepCfg), nil
 }
 
