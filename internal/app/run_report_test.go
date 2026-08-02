@@ -547,12 +547,20 @@ func TestComposeRunReport_ReportUnderRunRoot(t *testing.T) {
 		t.Fatalf("ComposeRunReport: %v", err)
 	}
 
-	wantDir := filepath.Join(stateDir, "run", "kb-epic-7")
+	// The run root is what this test guards, and it is unchanged. What moved
+	// is the file within it: a run writes runs/<RunID>.md, because report.md
+	// used to be one file per epic that every run overwrote, losing every
+	// earlier invocation's decisions. report.md still exists beside it, now
+	// as the index over every run.
+	wantDir := filepath.Join(stateDir, "run", "kb-epic-7", "runs")
 	if filepath.Dir(path) != wantDir {
 		t.Errorf("report dir = %s, want %s", filepath.Dir(path), wantDir)
 	}
-	if filepath.Base(path) != "report.md" {
-		t.Errorf("report file = %s, want report.md", filepath.Base(path))
+	if filepath.Base(path) != runID+".md" {
+		t.Errorf("report file = %s, want %s.md", filepath.Base(path), runID)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "run", "kb-epic-7", "report.md")); err != nil {
+		t.Errorf("the epic's index must sit at the run root: %v", err)
 	}
 }
 
