@@ -54,6 +54,11 @@ func TestConfigPathPrecedenceFlagBeatsEnvBeatsDefault(t *testing.T) {
 	captureFn = func(configPath string, args []string) error { gotConfig = configPath; return nil }
 	t.Cleanup(func() { captureFn = runCapture })
 
+	// A host exporting KERNL_CONFIG (e.g. for everyday kernl use) would
+	// otherwise leak into the "no override at all" case below and assert
+	// the wrong default.
+	t.Setenv("KERNL_CONFIG", "")
+
 	if err := Dispatch([]string{"capture", "note"}); err != nil {
 		t.Fatalf("capture failed: %v", err)
 	}
