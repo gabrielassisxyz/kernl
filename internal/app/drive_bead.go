@@ -260,6 +260,20 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: activeState, Success: false}, err
 		}
 
+		// Before any agent is spawned for this bead: a bead whose own text
+		// says its design is still open is not autonomous work, and
+		// dispatching it would have an implementer choose an approach
+		// nobody committed to. handleDepthGate is a no-op for every other
+		// bead, and asks at most once per bead (see its own doc comment).
+		gate, err := handleDepthGate(ctx, deps, bead, epicID, artifactDir, activeState, forkGateCalls)
+		if err != nil {
+			return RunBeadResult{FinalState: activeState, Success: false}, err
+		}
+		forkGateCalls = gate.ForkGateCalls
+		if gate.Blocked {
+			return gate.Result, nil
+		}
+
 		// A decision_record gate on this stage needs the epic's own title
 		// to build its reference node (see recordDecisionIfGateType).
 		// Fetched here, before the agent runs, so a transient tracker
@@ -565,13 +579,23 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				backend.ResolveArtifactPath("<artifact_dir>/implementation-review.md", deps.BeadID, artifactDir))
 		}
 		// A stage that cannot hand a fork over must never be told it can
-		// (see StagePromptInput.ForkHandoverPath): both fields stay empty
-		// whenever forkHandoverArmed is false, which is every reviewer stage
-		// and every run with no DA configured - today's behavior.
-		var forkHandoverPath, forkAnswer string
+		// (see StagePromptInput.ForkHandoverPath): the INVITATION stays
+		// gated on forkHandoverArmed, which is false for every reviewer
+		// stage and every run with no DA configured - today's behavior.
+		//
+		// The ANSWER is not gated the same way, and the two were conflated
+		// until the depth gate started producing answers of its own. A
+		// decision that has already been taken must reach whoever
+		// implements it, always: gating the read on this stage declaring a
+		// decision_record exit gate meant a profile without one silently
+		// dropped a settled decision on the floor, and the implementer
+		// re-decided it. Reading an answer that exists costs nothing when
+		// there is none; not reading one that does is how the decision the
+		// operator was spared gets made twice.
+		forkAnswer := readForkAnswerArtifact(deps.BeadID, artifactDir)
+		var forkHandoverPath string
 		if forkHandoverArmed(wf, activeState, deps.DA) {
 			forkHandoverPath = resolvedForkHandoverPath(deps.BeadID, artifactDir)
-			forkAnswer = readForkAnswerArtifact(deps.BeadID, artifactDir)
 		}
 		promptInput := StagePromptInput{
 			Bead:              bead,
