@@ -179,16 +179,26 @@ type ComposeRunReportInput struct {
 	// read via workflow.GetPRURL. ComposeRunReport does not parse it itself
 	// - it is composed before CloseWorkflowRun, same as Status, so this is
 	// the caller's own freshly-read fact, not one this function re-derives.
-	// Empty whenever shipment never ran or never got that far; the report
-	// stays silent about it rather than printing an empty field.
+	// See runEpicRun/runBeadDispatch, which re-fetch the bead rather than
+	// reuse the copy taken before the run started, since shipment writes it
+	// mid-run.
+	//
+	// It lands in two places: the run's own report header, and one column of
+	// this run's line in the epic's report.md index, so the index can point
+	// at a shipped pull request without the reader opening the run's file.
+	// Empty whenever shipment never ran or never got that far; both places
+	// stay silent about it rather than printing an empty field.
 	PRURL string
 
-	// StateDir and EpicID locate the report on disk, at
-	// <StateDir>/run/<EpicID>/report.md - the same run root
+	// StateDir and EpicID locate this run's report on disk, at
+	// <StateDir>/run/<EpicID>/runs/<RunID>.md - the same run root
 	// resolveArtifactDir (drive_bead.go) and AppendStageAttempt
 	// (attempt_ledger.go) use. EpicID is tracker data this project does not
 	// own (see isSafePathComponent's own doc comment): the epic's own id for
 	// `epic run`, the standalone bead's own id for `bead run`.
+	// <StateDir>/run/<EpicID>/report.md is a second file this same call
+	// writes: not this run's report, but the epic's index over every run
+	// that ever wrote one - see writeRunReport's own doc comment.
 	StateDir string
 	EpicID   string
 
@@ -272,7 +282,7 @@ func ComposeRunReport(ctx context.Context, in ComposeRunReportInput) (string, er
 	}
 	sortFixupDecisionsFirst(fields)
 
-	return writeRunReport(in.StateDir, in.EpicID, renderRunReport(in, rd, fields))
+	return writeRunReport(in, len(fields), renderRunReport(in, rd, fields))
 }
 
 // findRunDecisions walks the single edge WriteDecisionRecordNode creates
@@ -543,13 +553,15 @@ func renderRunReport(in ComposeRunReportInput, rd runData, fields []decisionRepo
 	return b.String()
 }
 
-// runReportPath resolves where ComposeRunReport writes its output:
-// <StateDir>/run/<EpicID>/report.md, the same run root resolveArtifactDir
-// (drive_bead.go) and resolveAttemptLedgerPath (attempt_ledger.go) use. It
-// reuses their two path-safety checks rather than a third copy -
-// isSafePathComponent and escapesRoot - because EpicID is tracker data this
-// project does not own (see isSafePathComponent's own doc comment).
-func runReportPath(stateDir, epicID string) (string, error) {
+// resolveEpicDir is the shared root every artifact this package keeps for
+// one epic (or standalone bead) lives under: <StateDir>/run/<EpicID>, the
+// same run root resolveArtifactDir (drive_bead.go) and
+// resolveAttemptLedgerPath (attempt_ledger.go) use. It applies the two
+// path-safety checks every caller building a path from EpicID needs -
+// isSafePathComponent and escapesRoot - once, here, because EpicID is
+// tracker data this project does not own (see isSafePathComponent's own doc
+// comment), rather than once per caller.
+func resolveEpicDir(stateDir, epicID string) (string, error) {
 	if stateDir == "" {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no state directory for the run report - Fix: set DriveBeadDeps.StateDir (app.DefaultStateDir() outside tests)")
 	}
@@ -566,18 +578,56 @@ func runReportPath(stateDir, epicID string) (string, error) {
 	if err := os.MkdirAll(epicDir, 0o755); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating run report dir %s: %w", epicDir, err)
 	}
-	return filepath.Join(epicDir, "report.md"), nil
+	return epicDir, nil
 }
 
-// writeRunReport writes body to the run's report path and returns it, so
-// the CLI caller can print where the report landed.
-func writeRunReport(stateDir, epicID, body string) (string, error) {
-	path, err := runReportPath(stateDir, epicID)
+// runReportPath resolves where ComposeRunReport writes THIS run's own
+// report: <StateDir>/run/<EpicID>/runs/<RunID>.md. RunID is kernl's own
+// UUIDv7 (StartWorkflowRun / internal/graph/internal/ids.New), not tracker
+// data, so in practice it is already a safe single path segment - but
+// isSafePathComponent is applied anyway, at no real cost, rather than
+// trusting an id this function did not itself mint.
+func runReportPath(stateDir, epicID, runID string) (string, error) {
+	epicDir, err := resolveEpicDir(stateDir, epicID)
+	if err != nil {
+		return "", err
+	}
+	if !isSafePathComponent(runID) {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: unsafe run id %q for the run report path - Fix: the id must be a single path segment with no '/', '\\', '.', or '..'", runID)
+	}
+
+	runsDir := filepath.Join(epicDir, "runs")
+	if err := os.MkdirAll(runsDir, 0o755); err != nil {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating run report dir %s: %w", runsDir, err)
+	}
+	return filepath.Join(runsDir, runID+".md"), nil
+}
+
+// writeRunReport writes body to this run's own report path and returns it
+// unchanged (an operator or a test reads this as pointing at the run's own
+// report - see ComposeRunReportInput's own doc comment), then folds one line
+// describing this run into <StateDir>/run/<EpicID>/report.md, the epic's
+// index over every run that ever wrote one.
+//
+// Before this function existed, report.md WAS the run's report, and every
+// run overwrote the previous one's: an epic shipped across several
+// invocations lost every earlier invocation's decisions the moment the last
+// one closed (see this file's own package doc for the incident that forced
+// the change). Splitting the two apart keeps ComposeRunReport's original
+// contract - "the run is the unit, one whole report arrives" - while making
+// report.md answer a question no single run's file ever could: what did this
+// epic do across every run it took.
+func writeRunReport(in ComposeRunReportInput, decisionCount int, body string) (string, error) {
+	path, err := runReportPath(in.StateDir, in.EpicID, in.RunID)
 	if err != nil {
 		return "", err
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: writing run report to %s: %w", path, err)
+	}
+
+	if err := updateRunIndex(in, decisionCount); err != nil {
+		return "", err
 	}
 	return path, nil
 }
