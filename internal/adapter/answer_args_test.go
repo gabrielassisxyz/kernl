@@ -5,15 +5,48 @@ import (
 	"testing"
 )
 
+// This asserts the whole argv against a literal, which is exactly why it did
+// NOT catch the ordering defect it now pins: a literal-equality test passes
+// whichever order is written into its own want, so it agreed with the broken
+// argv for as long as that argv shipped. TestBuildAnswerModeArgs_ClaudePromptPrecedesTools
+// below is what actually guards the property.
 func TestBuildAnswerModeArgs_Claude(t *testing.T) {
 	got, err := BuildAnswerModeArgs(AgentTarget{Command: "claude", Model: "opus"}, "why does this matter")
 	if err != nil {
 		t.Fatalf("BuildAnswerModeArgs: %v", err)
 	}
-	want := []string{"-p", "--tools", "", "--model", "opus", "why does this matter"}
+	want := []string{"-p", "why does this matter", "--tools", "", "--model", "opus"}
 	if strings.Join(got.Args, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("Args = %q, want %q", got.Args, want)
 	}
+}
+
+// claude's --tools is variadic, so a prompt trailing it is swallowed as one
+// more tool name and the CLI answers nothing at all. The property that keeps
+// the answer reaching the model is positional, so it is the position this
+// checks, not the exact slice.
+func TestBuildAnswerModeArgs_ClaudePromptPrecedesTools(t *testing.T) {
+	got, err := BuildAnswerModeArgs(AgentTarget{Command: "claude", Model: "opus"}, "a distinctive prompt marker")
+	if err != nil {
+		t.Fatalf("BuildAnswerModeArgs: %v", err)
+	}
+	promptIdx := indexOf(got.Args, "a distinctive prompt marker")
+	toolsIdx := indexOf(got.Args, "--tools")
+	if promptIdx == -1 || toolsIdx == -1 {
+		t.Fatalf("Args = %q, want both the prompt and --tools present", got.Args)
+	}
+	if promptIdx >= toolsIdx {
+		t.Errorf("Args = %q, want the prompt (index %d) before --tools (index %d)", got.Args, promptIdx, toolsIdx)
+	}
+}
+
+func indexOf(args []string, want string) int {
+	for i, a := range args {
+		if a == want {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestBuildAnswerModeArgs_Pi(t *testing.T) {

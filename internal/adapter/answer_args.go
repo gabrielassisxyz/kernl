@@ -42,11 +42,23 @@ func BuildAnswerModeArgs(agent AgentTarget, prompt string) (PromptModeArgs, erro
 		// tool use altogether. Omitting a tool flag - what this used to do -
 		// left the CLI's own default tool set enabled, which made the
 		// tool-less claim made about this actor elsewhere false for claude.
-		args := []string{"-p", "--tools", ""}
+		//
+		// The prompt comes FIRST here, before the flags, and that ordering is
+		// load-bearing rather than stylistic: claude spells this flag
+		// `--tools <tools...>`, which is variadic, so a prompt trailing it is
+		// consumed as one more tool name and the CLI then exits with "Input
+		// must be provided either through stdin or as a prompt argument when
+		// using --print". Measured against claude 2.1.220:
+		//
+		//	claude -p --tools "" "<prompt>"   -> Error: Input must be provided...
+		//	claude -p "<prompt>" --tools ""   -> the answer
+		//
+		// Every other dialect here takes its prompt as a trailing positional,
+		// which is why this one reads differently from the rest of the file.
+		args := []string{"-p", prompt, "--tools", ""}
 		if agent.Model != "" {
 			args = append(args, "--model", agent.Model)
 		}
-		args = append(args, prompt)
 		return PromptModeArgs{Command: cmd, Args: args}, nil
 	case DialectPi:
 		args := []string{"-p", "--no-tools"}
