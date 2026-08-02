@@ -236,3 +236,35 @@ func TestDriveBeadToTerminal_ExhaustedBudgetStopsRetrying(t *testing.T) {
 		t.Errorf("an exhausted budget must not keep rewriting the bead, got %d writes", be.writes-writesBefore)
 	}
 }
+
+// The post-shipment verification in cmd/kernl blocks an epic that published
+// somewhere the configuration does not allow. It is a fourth writer of
+// "blocked", outside the drive loop, and it must not be resumable: retrying
+// it would ship again toward the same unapproved destination.
+//
+// The stale label is the point of the test. Without an explicit cause the
+// epic would inherit whatever wf:blocked:* an earlier mechanical block left
+// behind, and a re-run would read that as permission to resume.
+func TestBlockBeadWithCause_ExportedFormOverwritesAStaleMechanicalCause(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["ep-1"] = &backend.Bead{
+		ID:     "ep-1",
+		State:  "awaiting_pr_review",
+		Labels: []string{"wf:state:shipment", "wf:blocked:subprocess"},
+	}
+
+	if err := BlockBeadWithCause(be, "ep-1", "/tmp/repo", BlockedCauseJudgment); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	bd, _ := be.Get("ep-1", "/tmp/repo")
+	if bd.State != "blocked" {
+		t.Errorf("State = %q, want blocked", bd.State)
+	}
+	if got := BlockedCauseFromLabels(bd.Labels); got != BlockedCauseJudgment {
+		t.Errorf("cause = %q, want judgment so no re-run resumes it (labels %v)", got, bd.Labels)
+	}
+	if got := BlockedCauseFromLabels(bd.Labels); got.IsMechanical() {
+		t.Errorf("cause = %q must not be mechanical: a disallowed publish is never retried automatically", got)
+	}
+}

@@ -1151,7 +1151,11 @@ func verifyPublishedPullRequest(a *app.App, epicID, repoPath string, plan shipme
 	// it there would make the tracker say the run succeeded while the CLI says
 	// it published somewhere it may not - and the tracker is what the next
 	// session reads. Block it, and say so if that itself fails.
-	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: string(workflow.StatusBlocked)}, repoPath); err != nil {
+	//
+	// It blocks with the judgment cause: publishing to a repository nobody
+	// allowed is exactly the case a re-run must not retry on its own, since
+	// retrying would ship again toward the same unapproved destination.
+	if err := app.BlockBeadWithCause(a.Backend, epicID, repoPath, app.BlockedCauseJudgment); err != nil {
 		return fmt.Errorf("%w - and the epic could not be marked blocked (%v), so its state still reads as a successful run: fix it by hand", checkErr, err)
 	}
 	return fmt.Errorf("%w - epic %s marked blocked", checkErr, epicID)

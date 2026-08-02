@@ -93,13 +93,31 @@ const mechanicalBlockRetryLimit = 2
 // that refuses the write leaves the bead's State stuck at whatever it was,
 // which is a worse, more visible failure than a missing label on top of it.
 func blockBeadWithCause(be backend.BackendPort, beadID, repoPath string, cause BlockedCause) {
+	_ = BlockBeadWithCause(be, beadID, repoPath, cause)
+}
+
+// BlockBeadWithCause is the same write for a caller that has somewhere to
+// report a failed one. cmd/kernl's post-shipment verification is the only
+// such caller: it blocks an epic that published to a repository outside the
+// configured allowlist, and a block that silently failed there would leave
+// the tracker reading as a successful run, which is the one outcome that
+// check exists to prevent.
+//
+// It records BlockedCauseJudgment, and doing so explicitly matters even
+// though an absent label already resumes the same way. Behaviour that is
+// correct only because nothing was written is behaviour one stale label
+// away from being wrong: a wf:blocked:subprocess left over from an earlier
+// mechanical block would otherwise survive this write and invite a re-run to
+// resume, automatically, an epic held back precisely because a human has to
+// look at where it published.
+func BlockBeadWithCause(be backend.BackendPort, beadID, repoPath string, cause BlockedCause) error {
 	var labels []string
 	if bead, err := be.Get(beadID, repoPath); err == nil && bead != nil {
 		labels = bead.Labels
 	}
 	labels = filterOutLabelPrefix(labels, blockedCauseLabelPrefix)
 	labels = append(labels, blockedCauseLabelPrefix+string(cause))
-	_ = be.Update(beadID, backend.UpdateBeadInput{State: "blocked", SetLabels: labels}, repoPath)
+	return be.Update(beadID, backend.UpdateBeadInput{State: "blocked", SetLabels: labels}, repoPath)
 }
 
 // BlockedCauseFromLabels recovers which of the three causes blocked a bead,
