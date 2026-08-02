@@ -206,7 +206,7 @@ func TestSweepRefusesARepositoryWithNoResolvableTracker(t *testing.T) {
 // refuse before any of that, naming the registered paths instead.
 func TestResolveSweepRepoPathUnmatchedFailsWithRegistryListing(t *testing.T) {
 	cfg := cfgWithRepos("/home/me/archeion")
-	_, err := resolveSweepRepoPath(cfg, "/home/me/clarty-data-workflow")
+	_, err := resolveSweepRepoPath(cfg, "/home/me/clarty-data-workflow", "/elsewhere")
 	if err == nil {
 		t.Fatal("expected a loud failure for an unregistered --repo")
 	}
@@ -222,7 +222,7 @@ func TestResolveSweepRepoPathUnmatchedFailsWithRegistryListing(t *testing.T) {
 // repo - the same rule every other verb applies through resolveRepoEntry.
 func TestResolveSweepRepoPathBareInvocationUsesTheSoleRepo(t *testing.T) {
 	cfg := cfgWithRepos("/home/me/archeion")
-	got, err := resolveSweepRepoPath(cfg, "")
+	got, err := resolveSweepRepoPath(cfg, "", "/elsewhere")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestResolveSweepRepoPathBareInvocationUsesTheSoleRepo(t *testing.T) {
 // name the choice explicitly, like every other verb without --repo.
 func TestResolveSweepRepoPathBareInvocationWithMultipleReposFailsLoud(t *testing.T) {
 	cfg := cfgWithRepos("/home/me/archeion", "/home/me/daytrace")
-	_, err := resolveSweepRepoPath(cfg, "")
+	_, err := resolveSweepRepoPath(cfg, "", "/elsewhere")
 	if err == nil {
 		t.Fatal("expected a loud failure rather than a silent default to \".\"")
 	}
@@ -246,11 +246,27 @@ func TestResolveSweepRepoPathBareInvocationWithMultipleReposFailsLoud(t *testing
 	}
 }
 
+// sweep reaches the registry through the same resolveRepoEntry as every other
+// verb, so it inherits the working-directory default too. Pinned here because
+// the two changes that produced this behaviour landed separately and neither
+// one could see the other: sweep started calling resolveRepoEntry in one, and
+// resolveRepoEntry learned about the working directory in the other.
+func TestResolveSweepRepoPathBareInvocationResolvesFromWorkingDir(t *testing.T) {
+	cfg := cfgWithRepos("/home/me/archeion", "/home/me/daytrace")
+	got, err := resolveSweepRepoPath(cfg, "", "/home/me/daytrace/internal/store")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/home/me/daytrace" {
+		t.Fatalf("repoPath = %q, want the repo the working directory sits in", got)
+	}
+}
+
 // No repos registered at all: sweep must say so rather than fall back to "."
 // and report a tracker failure over a directory that was never configured.
 func TestResolveSweepRepoPathNoReposRegisteredFailsLoud(t *testing.T) {
 	cfg := &config.Config{}
-	_, err := resolveSweepRepoPath(cfg, "")
+	_, err := resolveSweepRepoPath(cfg, "", "/elsewhere")
 	if err == nil {
 		t.Fatal("expected a loud failure when nothing is registered")
 	}

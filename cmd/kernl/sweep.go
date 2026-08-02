@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -43,7 +44,10 @@ func runSweep(configPath string, args []string) error {
 		return err
 	}
 
-	repoPath, err := resolveSweepRepoPath(appCfg, flags.repo)
+	// A failed Getwd is not fatal: it leaves the directory unable to answer,
+	// which lands on the same refusal as a directory that matches nothing.
+	cwd, _ := os.Getwd()
+	repoPath, err := resolveSweepRepoPath(appCfg, flags.repo, cwd)
 	if err != nil {
 		return err
 	}
@@ -88,8 +92,10 @@ func runSweep(configPath string, args []string) error {
 // through to sniffing a directory that does not exist, and the failure read
 // as "the repository fails to declare a tracker" - sending the operator to
 // fix a memoryManager that was already correct, over a path that was wrong.
-func resolveSweepRepoPath(cfg *config.Config, requested string) (string, error) {
-	entry, err := resolveRepoEntry(cfg, requested)
+// cwd is threaded in rather than read here so this stays a pure function of
+// its inputs and its tests stay hermetic, the same seam resolveRepoEntry uses.
+func resolveSweepRepoPath(cfg *config.Config, requested string, cwd string) (string, error) {
+	entry, err := resolveRepoEntry(cfg, requested, cwd)
 	if err != nil {
 		return "", err
 	}
