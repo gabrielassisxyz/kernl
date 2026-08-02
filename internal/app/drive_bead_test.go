@@ -1426,6 +1426,57 @@ func TestResolveArtifactDir_RefusalEmitsNoOpencodePermission(t *testing.T) {
 	}
 }
 
+// envCapturingDriver records the environment every dispatch was handed, so a
+// test can assert on what a spawned agent would actually see.
+type envCapturingDriver struct {
+	be  *persistingBackend
+	env []map[string]string
+}
+
+func (d *envCapturingDriver) RunBead(ctx context.Context, in RunBeadInput) (RunBeadResult, error) {
+	captured := make(map[string]string, len(in.Env))
+	for k, v := range in.Env {
+		captured[k] = v
+	}
+	d.env = append(d.env, captured)
+	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses_test"}, nil
+}
+
+// Every stage of one bead carries the same affinity key, and it is the bead
+// id: a run whose stages each announced a different session would look like
+// separate conversations to the proxy and lose the warm account between them.
+func TestDriveBead_EveryStageCarriesTheBeadAffinityKey(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "planning"}
+
+	driver := &envCapturingDriver{be: be}
+
+	_, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand: "bd",
+		StateDir:       t.TempDir(),
+		VerifyCommand:  "bin/ci",
+		Backend:        be,
+		Driver:         driver,
+		Config:         newDriveTestConfig(),
+		BeadID:         "kb-1",
+		RepoPath:       "/tmp/repo",
+		Worktree:       "/tmp/worktree",
+		MaxStages:      16,
+	})
+	if err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v", err)
+	}
+	if len(driver.env) == 0 {
+		t.Fatal("no dispatch captured, so the assertion below would pass vacuously")
+	}
+
+	for i, env := range driver.env {
+		if got := env[LLMSessionEnvVar]; got != "kb-1" {
+			t.Errorf("dispatch %d: %s = %q, want the bead id kb-1", i, LLMSessionEnvVar, got)
+		}
+	}
+}
+
 func TestEpicIDFor_FallsBackToBeadIDWithNoParent(t *testing.T) {
 	standalone := &backend.Bead{ID: "kb-1"}
 	if got := epicIDFor(standalone); got != "kb-1" {

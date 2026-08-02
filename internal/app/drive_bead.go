@@ -19,6 +19,37 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
+// LLMSessionEnvVar names the affinity key kernl hands a dispatched agent so
+// the LLM proxy in front of it can keep one conversation on one upstream
+// account. It exists because the accounts behind that proxy cache prompt
+// prefixes per account: a stage whose ~40-150 model calls are load-balanced
+// across three of them lands cold on most of those calls and reprocesses its
+// whole history, in latency and in plan quota. The routing that buys
+// throughput is what destroys cache locality, and only the caller knows
+// which calls belong together.
+//
+// The value is the bead id, which is the granularity that gets both
+// properties at once. Finer (one key per stage attempt) would drop the warm
+// account between a rejected attempt and its retry, where the stage prompt
+// and repo context - the prefix that actually caches - are near-identical.
+// Coarser (one key per epic) would pin every bead of a run to a single
+// account and leave the others idle, which is the same failure as hardcoding
+// a pinned alias. Different beads still spread, because their prefixes
+// genuinely differ and pinning them together would buy nothing.
+//
+// kernl only names the session; it deliberately does not choose an account.
+// Mapping the key to a deployment and expiring it is the proxy's job, and
+// reimplementing that here would mean tracking session-to-account state and
+// its TTL in application code.
+//
+// It is set for every dialect rather than gated on one, because it is inert
+// for an agent whose configuration never reads it, and gating would bake in
+// the assumption that only today's agent talks to a proxy. Consuming it is
+// one line of agent configuration - for pi, a `headers` entry sending
+// `x-litellm-session-id` from this variable. An agent run outside kernl
+// simply has it unset and falls back to the proxy's normal load balancing.
+const LLMSessionEnvVar = "KERNL_LLM_SESSION_ID"
+
 // BeadDriver is the orchestrator-internal contract for spawning a single
 // agent against a single bead stage. SessionDriver implements it; tests can
 // supply fakes.
@@ -643,6 +674,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 		agentInput.Env["BEAD_ID"] = deps.BeadID
 		agentInput.Env["REPO_PATH"] = deps.RepoPath
+		agentInput.Env[LLMSessionEnvVar] = deps.BeadID
 
 		// Captured before dispatch so commit_marker gates can scope their
 		// scan to what this stage produced, not the branch's prior history
