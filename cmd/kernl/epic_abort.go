@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -37,7 +38,8 @@ func runEpicAbort(a *app.App, args []string, out func(string)) error {
 	if epicID == "" {
 		return usagef("KERNL DISPATCH FAILURE: epic abort requires an epic ID - run: kernl epic abort <epic-id>")
 	}
-	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	cwd, _ := os.Getwd()
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag, cwd)
 	if err != nil {
 		return err
 	}

@@ -112,7 +112,7 @@ the others drive the orchestrator locally.`,
 				Details: "{{flags}}",
 				Flags: []commandFlag{
 					{Name: "--json", Description: `Emit {"epics":[{"id","title","children","state"}]} on stdout`},
-					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; defaults to the working directory's repo, required when it matches none or more than one is registered"},
 				},
 			},
 			{
@@ -130,7 +130,7 @@ the others drive the orchestrator locally.`,
 							"stage - a later real run can find nothing left to merge and get stuck. --dry-run",
 							"is accepted as an alias, but that name overstates what the flag withholds.",
 						}},
-					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; defaults to the working directory's repo, required when it matches none or more than one is registered"},
 				},
 			},
 			{
@@ -152,7 +152,7 @@ use --stop-before-shipment to run integration for real and withhold only shipmen
 							"stage - a later real run can find nothing left to merge and get stuck. --dry-run",
 							"is accepted as an alias, but that name overstates what the flag withholds.",
 						}},
-					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; defaults to the working directory's repo, required when it matches none or more than one is registered"},
 				},
 			},
 			{
@@ -166,7 +166,7 @@ and purges agent state. Requires --yes; use --dry-run to preview.
 				Flags: []commandFlag{
 					{Name: "--yes", Description: "Confirm the close; without it nothing is changed"},
 					{Name: "--dry-run", Description: "Preview what would be closed and removed"},
-					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; defaults to the working directory's repo, required when it matches none or more than one is registered"},
 				},
 			},
 		}, epicAPISubcommands...),
@@ -191,7 +191,7 @@ weaker: it still dispatches and commits for real, withholding only shipment.
 {{flags}}`,
 				Flags: []commandFlag{
 					{Name: "--dry-run", Description: "Validate without dispatching; stop before the first write"},
-					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; required when more than one is registered"},
+					{Name: "--repo", Value: "<path|name>", Description: "Which registered repo to act on; defaults to the working directory's repo, required when it matches none or more than one is registered"},
 				},
 			},
 		}, beadAPISubcommands...),

@@ -145,7 +145,8 @@ func runEpicList(a *app.App, w io.Writer, args []string) error {
 				arg, didYouMean(arg, []string{"--json", "--repo"}))
 		}
 	}
-	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	cwd, _ := os.Getwd()
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag, cwd)
 	if err != nil {
 		return err
 	}
@@ -253,7 +254,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		return usagef("KERNL DISPATCH FAILURE: epic run requires an epic ID - run: kernl epic run <epic-id>")
 	}
 	epicID := remainingArgs[0]
-	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	cwd, _ := os.Getwd()
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag, cwd)
 	if err != nil {
 		return err
 	}

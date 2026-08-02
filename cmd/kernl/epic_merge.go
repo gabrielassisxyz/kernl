@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -43,7 +44,8 @@ func runEpicMerge(a *app.App, args []string, out func(string)) error {
 		return usagef("KERNL DISPATCH FAILURE: epic merge requires an epic ID - run: kernl epic merge <epic-id>")
 	}
 	epicID := positional[0]
-	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	cwd, _ := os.Getwd()
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag, cwd)
 	if err != nil {
 		return err
 	}
