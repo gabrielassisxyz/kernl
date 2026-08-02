@@ -134,6 +134,103 @@ func TestExecutorRunsIndependentChildrenConcurrently(t *testing.T) {
 	}
 }
 
+// Every run prints "realized parallelism: peak N, max M", so the tracker has to
+// count beads that are running, not beads handed to the dispatcher and still
+// queued behind the semaphore. Continuous dispatch offers the whole ready set
+// at once, which is exactly the shape that makes counting-on-dispatch report a
+// peak above maxConcurrentBeads: a figure that cannot happen, printed as if it
+// had.
+func TestExecutorParallelismPeakNeverExceedsMaxConcurrent(t *testing.T) {
+	nodes := []Node{{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"}}
+	dag, err := NewDAG(nodes)
+	if err != nil {
+		t.Fatalf("NewDAG: %v", err)
+	}
+	ep := &Epic{ID: "epic-peak", DAG: dag, Children: []backend.Bead{
+		{ID: "a"}, {ID: "b"}, {ID: "c"}, {ID: "d"},
+	}}
+
+	const maxConcurrent = 2
+	running := make(chan struct{}, len(nodes))
+	release := make(chan struct{})
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		running <- struct{}{}
+		<-release
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+	ex := NewExecutor(ExecutorDeps{Epic: ep, RunBead: runBead, Worktree: fakeWT(), MaxConcurrent: maxConcurrent})
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- ex.Run(context.Background()) }()
+
+	// Both slots are occupied and the other two beads are queued: the moment
+	// the distinction between dispatched and running is observable.
+	for i := 0; i < maxConcurrent; i++ {
+		<-running
+	}
+	peak := ex.Parallelism().Peak
+
+	close(release)
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if peak > maxConcurrent {
+		t.Errorf("peak = %d with MaxConcurrent %d: beads queued on the semaphore are being counted as running", peak, maxConcurrent)
+	}
+}
+
+// TestExecutorDispatchesUnblockedBeadWithoutWaitingForWaveSiblings captures the
+// continuous-dispatch requirement: a bead whose only blocker has finished must
+// launch immediately, even while an unrelated sibling from the same original
+// ready set is still running. A wave barrier holds "gated" back until "slow"
+// also finishes, even though nothing in the graph requires that wait.
+func TestExecutorDispatchesUnblockedBeadWithoutWaitingForWaveSiblings(t *testing.T) {
+	nodes := []Node{
+		{ID: "slow", DependsOn: []string{}},
+		{ID: "fast", DependsOn: []string{}},
+		{ID: "gated", DependsOn: []string{"fast"}},
+	}
+	dag, err := NewDAG(nodes)
+	if err != nil {
+		t.Fatalf("NewDAG: %v", err)
+	}
+	children := []backend.Bead{{ID: "slow"}, {ID: "fast"}, {ID: "gated"}}
+	ep := &Epic{ID: "epic-continuous", DAG: dag, Children: children}
+
+	slowRelease := make(chan struct{})
+	gatedStarted := make(chan struct{}, 1)
+
+	runBead := func(ctx context.Context, in RunInput) (RunResult, error) {
+		switch in.BeadID {
+		case "slow":
+			<-slowRelease
+		case "gated":
+			gatedStarted <- struct{}{}
+		}
+		return RunResult{FinalState: "done", Success: true}, nil
+	}
+
+	// MaxConcurrent 2 dispatches slow and fast together, then frees exactly one
+	// slot when fast finishes - just enough for gated to slip in without slow
+	// having to finish too.
+	ex := NewExecutor(ExecutorDeps{Epic: ep, RunBead: runBead, Worktree: fakeWT(), MaxConcurrent: 2})
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- ex.Run(context.Background()) }()
+
+	select {
+	case <-gatedStarted:
+		// gated started while slow is still blocked: no wave barrier.
+	case <-time.After(2 * time.Second):
+		t.Fatal("gated never started before slow finished; still waiting on a wave barrier")
+	}
+
+	close(slowRelease)
+	if err := <-runDone; err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 // TestExecutorResumesSession passes the session ID through RunInput to the
 // bead worker when SessionResumes is wired.
 func TestExecutorResumesSession(t *testing.T) {
