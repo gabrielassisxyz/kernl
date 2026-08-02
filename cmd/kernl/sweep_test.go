@@ -199,6 +199,66 @@ func TestSweepRefusesARepositoryWithNoResolvableTracker(t *testing.T) {
 	}
 }
 
+// A typo in --repo used to reach AutoRouteFromConfig unresolved, matched
+// nothing, and fell through to sniffing a directory that does not exist -
+// which reported "nothing says which tracker it uses" and sent the operator
+// to fix a memoryManager that was never broken. resolveSweepRepoPath must
+// refuse before any of that, naming the registered paths instead.
+func TestResolveSweepRepoPathUnmatchedFailsWithRegistryListing(t *testing.T) {
+	cfg := cfgWithRepos("/home/me/archeion")
+	_, err := resolveSweepRepoPath(cfg, "/home/me/clarty-data-workflow")
+	if err == nil {
+		t.Fatal("expected a loud failure for an unregistered --repo")
+	}
+	if strings.Contains(err.Error(), "says which tracker") {
+		t.Fatalf("expected the registry-listing error, got the memoryManager one: %v", err)
+	}
+	if !strings.Contains(err.Error(), "archeion") {
+		t.Errorf("error must name the registered repos so the typo is obvious, got: %v", err)
+	}
+}
+
+// A bare `kernl sweep` with exactly one repo registered runs against that
+// repo - the same rule every other verb applies through resolveRepoEntry.
+func TestResolveSweepRepoPathBareInvocationUsesTheSoleRepo(t *testing.T) {
+	cfg := cfgWithRepos("/home/me/archeion")
+	got, err := resolveSweepRepoPath(cfg, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "/home/me/archeion" {
+		t.Fatalf("repoPath = %q, want the only registered repo", got)
+	}
+}
+
+// A bare `kernl sweep` used to default to ".", which never touched the
+// registry - so with several repos registered it silently swept whatever
+// directory the operator happened to be standing in. It must now refuse and
+// name the choice explicitly, like every other verb without --repo.
+func TestResolveSweepRepoPathBareInvocationWithMultipleReposFailsLoud(t *testing.T) {
+	cfg := cfgWithRepos("/home/me/archeion", "/home/me/daytrace")
+	_, err := resolveSweepRepoPath(cfg, "")
+	if err == nil {
+		t.Fatal("expected a loud failure rather than a silent default to \".\"")
+	}
+	if !strings.Contains(err.Error(), "--repo") {
+		t.Errorf("error must say how to disambiguate, got: %v", err)
+	}
+}
+
+// No repos registered at all: sweep must say so rather than fall back to "."
+// and report a tracker failure over a directory that was never configured.
+func TestResolveSweepRepoPathNoReposRegisteredFailsLoud(t *testing.T) {
+	cfg := &config.Config{}
+	_, err := resolveSweepRepoPath(cfg, "")
+	if err == nil {
+		t.Fatal("expected a loud failure when nothing is registered")
+	}
+	if !strings.Contains(err.Error(), "no repos registered") {
+		t.Errorf("expected the no-repos-registered error, got: %v", err)
+	}
+}
+
 // sweepEpicBackend is a named fake (AGENTS.md §4) that answers the two List
 // calls sweepBackendAdapter makes: the epics awaiting PR review, and each
 // epic's children. It embeds testBackend so only those two behaviours have to

@@ -3,6 +3,7 @@ package backend
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -371,6 +372,65 @@ func TestAutoRouteFromConfig_RepoNotInRegistry_UsesDetection(t *testing.T) {
 	_, err := AutoRouteFromConfig(cfg, tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// A trailing slash names the same repository. Exact string equality treated
+// it as a different one, fell through to sniffing the directory, and
+// silently ignored a memoryManager that was in fact configured.
+func TestAutoRouteFromConfig_TrailingSlash_StillFindsConfigured(t *testing.T) {
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Repos: []config.RepoEntry{
+				{Path: "/my/repo", MemoryManager: "knots"},
+			},
+		},
+	}
+	// The directory does not exist, so if this fell through to detection it
+	// would fail with repo_type_unknown - success here proves the configured
+	// entry was matched instead.
+	if _, err := AutoRouteFromConfig(cfg, "/my/repo/"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// An unclean path (a "..", a doubled separator) also names the same
+// repository once cleaned.
+func TestAutoRouteFromConfig_UncleanPath_StillFindsConfigured(t *testing.T) {
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Repos: []config.RepoEntry{
+				{Path: "/my/repo", MemoryManager: "knots"},
+			},
+		},
+	}
+	if _, err := AutoRouteFromConfig(cfg, "/my/other/../repo"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// AutoRouteFromConfig deliberately does not match by bare directory name the
+// way cmd/kernl's --repo resolution does: repoPath here is always a full
+// filesystem path from code, not an operator's shorthand, and matching by
+// name alone would let an unrelated directory that happens to share a folder
+// name inherit another repo's memoryManager.
+func TestAutoRouteFromConfig_BareNameDoesNotMatch(t *testing.T) {
+	cfg := &config.Config{
+		Registry: config.RegistryConfig{
+			Repos: []config.RepoEntry{
+				{Path: "/my/repo", MemoryManager: "knots"},
+			},
+		},
+	}
+	_, err := AutoRouteFromConfig(cfg, "repo")
+	if err == nil {
+		t.Fatal("expected bare-name lookup to miss the registry and fall through to detection")
+	}
+	// The configured knots memoryManager was silently ignored: this is
+	// ResolveMemoryManager's own "nothing on disk says which tracker" refusal,
+	// not the configured value being used.
+	if !strings.Contains(err.Error(), "says which tracker") {
+		t.Fatalf("expected the detection-fallback refusal, got: %v", err)
 	}
 }
 
