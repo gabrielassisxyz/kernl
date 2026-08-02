@@ -31,7 +31,10 @@ func NewDAG(nodes []Node) (*DAG, error) {
 	for _, n := range nodes {
 		for _, dep := range n.DependsOn {
 			if _, ok := d.nodes[dep]; !ok {
-				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: dependency cycle in epic - bead %s depends on unknown bead %s - Fix: correct the dependency graph in the plan and re-convert", n.ID, dep)
+				// Not a cycle: a node the set never contained. Saying "cycle"
+				// here sent an operator hunting a loop that did not exist,
+				// while the real edge pointed at a closed bead in another epic.
+				return nil, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s depends on unknown bead %s, which is not in the epic's node set - Fix: correct the dependency graph in the plan and re-convert", n.ID, dep)
 			}
 			d.adjacency[dep] = append(d.adjacency[dep], n.ID)
 			d.inDegree[n.ID]++
