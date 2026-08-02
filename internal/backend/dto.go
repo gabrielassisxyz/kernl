@@ -420,14 +420,28 @@ func DenormalizeBead(bead Bead) RawBead {
 	return raw
 }
 
+// IsClosedState reports whether a workflow state means the tracker considers
+// the work finished. It exists so callers outside this package - the epic
+// loader deciding whether a dependency is satisfied - ask the same question the
+// wire format answers, instead of carrying a second copy of the state list that
+// drifts from this one.
+func IsClosedState(state string) bool {
+	switch state {
+	case "shipped", "abandoned", "closed", "done", "approved":
+		return true
+	}
+	return false
+}
+
 func mapBeadStateToCompatStatus(state string) string {
+	if IsClosedState(state) {
+		return "closed"
+	}
 	switch state {
 	case "deferred":
 		return "deferred"
 	case "blocked", "rejected":
 		return "blocked"
-	case "shipped", "abandoned", "closed", "done", "approved":
-		return "closed"
 	case "ready_for_implementation", "ready_for_planning", "ready_for_review", "ready_for_integration", "ready_for_integration_review":
 		return "open"
 	case "planning", "implementation", "shipment_review", "plan_review", "integration", "integration_review":
