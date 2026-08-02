@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 )
 
@@ -82,8 +83,13 @@ func resolveRepoEntry(cfg *config.Config, requested string) (config.RepoEntry, e
 }
 
 func repoMatches(configured, requested string) bool {
-	clean := filepath.Clean(configured)
-	return clean == filepath.Clean(requested) || filepath.Base(clean) == requested
+	// The path comparison itself is shared with internal/backend's
+	// AutoRouteFromConfig via backend.SameRepoPath, so a trailing slash or an
+	// unclean path resolves the same registry entry from either caller. The
+	// bare-name fallback stays local: it is only correct for an operator
+	// typing --repo, not for AutoRouteFromConfig's internal path lookups (see
+	// the WHY comment there).
+	return backend.SameRepoPath(configured, requested) || filepath.Base(filepath.Clean(configured)) == requested
 }
 
 func repoPaths(repos []config.RepoEntry) []string {

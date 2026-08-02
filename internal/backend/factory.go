@@ -3,6 +3,7 @@ package backend
 import (
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -568,6 +569,18 @@ func AutoRouteBackendWithDetection(repoPath string) (BackendPort, error) {
 	}
 }
 
+// SameRepoPath answers whether configured and requested name the same
+// repository directory, ignoring a trailing slash or an unclean ".."/"."
+// segment. It is the one place that comparison lives: cmd/kernl's
+// resolveRepoEntry (an operator typing --repo) and this file's
+// AutoRouteFromConfig (an internal lookup by path) both need "the same
+// directory, written differently" to match, and diverging the comparison
+// between them would make a repo reachable from one caller and silently
+// unreachable from the other.
+func SameRepoPath(configured, requested string) bool {
+	return filepath.Clean(configured) == filepath.Clean(requested)
+}
+
 // AutoRouteFromConfig builds the backend that speaks a repository's tracker.
 //
 // Resolution is ResolveMemoryManager's: the configured memoryManager wins, an
@@ -579,9 +592,18 @@ func AutoRouteFromConfig(cfg *config.Config, repoPath string) (BackendPort, erro
 		return nil, newBackendDispatchError("backend", "", "autoRoute", "repo_path_missing")
 	}
 
+	// Matching by bare directory name (as resolveRepoEntry does for cmd/kernl's
+	// --repo) is deliberately not repeated here. There, "daytrace" is an
+	// operator's shorthand for a path they already registered, so the name
+	// resolves to a specific, unambiguous config entry. Here, repoPath is
+	// always a full filesystem path handed in by code - it is the directory
+	// the caller is actually about to read - and matching it against a
+	// registered entry by name alone would let an unrelated directory that
+	// happens to share a folder name (e.g. two checkouts both named "kernl")
+	// silently inherit that entry's memoryManager.
 	configured := ""
 	for _, repo := range cfg.Registry.Repos {
-		if repo.Path == repoPath {
+		if SameRepoPath(repo.Path, repoPath) {
 			configured = repo.MemoryManager
 			break
 		}
