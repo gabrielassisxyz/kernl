@@ -104,6 +104,13 @@ func markReviewDecisionRouted(beadID, artifactDir, reviewText string) error {
 // a fact about the BEAD as a whole - "has the DA already spent its one
 // top-up here" - that must hold regardless of which review happens to be on
 // disk, or whether it changed, the next time the budget runs out.
+//
+// The path this resolves to is scoped by the bead's CURRENT artifact
+// directory, which is keyed in part by its current parent epic (see
+// ArtifactDirPath). Re-parenting or detaching the bead between rejections
+// resolves a different directory with no marker in it, and the bead could
+// earn one more grant than intended. Accepted for a solo-dev tool: bounded to
+// one extra grant, and re-parenting a bead mid-rejection-cycle is rare.
 const reviewRewindExtraGrantArtifactPath = "<artifact_dir>/review-rewind-extra-grant.md"
 
 func resolvedReviewRewindExtraGrantPath(beadID, artifactDir string) string {
@@ -122,10 +129,32 @@ func resolvedReviewRewindExtraGrantPath(beadID, artifactDir string) string {
 // case that motivated this gate). A file in the bead's own artifact
 // directory - the same durability reviewDecisionAlreadyRouted's own marker
 // already relies on - survives both: the re-entry loop inside one call, and
-// a bead picked back up later.
-func reviewRewindExtraAlreadyGranted(beadID, artifactDir string) bool {
-	_, err := os.Stat(resolvedReviewRewindExtraGrantPath(beadID, artifactDir))
-	return err == nil
+// a bead picked back up later. What "survives" actually buys a resumed run
+// is narrower than it sounds, though: the reset counter means
+// reviewRewindBudgetSpent is false again on the first rejection after
+// resume, so this marker is not even consulted then - the ordinary budget
+// has room and the rejection rewinds normally. The marker only starts
+// mattering on the SECOND exhaustion within the resumed run, the same as it
+// would within one continuous run.
+//
+// The check below is not atomic with markReviewRewindExtraGranted's own
+// write - two concurrent `kernl epic run` processes hitting the same
+// spent-budget rejection could both Stat before either has written, and both
+// grant. Left unguarded: the blast radius is bounded (one bead earns at most
+// two extra rewinds instead of one, not an unbounded loop), a real collision
+// needs two processes racing the same bead's rejection at the same instant,
+// and the runstate layer upstream already contends for a bead before this
+// gate is reached. Not worth a lock file for a solo-dev tool.
+func reviewRewindExtraAlreadyGranted(beadID, artifactDir string) (bool, error) {
+	path := resolvedReviewRewindExtraGrantPath(beadID, artifactDir)
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("KERNL DISPATCH FAILURE: checking whether bead %s already spent its one DA-granted rewind top-up at %s: %w - Fix: kernl needs read access to this bead's own artifact directory", beadID, path, err)
 }
 
 // markReviewRewindExtraGranted records that fact, durably, the moment the DA
@@ -232,8 +261,9 @@ func handleGateFailure(ctx context.Context, in gateFailureContext) (gateFailureH
 	}
 
 	// Unclassified, or explicitly review.KindFixup: today's behavior,
-	// unchanged.
-	rewound, err := rewindAfterReviewRejection(in.Deps, in.WF, in.GateReason, in.ReviewRewinds)
+	// unchanged. No DA-granted top-up applies on this path - only a
+	// decision-classified rejection can ever earn one.
+	rewound, err := rewindAfterReviewRejection(in.Deps, in.WF, in.GateReason, in.ReviewRewinds, false)
 	if err != nil {
 		return gateFailureHandled{}, err
 	}
@@ -252,8 +282,7 @@ func handleGateFailure(ctx context.Context, in gateFailureContext) (gateFailureH
 //
 // Two pre-checks run before the DA is ever consulted, and they are no longer
 // one combined check (contrast this with the original fork/decision-gate
-// hardening pass, whose single reviewRejectionCanBeRewound call folded both
-// together):
+// hardening pass, whose single combined predicate folded both together):
 //
 //  1. No retake state to send an answer to (reviewRewindHasNoRetakeState) -
 //     unconditional, because no amount of rewind budget fixes a workflow
@@ -303,15 +332,21 @@ func handleReviewRaisedDecision(ctx context.Context, in gateFailureContext, reje
 	// ReviewRewinds counter). Anything short of that still falls through to
 	// consult the DA below, budget spent or not.
 	budgetSpent := reviewRewindBudgetSpent(in.ReviewRewinds)
-	if budgetSpent && reviewRewindExtraAlreadyGranted(in.Deps.BeadID, in.ArtifactDir) {
-		slog.Info("DRIVE_TRACE review-raised decision escalating: rewind budget spent and its one DA-granted top-up already used",
-			"bead", in.Deps.BeadID, "reviewRewinds", in.ReviewRewinds)
-		decision := ForkDecision{
-			Action: ForkActionEscalate,
-			Cause:  ForkCauseRewindBudgetSpentAfterGrant,
-			Reason: "the rewind budget is spent again after the DA already granted this bead its one extra rewind - Fix: resolve the pending decision by hand",
+	if budgetSpent {
+		alreadyGranted, err := reviewRewindExtraAlreadyGranted(in.Deps.BeadID, in.ArtifactDir)
+		if err != nil {
+			return gateFailureHandled{}, err
 		}
-		return gateFailureHandled{Result: blockBeadForDecision(in.Deps, in.ActiveState, "review_decision_escalated", decision)}, nil
+		if alreadyGranted {
+			slog.Info("DRIVE_TRACE review-raised decision escalating: rewind budget spent and its one DA-granted top-up already used",
+				"bead", in.Deps.BeadID, "reviewRewinds", in.ReviewRewinds)
+			decision := ForkDecision{
+				Action: ForkActionEscalate,
+				Cause:  ForkCauseRewindBudgetSpentAfterGrant,
+				Reason: "the rewind budget is spent again after the DA already granted this bead its one extra rewind - Fix: resolve the pending decision by hand",
+			}
+			return gateFailureHandled{Result: blockBeadForDecision(in.Deps, in.ActiveState, "review_decision_escalated", decision)}, nil
+		}
 	}
 
 	facts, err := gatherForkScopeFactsForBead(ctx, in.Deps, in.Bead, in.EpicID)
@@ -347,43 +382,48 @@ func handleReviewRaisedDecision(ctx context.Context, in gateFailureContext, reje
 		fmt.Sprintf("review_decision_decided: chose %q [%s]: %s", decision.ChosenOption, decision.Cause, decision.Reason),
 		in.Deps.RepoPath)
 
-	// rewindsForBudgetCheck is what rewindAfterReviewRejection's own budget
-	// check (reviewRewindBudgetSpent, the exact predicate
-	// reviewRejectionCanBeRewound is built from) is measured against below -
-	// ordinarily in.ReviewRewinds, unchanged. When the ordinary budget was
-	// spent, the DA having just decided means this bead has earned its one
-	// grant: recorded durably FIRST (same reasoning as
-	// markReviewDecisionRouted above - even a rewind that then fails for an
-	// unrelated tracker reason must leave the grant spent, never earning a
-	// second one on retry), then spent immediately by presenting one fewer
-	// rewind than actually used, so the shared budget check below finds
-	// room for exactly one more. implementationReviewRewindLimit itself is
-	// never touched - every OTHER rejection this run (or any other bead) is
-	// still measured against the same constant.
-	rewindsForBudgetCheck := in.ReviewRewinds
+	// When the ordinary budget was spent, the DA having just decided means
+	// this bead has earned its one grant: recorded durably FIRST (same
+	// reasoning as markReviewDecisionRouted above - even a rewind that then
+	// fails for an unrelated tracker reason must leave the grant spent,
+	// never earning a second one on retry), then threaded into
+	// rewindAfterReviewRejection as an explicit "this attempt is running on
+	// the granted top-up" signal, rather than faked by presenting the
+	// budget check one fewer rewind than actually used. A decrement only
+	// ever creates room when the counter sits exactly at the limit, and does
+	// nothing - no error, no rewind, just a burned grant - the moment it
+	// sits any higher, which a caller that constructs gateFailureContext
+	// directly (as tests do, and as a bead resumed by a separate run
+	// legitimately can) is free to produce. Passing budgetSpent itself as
+	// the override makes rewindAfterReviewRejection agree with THIS call's
+	// own budget check no matter what in.ReviewRewinds actually is.
+	// implementationReviewRewindLimit itself is never touched - every OTHER
+	// rejection this run (or any other bead) is still measured against the
+	// same constant.
 	if budgetSpent {
 		reason := fmt.Sprintf("granted after the DA decided %q [%s]: %s", decision.ChosenOption, decision.Cause, decision.Reason)
 		if err := markReviewRewindExtraGranted(in.Deps.BeadID, in.ArtifactDir, reason); err != nil {
 			return gateFailureHandled{}, err
 		}
-		rewindsForBudgetCheck = in.ReviewRewinds - 1
 	}
 
-	rewound, err := rewindAfterReviewRejection(in.Deps, in.WF, in.GateReason, rewindsForBudgetCheck)
+	rewound, err := rewindAfterReviewRejection(in.Deps, in.WF, in.GateReason, in.ReviewRewinds, budgetSpent)
 	if err != nil {
 		return gateFailureHandled{}, err
 	}
 	if rewound {
 		return gateFailureHandled{Reenter: true, ReviewRewinds: in.ReviewRewinds + 1, ForkGateCalls: in.ForkGateCalls + 1}, nil
 	}
-	// No retake state was already checked true above, and rewindsForBudgetCheck
-	// was built specifically so the budget check below finds room - so
-	// rewound=false here means only a genuine tracker error occurred, which
-	// rewindAfterReviewRejection itself would already have returned as an
-	// error rather than a plain false. Blocking rather than treating it as a
-	// hard failure keeps this branch's contract identical to every other
-	// unrewound rejection's "nowhere to send it" fallback.
-	return gateFailureHandled{Result: blockBeadForGateFailure(in.Deps, in.ActiveState, in.GateReason)}, nil
+	// Both of rewindAfterReviewRejection's own reasons to hand back a quiet
+	// false are already excluded by this point: reviewRewindHasNoRetakeState
+	// was checked false above before the DA was ever consulted, and passing
+	// budgetSpent itself as the override means its own budget check can
+	// never disagree with the budgetSpent computed here. So a plain false
+	// (no error) is not a state this call can reach - if it somehow does,
+	// that is a defect in the reasoning above, not an ordinary "nowhere to
+	// send it" rejection, and must not be blocked silently under the same
+	// gate_failed reason as one.
+	return gateFailureHandled{}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s's DA-granted rewind was not applied even though the pre-checks above found it possible - Fix: this is a defect in handleReviewRaisedDecision's own reasoning, not a tracker or config problem - report it rather than retrying", in.Deps.BeadID)
 }
 
 // forkHandoverFromImplementationRejection adapts a reviewer's KindDecision

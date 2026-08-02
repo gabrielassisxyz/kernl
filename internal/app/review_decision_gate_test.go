@@ -210,11 +210,6 @@ func TestHandleGateFailure_DecisionClassified_AlreadyRoutedEscalatesWithoutAskin
 	}
 }
 
-// TestHandleGateFailure_DecisionClassified_RewindNotPossibleEscalatesWithoutAskingTheDA
-// is the direct-unit proof of finding 4: with the rewind budget already
-// spent, a decision-classified rejection must escalate WITHOUT the DA ever
-// being consulted - asking it for an answer that cannot reach anyone would
-// waste a real consultation.
 // TestHandleGateFailure_DecisionClassified_BudgetSpentConsultsTheDAAndGrantsOneExtraRewind
 // is the acceptance test for the defect this gate exists to close: three (or
 // more) rejections deep on the same objection - exactly the point the
@@ -254,12 +249,60 @@ func TestHandleGateFailure_DecisionClassified_BudgetSpentConsultsTheDAAndGrantsO
 	if bd, _ := be.Get("kb-1", "/repo"); bd.State != "ready_for_implementation" {
 		t.Errorf("bead state = %q, want it rewound to the workflow's retake state", bd.State)
 	}
-	if !reviewRewindExtraAlreadyGranted("kb-1", dir) {
-		t.Error("the extra rewind grant must be recorded durably once the DA decides")
+	if granted, err := reviewRewindExtraAlreadyGranted("kb-1", dir); err != nil || !granted {
+		t.Errorf("the extra rewind grant must be recorded durably once the DA decides, got granted=%v err=%v", granted, err)
 	}
 	answer := readForkAnswerArtifact("kb-1", dir)
 	if !strings.Contains(answer, "CHOSEN: reverted") {
 		t.Errorf("fork-answer.md = %q, want the DA's chosen option recorded", answer)
+	}
+}
+
+// TestHandleGateFailure_DecisionClassified_BudgetSpentWellAboveLimitStillGrantsTheRewind
+// is the direct-unit proof that granting the top-up no longer depends on
+// ReviewRewinds sitting exactly at implementationReviewRewindLimit. A prior
+// implementation computed the room for the granted rewind by handing
+// rewindAfterReviewRejection one fewer than the caller's own count
+// (ReviewRewinds-1) rather than an explicit override - that only ever
+// produced room when ReviewRewinds equaled the limit exactly; at any higher
+// count the decremented value was still >= the limit, so the grant was
+// recorded to disk and then burned with no rewind actually happening. A
+// gateFailureContext with a higher count is not a hypothetical: any caller
+// that constructs one directly (as this test does, and as a bead resumed
+// with a stale or drifted counter legitimately could) can produce it. This
+// must FAIL against that off-by-one shape.
+func TestHandleGateFailure_DecisionClassified_BudgetSpentWellAboveLimitStillGrantsTheRewind(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
+	dir := t.TempDir()
+	writeImplementationReviewArtifact(t, dir, "kb-1", decisionClassifiedRejectionRecord)
+	da := decidingDA("reverted")
+
+	got, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:        DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da, Config: decisionGateTestConfig(t)},
+		WF:          workerWorkflow(),
+		ActiveState: "implementation_review",
+		ArtifactDir: dir,
+		GateReason:  "verdict_reject: " + filepath.Join(dir, "implementation-review.md"),
+		// Two above the limit, and no grant marker seeded yet - the grant has
+		// not been used, so this must still be treated as "not yet granted"
+		// and the DA must still be able to earn the bead a rewind.
+		ReviewRewinds: implementationReviewRewindLimit + 1,
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure: %v", err)
+	}
+	if da.calls != 1 {
+		t.Fatalf("expected the DA to be consulted exactly once, got %d calls", da.calls)
+	}
+	if !got.Reenter {
+		t.Fatalf("expected a Decided answer to rewind the bead even with the counter above the limit, got %+v", got)
+	}
+	if bd, _ := be.Get("kb-1", "/repo"); bd.State != "ready_for_implementation" {
+		t.Errorf("bead state = %q, want it rewound to the workflow's retake state", bd.State)
+	}
+	if granted, err := reviewRewindExtraAlreadyGranted("kb-1", dir); err != nil || !granted {
+		t.Errorf("the extra rewind grant must be recorded durably once the DA decides, got granted=%v err=%v", granted, err)
 	}
 }
 
@@ -303,11 +346,17 @@ func TestHandleGateFailure_DecisionClassified_NoRetakeStateEscalatesWithoutAskin
 }
 
 // TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnce is the
-// loop guard: a bead that already spent the one extra rewind the DA granted
-// it must escalate the NEXT time the budget runs out, never earning a
-// second top-up. Without this, an implementer and a reviewer that keep
-// disagreeing would earn a fresh rewind every time the budget ran out again,
-// turning the backstop into the exact infinite loop it exists to bound.
+// loop guard within a single continuous run: a bead that already spent the
+// one extra rewind the DA granted it must escalate the NEXT time the budget
+// runs out, never earning a second top-up. Without this, an implementer and
+// a reviewer that keep disagreeing would earn a fresh rewind every time the
+// budget ran out again, turning the backstop into the exact infinite loop it
+// exists to bound. This directly inflates ReviewRewinds past the limit the
+// way a continuous run's own loop would after the grant was spent; see
+// TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnceAcrossRuns
+// below for the shape the durable marker file actually exists for - a
+// SEPARATE `kernl epic run` invocation, where ReviewRewinds starts back at 0
+// rather than already sitting above the limit.
 func TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnce(t *testing.T) {
 	be := newPersistingBackend()
 	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
@@ -344,6 +393,90 @@ func TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnce(t *test
 	}
 }
 
+// TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnceAcrossRuns
+// is the shape reviewRewindExtraAlreadyGranted's own doc comment names as the
+// reason the grant has to be a durable file rather than the in-memory
+// ReviewRewinds counter: a bead resumed by a SEPARATE `kernl epic run`
+// invocation starts that counter back at 0, not wherever the earlier run left
+// it. reviewRewindBudgetSpent(0) is false, so the marker is not even
+// consulted on the resumed run's first rejection - the ordinary budget still
+// has room, and the rejection rewinds normally like any other. The marker
+// only starts mattering on the SECOND exhaustion within the resumed run, the
+// same as it would within one continuous run. This walks that actual
+// sequence as two separate handleGateFailure calls, each with its own fresh
+// gateFailureContext the way two separate DriveBeadToTerminal invocations
+// would produce - unlike TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnce
+// above, which jumps straight to a pre-inflated ReviewRewinds and so never
+// exercises a resumed run's own first, low-numbered call.
+func TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnceAcrossRuns(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
+	dir := t.TempDir()
+	// The grant was already spent in an earlier, separate run - only the
+	// durable marker remembers that; nothing about ReviewRewinds does.
+	if err := markReviewRewindExtraGranted("kb-1", dir, "granted in an earlier, separate kernl epic run"); err != nil {
+		t.Fatalf("seeding the extra-rewind-granted marker: %v", err)
+	}
+	da := decidingDA("reverted")
+
+	// Call 1: the resumed run's counter starts back at 0 (ReviewRewinds left
+	// unset below). The ordinary budget has room, so this rejection rewinds
+	// normally - the DA is asked, because a decision-classified rejection
+	// always is, but this consultation is not a grant: budgetSpent is false,
+	// so reviewRewindExtraAlreadyGranted is never even consulted here.
+	writeImplementationReviewArtifact(t, dir, "kb-1", decisionClassifiedRejectionRecord)
+	first, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:        DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da, Config: decisionGateTestConfig(t)},
+		WF:          workerWorkflow(),
+		ActiveState: "implementation_review",
+		ArtifactDir: dir,
+		GateReason:  "verdict_reject: " + filepath.Join(dir, "implementation-review.md"),
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure (call 1): %v", err)
+	}
+	if !first.Reenter {
+		t.Fatalf("expected the resumed run's first rejection to rewind normally, got %+v", first)
+	}
+	if first.ReviewRewinds != 1 {
+		t.Fatalf("ReviewRewinds after call 1 = %d, want 1", first.ReviewRewinds)
+	}
+	if da.calls != 1 {
+		t.Fatalf("expected the DA to be asked once for the ordinary rejection, got %d calls", da.calls)
+	}
+
+	// Call 2: the ordinary budget (limit 1) is spent again within the same
+	// resumed run, on a genuinely new rejection (a different objection than
+	// call 1's, the way a reviewer that still disagrees would write one) -
+	// not the identical text, so this is not caught by the SEPARATE
+	// already-routed guard either. The earlier run's grant marker is still
+	// on disk and must stop the DA being asked a second time.
+	secondReview := strings.Replace(decisionClassifiedRejectionRecord,
+		"Should this policy be narrowed at all",
+		"Should the fallback default be removed entirely", 1)
+	writeImplementationReviewArtifact(t, dir, "kb-1", secondReview)
+	second, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:          DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da, Config: decisionGateTestConfig(t)},
+		WF:            workerWorkflow(),
+		ActiveState:   "implementation_review",
+		ArtifactDir:   dir,
+		GateReason:    "verdict_reject: " + filepath.Join(dir, "implementation-review.md"),
+		ReviewRewinds: first.ReviewRewinds,
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure (call 2): %v", err)
+	}
+	if second.Reenter {
+		t.Fatalf("expected the second exhaustion in this resumed run to escalate, got %+v", second)
+	}
+	if da.calls != 1 {
+		t.Errorf("the DA must not be consulted a second time once the earlier run's grant is already spent, got %d calls", da.calls)
+	}
+	if !strings.Contains(second.Result.GateFailureReason, string(ForkCauseRewindBudgetSpentAfterGrant)) {
+		t.Errorf("GateFailureReason = %q, want it to name %q", second.Result.GateFailureReason, ForkCauseRewindBudgetSpentAfterGrant)
+	}
+}
+
 // TestHandleGateFailure_DecisionClassified_BudgetSpentDAEscalatesStillBlocks
 // proves the other side of "only a Decided answer grants anything": with the
 // budget spent, if the DA itself chooses to escalate (or answers in a shape
@@ -377,7 +510,9 @@ func TestHandleGateFailure_DecisionClassified_BudgetSpentDAEscalatesStillBlocks(
 	if !strings.Contains(got.Result.GateFailureReason, "review_decision_escalated") {
 		t.Errorf("GateFailureReason = %q, want it to name review_decision_escalated", got.Result.GateFailureReason)
 	}
-	if reviewRewindExtraAlreadyGranted("kb-1", dir) {
+	if granted, err := reviewRewindExtraAlreadyGranted("kb-1", dir); err != nil {
+		t.Errorf("reviewRewindExtraAlreadyGranted: %v", err)
+	} else if granted {
 		t.Error("an escalating DA answer must not spend the bead's one extra-rewind grant")
 	}
 	bd, _ := be.Get("kb-1", "/repo")
