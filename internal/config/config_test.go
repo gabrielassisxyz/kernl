@@ -129,6 +129,84 @@ func TestLoadInvalidYAML(t *testing.T) {
 	}
 }
 
+// TestLoadDABlock covers all four combinations of da.agent/da.workDir: both
+// unset is a normal, supported state (the fork gate is off), both set is
+// accepted and carried through, and exactly one set is an operator mistake
+// that must fail loud - Load never checks whether da.agent names a real
+// settings.agents entry or whether da.workDir exists on disk (app.NewDA
+// does, at resolution time), only that the pairing itself is not half-done.
+func TestLoadDABlock(t *testing.T) {
+	base := `settings:
+  agents:
+    stub:
+      command: stub
+  pools: {}
+`
+	cases := []struct {
+		name      string
+		daBlock   string
+		wantErr   bool
+		wantAgent string
+		wantDir   string
+	}{
+		{name: "neither set is not an error", daBlock: "", wantErr: false},
+		{
+			name: "both set is accepted",
+			daBlock: `da:
+  agent: stub
+  workDir: /home/operator/system-repo
+`,
+			wantErr:   false,
+			wantAgent: "stub",
+			wantDir:   "/home/operator/system-repo",
+		},
+		{
+			name: "agent only is an operator mistake",
+			daBlock: `da:
+  agent: stub
+`,
+			wantErr: true,
+		},
+		{
+			name: "workDir only is an operator mistake",
+			daBlock: `da:
+  workDir: /home/operator/system-repo
+`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "kernl.yaml")
+			if err := os.WriteFile(cfgPath, []byte(base+tc.daBlock), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg, err := Load(cfgPath)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected an error for a half-set da: block")
+				}
+				if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+					t.Errorf("error missing KERNL DISPATCH FAILURE marker: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if cfg.DA.Agent != tc.wantAgent {
+				t.Errorf("DA.Agent = %q, want %q", cfg.DA.Agent, tc.wantAgent)
+			}
+			if cfg.DA.WorkDir != tc.wantDir {
+				t.Errorf("DA.WorkDir = %q, want %q", cfg.DA.WorkDir, tc.wantDir)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsEmptyAgentsWithActionableError(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "kernl.yaml")

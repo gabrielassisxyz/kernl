@@ -71,7 +71,19 @@ func (b *persistingBackend) Close(_ string, _ string, _ string) (*backend.Termin
 }
 func (b *persistingBackend) MarkTerminal(_, _, _, _ string) error { return nil }
 func (b *persistingBackend) Reopen(_, _, _ string) error          { return nil }
-func (b *persistingBackend) Rewind(_, _, _, _ string) error       { return nil }
+
+// Rewind actually moves the bead, unlike a bare no-op: a caller driving the
+// full DriveBeadToTerminal loop through a rewind (review_decision_gate_test.go)
+// needs the NEXT Get() to observe the new state, or the loop just re-dispatches
+// the stage it was supposedly rewound away from.
+func (b *persistingBackend) Rewind(id, targetState, _, _ string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if bd, ok := b.beads[id]; ok {
+		bd.State = targetState
+	}
+	return nil
+}
 func (b *persistingBackend) Search(_ string, _ *backend.BeadListFilters, _ string) ([]backend.Bead, error) {
 	return nil, nil
 }

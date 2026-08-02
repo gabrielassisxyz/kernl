@@ -142,6 +142,33 @@ func TestRewindAfterReviewRejection_TrackerFailureIsLoud(t *testing.T) {
 	}
 }
 
+// TestReviewRejectionCanBeRewound proves the shared predicate finding 4 of
+// the fork/decision-gate hardening pass extracted: handleReviewRaisedDecision
+// (review_decision_gate.go) calls this exact function BEFORE ever consulting
+// the DA, so it must agree, in every case, with what
+// rewindAfterReviewRejection itself would do - the two are built from the
+// same two booleans precisely so they cannot drift apart.
+func TestReviewRejectionCanBeRewound(t *testing.T) {
+	cases := []struct {
+		name        string
+		wf          backend.WorkflowDescriptor
+		rewindsUsed int
+		want        bool
+	}{
+		{"budget spent", workerWorkflow(), implementationReviewRewindLimit, false},
+		{"no retake state", backend.WorkflowDescriptor{ID: "odd", RetakeState: ""}, 0, false},
+		{"retake is the reviewing stage itself", backend.WorkflowDescriptor{ID: "odd", RetakeState: "implementation_review"}, 0, false},
+		{"budget available and a real retake state", workerWorkflow(), 0, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := reviewRejectionCanBeRewound(c.wf, c.rewindsUsed); got != c.want {
+				t.Errorf("reviewRejectionCanBeRewound(%+v, %d) = %v, want %v", c.wf, c.rewindsUsed, got, c.want)
+			}
+		})
+	}
+}
+
 func TestReadRejectedReview(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, body string) string {

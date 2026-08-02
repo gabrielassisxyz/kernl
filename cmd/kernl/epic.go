@@ -501,6 +501,16 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if err != nil {
 		return err
 	}
+	// The fork gate asks a different actor a different question, mid-stage,
+	// whenever an implementer hands one over. Resolved here, with everything
+	// else the run needs, so a configured-but-broken da.agent/da.workDir is
+	// refused before any work is done rather than at the moment a fork is
+	// handed over - the same reason NewOracle is resolved at this point
+	// rather than lazily.
+	forkDA, err := app.NewDA(a.Config)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		status, failure := "completed", ""
 		if err != nil {
@@ -591,6 +601,8 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 				VerifyCommand:   verifyCommand,
 				TrackerCommand:  trackerCommand,
 				RunID:           runID,
+				DA:              forkDA,
+				ContextDocs:     repoEntry.ContextDocs,
 				Log: func(stage int, state string) {
 					ts := time.Now().Format("15:04:05")
 					out(fmt.Sprintf("[%s] bead %s [stage %d] %s\n", ts, in.BeadID, stage, state))
@@ -644,7 +656,9 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		// The same actor the run report's oracle is, asked a different
 		// question: nothing else in kernl has an opinion worth having about
 		// what a change costs to undo.
-		Judge: app.OracleReversibilityJudge{Oracle: reversibilityOracle},
+		Judge:       app.OracleReversibilityJudge{Oracle: reversibilityOracle},
+		DA:          forkDA,
+		ContextDocs: repoEntry.ContextDocs,
 	}); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
@@ -784,6 +798,15 @@ type epicDrive struct {
 	// shipment are stages of that one run, not a second one, so a decision
 	// recorded here belongs to the same report as a child's.
 	RunID string
+	// DA and ContextDocs are threaded into the epic bead's own DriveBeadDeps
+	// for the same reason every DriveBeadDeps construction site carries them
+	// (see DriveBeadDeps.DA): today this is a no-op for the epic profile's
+	// own stages (integration/integration_review/shipment never declare a
+	// decision_record exit gate, so the fork gate never arms here), but a
+	// DriveBeadDeps built without them would silently disagree with every
+	// other call site about whether this actor exists at all.
+	DA          app.DA
+	ContextDocs []string
 }
 
 // buildIntegrationChildren pairs each FINISHED child bead with its own
@@ -925,6 +948,8 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 			VerifyCommand:  d.VerifyCommand,
 			TrackerCommand: d.TrackerCommand,
 			RunID:          d.RunID,
+			DA:             d.DA,
+			ContextDocs:    d.ContextDocs,
 			BuildPrompt: func(in app.StagePromptInput, wf backend.WorkflowDescriptor) string {
 				switch in.State {
 				case "integration":

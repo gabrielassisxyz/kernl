@@ -6,6 +6,7 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/review"
 )
 
 // StagePromptInput is everything one stage's prompt is rendered from.
@@ -57,6 +58,28 @@ type StagePromptInput struct {
 	// default state of the world and does not need saying, while "no prior
 	// decision was found" is a search result worth reporting.
 	RejectedReview string
+	// ForkHandoverPath is the absolute path an implementer may write a fork
+	// handover to, when it meets a choice the bead, this repository's own
+	// docs and existing precedent do not already determine (see
+	// app.ForkHandover). Empty renders nothing at all, and empty is the
+	// NORMAL case: it is empty whenever no DA is configured (the fork gate
+	// is off) or the active stage is not an implementer's stage (a reviewer
+	// stage never carries a decision_record exit gate, and this field is
+	// only ever set when one is armed - see app.forkHandoverArmed). A stage
+	// that cannot hand a fork over must never be told it can; the field
+	// being unset is what enforces that, not a check the prompt text makes
+	// on its own.
+	ForkHandoverPath string
+	// ForkAnswer is EVERY fork decision this same bead has handed over so
+	// far, in the order they were decided (see app.readForkAnswerArtifact),
+	// carried into the prompt when this stage is being re-entered to answer
+	// it. More than one is a real, planned-for case - forkHandoverLimit's own
+	// doc comment records why a single stage can genuinely meet more than one
+	// distinct fork. Empty is the normal case - a bead that never handed a
+	// fork over, or one whose implementer resolved every choice alone - and
+	// renders nothing at all, the same silence RejectedReview's own doc
+	// comment explains: "no fork was handed over" needs no saying.
+	ForkAnswer string
 }
 
 // The two verdict lines a review artifact can end with. They are the exit
@@ -80,10 +103,12 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 
 	renderRole(&b, hasContract, contract)
 	renderRejectedReview(&b, in.RejectedReview)
+	renderForkAnswer(&b, in.ForkAnswer)
 	renderRelatedDecisions(&b, in.RelevantDecisions)
 	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
 	renderOutput(&b, hasContract, contract, in.State, in.Bead.ID, in.ArtifactDir)
 	renderDecisionRecord(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
+	renderForkHandover(&b, in.ForkHandoverPath)
 	renderForbidden(&b, hasContract, contract, in.TrackerCommand)
 	renderOperatingRules(&b, in.VerifyCommand, in.Dialect)
 
@@ -175,6 +200,41 @@ func renderRejectionVerdict(b *strings.Builder, state, mustEndWith string) {
 	}
 	fmt.Fprintf(b, "If it does NOT pass, end with this line instead, exactly: `%s`\n", rejectVerdictLine)
 	b.WriteString("That is the only wording read as a deliberate rejection, and it is what sends the work back to be fixed with your review as the brief. Anything else - FAIL, NEEDS WORK, CHANGES REQUESTED, a verdict line you word yourself - is read as a review that produced no verdict, which blocks the bead for a human and throws your findings away.\n")
+	renderRejectionClassification(b, state)
+}
+
+// renderRejectionClassification teaches a reviewer it may classify a
+// rejection, using review.All() to render the literal vocabulary so this
+// text and the parser that reads it back (ParseImplementationRejection) can
+// never drift apart - the same reuse internal/prompt's integration_review
+// template already makes for the OTHER reviewer's own classification.
+//
+// Gated on state == "implementation_review" specifically, narrower than
+// renderRejectionVerdict's own IsRejectableVerdictState check: the routing
+// this teaches (handleGateFailure, review_decision_gate.go) only ever acts
+// on that one state - integration_review has its own separate classification,
+// already taught by internal/prompt's custom template, and a hypothetical
+// custom workflow naming a generic-path stage "integration_review" would
+// never be rewound here at all (isDeliberateRejection requires the literal
+// state name), so teaching it this vocabulary would promise a mechanism that
+// does not fire for it.
+//
+// This is the section a stage that is only told how to spell REJECT would
+// never think to write on its own - see renderRejectionVerdict's own doc
+// comment for the shipped precedent of exactly that failure (a stage told
+// only the approval word invented its own word for the other outcome, and
+// the gate never saw it). A reviewer never told it MAY classify a rejection
+// will never classify one, and this whole pass becomes dead code.
+func renderRejectionClassification(b *strings.Builder, state string) {
+	if state != "implementation_review" {
+		return
+	}
+	b.WriteString("\nIf you reject it, you may ALSO classify what the rejection needs, in a `## Classification` section written before the trailing VERDICT line. Exactly one word, one of:")
+	for _, k := range review.All() {
+		fmt.Fprintf(b, " `%s`", k)
+	}
+	b.WriteString(".\n\nAsk yourself: can the implementer answer this alone, or does answering it mean choosing something nothing already determined? If the implementer can answer it alone, classify it `fixup` - this is exactly today's behavior, unchanged: the work is rewound to the implementer with this review as its brief. If answering it means choosing between real alternatives nothing here already settles, classify it `decision`, and add a `## Question for the operator` section stating exactly what must be decided and why the answer is not already determined - this routes the choice to the same DA a proactive fork handover reaches, instead of the implementer choosing alone.\n\n")
+	b.WriteString("Classifying is OPTIONAL, and the default is deliberately the safe one: omitting the `## Classification` section, or writing anything this cannot read as one of the words above, is read exactly like `fixup` - the work is rewound to the implementer, nothing escalates and nobody is asked anything. Only an explicit, well-formed `decision` (with its `## Question for the operator` section) ever reaches the operator's own decision-making assistant.\n")
 }
 
 // renderDecisionRecord tells the agent about the second, independent
@@ -201,6 +261,30 @@ func renderDecisionRecord(b *strings.Builder, hasContract bool, contract backend
 	b.WriteString("- `## Trade-offs` - what each option costs and gains\n")
 	b.WriteString("- `## Rationale` - why the winner won\n\n")
 	b.WriteString("Do not add a section about this record's impact on how the tool gets used day to day - that is written separately, later, by a different step, not by you.\n\n")
+}
+
+// renderForkHandover tells an implementer it may hand a genuine fork over to
+// the DA instead of choosing alone - see app.ForkHandover and
+// local/artifacts/plans/2026-08-01-composer-context-and-fork-gate-plan.md
+// §3.1-§3.2.
+//
+// Empty renders nothing at all - see StagePromptInput.ForkHandoverPath on why
+// this section is silent whenever the gate is off or this is not an
+// implementer's stage: a stage that cannot hand a fork over must never be
+// told it can.
+func renderForkHandover(b *strings.Builder, path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	b.WriteString("## A genuine fork may be handed over instead of decided alone\n\n")
+	b.WriteString("Most choices while implementing this bead are already determined by the bead itself, this repository's own tests and docs, and existing precedent in its code - those are lookups, not forks, and handing one over wastes a round. This is for a genuine fork only: the same standard your own decision record already asks for, where the options are both real and nothing already settles which one wins.\n\n")
+	fmt.Fprintf(b, "When you meet one, write the following file instead of deciding alone: `%s`\n\n", path)
+	b.WriteString("It must contain exactly these three sections as markdown headings, each followed by real, non-empty content:\n\n")
+	b.WriteString("- `## Fork` - the choice you cannot make alone\n")
+	b.WriteString("- `## Options Considered` - the real options you weighed\n")
+	b.WriteString("- `## What Would Have To Agree` - answered as a FACT, not an opinion: does anything OUTSIDE this bead have to agree with the choice? This is explicitly NOT blast radius. A large rewrite entirely behind an interface can be huge in lines and need agreement from nobody; a one-line change to a stored data format can be tiny in lines and need everyone downstream to agree. If nothing outside this bead has to agree, say so explicitly rather than leaving this section vague.\n\n")
+	b.WriteString("Then STOP. Do not commit, do not implement either option, do not guess which one is right. The stage will be re-entered with the DA's answer once it has decided.\n\n")
+	b.WriteString("THIS OVERRIDES THE OPERATING RULES BELOW FOR THIS CASE ONLY: the Operating Rules section below tells you to commit your work and run this repository's verify command before declaring done. Neither applies once you have written the fork file above - do not commit, and do not run the verify command, until the stage is re-entered with the DA's own answer. The operating rules are still correct for every OTHER path through this stage; they are suspended only for the fork you just handed over.\n\n")
 }
 
 // renderRelatedDecisions surfaces standing decisions from earlier work in
@@ -236,6 +320,31 @@ func renderRejectedReview(b *strings.Builder, review string) {
 	b.WriteString("You are not implementing this bead from scratch. A previous implementation exists on this branch, a reviewer rejected it, and the rejection below is what you have to answer. Fix what it names. Do not start over, and do not re-litigate the bead's scope: if you believe the reviewer is wrong, say so in your decision record and explain why, rather than ignoring the objection.\n\n")
 	b.WriteString("```\n")
 	b.WriteString(strings.TrimSpace(review))
+	b.WriteString("\n```\n\n")
+}
+
+// renderForkAnswer puts the DA's decision(s) at the top of the implementer's
+// prompt, immediately after renderRejectedReview and for the same reason
+// that function documents: the answer IS the task now, and an implementer
+// that reads the bead description first will start by re-deriving a question
+// that has already been settled.
+//
+// answer may carry MORE THAN ONE decided fork (see
+// StagePromptInput.ForkAnswer, app.readForkAnswerArtifact) - the wording
+// below deliberately speaks in the plural and says "every" rather than "the",
+// so an implementer reading it cannot mistake the instruction as covering
+// only the last entry in the block below.
+//
+// Empty renders nothing at all - see StagePromptInput.ForkAnswer on why this
+// section is silent by default, the same rule RejectedReview follows.
+func renderForkAnswer(b *strings.Builder, answer string) {
+	if strings.TrimSpace(answer) == "" {
+		return
+	}
+	b.WriteString("## A fork you handed over has been decided - read this first\n\n")
+	b.WriteString("You stopped mid-stage and handed one or more forks to the DA instead of choosing alone. Every one below has been decided, and EACH of them, individually, is not open for re-litigation: do not re-derive any of these choices, do not weigh their options again, and do not pick a different one because you would have gone another way. Proceed with every option named below exactly as decided, and write each into your decision record as the decision that was made and why - the DA's own reason is what belongs there, not a reconstruction of your own.\n\n")
+	b.WriteString("```\n")
+	b.WriteString(strings.TrimSpace(answer))
 	b.WriteString("\n```\n\n")
 }
 

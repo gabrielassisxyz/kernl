@@ -276,6 +276,16 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	if err != nil {
 		return app.RunBeadResult{}, err
 	}
+	// The fork gate asks a different actor a different question, mid-stage,
+	// whenever an implementer hands one over. Resolved here, with everything
+	// else the run needs, so a configured-but-broken da.agent/da.workDir is
+	// refused before any work is done rather than at the moment a fork is
+	// handed over - the same reason NewImpactComposer is resolved at this
+	// point rather than lazily.
+	forkDA, err := app.NewDA(a.Config)
+	if err != nil {
+		return app.RunBeadResult{}, err
+	}
 	defer func() {
 		// DriveBeadToTerminal is returned directly below, and it legitimately
 		// reports failure two ways: a non-nil err, or a nil err with
@@ -382,6 +392,8 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		VerifyCommand:   verifyCommand,
 		TrackerCommand:  trackerCommand,
 		RunID:           runID,
+		DA:              forkDA,
+		ContextDocs:     repoEntry.ContextDocs,
 		Log: func(stage int, state string) {
 			fmt.Printf("bead %s [stage %d] %s\n", beadID, stage, state)
 		},
