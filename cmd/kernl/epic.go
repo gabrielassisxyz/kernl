@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -61,6 +62,27 @@ func execGitRun(dir string, args ...string) (string, error) {
 		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(cmdArgs, " "), err, strings.TrimSpace(string(out)))
 	}
 	return string(out), nil
+}
+
+// warnLostWorktreeRecord reports a runstate write that did not land, and does
+// not stop the run over it.
+//
+// The row's only reader is PlanResume, which uses it to notice a worktree that
+// has since vanished from disk. Losing it costs a diagnosis on the next resume -
+// the bead looks like it never had a worktree and is dispatched fresh - and
+// costs nothing to the run in progress, so failing the epic here would do more
+// damage than the lost row. What is not acceptable is the silence: the write
+// used to be discarded outright, which is why two epics contending for one
+// runstate.db degraded resume with nothing anywhere saying so.
+func warnLostWorktreeRecord(err error, epicID, beadID string) {
+	if err == nil {
+		return
+	}
+	slog.Warn("runstate: worktree path not recorded, resume will not detect a missing worktree for this bead",
+		"epic", epicID,
+		"bead", beadID,
+		"error", err,
+	)
 }
 
 func runEpic(v verbContext, args []string) error {
@@ -582,7 +604,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		RunBead: func(ctx context.Context, in epic.RunInput) (epic.RunResult, error) {
 			// Persist worktree path in runstate before dispatching so
 			// future runs know a worktree existed for this bead.
-			_ = rs.SetWorktree(epicID, in.BeadID, in.Worktree)
+			warnLostWorktreeRecord(rs.SetWorktree(epicID, in.BeadID, in.Worktree), epicID, in.BeadID)
 			// Epic children run the worker profile: implement + review, then
 			// STOP at awaiting_integration handing the branch to the epic.
 			if err := ensureWorkerEntry(a.Backend, in.BeadID, repoPath, customProfileID); err != nil {
@@ -647,7 +669,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if werr != nil {
 		return werr
 	}
-	_ = rs.SetWorktree(epicID, epicID, epicWorktree)
+	warnLostWorktreeRecord(rs.SetWorktree(epicID, epicID, epicWorktree), epicID, epicID)
 	if err := driveEpic(context.Background(), epicDrive{
 		App: a, Epic: ep, EpicID: epicID, RepoPath: repoPath,
 		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree, RunID: runID,
