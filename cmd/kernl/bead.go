@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -316,6 +317,21 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 		if finalState == "" {
 			finalState = bead.State
 		}
+		// prURL is read fresh here rather than off the bead fetched before
+		// this run started: a standalone bead can reach its own shipment
+		// stage during DriveBeadToTerminal, which writes pr_url onto its
+		// description mid-run, after that earlier copy was taken. The read
+		// is best-effort - a failure here degrades to an absent PRURL
+		// rather than failing the run, because the report must still be
+		// written - but the failure is logged, not swallowed, so a
+		// vanished field has a thread to pull instead of just being
+		// unexplained.
+		prURL := ""
+		if freshBead, gErr := a.Backend.Get(bead.ID, repoPath); gErr != nil || freshBead == nil {
+			slog.Warn("KERNL DISPATCH FAILURE: could not re-read the bead to check for a pull request URL - the run report will omit it", "bead", bead.ID, "err", gErr)
+		} else {
+			prURL = workflow.GetPRURL(freshBead.Description)
+		}
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
 			Graph:       a.Graph,
 			Composer:    impactComposer,
@@ -323,6 +339,7 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 			Status:      status,
 			FinishedAt:  finishedAt,
 			Beads:       []app.BeadRunOutcome{{ID: bead.ID, Title: bead.Title, FinalState: finalState}},
+			PRURL:       prURL,
 			StateDir:    a.StateDir,
 			EpicID:      bead.ID,
 			ContextDocs: repoEntry.ContextDocs,

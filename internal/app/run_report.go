@@ -173,6 +173,16 @@ type ComposeRunReportInput struct {
 	FinishedAt time.Time
 	Beads      []BeadRunOutcome
 
+	// PRURL is the pull request URL the shipment stage wrote onto the epic
+	// bead's description (workflow.SetPRURL), the same field the shipment
+	// exit gate and verifyPublishedPullRequest (cmd/kernl/epic.go) already
+	// read via workflow.GetPRURL. ComposeRunReport does not parse it itself
+	// - it is composed before CloseWorkflowRun, same as Status, so this is
+	// the caller's own freshly-read fact, not one this function re-derives.
+	// Empty whenever shipment never ran or never got that far; the report
+	// stays silent about it rather than printing an empty field.
+	PRURL string
+
 	// StateDir and EpicID locate the report on disk, at
 	// <StateDir>/run/<EpicID>/report.md - the same run root
 	// resolveArtifactDir (drive_bead.go) and AppendStageAttempt
@@ -493,6 +503,9 @@ func renderRunReport(in ComposeRunReportInput, rd runData, fields []decisionRepo
 		fmt.Fprintf(&b, "- **Base branch:** %s\n", rd.BaseBranch)
 	}
 	fmt.Fprintf(&b, "- **Status:** %s\n", in.Status)
+	if in.PRURL != "" {
+		fmt.Fprintf(&b, "- **Pull request:** %s\n", in.PRURL)
+	}
 	fmt.Fprintf(&b, "- **Started:** %s\n", rd.StartedAt.Format(time.RFC3339))
 	fmt.Fprintf(&b, "- **Finished:** %s\n", in.FinishedAt.Format(time.RFC3339))
 	fmt.Fprintf(&b, "- **Duration:** %s\n\n", in.FinishedAt.Sub(rd.StartedAt).Truncate(time.Second).String())
