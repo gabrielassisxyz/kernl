@@ -157,7 +157,7 @@ const (
 type GateCause string
 
 const (
-	// GateCheapToReverse: the mayor judged undoing this later to be cheap,
+	// GateCheapToReverse: the oracle judged undoing this later to be cheap,
 	// which is the only cause that continues.
 	GateCheapToReverse GateCause = "cheap_to_reverse"
 	// GatePublished: this branch already exists outside the machine. Undoing
@@ -174,11 +174,11 @@ const (
 	// nothing this package can parse - either way something here needs the
 	// operator's judgment, not a bead any pool may pick up.
 	GateDecisionOrAmbiguous GateCause = "decision_or_ambiguous"
-	// GateExpensiveToReverse: the mayor judged undoing this later to be
+	// GateExpensiveToReverse: the oracle judged undoing this later to be
 	// expensive.
 	GateExpensiveToReverse GateCause = "expensive_to_reverse"
 	// GateReversibilityUnknown: the question could not be answered at all - no
-	// mayor is configured, or the one configured failed or answered something
+	// oracle is configured, or the one configured failed or answered something
 	// undecidable. An unanswered gate stops; it never continues.
 	GateReversibilityUnknown GateCause = "reversibility_unknown"
 )
@@ -203,10 +203,10 @@ type FixupDecision struct {
 // the one-fix-up cap it replaces.
 //
 // Three layers, in this order, and the order is the point: the cheap, certain
-// answers come first, and the mayor is asked only what nothing else can
+// answers come first, and the oracle is asked only what nothing else can
 // answer. Among the escalating layers the order decides only which reason gets
-// reported, since all of them stop; the layer that must come before the mayor
-// is the budget, because exhausting it escalates whatever the mayor thinks.
+// reported, since all of them stop; the layer that must come before the oracle
+// is the budget, because exhausting it escalates whatever the oracle thinks.
 func DecideFixupAction(ctx context.Context, rejection *IntegrationRejection, facts ReversibilityFacts, judge ReversibilityJudge) FixupDecision {
 	if facts.Published {
 		return FixupDecision{

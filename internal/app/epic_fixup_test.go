@@ -187,7 +187,7 @@ func epicIntegrationTailDeps(t *testing.T, be *fixupFakeBackend, epicID string) 
 		EpicBranch: "feat/" + epicID,
 		BaseBranch: "master",
 		// Nothing published, nothing irreversible touched: the ordinary
-		// pre-shipment state, where the reversibility question is the mayor's
+		// pre-shipment state, where the reversibility question is the oracle's
 		// to answer and not a fact's.
 		Inspector: fakeInspector{summary: " 2 files changed, 12 insertions(+)"},
 		Judge:     cheapJudge(),
@@ -494,7 +494,7 @@ func TestDriveEpicIntegrationTail_PublishedBranchEscalates(t *testing.T) {
 		t.Errorf("cause = %q, want %q", res.ReversibilityCause, GatePublished)
 	}
 	if judge.calls != 0 {
-		t.Errorf("the mayor was asked %d times about a branch that is already published", judge.calls)
+		t.Errorf("the oracle was asked %d times about a branch that is already published", judge.calls)
 	}
 	if len(be.created) != 0 {
 		t.Error("no fix-up bead may be created on the escalating path")

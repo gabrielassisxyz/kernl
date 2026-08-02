@@ -41,7 +41,7 @@ func cleanFacts() ReversibilityFacts {
 
 // --- The mechanical layers: certain answers, decided without a model. ---
 
-func TestDecideFixupAction_PublishedEscalatesWithoutAskingTheMayor(t *testing.T) {
+func TestDecideFixupAction_PublishedEscalatesWithoutAskingTheOracle(t *testing.T) {
 	judge := cheapJudge()
 	facts := cleanFacts()
 	facts.Published = true
@@ -53,14 +53,14 @@ func TestDecideFixupAction_PublishedEscalatesWithoutAskingTheMayor(t *testing.T)
 		t.Errorf("got %+v, want an escalation caused by %q", got, GatePublished)
 	}
 	if judge.calls != 0 {
-		t.Errorf("the mayor was asked %d times about work that is already published - a fact settles this, not an opinion", judge.calls)
+		t.Errorf("the oracle was asked %d times about work that is already published - a fact settles this, not an opinion", judge.calls)
 	}
 	if !strings.Contains(got.Reason, "refs/remotes/origin/feat/ep-1") {
 		t.Errorf("Reason = %q, want it to name what was found published", got.Reason)
 	}
 }
 
-func TestDecideFixupAction_IrreversibleSurfaceEscalatesWithoutAskingTheMayor(t *testing.T) {
+func TestDecideFixupAction_IrreversibleSurfaceEscalatesWithoutAskingTheOracle(t *testing.T) {
 	judge := cheapJudge()
 	facts := cleanFacts()
 	facts.IrreversibleSurfacesTouched = []string{"migrations/0007_drop_column.sql"}
@@ -71,7 +71,7 @@ func TestDecideFixupAction_IrreversibleSurfaceEscalatesWithoutAskingTheMayor(t *
 		t.Errorf("got %+v, want an escalation caused by %q", got, GateIrreversibleSurface)
 	}
 	if judge.calls != 0 {
-		t.Errorf("the mayor was asked %d times about a surface the repository already declared irreversible", judge.calls)
+		t.Errorf("the oracle was asked %d times about a surface the repository already declared irreversible", judge.calls)
 	}
 	if !strings.Contains(got.Reason, "migrations/0007_drop_column.sql") {
 		t.Errorf("Reason = %q, want it to name the path that fired", got.Reason)
@@ -79,7 +79,7 @@ func TestDecideFixupAction_IrreversibleSurfaceEscalatesWithoutAskingTheMayor(t *
 }
 
 // The budget is the hard stop that keeps "cheap to reverse" from being an
-// unbounded loop, so it must win over a mayor that would happily keep going.
+// unbounded loop, so it must win over an oracle that would happily keep going.
 func TestDecideFixupAction_ExhaustedBudgetEscalatesEvenWhenReversalIsCheap(t *testing.T) {
 	judge := cheapJudge()
 	facts := cleanFacts()
@@ -91,11 +91,11 @@ func TestDecideFixupAction_ExhaustedBudgetEscalatesEvenWhenReversalIsCheap(t *te
 		t.Errorf("got %+v, want an escalation caused by %q", got, GateBudgetExhausted)
 	}
 	if judge.calls != 0 {
-		t.Errorf("the mayor was asked %d times after the budget was already spent", judge.calls)
+		t.Errorf("the oracle was asked %d times after the budget was already spent", judge.calls)
 	}
 }
 
-func TestDecideFixupAction_DecisionAndAmbiguousNeverReachTheMayor(t *testing.T) {
+func TestDecideFixupAction_DecisionAndAmbiguousNeverReachTheOracle(t *testing.T) {
 	decision := &IntegrationRejection{Kind: "decision", WhatIsWrong: "two children disagree", Question: "which slug rule wins?"}
 
 	for name, rejection := range map[string]*IntegrationRejection{
@@ -109,7 +109,7 @@ func TestDecideFixupAction_DecisionAndAmbiguousNeverReachTheMayor(t *testing.T) 
 				t.Errorf("got %+v, want an escalation caused by %q", got, GateDecisionOrAmbiguous)
 			}
 			if judge.calls != 0 {
-				t.Errorf("the mayor was asked %d times - how expensive this is to undo is not the question when the reviewer asked for a judgment call", judge.calls)
+				t.Errorf("the oracle was asked %d times - how expensive this is to undo is not the question when the reviewer asked for a judgment call", judge.calls)
 			}
 			if got.Reason == "" {
 				t.Error("an escalation with no reason is exactly what this gate must not produce")
@@ -136,16 +136,16 @@ func TestDecideFixupAction_CheapReversalContinuesAndRecordsTheReason(t *testing.
 		t.Errorf("Cause = %q, want %q so a continue is as greppable as an escalation", got.Cause, GateCheapToReverse)
 	}
 	if got.Reason != "it is a branch nobody has pulled" {
-		t.Errorf("Reason = %q, want the mayor's own words recorded", got.Reason)
+		t.Errorf("Reason = %q, want the oracle's own words recorded", got.Reason)
 	}
 	if judge.calls != 1 {
-		t.Fatalf("the mayor was asked %d times, want exactly once", judge.calls)
+		t.Fatalf("the oracle was asked %d times, want exactly once", judge.calls)
 	}
 	if judge.asked.Objection != fixupRejection().WhatIsWrong {
-		t.Errorf("the mayor was asked about %q, want the reviewer's objection", judge.asked.Objection)
+		t.Errorf("the oracle was asked about %q, want the reviewer's objection", judge.asked.Objection)
 	}
 	if judge.asked.ChangeSummary != facts.ChangeSummary {
-		t.Errorf("the mayor was given %q as the change summary, want the measured one", judge.asked.ChangeSummary)
+		t.Errorf("the oracle was given %q as the change summary, want the measured one", judge.asked.ChangeSummary)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestDecideFixupAction_ExpensiveReversalEscalates(t *testing.T) {
 		t.Errorf("got %+v, want an escalation caused by %q", got, GateExpensiveToReverse)
 	}
 	if got.Reason != "it rewrites rows in place" {
-		t.Errorf("Reason = %q, want the mayor's own words", got.Reason)
+		t.Errorf("Reason = %q, want the oracle's own words", got.Reason)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestDecideFixupAction_AnUnansweredQuestionEscalates(t *testing.T) {
 	}
 }
 
-// --- Reading the mayor's answer. ---
+// --- Reading the oracle's answer. ---
 
 func TestParseReversibilityAnswer(t *testing.T) {
 	cases := []struct {

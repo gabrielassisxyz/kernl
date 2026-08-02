@@ -183,13 +183,13 @@ type LLMConfig struct {
 	// falls back to the provider's default base URL.
 	Endpoint string `yaml:"endpoint"`
 	// Agent, when set, names a settings.agents entry that the run report's
-	// mayor is asked through - the agent's own CLI, in one-shot answer mode -
+	// oracle is asked through - the agent's own CLI, in one-shot answer mode -
 	// instead of the provider above. It changes nothing else: the DA chat
 	// keeps using Provider/Endpoint/Model either way.
 	//
 	// It exists because the two consumers of this block want different
 	// things from it. The DA chat needs a streaming, tool-calling API. The
-	// mayor needs one paragraph, and the best models available here live
+	// oracle needs one paragraph, and the best models available here live
 	// behind coding-plan CLIs rather than behind an endpoint that would have
 	// to be billed separately to serve them.
 	Agent string `yaml:"agent,omitempty"`

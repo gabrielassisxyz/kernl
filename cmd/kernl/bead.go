@@ -267,7 +267,7 @@ func runBeadDispatch(a *app.App, driver app.BeadDriver, beadID string, repoEntry
 	if err != nil {
 		return app.RunBeadResult{}, err
 	}
-	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
+	// The oracle is whichever LLM kernl.yaml configures - nil, deliberately,
 	// when none is: ComposeRunReport's own doc comment on why that must
 	// never fail the close is the reason a missing llm.provider is not
 	// checked here. A configured-but-broken llm.agent DOES stop the run, and
