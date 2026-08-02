@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
+	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/sweep"
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
@@ -17,11 +18,6 @@ func runSweep(configPath string, args []string) error {
 	flags, err := parseSweepFlags(args)
 	if err != nil {
 		return err
-	}
-
-	repoPath := flags.repo
-	if repoPath == "" {
-		repoPath = "."
 	}
 
 	// Closing epics is a tracker mutation: it only happens with an explicit
@@ -46,6 +42,12 @@ func runSweep(configPath string, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	repoPath, err := resolveSweepRepoPath(appCfg, flags.repo)
+	if err != nil {
+		return err
+	}
+
 	b, err := backend.AutoRouteFromConfig(appCfg, repoPath)
 	if err != nil {
 		return err
@@ -72,6 +74,26 @@ func runSweep(configPath string, args []string) error {
 		return wrapLoud("sweep", err)
 	}
 	return nil
+}
+
+// resolveSweepRepoPath decides which registered repository sweep acts on,
+// through the same resolveRepoEntry every other verb uses. --repo now has to
+// name a registered repo (by path or its last path element) or the run
+// refuses, listing what is registered; omitting it only succeeds when
+// exactly one repo is registered, and otherwise refuses the same way.
+//
+// sweep used to default to the literal "." and hand it straight to
+// AutoRouteFromConfig, which matches the registry by exact string equality.
+// A misspelled --repo therefore never touched the registry at all: it fell
+// through to sniffing a directory that does not exist, and the failure read
+// as "the repository fails to declare a tracker" - sending the operator to
+// fix a memoryManager that was already correct, over a path that was wrong.
+func resolveSweepRepoPath(cfg *config.Config, requested string) (string, error) {
+	entry, err := resolveRepoEntry(cfg, requested)
+	if err != nil {
+		return "", err
+	}
+	return entry.Path, nil
 }
 
 type sweepFlags struct {
