@@ -192,8 +192,8 @@ func TestWorkerProfile_CarriesDecisionRecordGate(t *testing.T) {
 			}
 		case "decision_record":
 			hasDecisionRecord = true
-			if g.Path != "<artifact_dir>/decision-record.md" {
-				t.Errorf("decision_record gate path = %q; want %q", g.Path, "<artifact_dir>/decision-record.md")
+			if g.Path != "<artifact_dir>/decision-record.json" {
+				t.Errorf("decision_record gate path = %q; want %q", g.Path, "<artifact_dir>/decision-record.json")
 			}
 		}
 	}
@@ -205,8 +205,8 @@ func TestWorkerProfile_CarriesDecisionRecordGate(t *testing.T) {
 	}
 
 	stage, ok := wf.Stages["implementation"]
-	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.md" {
-		t.Errorf("worker implementation stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.md", stage.DecisionRecord, ok)
+	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.json" {
+		t.Errorf("worker implementation stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.json", stage.DecisionRecord, ok)
 	}
 }
 
@@ -469,14 +469,14 @@ func TestEvaluateExitGate_MultipleGatesPerState(t *testing.T) {
 		ExitGates: map[string][]WorkflowExitGate{
 			"implementation": {
 				{Type: "commit_marker", Path: "stage: implementation"},
-				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+				{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"},
 			},
 		},
 	}
 
 	writeDecisionRecord := func(t *testing.T, artifactDir string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(fullDecisionRecord()), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(oneDecisionRecord()), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -516,7 +516,7 @@ func TestEvaluateExitGate_MultipleGatesPerState(t *testing.T) {
 		if !strings.Contains(reason, "commit_marker_missing") {
 			t.Errorf("reason must name commit_marker as the failing gate, got %q", reason)
 		}
-		if strings.Contains(reason, "decision_record_missing_sections") || strings.Contains(reason, "artifact_missing") {
+		if strings.Contains(reason, "decision_record_missing_fields") || strings.Contains(reason, "artifact_missing") {
 			t.Errorf("decision_record passed and must not appear in the failure reason, got %q", reason)
 		}
 	})
@@ -980,133 +980,5 @@ func TestCanonicalYAML_Parity(t *testing.T) {
 		if !reflect.DeepEqual(loadedStage, builtinStage) {
 			t.Errorf("Stage %q mismatch:\nloaded:  %+v\nbuiltin: %+v", k, loadedStage, builtinStage)
 		}
-	}
-}
-
-// TestDecisionRecordSections_SubheadingsAreBodyNotTerminator is the archeion
-// arch-tws case, reduced. A real decision record organised its options into
-// numbered subsections, which is ordinary writing and arguably better than a
-// wall of prose; the parser read the required section as empty, the gate
-// reported it missing, and twenty-one minutes of green, committed work was
-// discarded on the depth of a heading.
-//
-// Inversion: with the level comparison removed (bodyEnd taken from the very
-// next heading regardless of depth), options_considered is absent here and
-// the test fails on the first assertion - which is exactly the state that
-// shipped.
-func TestDecisionRecordSections_SubheadingsAreBodyNotTerminator(t *testing.T) {
-	record := `# Decision record: honouring a Disallow with an interior wildcard
-
-## Decision
-
-Four things were open once the bug was confirmed.
-
-## Options Considered
-
-### 1. The regex feature as the fix
-
-- **1a. Add ` + "`regex`" + ` to the feature list**, as the bead proposed.
-- **1b. Own the path matching here**, leaving the feature list alone.
-
-### 2. Where the rules come from
-
-- **2a. Fetch and parse it in this project.**
-- **2b. Reuse the engine's parse and replace only the matching.**
-
-## Trade-offs
-
-Owning the matching costs a parser this project now maintains.
-
-## Rationale
-
-The vendored implementation is wrong on the file that motivated the bug.
-`
-	bodies := DecisionRecordSectionBodies(record)
-
-	options, ok := bodies["options_considered"]
-	if !ok {
-		t.Fatal("options_considered is absent - a section whose content is organised into subheadings read as empty")
-	}
-	for _, want := range []string{"1. The regex feature as the fix", "2b. Reuse the engine's parse"} {
-		if !strings.Contains(options, want) {
-			t.Errorf("options_considered body does not contain %q", want)
-		}
-	}
-
-	// The sibling sections must not have been swallowed along with the
-	// subheadings: a fix that made every heading body-content would pass the
-	// assertion above and destroy the document's structure.
-	if !strings.Contains(bodies["trade_offs"], "costs a parser") {
-		t.Errorf("trade_offs = %q, want its own body", bodies["trade_offs"])
-	}
-	if strings.Contains(options, "costs a parser") {
-		t.Error("options_considered swallowed the following ## section - a same-level heading must still close it")
-	}
-	if strings.Contains(bodies["decision"], "1. The regex feature") {
-		t.Error("decision swallowed the next ## section")
-	}
-}
-
-// The fence the level rule has to keep: an unrecognised heading at the same
-// depth still terminates the section before it, so a "## Context" preamble is
-// never counted as another section's content.
-func TestDecisionRecordSections_UnrecognisedSameLevelHeadingStillCloses(t *testing.T) {
-	record := `## Decision
-
-The decided thing.
-
-## Context
-
-Background nobody asked for.
-
-## Options Considered
-
-a and b
-
-## Trade-offs
-
-t
-
-## Rationale
-
-r
-`
-	bodies := DecisionRecordSectionBodies(record)
-	if strings.Contains(bodies["decision"], "Background nobody asked for") {
-		t.Error("an unrecognised ## heading was folded into the preceding section")
-	}
-	if bodies["decision"] != "The decided thing." {
-		t.Errorf("decision = %q, want only its own body", bodies["decision"])
-	}
-}
-
-// A deeper heading directly under a required section, with no prose of its
-// own between them, is the shape that failed: the section's entire body is
-// its subsections.
-func TestDecisionRecordSections_SubheadingAloneIsEnoughBody(t *testing.T) {
-	record := `## Decision
-
-d
-
-## Options Considered
-
-### only option
-
-it was this one
-
-## Trade-offs
-
-t
-
-## Rationale
-
-r
-`
-	bodies := DecisionRecordSectionBodies(record)
-	if _, ok := bodies["options_considered"]; !ok {
-		t.Fatal("options_considered absent when its whole body is one subsection")
-	}
-	if missing := missingDecisionRecordSections(record); len(missing) != 0 {
-		t.Errorf("missingDecisionRecordSections = %v, want none", missing)
 	}
 }

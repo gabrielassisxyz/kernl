@@ -13,65 +13,101 @@ import (
 func decisionRecordGateWorkflow() WorkflowDescriptor {
 	return WorkflowDescriptor{
 		ExitGates: map[string][]WorkflowExitGate{
-			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 		},
 	}
 }
 
-func fullDecisionRecord() string {
-	return `# Decision record
-
-## Decision
-
-Use a regexp-based markdown heading parser instead of a YAML front-matter block.
-
-## Options Considered
-
-1. YAML front matter with fixed keys.
-2. A markdown heading parser matching four fixed section names.
-3. No structure check at all (status quo).
-
-## Trade-offs
-
-Option 1 is stricter but forces a schema the agent has to be taught up front.
-Option 2 reads like natural prose the agent already knows how to write.
-Option 3 catches nothing (the defect this gate exists to close).
-
-## Rationale
-
-Option 2 wins: it is parseable without teaching the agent a schema, and it
-degrades gracefully - a heading typo fails loud with a named missing section
-instead of silently accepting malformed input.
-`
+// oneDecisionRecord is a single well-formed decision, the normal shape of a
+// stage that made exactly one decision.
+func oneDecisionRecord() string {
+	return `{"decisions":[{"title":"Heading parser vs a schema","decision":"Use a JSON schema instead of a markdown heading parser.","optionsConsidered":"1. YAML front matter with fixed keys.\n2. A markdown heading parser matching four fixed section names.\n3. A JSON document validated against a schema.","tradeOffs":"Option 2 reads like natural prose but cannot honestly model more than one decision. Option 3 is stricter but parses and validates precisely.","rationale":"Option 3 wins: it models a list of decisions instead of exactly one, and a schema violation names precisely what is wrong instead of a misleading missing-section reason."}]}`
 }
 
-// TestEvaluateExitGate_DecisionRecord_AllSectionsPresent_Passes proves a
-// well-formed record satisfies the gate (acceptance criterion 2).
-func TestEvaluateExitGate_DecisionRecord_AllSectionsPresent_Passes(t *testing.T) {
+// threeDecisionsRecord is the acceptance case this gate exists to fix: a
+// stage that made more than one decision in a single record, exactly the
+// shape three real agents could not express under the old markdown gate
+// (each inventing its own incompatible syntax for "more than one").
+func threeDecisionsRecord() string {
+	return `{"decisions":[` +
+		`{"title":"First","decision":"Decision one.","optionsConsidered":"A or B.","tradeOffs":"A is faster.","rationale":"A wins."},` +
+		`{"title":"Second","decision":"Decision two.","optionsConsidered":"C or D.","tradeOffs":"D is simpler.","rationale":"D wins."},` +
+		`{"title":"Third","decision":"Decision three.","optionsConsidered":"E or F.","tradeOffs":"E is safer.","rationale":"E wins."}` +
+		`]}`
+}
+
+// TestEvaluateExitGate_DecisionRecord_OneDecisionPasses proves the normal,
+// single-decision shape still satisfies the gate.
+func TestEvaluateExitGate_DecisionRecord_OneDecisionPasses(t *testing.T) {
 	worktree := t.TempDir()
 	artifactDir := t.TempDir()
-	path := filepath.Join(artifactDir, "decision-record.md")
-	if err := os.WriteFile(path, []byte(fullDecisionRecord()), 0o644); err != nil {
+	path := filepath.Join(artifactDir, "decision-record.json")
+	if err := os.WriteFile(path, []byte(oneDecisionRecord()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	wf := decisionRecordGateWorkflow()
 	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
 	if !ok {
-		t.Fatalf("expected a complete decision record to pass, got reason=%q", reason)
+		t.Fatalf("expected a single well-formed decision to pass, got reason=%q", reason)
 	}
 	if reason != "" {
 		t.Errorf("a passing gate must carry no reason, got %q", reason)
 	}
 }
 
+// TestEvaluateExitGate_DecisionRecord_ThreeDecisionsPasses is the
+// acceptance criterion this gate exists to fix (measured defect: a stage
+// that made three decisions could not express that under the old
+// single-section markdown gate, and each of three real agents invented a
+// different, gate-incompatible syntax trying to). A record whose "decisions"
+// array holds three entries must pass in one shot, with nothing discarded.
+func TestEvaluateExitGate_DecisionRecord_ThreeDecisionsPasses(t *testing.T) {
+	worktree := t.TempDir()
+	artifactDir := t.TempDir()
+	path := filepath.Join(artifactDir, "decision-record.json")
+	if err := os.WriteFile(path, []byte(threeDecisionsRecord()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wf := decisionRecordGateWorkflow()
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
+	if !ok {
+		t.Fatalf("expected three well-formed decisions to pass, got reason=%q", reason)
+	}
+	if reason != "" {
+		t.Errorf("a passing gate must carry no reason, got %q", reason)
+	}
+}
+
+// TestParseDecisionRecordDocument_ThreeDecisionsNoneDropped proves, by
+// construction, that every one of several decisions survives parsing
+// distinctly - the exact failure mode the withdrawn prefix-matching approach
+// would have introduced (two same-keyed headings collapsing to
+// last-one-wins, silently discarding every decision but the last). A list
+// preserves position and count; nothing here can make that happen.
+func TestParseDecisionRecordDocument_ThreeDecisionsNoneDropped(t *testing.T) {
+	entries, err := ParseDecisionRecordDocument(threeDecisionsRecord())
+	if err != nil {
+		t.Fatalf("ParseDecisionRecordDocument: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("got %d decisions, want 3 - a decision was dropped", len(entries))
+	}
+	wantTitles := []string{"First", "Second", "Third"}
+	for i, want := range wantTitles {
+		if entries[i].Title != want {
+			t.Errorf("entries[%d].Title = %q, want %q - order or identity was not preserved", i, entries[i].Title, want)
+		}
+	}
+}
+
 // TestEvaluateExitGate_DecisionRecord_EmptyFileFails proves the case
-// artifact_exists cannot catch: a file that is present but carries nothing
-// (acceptance criterion 3).
+// artifact_exists cannot catch: a file that is present but carries nothing.
 func TestEvaluateExitGate_DecisionRecord_EmptyFileFails(t *testing.T) {
 	worktree := t.TempDir()
 	artifactDir := t.TempDir()
-	path := filepath.Join(artifactDir, "decision-record.md")
+	path := filepath.Join(artifactDir, "decision-record.json")
 	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -81,122 +117,124 @@ func TestEvaluateExitGate_DecisionRecord_EmptyFileFails(t *testing.T) {
 	if ok {
 		t.Fatal("an empty file must not satisfy the decision_record gate")
 	}
-	for _, want := range []string{"decision", "options_considered", "trade_offs", "rationale"} {
-		if !strings.Contains(reason, want) {
-			t.Errorf("reason must name %q as missing, got %q", want, reason)
-		}
+	if !strings.HasPrefix(reason, "decision_record_invalid_json: ") {
+		t.Errorf("reason must use the decision_record_invalid_json family, got %q", reason)
 	}
 }
 
-// TestEvaluateExitGate_DecisionRecord_MissingEachSection proves the failure
-// reason names precisely which section is absent, one at a time (acceptance
-// criterion 1): an agent told "invalid" cannot act on it, one told "missing:
-// trade_offs" can.
-func TestEvaluateExitGate_DecisionRecord_MissingEachSection(t *testing.T) {
-	sections := map[string]string{
-		"decision": `
-## Options Considered
-Option A, option B.
-
-## Trade-offs
-A is faster, B is simpler.
-
-## Rationale
-B won for simplicity.
-`,
-		"options_considered": `
-## Decision
-Use option B.
-
-## Trade-offs
-A is faster, B is simpler.
-
-## Rationale
-B won for simplicity.
-`,
-		"trade_offs": `
-## Decision
-Use option B.
-
-## Options Considered
-Option A, option B.
-
-## Rationale
-B won for simplicity.
-`,
-		"rationale": `
-## Decision
-Use option B.
-
-## Options Considered
-Option A, option B.
-
-## Trade-offs
-A is faster, B is simpler.
-`,
+// TestEvaluateExitGate_DecisionRecord_EmptyDecisionsArrayFails proves valid
+// JSON with no decisions in it is still rejected, precisely - never silently
+// treated as "nothing to record".
+func TestEvaluateExitGate_DecisionRecord_EmptyDecisionsArrayFails(t *testing.T) {
+	worktree := t.TempDir()
+	artifactDir := t.TempDir()
+	path := filepath.Join(artifactDir, "decision-record.json")
+	if err := os.WriteFile(path, []byte(`{"decisions":[]}`), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	for missingKey, content := range sections {
-		t.Run(missingKey, func(t *testing.T) {
+	wf := decisionRecordGateWorkflow()
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
+	if ok {
+		t.Fatal("an empty decisions array must not satisfy the decision_record gate")
+	}
+	if reason != `decision_record_empty: the "decisions" array must contain at least one entry` {
+		t.Errorf("unexpected reason: %q", reason)
+	}
+}
+
+// TestEvaluateExitGate_DecisionRecord_MissingEachField proves the failure
+// reason names precisely which field, at which array index, is absent or
+// blank - an agent told "invalid" cannot act on it, one told
+// "decisions[0].tradeOffs" can. This replaces the old
+// decision_record_missing_sections family: the artifact is JSON now, so the
+// reason names JSON fields, not markdown section keys.
+func TestEvaluateExitGate_DecisionRecord_MissingEachField(t *testing.T) {
+	base := map[string]string{
+		"decision":          "d",
+		"optionsConsidered": "o",
+		"tradeOffs":         "t",
+		"rationale":         "r",
+	}
+
+	for _, missingField := range []string{"decision", "optionsConsidered", "tradeOffs", "rationale"} {
+		t.Run(missingField, func(t *testing.T) {
+			var b strings.Builder
+			b.WriteString(`{"decisions":[{`)
+			first := true
+			for field, value := range base {
+				if field == missingField {
+					continue
+				}
+				if !first {
+					b.WriteString(",")
+				}
+				first = false
+				b.WriteString(`"` + field + `":"` + value + `"`)
+			}
+			b.WriteString(`}]}`)
+
 			worktree := t.TempDir()
 			artifactDir := t.TempDir()
-			path := filepath.Join(artifactDir, "decision-record.md")
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			path := filepath.Join(artifactDir, "decision-record.json")
+			if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 				t.Fatal(err)
 			}
 
 			wf := decisionRecordGateWorkflow()
 			ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
 			if ok {
-				t.Fatalf("a record missing %q must not pass", missingKey)
+				t.Fatalf("a record missing %q must not pass", missingField)
 			}
-			const prefix = "decision_record_missing_sections: "
-			if !strings.HasPrefix(reason, prefix) {
-				t.Fatalf("reason must use the decision_record_missing_sections family, got %q", reason)
-			}
-			reportedKeys := strings.Split(strings.TrimPrefix(reason, prefix), ", ")
-			if len(reportedKeys) != 1 || reportedKeys[0] != missingKey {
-				t.Errorf("reason must name exactly the missing section %q, got keys %v (reason=%q)", missingKey, reportedKeys, reason)
+			want := "decision_record_missing_fields: decisions[0]." + missingField
+			if reason != want {
+				t.Errorf("reason = %q, want %q", reason, want)
 			}
 		})
 	}
 }
 
-// TestEvaluateExitGate_DecisionRecord_HeadingMatchIsCaseAndPunctuationInsensitive
-// proves the parser does not force the agent to reproduce the heading text
-// byte-for-byte - "Trade offs" and "TRADE-OFFS" both satisfy "Trade-offs".
-func TestEvaluateExitGate_DecisionRecord_HeadingMatchIsCaseAndPunctuationInsensitive(t *testing.T) {
-	content := `
-## decision
-Use option B.
-
-## OPTIONS CONSIDERED
-Option A, option B.
-
-### Trade offs
-A is faster, B is simpler.
-
-##Rationale
-B won for simplicity.
-`
+// TestEvaluateExitGate_DecisionRecord_BlankFieldFails proves a field present
+// but blank (whitespace-only) is treated the same as absent - an agent
+// cannot satisfy the gate by adding an empty string for a field it has
+// nothing to say.
+func TestEvaluateExitGate_DecisionRecord_BlankFieldFails(t *testing.T) {
 	worktree := t.TempDir()
 	artifactDir := t.TempDir()
-	path := filepath.Join(artifactDir, "decision-record.md")
+	path := filepath.Join(artifactDir, "decision-record.json")
+	content := `{"decisions":[{"decision":"d","optionsConsidered":"o","tradeOffs":"   ","rationale":"r"}]}`
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	wf := decisionRecordGateWorkflow()
-	// "##Rationale" (no space after the hashes) is not a markdown heading by
-	// the CommonMark rule this parser follows, so it is expected to still be
-	// reported missing - only the case/punctuation variance is under test
-	// for the other three.
 	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
 	if ok {
-		t.Fatal("expected the malformed '##Rationale' heading to still fail the gate")
+		t.Fatal("a whitespace-only field must not satisfy the decision_record gate")
 	}
-	if reason != "decision_record_missing_sections: rationale" {
-		t.Errorf("expected only rationale to be reported missing, got %q", reason)
+	if reason != "decision_record_missing_fields: decisions[0].tradeOffs" {
+		t.Errorf("unexpected reason: %q", reason)
+	}
+}
+
+// TestEvaluateExitGate_DecisionRecord_MalformedJSONFails proves invalid JSON
+// is rejected with the syntax-error family, naming the underlying JSON
+// error rather than a generic "invalid".
+func TestEvaluateExitGate_DecisionRecord_MalformedJSONFails(t *testing.T) {
+	worktree := t.TempDir()
+	artifactDir := t.TempDir()
+	path := filepath.Join(artifactDir, "decision-record.json")
+	if err := os.WriteFile(path, []byte(`{"decisions": [not valid json`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wf := decisionRecordGateWorkflow()
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
+	if ok {
+		t.Fatal("malformed JSON must not satisfy the decision_record gate")
+	}
+	if !strings.HasPrefix(reason, "decision_record_invalid_json: ") {
+		t.Errorf("reason must use the decision_record_invalid_json family, got %q", reason)
 	}
 }
 
@@ -241,7 +279,7 @@ func TestEvaluateExitGate_DecisionRecord_NeverResolvesInsideWorktree(t *testing.
 
 	// A complete, passing record sitting INSIDE the worktree, where the gate
 	// must never look.
-	if err := os.WriteFile(filepath.Join(worktree, "decision-record.md"), []byte(fullDecisionRecord()), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(worktree, "decision-record.json"), []byte(oneDecisionRecord()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -269,13 +307,13 @@ func TestEvaluateExitGate_DecisionRecord_NeverResolvesInsideWorktree(t *testing.
 func TestBuiltinProfile_AutopilotWithPR_CarriesDecisionRecordGate(t *testing.T) {
 	withPR := BuiltinProfileDescriptor("autopilot_with_pr")
 	gates := withPR.ExitGates["implementation"]
-	if len(gates) != 1 || gates[0].Type != "decision_record" || gates[0].Path != "<artifact_dir>/decision-record.md" {
-		t.Errorf("autopilot_with_pr implementation gates = %+v; want exactly one decision_record/<artifact_dir>/decision-record.md", gates)
+	if len(gates) != 1 || gates[0].Type != "decision_record" || gates[0].Path != "<artifact_dir>/decision-record.json" {
+		t.Errorf("autopilot_with_pr implementation gates = %+v; want exactly one decision_record/<artifact_dir>/decision-record.json", gates)
 	}
 
 	stage, ok := withPR.Stages["implementation"]
-	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.md" {
-		t.Errorf("autopilot_with_pr implementation stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.md", stage.DecisionRecord, ok)
+	if !ok || stage.DecisionRecord.Path != "<artifact_dir>/decision-record.json" {
+		t.Errorf("autopilot_with_pr implementation stage DecisionRecord = %+v, ok=%v; want <artifact_dir>/decision-record.json", stage.DecisionRecord, ok)
 	}
 
 	autopilot := BuiltinProfileDescriptor("autopilot")

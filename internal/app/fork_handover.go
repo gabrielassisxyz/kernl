@@ -14,10 +14,14 @@ import (
 // then STOPS, instead of choosing alone and silently, the moment it meets a
 // fork the bead, this repository's own docs, and existing precedent in the
 // code do not already determine (decision model §1, plan §3.1). Its
-// sections deliberately reuse the decision-record vocabulary
-// (backend.DecisionRecordSectionBodies' own "Decision / Options Considered"
-// shape) rather than inventing a third one, so one parser's fence/comment
-// awareness serves both documents.
+// sections deliberately reuse the decision record's old "Decision / Options
+// Considered" markdown vocabulary rather than inventing a third one, parsed
+// through backend.MarkdownSectionsByHeading below - the same fence- and
+// HTML-comment-aware engine the decision_record gate's own markdown parser
+// used before that artifact moved to agent-authored JSON (see
+// backend.ParseDecisionRecordDocument). Unlike the decision record, this
+// artifact stayed markdown: it is a one-shot escalation, not a growing list,
+// so there is no "more than one" to model.
 type ForkHandover struct {
 	// Fork is the choice the implementer cannot make ("## Fork").
 	Fork string

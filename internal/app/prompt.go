@@ -242,11 +242,15 @@ func renderRejectionClassification(b *strings.Builder, state string) {
 // document, not commits and not a review verdict. Only stages that set it
 // (today, only "implementation") render this section.
 //
-// The four section headings named here are exactly what
-// missingDecisionRecordSections in internal/backend/state_machine.go looks
-// for (case-insensitively, punctuation-insensitively) - the prompt and the
-// gate must keep naming the same four things, or an agent that followed this
-// text to the letter would still fail the gate.
+// The field names and the JSON shape named here are exactly what
+// backend.ParseDecisionRecordDocument requires - the prompt and the gate
+// must keep naming the same fields, or an agent that followed this text to
+// the letter would still fail the gate. The array shape exists because a
+// fixed, single-decision document left an implementer facing more than one
+// decision to invent its own way of fitting a second one in (measured: three
+// different, gate-incompatible syntaxes from three agents in one afternoon,
+// each rejected with a misleading "missing: decision") - telling the agent
+// to add another array entry instead removes the need to invent anything.
 func renderDecisionRecord(b *strings.Builder, hasContract bool, contract backend.StageContract, beadID, artifactDir string) {
 	if !hasContract || contract.DecisionRecord.Path == "" {
 		return
@@ -254,13 +258,15 @@ func renderDecisionRecord(b *strings.Builder, hasContract bool, contract backend
 	resolved := backend.ResolveArtifactPath(contract.DecisionRecord.Path, beadID, artifactDir)
 	b.WriteString("## Decision record\n\n")
 	b.WriteString("Any decision this stage makes that was not already settled for you - a choice between approaches, a new dependency, a changed default, anything a future reader would ask \"why this and not that\" about - gets written down BEFORE you write the code for it, not after. A record written afterward is a justification, not a decision; the ordering is the point.\n\n")
-	fmt.Fprintf(b, "Enumerate the options you considered for each such decision, then write the following file: `%s`\n\n", resolved)
-	b.WriteString("It must contain all four of these sections as markdown headings, each followed by real, non-empty content:\n\n")
-	b.WriteString("- `## Decision` - what was being decided\n")
-	b.WriteString("- `## Options Considered` - the options you weighed\n")
-	b.WriteString("- `## Trade-offs` - what each option costs and gains\n")
-	b.WriteString("- `## Rationale` - why the winner won\n\n")
-	b.WriteString("Do not add a section about this record's impact on how the tool gets used day to day - that is written separately, later, by a different step, not by you.\n\n")
+	fmt.Fprintf(b, "Enumerate the options you considered for each such decision, then write the following file as JSON: `%s`\n\n", resolved)
+	b.WriteString("It must be a single JSON object with a `decisions` array containing at least one entry - one entry per decision, so if this stage makes more than one, add another entry rather than inventing a way to fit both into one. Each entry needs all four of these fields, each a non-empty string:\n\n")
+	b.WriteString("- `decision` - what was being decided\n")
+	b.WriteString("- `optionsConsidered` - the options you weighed\n")
+	b.WriteString("- `tradeOffs` - what each option costs and gains\n")
+	b.WriteString("- `rationale` - why the winner won\n\n")
+	b.WriteString("`title` is optional on each entry - a short label, worth adding once the record holds more than one decision so each is easy to tell apart.\n\n")
+	b.WriteString("Example:\n\n```json\n{\n  \"decisions\": [\n    {\n      \"title\": \"short label\",\n      \"decision\": \"what was decided\",\n      \"optionsConsidered\": \"the options weighed\",\n      \"tradeOffs\": \"what each option costs and gains\",\n      \"rationale\": \"why the winner won\"\n    }\n  ]\n}\n```\n\n")
+	b.WriteString("Do not add a field about this record's impact on how the tool gets used day to day - that is written separately, later, by a different step, not by you.\n\n")
 }
 
 // renderForkHandover tells an implementer it may hand a genuine fork over to

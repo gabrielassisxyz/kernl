@@ -100,33 +100,14 @@ func (b *epicFakeBackend) Capabilities() backend.BackendCapabilities {
 }
 
 // fakeDecisionRecord is a minimal decision record satisfying the
-// decision_record exit gate's four required sections (see
-// missingDecisionRecordSections in internal/backend/state_machine.go). Only
-// workerArtifactDriver writes this: worker's "implementation" state carries
-// the decision_record gate alongside commit_marker, but epic's "integration"
-// deliberately does not (it is a merge stage, not an implementer's stage -
-// see canonicalImplementationExitGates in internal/backend/state_machine.go),
-// so artifactDriver below must never write one.
-const fakeDecisionRecord = `# Decision record
-
-## Decision
-
-Use the fake artifact driver's canned content.
-
-## Options Considered
-
-1. Write a real decision.
-2. Write a minimal but complete fake one.
-
-## Trade-offs
-
-A real decision is more realistic but couples this test to prose that has
-nothing to do with what it verifies.
-
-## Rationale
-
-Option 2 wins: the gate only checks structure, not content.
-`
+// decision_record exit gate's required fields (see
+// backend.ParseDecisionRecordDocument). Only workerArtifactDriver writes
+// this: worker's "implementation" state carries the decision_record gate
+// alongside commit_marker, but epic's "integration" deliberately does not
+// (it is a merge stage, not an implementer's stage - see
+// canonicalImplementationExitGates in internal/backend/state_machine.go), so
+// artifactDriver below must never write one.
+const fakeDecisionRecord = `{"decisions":[{"decision":"Use the fake artifact driver's canned content.","optionsConsidered":"1. Write a real decision.\n2. Write a minimal but complete fake one.","tradeOffs":"A real decision is more realistic but couples this test to prose that has nothing to do with what it verifies.","rationale":"Option 2 wins: the gate only checks structure, not content."}]}`
 
 // commitRealChange writes relPath into worktree and commits it. The
 // commit_marker gate now requires the tree to actually differ from base, not
@@ -170,7 +151,7 @@ func (d *workerArtifactDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBe
 		}
 		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 		_ = os.MkdirAll(dir, 0o755)
-		_ = os.WriteFile(filepath.Join(dir, "decision-record.md"), []byte(fakeDecisionRecord), 0o644)
+		_ = os.WriteFile(filepath.Join(dir, "decision-record.json"), []byte(fakeDecisionRecord), 0o644)
 	case "implementation_review":
 		dir := filepath.Join(d.stateDir, "run", d.beadID, d.beadID)
 		_ = os.MkdirAll(dir, 0o755)

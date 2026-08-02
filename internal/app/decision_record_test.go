@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,45 +19,65 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
 
-const wellFormedDecisionRecord = "## Decision\n\n" +
-	"Use edges.EdgeTypeHasDecision for the bead/epic link.\n\n" +
-	"## Options Considered\n\n" +
-	"1. A bare string literal.\n2. A new typed constant.\n\n" +
-	"## Trade-offs\n\n" +
-	"A typed constant is one more name to learn, but closes the set.\n\n" +
-	"## Rationale\n\n" +
-	"Matches the existing closed set (related, depends_on, blocks, part_of, links_to).\n"
+// wellFormedDecisionEntry is the normal, single-decision shape - the direct
+// Go value a caller building graph-writing input (WriteDecisionRecordNode,
+// decisionFromRecordEntry) works with. Not a string: the artifact this
+// decision came from is JSON now, not markdown, and there is no reason to
+// round-trip through text just to build a struct these tests already know
+// the shape of - mustMarshalDecisionRecordJSON below produces the on-disk
+// text for tests that specifically exercise the file-reading/parsing path.
+var wellFormedDecisionEntry = backend.DecisionRecordEntry{
+	Decision:          "Use edges.EdgeTypeHasDecision for the bead/epic link.",
+	OptionsConsidered: "1. A bare string literal.\n2. A new typed constant.",
+	TradeOffs:         "A typed constant is one more name to learn, but closes the set.",
+	Rationale:         "Matches the existing closed set (related, depends_on, blocks, part_of, links_to).",
+}
 
-// --- decisionFromRecordSections / SplitDecisionBody: the four parts stay
+// wellFormedDecisionRecordJSON is wellFormedDecisionEntry as the artifact an
+// agent would write to disk.
+var wellFormedDecisionRecordJSON = mustMarshalDecisionRecordJSON(wellFormedDecisionEntry)
+
+// mustMarshalDecisionRecordJSON encodes entries as a decision_record
+// artifact's on-disk JSON envelope - what an agent (or a test simulating
+// one) actually writes to disk. Named "must": every call site in this file
+// passes a value already known to marshal cleanly (plain strings, no cycles
+// or channels), so a marshal failure here would mean this file's own
+// fixture is broken, not a runtime condition a test needs to assert on.
+func mustMarshalDecisionRecordJSON(entries ...backend.DecisionRecordEntry) string {
+	b, err := json.Marshal(struct {
+		Decisions []backend.DecisionRecordEntry `json:"decisions"`
+	}{Decisions: entries})
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// --- decisionFromRecordEntry / SplitDecisionBody: the four parts stay
 // individually recoverable (criterion 1). ---
 
-func TestDecisionFromRecordSections_FourPartsIndividuallyRecoverable(t *testing.T) {
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	if len(sections) != 4 {
-		t.Fatalf("fixture produced %d sections, want 4: %v", len(sections), sections)
-	}
-
-	d := decisionFromRecordSections(sections, time.Now())
+func TestDecisionFromRecordEntry_FourPartsIndividuallyRecoverable(t *testing.T) {
+	d := decisionFromRecordEntry(wellFormedDecisionEntry, time.Now())
 
 	if !strings.Contains(d.Context, "Use edges.EdgeTypeHasDecision") {
-		t.Errorf("Context = %q, want the decision section's full text", d.Context)
+		t.Errorf("Context = %q, want the decision field's full text", d.Context)
 	}
 	if d.Title == "" {
-		t.Error("Title is empty, want the decision section's first line")
+		t.Error("Title is empty, want a title derived from the decision field")
 	}
-	if d.Outcome != strings.TrimSpace(sections["rationale"]) {
-		t.Errorf("Outcome = %q, want exactly the rationale section: %q", d.Outcome, sections["rationale"])
+	if d.Outcome != strings.TrimSpace(wellFormedDecisionEntry.Rationale) {
+		t.Errorf("Outcome = %q, want exactly the rationale field: %q", d.Outcome, wellFormedDecisionEntry.Rationale)
 	}
 
 	options, tradeOffs, ok := SplitDecisionBody(d.Body)
 	if !ok {
 		t.Fatalf("SplitDecisionBody could not split Body built by buildDecisionBody: %q", d.Body)
 	}
-	if options != strings.TrimSpace(sections["options_considered"]) {
-		t.Errorf("recovered options = %q, want %q", options, sections["options_considered"])
+	if options != strings.TrimSpace(wellFormedDecisionEntry.OptionsConsidered) {
+		t.Errorf("recovered options = %q, want %q", options, wellFormedDecisionEntry.OptionsConsidered)
 	}
-	if tradeOffs != strings.TrimSpace(sections["trade_offs"]) {
-		t.Errorf("recovered trade-offs = %q, want %q", tradeOffs, sections["trade_offs"])
+	if tradeOffs != strings.TrimSpace(wellFormedDecisionEntry.TradeOffs) {
+		t.Errorf("recovered trade-offs = %q, want %q", tradeOffs, wellFormedDecisionEntry.TradeOffs)
 	}
 	// The two parts must not be interchangeable - if buildDecisionBody ever
 	// concatenated them without a boundary, this would still pass with
@@ -69,14 +90,37 @@ func TestDecisionFromRecordSections_FourPartsIndividuallyRecoverable(t *testing.
 	}
 }
 
+// TestDecisionFromRecordEntry_TitleFallsBackToDecisionFirstLine proves an
+// entry with no explicit Title still gets a usable one, derived from the
+// decision field - Title is optional in the schema precisely so a
+// single-decision record (the common case) never needs to repeat itself.
+func TestDecisionFromRecordEntry_TitleFallsBackToDecisionFirstLine(t *testing.T) {
+	d := decisionFromRecordEntry(wellFormedDecisionEntry, time.Now())
+	want := fallbackDecisionTitle(wellFormedDecisionEntry.Decision)
+	if d.Title != want {
+		t.Errorf("Title = %q, want %q (derived from the decision field)", d.Title, want)
+	}
+}
+
+// TestDecisionFromRecordEntry_ExplicitTitleWins proves an entry that DOES
+// set Title uses it verbatim rather than deriving one - the field a record
+// with several decisions needs to tell them apart.
+func TestDecisionFromRecordEntry_ExplicitTitleWins(t *testing.T) {
+	entry := wellFormedDecisionEntry
+	entry.Title = "Edge type for the bead/epic link"
+	d := decisionFromRecordEntry(entry, time.Now())
+	if d.Title != "Edge type for the bead/epic link" {
+		t.Errorf("Title = %q, want the explicit title verbatim", d.Title)
+	}
+}
+
 // TestDecisionFromRecordSections_ImpactOnUseIsNilNotWritten pins that mapping
 // a freshly-parsed record never sets ImpactOnUse - it is written later by
 // the run's composer, not at decision time (see AGENTS.md and Decision's own
 // doc comment). Inverting this (setting it to a non-nil default) would
 // silently mark every record as already composed on day one.
 func TestDecisionFromRecordSections_ImpactOnUseIsNilNotWritten(t *testing.T) {
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	d := decisionFromRecordSections(sections, time.Now())
+	d := decisionFromRecordEntry(wellFormedDecisionEntry, time.Now())
 	if d.ImpactOnUse != nil {
 		t.Errorf("ImpactOnUse = %q, want nil - decision time never writes it", *d.ImpactOnUse)
 	}
@@ -167,14 +211,14 @@ func TestRecordDecisionIfGateType_NoOpWhenNoGateForState(t *testing.T) {
 	}
 }
 
-// --- readDecisionRecordSections: re-read failures halt loudly, they never
+// --- readDecisionRecords: re-read failures halt loudly, they never
 // silently skip (part of criterion 7). ---
 
-func TestReadDecisionRecordSections_FileMissingFails(t *testing.T) {
-	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}
+func TestReadDecisionRecords_FileMissingFails(t *testing.T) {
+	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: t.TempDir(), BeadID: "kb-1"}
 
-	_, err := readDecisionRecordSections(gate, gateCtx, "kb-1")
+	_, err := readDecisionRecords(gate, gateCtx, "kb-1")
 	if err == nil {
 		t.Fatal("expected an error for a decision record that does not exist on disk")
 	}
@@ -183,48 +227,87 @@ func TestReadDecisionRecordSections_FileMissingFails(t *testing.T) {
 	}
 }
 
-func TestReadDecisionRecordSections_SectionEmptyOnRereadFails(t *testing.T) {
+func TestReadDecisionRecords_FieldMissingOnRereadFails(t *testing.T) {
 	dir := t.TempDir()
-	// Missing the "## Rationale" section entirely - simulates the record
-	// changing, or the gate and this read disagreeing, between the gate's
-	// own read and this one.
-	incomplete := "## Decision\n\nUse X.\n\n## Options Considered\n\nX or Y.\n\n## Trade-offs\n\nX is simpler.\n"
-	if err := os.WriteFile(filepath.Join(dir, "decision-record.md"), []byte(incomplete), 0o644); err != nil {
+	// Missing the "rationale" field entirely - simulates the record changing,
+	// or the gate and this read disagreeing, between the gate's own read and
+	// this one.
+	incomplete := `{"decisions":[{"decision":"Use X.","optionsConsidered":"X or Y.","tradeOffs":"X is simpler."}]}`
+	if err := os.WriteFile(filepath.Join(dir, "decision-record.json"), []byte(incomplete), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}
+	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: dir, BeadID: "kb-1"}
 
-	_, err := readDecisionRecordSections(gate, gateCtx, "kb-1")
+	_, err := readDecisionRecords(gate, gateCtx, "kb-1")
 	if err == nil {
-		t.Fatal("expected an error for a record missing the rationale section on re-read")
+		t.Fatal("expected an error for a record missing the rationale field on re-read")
 	}
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Errorf("error %q does not carry the KERNL DISPATCH FAILURE marker", err.Error())
 	}
 	if !strings.Contains(err.Error(), "rationale") {
-		t.Errorf("error %q does not name the missing section", err.Error())
+		t.Errorf("error %q does not name the missing field", err.Error())
 	}
 }
 
-func TestReadDecisionRecordSections_WellFormedRecordExtractsAllFour(t *testing.T) {
+func TestReadDecisionRecords_WellFormedRecordExtractsEntry(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "decision-record.json"), []byte(wellFormedDecisionRecordJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}
+	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}
 	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: dir, BeadID: "kb-1"}
 
-	sections, err := readDecisionRecordSections(gate, gateCtx, "kb-1")
+	entries, err := readDecisionRecords(gate, gateCtx, "kb-1")
 	if err != nil {
-		t.Fatalf("readDecisionRecordSections: %v", err)
+		t.Fatalf("readDecisionRecords: %v", err)
 	}
-	for _, key := range decisionRecordRequiredKeys {
-		if sections[key] == "" {
-			t.Errorf("section %q is empty, want content", key)
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	for name, got := range map[string]string{
+		"decision":          entries[0].Decision,
+		"optionsConsidered": entries[0].OptionsConsidered,
+		"tradeOffs":         entries[0].TradeOffs,
+		"rationale":         entries[0].Rationale,
+	} {
+		if got == "" {
+			t.Errorf("field %q is empty, want content", name)
 		}
+	}
+}
+
+// TestReadDecisionRecords_MultipleDecisionsAllExtracted proves a record
+// carrying several decisions comes back with every one of them, in order -
+// the read side of the same "nothing dropped" guarantee the gate itself
+// provides (criterion 4).
+func TestReadDecisionRecords_MultipleDecisionsAllExtracted(t *testing.T) {
+	dir := t.TempDir()
+	second := backend.DecisionRecordEntry{
+		Title: "Second decision", Decision: "Use TOML for the export manifest.",
+		OptionsConsidered: "1. JSON.\n2. TOML.", TradeOffs: "TOML reads better by hand.",
+		Rationale: "Matches the config file already in the repo.",
+	}
+	content := mustMarshalDecisionRecordJSON(wellFormedDecisionEntry, second)
+	if err := os.WriteFile(filepath.Join(dir, "decision-record.json"), []byte(content), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	gate := backend.WorkflowExitGate{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}
+	gateCtx := backend.ExitGateContext{FromState: "implementation", ArtifactDir: dir, BeadID: "kb-1"}
+
+	entries, err := readDecisionRecords(gate, gateCtx, "kb-1")
+	if err != nil {
+		t.Fatalf("readDecisionRecords: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2 - a decision was dropped on re-read", len(entries))
+	}
+	if entries[1].Title != "Second decision" {
+		t.Errorf("entries[1].Title = %q, want %q", entries[1].Title, "Second decision")
 	}
 }
 
@@ -240,11 +323,11 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 
 	runID := seedRunWithBeads(t, g, "epic bead", []BeadRef{bead, epic})
 
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
+	ids, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{wellFormedDecisionEntry}, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
+	id := ids[0]
 
 	var got *nodes.Decision
 	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
@@ -332,7 +415,7 @@ func TestWriteDecisionRecordNode_LinksBeadAndEpic(t *testing.T) {
 // bare "write once" implementation gets wrong: the graph write succeeds and
 // commits, but the caller's own next step (advancing the bead's tracker
 // state) fails for an unrelated reason, and the whole run is retried from
-// the top. The retry re-reads the same decision-record.md and calls
+// the top. The retry re-reads the same decision-record.json and calls
 // WriteDecisionRecordNode again with identical sections, bead and epic. A
 // writer that mints a fresh random ID every call would leave two Decision
 // nodes and four has_decision edges behind for one real decision - and,
@@ -344,7 +427,7 @@ func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 	bead := BeadRef{ID: "kb-retry-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
 	epic := BeadRef{ID: "kb-epic-retry-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
 
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
+	decisions := []backend.DecisionRecordEntry{wellFormedDecisionEntry}
 
 	// The retry is the SAME run retrying, which is the shape the convergence
 	// is for. A different run is deliberately a different Decision node -
@@ -352,14 +435,15 @@ func TestWriteDecisionRecordNode_RetryConvergesOnOneNode(t *testing.T) {
 	// second run here would be testing the opposite property.
 	runID := seedRunWithBeads(t, g, "epic bead", []BeadRef{bead, epic})
 
-	firstID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
+	firstIDs, err := WriteDecisionRecordNode(ctx, g, decisions, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode (first attempt): %v", err)
 	}
-	secondID, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
+	secondIDs, err := WriteDecisionRecordNode(ctx, g, decisions, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode (retry): %v", err)
 	}
+	firstID, secondID := firstIDs[0], secondIDs[0]
 
 	if firstID != secondID {
 		t.Fatalf("retry minted a different node: first=%s second=%s", firstID, secondID)
@@ -405,11 +489,11 @@ func TestWriteDecisionRecordNode_SameBeadAndEpicWritesOneEdge(t *testing.T) {
 
 	runID := seedRunWithBeads(t, g, "standalone bead", []BeadRef{bead})
 
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, bead, runID)
+	ids, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{wellFormedDecisionEntry}, bead, bead, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
+	id := ids[0]
 
 	var in []edges.Edge
 	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
@@ -456,13 +540,80 @@ func TestWriteDecisionRecordNode_NeverSeenBeadSucceeds(t *testing.T) {
 
 	runID := seedRunWithBeads(t, g, "epic, also never seen", []BeadRef{bead, epic})
 
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
+	ids, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{wellFormedDecisionEntry}, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
-	if id == "" {
-		t.Fatal("expected a non-empty decision node id")
+	if len(ids) != 1 || ids[0] == "" {
+		t.Fatalf("expected exactly one non-empty decision node id, got %v", ids)
+	}
+}
+
+// TestWriteDecisionRecordNode_MultipleDecisionsEachGetsOwnNodeAndEdges is
+// the graph-writing side of criterion 4 (nothing dropped when a record
+// carries several decisions - the specific failure mode the withdrawn
+// prefix-matching approach would have introduced: heading-key collisions
+// silently keeping only the last decision). Three entries with genuinely
+// different content must become three distinct Decision nodes, each linked
+// to the run, the bead and the epic.
+func TestWriteDecisionRecordNode_MultipleDecisionsEachGetsOwnNodeAndEdges(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-multi-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	epic := BeadRef{ID: "kb-multi-epic-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "epic bead", []BeadRef{bead, epic})
+
+	decisions := []backend.DecisionRecordEntry{
+		{Title: "First", Decision: "Decision one.", OptionsConsidered: "A or B.", TradeOffs: "A is faster.", Rationale: "A wins."},
+		{Title: "Second", Decision: "Decision two.", OptionsConsidered: "C or D.", TradeOffs: "D is simpler.", Rationale: "D wins."},
+		{Title: "Third", Decision: "Decision three.", OptionsConsidered: "E or F.", TradeOffs: "E is safer.", Rationale: "E wins."},
+	}
+
+	ids, err := WriteDecisionRecordNode(ctx, g, decisions, bead, epic, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode: %v", err)
+	}
+	if len(ids) != 3 {
+		t.Fatalf("got %d ids, want 3 - a decision was dropped", len(ids))
+	}
+	if ids[0] == ids[1] || ids[1] == ids[2] || ids[0] == ids[2] {
+		t.Fatalf("expected 3 distinct decision ids, got %v", ids)
+	}
+
+	var decisionCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'decision'`).Scan(&decisionCount)
+	}); err != nil {
+		t.Fatalf("counting decision nodes: %v", err)
+	}
+	if decisionCount != 3 {
+		t.Errorf("decision node count = %d, want 3", decisionCount)
+	}
+
+	for i, id := range ids {
+		var got *nodes.Decision
+		if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+			var err error
+			got, err = nodes.GetDecision(ctx, tx, id)
+			return err
+		}); err != nil {
+			t.Fatalf("GetDecision(%s): %v", id, err)
+		}
+		if got.Title != decisions[i].Title {
+			t.Errorf("decision %d Title = %q, want %q", i, got.Title, decisions[i].Title)
+		}
+
+		var in []edges.Edge
+		if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+			var err error
+			in, err = edges.Incoming(ctx, tx, id, edges.WithType(edges.EdgeTypeHasDecision))
+			return err
+		}); err != nil {
+			t.Fatalf("edges.Incoming(%s): %v", id, err)
+		}
+		if len(in) != 3 {
+			t.Errorf("decision %d has %d incoming has_decision edges, want 3 (run, bead, epic)", i, len(in))
+		}
 	}
 }
 
@@ -638,8 +789,7 @@ func TestWriteDecisionRecordNode_PartialFailureRollsBackEverything(t *testing.T)
 		{ID: "kb-unrelated-partial-1", Title: "unrelated", TrackerKind: "bd", RepoPath: "/repo"},
 	})
 
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	_, err := WriteDecisionRecordNode(ctx, g, sections, bead, epic, runID)
+	_, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{wellFormedDecisionEntry}, bead, epic, runID)
 	if err == nil {
 		t.Fatal("expected an error: the epic BeadRef is missing a title")
 	}
@@ -683,13 +833,13 @@ func TestRecordDecisionIfGateType_FullPipelineSucceedsWhenNodesExist(t *testing.
 	be.beads[epicID] = &backend.Bead{ID: epicID, Title: "epic bead"}
 
 	artifactDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(wellFormedDecisionRecordJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
 	wf := backend.WorkflowDescriptor{
 		ExitGates: map[string][]backend.WorkflowExitGate{
-			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 		},
 	}
 	runID := seedRunAtPath(t, graphPath, "epic bead", []BeadRef{
@@ -737,7 +887,7 @@ func (f fakeHeadSHAResolver) HeadSHA(worktree string) string { return f.sha }
 // TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode is criterion 6 at
 // the orchestration boundary: recordDecisionIfGateType lives entirely inside
 // the gatePassed branch in drive_bead.go, so a gate failure (here: no
-// decision-record.md at all) must mean the graph is never even opened. The
+// decision-record.json at all) must mean the graph is never even opened. The
 // bead is left blocked, and no ".kernl-graph.db" is created under the vault
 // root this test dedicates to it.
 func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
@@ -777,7 +927,7 @@ func TestDriveBeadToTerminal_FailedGateNeverWritesDecisionNode(t *testing.T) {
 		t.Fatalf("DriveBeadToTerminal: %v", err)
 	}
 	if res.Success {
-		t.Fatalf("expected failure (gate missing decision-record.md), got success: %+v", res)
+		t.Fatalf("expected failure (gate missing decision-record.json), got success: %+v", res)
 	}
 	if bd, _ := be.Get("kb-1", ""); bd.State != "blocked" {
 		t.Errorf("expected bead blocked by the failed gate, got state %q", bd.State)
@@ -831,7 +981,7 @@ func TestDriveBeadToTerminal_EpicFetchFailsBeforeAgentRuns(t *testing.T) {
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(wellFormedDecisionRecordJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -905,7 +1055,7 @@ func TestDriveBeadToTerminal_PassedDecisionRecordGateWritesQueryableNode(t *test
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(wellFormedDecisionRecordJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -989,7 +1139,7 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 		ActionStates: []string{"implementation"},
 		QueueActions: map[string]string{"ready_for_implementation": "implementation"},
 		ExitGates: map[string][]backend.WorkflowExitGate{
-			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 		},
 		Stages: map[string]backend.StageContract{
 			"implementation": {
@@ -1030,7 +1180,7 @@ print(json.dumps({"context_payload": req.get("context_payload", "")}))
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(wellFormedDecisionRecord), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(wellFormedDecisionRecordJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

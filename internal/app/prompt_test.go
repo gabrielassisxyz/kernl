@@ -313,12 +313,13 @@ func TestBuildBeadStagePrompt_OpencodeNoteIsOpencodeOnly(t *testing.T) {
 	}
 }
 
-// TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections
+// TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndRequiredFields
 // proves the rendered implementation prompt tells the agent where to write
 // the decision record (as an absolute path outside the worktree, for the
 // same reason as any other output artifact) and names all four required
-// sections - the parseable shape the decision_record exit gate checks for.
-func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections(t *testing.T) {
+// JSON fields - the parseable shape backend.ParseDecisionRecordDocument
+// requires.
+func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndRequiredFields(t *testing.T) {
 	bead := &backend.Bead{ID: "kb-1", Title: "Add dark mode"}
 	artifactDir := "/home/user/.kernl/run/epic-1/kb-1"
 
@@ -329,7 +330,7 @@ func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections(t 
 				Kind: "commits",
 			},
 			DecisionRecord: backend.StageArtifact{
-				Path: "<artifact_dir>/decision-record.md",
+				Path: "<artifact_dir>/decision-record.json",
 			},
 		},
 	}
@@ -339,14 +340,17 @@ func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections(t 
 		VerifyCommand: "bin/ci", TrackerCommand: "bd", ArtifactDir: artifactDir,
 	})
 
-	wantPath := artifactDir + "/decision-record.md"
+	wantPath := artifactDir + "/decision-record.json"
 	if !strings.Contains(prompt, wantPath) {
 		t.Errorf("prompt must name the absolute decision record path %q\n---\n%s\n---", wantPath, prompt)
 	}
-	for _, heading := range []string{"## Decision", "## Options Considered", "## Trade-offs", "## Rationale"} {
-		if !strings.Contains(prompt, heading) {
-			t.Errorf("prompt missing required section heading %q\n---\n%s\n---", heading, prompt)
+	for _, field := range []string{"decision", "optionsConsidered", "tradeOffs", "rationale"} {
+		if !strings.Contains(prompt, field) {
+			t.Errorf("prompt missing required field %q\n---\n%s\n---", field, prompt)
 		}
+	}
+	if !strings.Contains(prompt, "decisions") {
+		t.Errorf("prompt must name the top-level \"decisions\" array:\n%s", prompt)
 	}
 	if strings.Contains(prompt, "<artifact_dir>") {
 		t.Errorf("prompt must not leak the raw <artifact_dir> placeholder:\n%s", prompt)
@@ -354,8 +358,33 @@ func TestBuildBeadStagePrompt_DecisionRecord_NamesAbsolutePathAndFourSections(t 
 	// The fifth field of a full decision record (impact on using the tool)
 	// is out of scope for this stage: it is written later, by a different
 	// actor. The prompt must not ask the implementer for it.
-	if strings.Contains(prompt, "## Impact") {
-		t.Error("prompt must not ask the implementer for the impact-on-usage section")
+	if strings.Contains(prompt, "impactOnUse") || strings.Contains(prompt, "## Impact") {
+		t.Error("prompt must not ask the implementer for the impact-on-usage field")
+	}
+}
+
+// TestBuildBeadStagePrompt_DecisionRecord_TellsAgentToAddAnEntryForMoreThanOne
+// pins the fix for the measured defect this schema exists to close: the
+// prompt must tell the agent to add another array entry for a second
+// decision, not leave it to invent its own syntax the way three different
+// agents each did under the old single-section markdown gate.
+func TestBuildBeadStagePrompt_DecisionRecord_TellsAgentToAddAnEntryForMoreThanOne(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "Add dark mode"}
+	stages := map[string]backend.StageContract{
+		"implementation": {
+			Role:           "Implement the plan.",
+			OutputArtifact: backend.StageArtifact{Kind: "commits"},
+			DecisionRecord: backend.StageArtifact{Path: "<artifact_dir>/decision-record.json"},
+		},
+	}
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "implementation", Stages: stages, RepoPath: "/repo", Worktree: "/wt",
+		VerifyCommand: "bin/ci", TrackerCommand: "bd", ArtifactDir: "/home/user/.kernl/run/epic-1/kb-1",
+	})
+
+	if !strings.Contains(prompt, "another") && !strings.Contains(prompt, "at least one entry") {
+		t.Errorf("prompt does not tell the agent how to record more than one decision:\n%s", prompt)
 	}
 }
 

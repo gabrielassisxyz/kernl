@@ -73,7 +73,7 @@ func forkReentryWorkflow(id string) backend.WorkflowDescriptor {
 			"ready_for_implementation": "implementation",
 		},
 		ExitGates: map[string][]backend.WorkflowExitGate{
-			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 		},
 	}
 }
@@ -155,13 +155,13 @@ func TestDriveBeadToTerminal_ForkHandover_ReentersSameStageWithDAAnswerInPrompt(
 		t.Errorf("the FIRST invocation's prompt must tell the implementer it may hand a fork over (a DA is configured and decision_record is armed):\n%s", firstPrompt)
 	}
 
-	// The SECOND invocation never wrote decision-record.md (this fake only
+	// The SECOND invocation never wrote decision-record.json (this fake only
 	// exercises the handover on its first call), so its own exit gate
 	// genuinely fails and the bead blocks there - proof that the re-entered
 	// attempt is a REAL second attempt at the SAME stage, evaluated by the
 	// SAME ordinary exit gate, not a second copy of the first success.
 	if res.Success || res.FinalState != "blocked" || res.BlockedAtState != "implementation" {
-		t.Errorf("res = %+v, want the second (real, gate-checked) attempt to block at implementation for missing decision-record.md", res)
+		t.Errorf("res = %+v, want the second (real, gate-checked) attempt to block at implementation for missing decision-record.json", res)
 	}
 }
 
@@ -310,11 +310,11 @@ func TestDriveBeadToTerminal_TwoForksInOneCall_BothAnswersSurviveIntoTheNextProm
 		t.Errorf("the THIRD invocation's prompt must carry the SECOND fork's own answer:\n%s", thirdPrompt)
 	}
 
-	// The third attempt never wrote decision-record.md, so its own exit gate
+	// The third attempt never wrote decision-record.json, so its own exit gate
 	// genuinely fails and the bead blocks there - proof this is a REAL third
 	// attempt, evaluated by the ordinary exit gate, not a replay of anything
 	// earlier.
 	if res.Success || res.FinalState != "blocked" || res.BlockedAtState != "implementation" {
-		t.Errorf("res = %+v, want the third (real, gate-checked) attempt to block at implementation for missing decision-record.md", res)
+		t.Errorf("res = %+v, want the third (real, gate-checked) attempt to block at implementation for missing decision-record.json", res)
 	}
 }

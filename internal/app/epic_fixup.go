@@ -294,7 +294,7 @@ func hasExactLastLine(content, want string) bool {
 // retrying safe - retrying blind on a false "nothing was created" is
 // exactly what would create a duplicate.
 func createFixupBead(deps DriveEpicIntegrationTailDeps, rejection *IntegrationRejection, decision FixupDecision) (EpicIntegrationTailResult, error) {
-	title, _ := decisionTitleAndContext(rejection.WhatIsWrong)
+	title := fallbackDecisionTitle(rejection.WhatIsWrong)
 	input := backend.CreateBeadInput{
 		Title:       "fix-up: " + title,
 		Description: rejection.WhatIsWrong,
