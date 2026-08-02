@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -231,6 +232,33 @@ func (c InboxConfig) AutoClassifyEnabled() bool {
 	return c.AutoClassify == nil || *c.AutoClassify
 }
 
+// DAConfig declares the DA - the actor an implementer hands a fork over to
+// when it meets a choice the bead, the docs and precedent do not determine
+// (the fork gate; see local/artifacts/plans/2026-08-01-composer-context-and-fork-gate-plan.md
+// §3). It is its own top-level block, named after the actor rather than
+// after the gate, because `kernl da` - a separate, planned interactive
+// surface - spawns this same agent in this same place and has to read these
+// same two keys. A block named after the gate would guarantee a second
+// declaration of the same configuration the day that surface exists.
+type DAConfig struct {
+	// Agent names a settings.agents key, exactly as llm.agent already does:
+	// the command and the model come from that entry, and there is
+	// deliberately no model key here - one is not invented for an actor that
+	// already has a place to name it.
+	Agent string `yaml:"agent,omitempty"`
+	// WorkDir is the operator's own system repository - where their telos,
+	// notes, recorded preferences and memories already live - and it is the
+	// deliberate opposite of the Oracle's rule (see LLMConfig.Agent and
+	// app.CLIImpactComposer): the Oracle runs with no working directory at
+	// all, because it must never read a repository it is only supposed to
+	// describe, while the DA is worthless unless it can reach what the
+	// operator has actually written down. Neither is a precedent for the
+	// other. It is configuration, and never a literal in the tree: this
+	// repository is public, and an absolute path from one machine cannot
+	// appear in it.
+	WorkDir string `yaml:"workDir,omitempty"`
+}
+
 type Config struct {
 	Settings     Settings           `yaml:"settings"`
 	Registry     RegistryConfig     `yaml:"registry"`
@@ -240,6 +268,7 @@ type Config struct {
 	Vault        VaultConfig        `yaml:"vault,omitempty"`
 	LLM          LLMConfig          `yaml:"llm,omitempty"`
 	Inbox        InboxConfig        `yaml:"inbox,omitempty"`
+	DA           DAConfig           `yaml:"da,omitempty"`
 }
 
 func Load(path string) (*Config, error) {
@@ -310,5 +339,32 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: %s defines zero agents under settings.agents - the orchestrator cannot dispatch. Fix: copy kernl.yaml.example and fill in at least one agent. Next: kernl doctor", path)
 	}
 
+	if err := validateDAPairing(cfg.DA); err != nil {
+		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: %s: %w", path, err)
+	}
+
 	return &cfg, nil
+}
+
+// validateDAPairing enforces the one rule Load owns about the da: block:
+// both keys empty is a normal, supported state (the fork gate is off, and an
+// implementer keeps deciding every fork alone, exactly like today), but
+// exactly one set is an operator mistake, not a partial configuration - a
+// declared da.agent with nowhere to run, or a declared da.workDir with
+// nothing to run it, can never produce a working DA. Whether da.agent names a
+// real settings.agents entry, and whether da.workDir exists on disk, are
+// cross-references and a filesystem fact respectively - checked at
+// resolution time by app.NewDA, the same division of labour newOracle
+// already draws for llm.agent (Load never dials out to the filesystem to
+// validate a foreign key).
+func validateDAPairing(da DAConfig) error {
+	agentSet := strings.TrimSpace(da.Agent) != ""
+	workDirSet := strings.TrimSpace(da.WorkDir) != ""
+	if agentSet == workDirSet {
+		return nil
+	}
+	if agentSet {
+		return fmt.Errorf("da.agent is set but da.workDir is not - the fork gate needs both or neither: Fix: set da.workDir to the operator's own system repository, or clear da.agent to leave the fork gate off")
+	}
+	return fmt.Errorf("da.workDir is set but da.agent is not - the fork gate needs both or neither: Fix: set da.agent to a settings.agents key, or clear da.workDir to leave the fork gate off")
 }

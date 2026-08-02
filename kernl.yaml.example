@@ -186,3 +186,38 @@ server:
 #   # the cold-start diff at this interval as a safety net for missed events.
 #   # Default: 0 (disabled).
 #   # rescanIntervalSec: 0
+
+# DA block declares the actor an implementer hands a fork over to, instead of
+# deciding it alone and silently, when it meets a choice the bead, this
+# repository's docs and existing precedent do not already determine. Named
+# after the actor, not after the gate: `kernl da`, a separate interactive
+# surface, spawns this same agent in this same place and reads these same
+# two keys, so a block named after the gate would only invite a second
+# declaration of it.
+#
+# Both keys unset (or the block absent) is a normal, supported state: the
+# fork gate is off, and an implementer keeps deciding every fork alone, which
+# is today's behavior. Setting exactly one of the two is an operator mistake
+# and kernl refuses to start rather than run half-configured.
+#
+# da:
+#   # A settings.agents key, exactly like llm.agent (used to reach the run
+#   # report's Oracle): the command and the model come from that entry.
+#   # There is deliberately no model key here.
+#   #
+#   # Only an entry whose OWN command is `claude` or `pi` can ever be
+#   # consulted this way - measured: those are the only two dialects whose
+#   # one-shot stdout is the answer with no framing around it, and both can
+#   # be run with their tools restricted to read-only (see
+#   # adapter.BuildConsultModeArgs). Every other command (including opencode,
+#   # this file's own example agent above) is refused by name at startup.
+#   agent: claude
+#   # The operator's OWN system repository - where their notes, telos and
+#   # recorded preferences already live - never the target repository under
+#   # review. This is the deliberate OPPOSITE of the Oracle: the Oracle runs
+#   # with no tools and no working directory at all, because it must never
+#   # read a repository it is only supposed to describe; the DA is worthless
+#   # unless it can reach what the operator actually wrote down. Neither is a
+#   # precedent for the other. Always an absolute path, never committed as a
+#   # real one - replace this placeholder with your own.
+#   workDir: /absolute/path/to/your/notes-and-telos-repo
