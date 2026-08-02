@@ -9,23 +9,23 @@ import (
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
 
-// wellFormedAuditFixtureSections is shaped like what
-// backend.DecisionRecordSectionBodies extracts from a real
-// decision-record.md - one key per required section. Feeding it straight to
+// wellFormedAuditFixtureEntry is the shape a decision_record artifact's
+// "decisions" array carries one entry as. Feeding it straight to
 // app.WriteDecisionRecordNode, the actual production write path, proves the
 // endpoint surfaces a record written by that path, not a hand-rolled
 // fixture shaped only to satisfy the handler's query.
-var wellFormedAuditFixtureSections = map[string]string{
-	"decision":           "Use edges.EdgeTypeHasDecision for the bead/epic link.",
-	"options_considered": "A bare string literal vs a new typed constant.",
-	"trade_offs":         "A typed constant is one more name, but closes the set.",
-	"rationale":          "Matches the existing closed edge-type set.",
+var wellFormedAuditFixtureEntry = backend.DecisionRecordEntry{
+	Decision:          "Use edges.EdgeTypeHasDecision for the bead/epic link.",
+	OptionsConsidered: "A bare string literal vs a new typed constant.",
+	TradeOffs:         "A typed constant is one more name, but closes the set.",
+	Rationale:         "Matches the existing closed edge-type set.",
 }
 
 // seedAuditRun creates the workflow run a decision record now has to belong
@@ -59,7 +59,7 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	bead := app.BeadRef{ID: "kb-1", Title: "bead", TrackerKind: "br", RepoPath: "/repo"}
 	epic := app.BeadRef{ID: "kb-epic-1", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedAuditRun(t, g, []app.BeadRef{bead, epic})
-	if _, err := app.WriteDecisionRecordNode(ctx, g, wellFormedAuditFixtureSections, bead, epic, runID); err != nil {
+	if _, err := app.WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{wellFormedAuditFixtureEntry}, bead, epic, runID); err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
 
@@ -110,11 +110,11 @@ func TestAuditDecisionsHandler(t *testing.T) {
 	}
 
 	got := res[0]
-	if got.Context != wellFormedAuditFixtureSections["decision"] {
-		t.Errorf("Context = %q, want the decision section text", got.Context)
+	if got.Context != wellFormedAuditFixtureEntry.Decision {
+		t.Errorf("Context = %q, want the decision field text", got.Context)
 	}
-	if got.Outcome != wellFormedAuditFixtureSections["rationale"] {
-		t.Errorf("Outcome = %q, want the rationale section text", got.Outcome)
+	if got.Outcome != wellFormedAuditFixtureEntry.Rationale {
+		t.Errorf("Outcome = %q, want the rationale field text", got.Outcome)
 	}
 	if got.ImpactOnUse != nil {
 		t.Errorf("ImpactOnUse = %q, want nil (awaiting the composer)", *got.ImpactOnUse)
@@ -172,13 +172,9 @@ func TestAuditDecisionsHandler_TruncationIsSignaled(t *testing.T) {
 
 	const seeded = 101 // one more than decisionsPageLimit
 	for i := 0; i < seeded; i++ {
-		sections := map[string]string{
-			"decision":           fmt.Sprintf("Decision number %d.", i),
-			"options_considered": wellFormedAuditFixtureSections["options_considered"],
-			"trade_offs":         wellFormedAuditFixtureSections["trade_offs"],
-			"rationale":          wellFormedAuditFixtureSections["rationale"],
-		}
-		if _, err := app.WriteDecisionRecordNode(ctx, g, sections, bead, bead, runID); err != nil {
+		entry := wellFormedAuditFixtureEntry
+		entry.Decision = fmt.Sprintf("Decision number %d.", i)
+		if _, err := app.WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{entry}, bead, bead, runID); err != nil {
 			t.Fatalf("WriteDecisionRecordNode(%d): %v", i, err)
 		}
 	}

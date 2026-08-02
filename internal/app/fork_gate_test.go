@@ -18,7 +18,7 @@ import (
 func workflowWithDecisionRecordGate() backend.WorkflowDescriptor {
 	return backend.WorkflowDescriptor{
 		ExitGates: map[string][]backend.WorkflowExitGate{
-			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+			"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 		},
 	}
 }

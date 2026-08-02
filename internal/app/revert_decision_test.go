@@ -131,12 +131,11 @@ func seedActiveDecision(t *testing.T, g *graph.Graph, beadID string) string {
 	t.Helper()
 	ref := BeadRef{ID: beadID, Title: "bead " + beadID, TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedRunWithBeads(t, g, "bead "+beadID, []BeadRef{ref})
-	sections := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	id, err := WriteDecisionRecordNode(context.Background(), g, sections, ref, ref, runID)
+	ids, err := WriteDecisionRecordNode(context.Background(), g, []backend.DecisionRecordEntry{wellFormedDecisionEntry}, ref, ref, runID)
 	if err != nil {
 		t.Fatalf("seedActiveDecision: WriteDecisionRecordNode: %v", err)
 	}
-	return id
+	return ids[0]
 }
 
 func getDecision(t *testing.T, g *graph.Graph, id string) *nodes.Decision {
@@ -309,15 +308,14 @@ func TestRevertDecisionAndReopenBead_AmbiguousWithoutExplicitDecisionFailsLoud(t
 	ref := BeadRef{ID: "kb-4", Title: "bead kb-4", TrackerKind: "br", RepoPath: "/repo"}
 
 	runID1 := seedRunWithBeads(t, g, "bead kb-4", []BeadRef{ref})
-	sections1 := backend.DecisionRecordSectionBodies(wellFormedDecisionRecord)
-	if _, err := WriteDecisionRecordNode(context.Background(), g, sections1, ref, ref, runID1); err != nil {
+	if _, err := WriteDecisionRecordNode(context.Background(), g, []backend.DecisionRecordEntry{wellFormedDecisionEntry}, ref, ref, runID1); err != nil {
 		t.Fatalf("seed decision 1: %v", err)
 	}
 
 	runID2 := seedRunWithBeads(t, g, "bead kb-4 retry", []BeadRef{ref})
-	secondRecord := strings.ReplaceAll(wellFormedDecisionRecord, "typed constant", "second, distinct decision")
-	sections2 := backend.DecisionRecordSectionBodies(secondRecord)
-	if _, err := WriteDecisionRecordNode(context.Background(), g, sections2, ref, ref, runID2); err != nil {
+	secondEntry := wellFormedDecisionEntry
+	secondEntry.TradeOffs = strings.ReplaceAll(secondEntry.TradeOffs, "typed constant", "second, distinct decision")
+	if _, err := WriteDecisionRecordNode(context.Background(), g, []backend.DecisionRecordEntry{secondEntry}, ref, ref, runID2); err != nil {
 		t.Fatalf("seed decision 2: %v", err)
 	}
 
@@ -445,7 +443,7 @@ func TestRevertDecisionAndReopenBead_DifferentReasonOnAlreadyRevertedFailsLoud(t
 	}
 }
 
-// realWorldDecisionRecord reproduces the shape of the one production
+// realWorldDecisionEntry reproduces the shape of the one production
 // decision record this project has (arch-f40, read directly out of the
 // graph): a Title that is a fragment rather than a name, an Outcome that
 // names options only by an id defined inside Body's Options Considered
@@ -453,27 +451,24 @@ func TestRevertDecisionAndReopenBead_DifferentReasonOnAlreadyRevertedFailsLoud(t
 // Title/Context/Outcome alone, without Body, produces a constraint that
 // tells the next implementer which option to avoid by an id that is never
 // defined anywhere in the text.
-const realWorldDecisionRecord = "## Decision\n\n" +
-	"Three things were open, and none of them was settled by the bead:\n\n" +
-	"whether the export manifest is JSON or TOML, whether ids are content-\n" +
-	"addressed, and whether validation runs before or after the write.\n\n" +
-	"## Options Considered\n\n" +
-	"1a. JSON manifest, 1b. TOML manifest.\n" +
-	"2a. Content-addressed ids, 2b. Sequential ids.\n" +
-	"3a. Validate before write, 3b. Validate after write.\n\n" +
-	"## Trade-offs\n\n" +
-	"1a reads unambiguously but is less friendly by hand than 1b. 2a survives a\n" +
-	"retry without duplicating; 2b is simpler but does not. 3a never leaves a\n" +
-	"manifest describing a file that was never written; 3b is cheaper per call.\n\n" +
-	"## Rationale\n\n" +
-	"**1a**, **2a**, **3a**."
+var realWorldDecisionEntry = backend.DecisionRecordEntry{
+	Decision: "Three things were open, and none of them was settled by the bead:\n\n" +
+		"whether the export manifest is JSON or TOML, whether ids are content-\n" +
+		"addressed, and whether validation runs before or after the write.",
+	OptionsConsidered: "1a. JSON manifest, 1b. TOML manifest.\n" +
+		"2a. Content-addressed ids, 2b. Sequential ids.\n" +
+		"3a. Validate before write, 3b. Validate after write.",
+	TradeOffs: "1a reads unambiguously but is less friendly by hand than 1b. 2a survives a\n" +
+		"retry without duplicating; 2b is simpler but does not. 3a never leaves a\n" +
+		"manifest describing a file that was never written; 3b is cheaper per call.",
+	Rationale: "**1a**, **2a**, **3a**.",
+}
 
 func TestRevertDecisionAndReopenBead_ConstraintCarriesOptionsAndTradeOffs(t *testing.T) {
 	g := testutil.NewInMemoryTestGraph(t)
 	ref := BeadRef{ID: "kb-8", Title: "bead kb-8", TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedRunWithBeads(t, g, "bead kb-8", []BeadRef{ref})
-	sections := backend.DecisionRecordSectionBodies(realWorldDecisionRecord)
-	if _, err := WriteDecisionRecordNode(context.Background(), g, sections, ref, ref, runID); err != nil {
+	if _, err := WriteDecisionRecordNode(context.Background(), g, []backend.DecisionRecordEntry{realWorldDecisionEntry}, ref, ref, runID); err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
 	be := newRevertTestBackend(backend.Bead{ID: "kb-8", Description: "original"})

@@ -138,17 +138,17 @@ func seedRouteDecision(t *testing.T, g *graph.Graph, beadID string) string {
 	if err != nil {
 		t.Fatalf("StartWorkflowRun: %v", err)
 	}
-	sections := backend.DecisionRecordSectionBodies(
-		"## Decision\n\nUse a TOML export manifest.\n\n" +
-			"## Options Considered\n\n1. JSON.\n2. TOML.\n\n" +
-			"## Trade-offs\n\nTOML reads friendlier by hand; JSON has no ambiguity.\n\n" +
-			"## Rationale\n\nMatches the rest of the config surface.\n",
-	)
-	id, err := app.WriteDecisionRecordNode(context.Background(), g, sections, ref, ref, runID)
+	entry := backend.DecisionRecordEntry{
+		Decision:          "Use a TOML export manifest.",
+		OptionsConsidered: "1. JSON.\n2. TOML.",
+		TradeOffs:         "TOML reads friendlier by hand; JSON has no ambiguity.",
+		Rationale:         "Matches the rest of the config surface.",
+	}
+	ids, err := app.WriteDecisionRecordNode(context.Background(), g, []backend.DecisionRecordEntry{entry}, ref, ref, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
-	return id
+	return ids[0]
 }
 
 func TestRevertDecisionHandler_ReopensBeadWithConstraint(t *testing.T) {

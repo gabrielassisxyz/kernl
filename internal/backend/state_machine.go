@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -9,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"unicode"
 )
 
 type StepPhase string
@@ -113,10 +113,12 @@ type profileConfig struct {
 // builtinProfiles below) - now that ExitGates holds a list per state,
 // combining the two is exactly what this gate exists to make possible.
 //
-// "epic" deliberately does NOT carry it. decision_record checks for the
-// four sections a stage's own implementer writes down before coding
-// (Decision, Options Considered, Trade-offs, Rationale) - that is what the
-// stage contract's Role text asks for and who it addresses. Epic's
+// "epic" deliberately does NOT carry it. decision_record checks the JSON
+// document (one or more decisions, each carrying the four required fields:
+// decision, optionsConsidered, tradeOffs, rationale - see
+// DecisionRecordEntry) a stage's own implementer writes down before coding -
+// that is what the stage contract's Role text asks for and who it
+// addresses. Epic's
 // "integration" state is not that stage: its real prompt (RenderIntegration
 // in cmd/kernl/epic.go, which replaces the generic stage-contract prompt
 // entirely for that state) instructs the agent only to merge child
@@ -127,7 +129,7 @@ type profileConfig struct {
 // add safety - it forces the agent to fabricate content to get past the
 // gate, corrupting the exact record this check exists to keep trustworthy.
 var canonicalImplementationExitGates = map[string][]WorkflowExitGate{
-	"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+	"implementation": {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 }
 
 var builtinProfiles = []profileConfig{
@@ -201,7 +203,7 @@ var builtinProfiles = []profileConfig{
 			// needed here (contrast with epic's "integration" above).
 			"implementation": {
 				{Type: "commit_marker"},
-				{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"},
+				{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"},
 			},
 			// implementation_review agent must write a PASS verdict artifact.
 			"implementation_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"}},
@@ -900,12 +902,14 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		if err != nil {
 			return false, "artifact_missing: " + abs
 		}
-		missing := missingDecisionRecordSections(string(data))
-		if len(missing) > 0 {
-			// Names which sections are missing, not just that the document
-			// is malformed: an agent told "invalid" cannot fix it, one told
-			// "missing: trade_offs" can.
-			return false, "decision_record_missing_sections: " + strings.Join(missing, ", ")
+		// ParseDecisionRecordDocument's own error text already IS the gate
+		// reason: a "decision_record_invalid_json"/"decision_record_empty"/
+		// "decision_record_missing_fields" family naming exactly what is
+		// wrong, the same discipline the old heading parser's
+		// "missing_sections" reason followed - an agent told "invalid"
+		// cannot fix it, one told which field at which index is missing can.
+		if _, err := ParseDecisionRecordDocument(string(data)); err != nil {
+			return false, err.Error()
 		}
 		return true, ""
 	default:
@@ -913,27 +917,90 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 	}
 }
 
-// decisionRecordSection names one of the four fixed parts a decision record
-// must carry (AGENTS.md SS2, "Comprehension Debt"): what was being decided,
-// the options weighed, their trade-offs, and why the winner won.
+// DecisionRecordEntry is one decision inside a decision_record artifact: an
+// agent-authored JSON object, not a markdown section under a heading. The
+// gate this schema replaced modeled exactly one decision (four fixed
+// headings, matched by exact key); an implementer facing more than one
+// decision in a single stage had no way to say so and each invented its own
+// syntax for it - "## Decision: <subject>", "## Decision 1:" / "## Decision
+// 2:" - none of which the heading parser recognized, so the gate rejected
+// finished, committed work with a misleading "missing: decision". The
+// artifact's top level is a LIST of these for exactly that reason: it is
+// the fix, not a convenience.
 //
-// A fifth part exists in the full record - the decision's impact on using
-// the tool - and is deliberately NOT checked here. It is written by a
-// different actor (the run's composer) at a different time (run close),
-// never by the implementer at decision time; a gate that demanded it here
-// would block every bead before that actor ever runs. Do not "complete" this
-// list by adding it.
-type decisionRecordSection struct {
-	key     string // snake identifier used in the gate's failure reason
-	heading string // markdown heading text the stage prompt asks for
+// Title is optional - a record with a single decision does not need one to
+// be unambiguous - but is worth writing when a record carries several, so a
+// reader (and the run report) has a short label per entry instead of only an
+// array index.
+type DecisionRecordEntry struct {
+	Title             string `json:"title,omitempty"`
+	Decision          string `json:"decision"`
+	OptionsConsidered string `json:"optionsConsidered"`
+	TradeOffs         string `json:"tradeOffs"`
+	Rationale         string `json:"rationale"`
 }
 
-var decisionRecordSections = []decisionRecordSection{
-	{key: "decision", heading: "Decision"},
-	{key: "options_considered", heading: "Options Considered"},
-	{key: "trade_offs", heading: "Trade-offs"},
-	{key: "rationale", heading: "Rationale"},
+// decisionRecordDocument is the on-disk envelope for a decision_record
+// artifact: {"decisions": [...]}, rather than a bare array, so the schema
+// has room to grow a sibling field later without breaking every existing
+// record (YAGNI: no such field exists yet, this is just why the envelope is
+// an object and not the array itself).
+type decisionRecordDocument struct {
+	Decisions []DecisionRecordEntry `json:"decisions"`
 }
+
+// decisionRecordRequiredField pairs each DecisionRecordEntry field this
+// gate requires with its JSON wire name, so a missing-field error can name
+// the exact field an agent typed (or omitted) rather than the gate's
+// internal vocabulary for it.
+type decisionRecordRequiredField struct {
+	wireName string
+	value    func(DecisionRecordEntry) string
+}
+
+var decisionRecordRequiredFields = []decisionRecordRequiredField{
+	{"decision", func(e DecisionRecordEntry) string { return e.Decision }},
+	{"optionsConsidered", func(e DecisionRecordEntry) string { return e.OptionsConsidered }},
+	{"tradeOffs", func(e DecisionRecordEntry) string { return e.TradeOffs }},
+	{"rationale", func(e DecisionRecordEntry) string { return e.Rationale }},
+}
+
+// maxDecisionRecordEntries bounds how many decisions a single decision_record
+// artifact may declare. Every real record this gate's own motivating cases
+// produced (the three implementers whose incompatible invented syntaxes
+// prompted this whole redesign) carried one to three decisions; twenty is
+// already a generous multiple of that. The bound exists because nothing else
+// on this path bounds entry count: WriteDecisionRecordNode writes one
+// Decision node and up to three has_decision edges PER entry, in one
+// transaction, and app.ComposeRunReport's own field-4 composer call runs
+// SEQUENTIALLY, one decision at a time, at up to 60 seconds each (see
+// app.impactComposeTimeout) - an unbounded entry count turns one runaway
+// record (measured: 1000 entries) into a run report that does not finish for
+// roughly 16 hours, not a config value anyone chose, and never a shape a
+// deliberated decision list has a legitimate reason to take.
+const maxDecisionRecordEntries = 20
+
+// maxDecisionRecordFieldBytes bounds any one field's length - title,
+// decision, optionsConsidered, tradeOffs, or rationale. This gate's own
+// fixtures and this project's one measured production record (see
+// realWorldDecisionEntry in app/revert_decision_test.go) run a few hundred
+// bytes per field at most; the limit here is two orders of magnitude above
+// that, so no genuine record is ever affected, while a field an agent filled
+// with, say, an entire source file or a log dump is rejected instead of
+// silently becoming the Decision node's Body/Context/Outcome content and
+// the composer's prompt input.
+const maxDecisionRecordFieldBytes = 20_000
+
+// maxDecisionRecordDocumentBytes bounds the raw artifact file's total size,
+// checked before the content is unmarshalled at all - json.Unmarshal has no
+// size limit of its own and would otherwise allocate for a file of any size
+// before this gate ever gets to look at entry count or field size. Derived
+// from the two limits above (worst case: every one of maxDecisionRecordEntries
+// entries has all 5 string fields at maxDecisionRecordFieldBytes each) with a
+// 2x multiplier for JSON syntax overhead - keys, quoting, commas, whitespace
+// - rather than picked independently, so it can never reject a document that
+// is otherwise within both of those limits.
+const maxDecisionRecordDocumentBytes = maxDecisionRecordEntries * 5 * maxDecisionRecordFieldBytes * 2
 
 // decisionRecordHeadingRe matches an ATX heading ("## Text", 1-6 hashes)
 // against a single already-comment-stripped line. It intentionally does not
@@ -987,34 +1054,6 @@ func isThematicBreak(trimmed string) bool {
 // own heading block cannot also be "paragraph text" for the next line).
 func isAtxHeadingText(trimmed string) bool {
 	return decisionRecordHeadingRe.MatchString(trimmed)
-}
-
-// normalizeDecisionHeading collapses a markdown heading to lowercase
-// alphanumerics separated by single spaces, so "Trade-offs", "Trade offs"
-// and "TRADE OFFS" all match the same required section - the parser does not
-// require the agent to reproduce the heading text byte-for-byte.
-func normalizeDecisionHeading(s string) string {
-	var b strings.Builder
-	atSpace := true
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsDigit(r):
-			b.WriteRune(r)
-			atSpace = false
-		case !atSpace:
-			b.WriteRune(' ')
-			atSpace = true
-		}
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func decisionRecordSectionKeyByHeading() map[string]string {
-	m := make(map[string]string, len(decisionRecordSections))
-	for _, s := range decisionRecordSections {
-		m[normalizeDecisionHeading(s.heading)] = s.key
-	}
-	return m
 }
 
 // decisionRecordLine is one line of a decision record after block-context
@@ -1108,13 +1147,17 @@ func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
 
 // MarkdownSectionsByHeading walks content's ATX/setext headings - fence and
 // HTML-comment aware, via classifyDecisionRecordLines - and returns the body
-// text under every heading keyFn recognizes. It is the generic engine
-// DecisionRecordSectionBodies is built from, extracted so a second caller
-// with a different heading vocabulary (ParseIntegrationRejection, Phase 6's
-// integration_review rejection) tells a real heading apart from one hidden
-// inside an example fence or an HTML comment using the exact same,
-// already-hardened distinction - not a second, naively regexp-only parser
-// that a hidden-then-later-revealed heading could defeat.
+// text under every heading keyFn recognizes. It is the generic engine every
+// heading-based artifact parser this package still has is built from -
+// ParseIntegrationRejection and ParseImplementationRejection (Phase 6's
+// rejection handling) and app.ForkHandover's own fork.md parser - each
+// telling a real heading apart from one hidden inside an example fence or an
+// HTML comment using the exact same, already-hardened distinction, not a
+// second, naively regexp-only parser that a hidden-then-later-revealed
+// heading could defeat. The decision_record gate itself no longer uses this
+// engine (see ParseDecisionRecordDocument): that artifact is agent-authored
+// JSON now, not agent-authored markdown, so there is no heading for an
+// adversarial or merely careless agent to hide.
 //
 // keyFn maps one heading's own text to the canonical key a caller cares
 // about; ok=false means this heading is not recognized - it still closes the
@@ -1135,9 +1178,8 @@ func stripHTMLCommentFromLine(line string, inComment bool) (string, bool) {
 // was seen at most once. Which of two same-keyed headings should win is not
 // decidable content: silently keeping the last one lets whichever heading an
 // author (or an adversarial agent) places last override one placed first in
-// plain view. DecisionRecordSectionBodies discards dupKey, preserving its
-// existing last-one-wins behavior for every caller it already has; a caller
-// that must instead refuse an ambiguous document checks dupKey itself.
+// plain view. A caller that wants last-one-wins discards dupKey; a caller
+// that must instead refuse an ambiguous document checks it itself.
 //
 // This is deliberately not a full CommonMark implementation: it recognizes
 // exactly the block constructs a hand-written or agent-written document
@@ -1242,48 +1284,165 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 	return bodies, dupKey
 }
 
-// DecisionRecordSectionBodies parses a decision record's markdown content
-// and returns the extracted body text for every recognized section that
-// carries real content, keyed by the same canonical keys
-// missingDecisionRecordSections reports as missing (decision,
-// options_considered, trade_offs, rationale). A markdown heading is either
-// ATX ("## Text") or setext (text immediately followed by an "===" or "---"
-// underline); either kind - required or not - closes the previous section,
-// so an unrelated heading the implementer adds (e.g. a "## Context"
-// preamble) cannot be folded into a required section's body. Headings inside
-// a fenced code block or an HTML comment are not recognized, and a section
-// body left with nothing but a horizontal rule or a comment does not count
-// as content - see classifyDecisionRecordLines and isThematicBreak.
-//
-// Exported so a caller that already knows a decision_record exit gate passed
-// - and therefore that these bodies exist - can read the record into
-// structured data (e.g. a graph node) without re-parsing it with a second,
-// potentially divergent implementation of "what counts as a section". The
-// gate itself (missingDecisionRecordSections) is defined in terms of this
-// function precisely to guarantee the two can never disagree.
-func DecisionRecordSectionBodies(content string) map[string]string {
-	byHeading := decisionRecordSectionKeyByHeading()
-	sections, _ := MarkdownSectionsByHeading(content, func(headingText string) (string, bool) {
-		key, ok := byHeading[normalizeDecisionHeading(headingText)]
-		return key, ok
-	})
-	return sections
+// duplicateJSONKeyError names where, inside a JSON document, the same object
+// key appeared twice: path is the enclosing object's own location ("$" for
+// the document root, "$.decisions[2]" for the third array entry), and key is
+// the repeated name. See detectDuplicateJSONKeys.
+type duplicateJSONKeyError struct {
+	path string
+	key  string
 }
 
-// missingDecisionRecordSections returns the canonical keys of the required
-// sections that are absent, or present but empty, from a decision record's
-// markdown content. See DecisionRecordSectionBodies for how a section and its
-// body are recognized.
-func missingDecisionRecordSections(content string) []string {
-	bodies := DecisionRecordSectionBodies(content)
+func (e *duplicateJSONKeyError) Error() string {
+	return fmt.Sprintf("object key %q appears twice at %s", e.key, e.path)
+}
 
-	var missing []string
-	for _, s := range decisionRecordSections {
-		if _, ok := bodies[s.key]; !ok {
-			missing = append(missing, s.key)
+// detectDuplicateJSONKeys walks content's token stream looking for two
+// occurrences of the same key within the SAME JSON object, at any depth.
+//
+// encoding/json.Unmarshal does not report this at all: given
+// {"decision":"Use SQLite","decision":"Use Postgres"}, it silently keeps
+// only the LAST value and discards the first - exactly the "later data
+// silently overrides earlier data, and the gate that was supposed to catch
+// it says nothing" defect the withdrawn prefix-matching approach would have
+// reintroduced at the markdown layer (see ParseDecisionRecordDocument's own
+// doc comment and AGENTS.md), reproduced here one layer down, at the JSON
+// layer itself. Detecting it requires walking the raw token stream by hand -
+// the standard library exposes no option for this - via json.Decoder.Token,
+// which yields one flat sequence of tokens (Delim '{'/'}'/'['/']', or a
+// scalar) regardless of nesting depth. This function recurses one level
+// per '{' or '[' it opens, tracking only the CURRENT object's own key set
+// (a duplicate one level down must never be confused with a duplicate at
+// this level - {"a":{"b":1},"c":{"b":2}} is not a duplicate "b").
+//
+// dec must be freshly positioned at the start of a JSON value (a document's
+// root, when called from ParseDecisionRecordDocument). path is that value's
+// own location, used only to build a duplicate's error message.
+func detectDuplicateJSONKeys(dec *json.Decoder, path string) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	delim, isDelim := tok.(json.Delim)
+	if !isDelim {
+		return nil // a scalar value (string, number, bool, null) has no keys of its own
+	}
+
+	switch delim {
+	case '{':
+		seen := make(map[string]bool)
+		for dec.More() {
+			keyTok, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			key, _ := keyTok.(string) // a JSON object key token is always a string
+			if seen[key] {
+				return &duplicateJSONKeyError{path: path, key: key}
+			}
+			seen[key] = true
+			if err := detectDuplicateJSONKeys(dec, path+"."+key); err != nil {
+				return err
+			}
+		}
+		_, err := dec.Token() // consume the closing '}'
+		return err
+	case '[':
+		for i := 0; dec.More(); i++ {
+			if err := detectDuplicateJSONKeys(dec, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+		_, err := dec.Token() // consume the closing ']'
+		return err
+	}
+	return nil
+}
+
+// ParseDecisionRecordDocument parses and validates a decision_record
+// artifact's JSON content. It is exported so a caller that already knows the
+// decision_record exit gate passed (see evaluateSingleExitGate's
+// "decision_record" case) can read the same document into structured data
+// without a second, potentially divergent implementation of "what counts as
+// valid" - the discipline DecisionRecordSectionBodies enforced for the
+// markdown format this schema replaced, kept for the same reason: the gate
+// and the later read must never disagree about what they each saw.
+//
+// The document must be a JSON object shaped like:
+//
+//	{"decisions": [{"title": "...", "decision": "...", "optionsConsidered": "...", "tradeOffs": "...", "rationale": "..."}]}
+//
+// "decisions" must contain at least one entry and at most
+// maxDecisionRecordEntries, every entry must carry non-blank
+// decision/optionsConsidered/tradeOffs/rationale ("title" is optional), and
+// no field may exceed maxDecisionRecordFieldBytes. The document is also
+// rejected outright if it names a field this schema does not define (a typo
+// like "titel" instead of "title" would otherwise be silently ignored by
+// json.Unmarshal, and the value the agent meant to set never reaches the
+// graph) or if any single JSON object repeats a key (which json.Unmarshal
+// resolves by silently keeping only the LAST value - see
+// detectDuplicateJSONKeys). A malformed document is rejected with the exact
+// problem named - which check failed, and at which array index or object
+// path - never a generic "invalid": an agent told that cannot act on it, one
+// told "decisions[2].tradeOffs" can.
+func ParseDecisionRecordDocument(content string) ([]DecisionRecordEntry, error) {
+	if len(content) > maxDecisionRecordDocumentBytes {
+		return nil, fmt.Errorf("decision_record_too_large: the record is %d bytes, over the %d byte limit - Fix: a decision_record artifact holds a short, deliberated list of the decisions actually made in this stage, not pasted file or log contents; trim each field to its own decision/options/trade-offs/rationale text", len(content), maxDecisionRecordDocumentBytes)
+	}
+
+	if err := detectDuplicateJSONKeys(json.NewDecoder(strings.NewReader(content)), "$"); err != nil {
+		var dupErr *duplicateJSONKeyError
+		if errors.As(err, &dupErr) {
+			return nil, fmt.Errorf(`decision_record_duplicate_key: %w - encoding/json keeps only the LAST value for a repeated object key and silently discards the rest, which can lose an entire decision without saying so - Fix: remove the duplicate key at %s, keeping only the one value that should survive`, dupErr, dupErr.path)
+		}
+		return nil, fmt.Errorf(`decision_record_invalid_json: %w - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]}`, err)
+	}
+
+	dec := json.NewDecoder(strings.NewReader(content))
+	dec.DisallowUnknownFields()
+	var doc decisionRecordDocument
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf(`decision_record_invalid_json: %w - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]} with no field beyond title/decision/optionsConsidered/tradeOffs/rationale`, err)
+	}
+	if dec.More() {
+		return nil, fmt.Errorf(`decision_record_invalid_json: unexpected content after the top-level JSON object - the file must contain exactly one JSON object shaped like {"decisions":[...]}`)
+	}
+
+	if len(doc.Decisions) == 0 {
+		return nil, fmt.Errorf(`decision_record_empty: the "decisions" array must contain at least one entry`)
+	}
+	if len(doc.Decisions) > maxDecisionRecordEntries {
+		return nil, fmt.Errorf(`decision_record_too_many_entries: the "decisions" array has %d entries, over the %d entry limit - Fix: a decision_record artifact is the deliberated list of decisions actually made in this stage, not every option ever discussed; if this stage genuinely made this many separate decisions, split the work across separate stages instead of one oversized record`, len(doc.Decisions), maxDecisionRecordEntries)
+	}
+
+	var problems []string
+	for i, entry := range doc.Decisions {
+		for _, field := range decisionRecordRequiredFields {
+			if strings.TrimSpace(field.value(entry)) == "" {
+				problems = append(problems, fmt.Sprintf("decisions[%d].%s", i, field.wireName))
+			}
 		}
 	}
-	return missing
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("decision_record_missing_fields: %s", strings.Join(problems, ", "))
+	}
+
+	var oversized []string
+	fieldLength := append([]decisionRecordRequiredField{
+		{"title", func(e DecisionRecordEntry) string { return e.Title }},
+	}, decisionRecordRequiredFields...)
+	for i, entry := range doc.Decisions {
+		for _, field := range fieldLength {
+			if n := len(field.value(entry)); n > maxDecisionRecordFieldBytes {
+				oversized = append(oversized, fmt.Sprintf("decisions[%d].%s is %d bytes, over the %d byte limit", i, field.wireName, n, maxDecisionRecordFieldBytes))
+			}
+		}
+	}
+	if len(oversized) > 0 {
+		return nil, fmt.Errorf("decision_record_field_too_large: %s - Fix: a decision_record field holds this decision's own reasoning, not pasted file or log contents", strings.Join(oversized, ", "))
+	}
+
+	return doc.Decisions, nil
 }
 
 func ResolveStepForWorkflow(state string, wf WorkflowDescriptor) (*ResolvedStep, error) {

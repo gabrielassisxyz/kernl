@@ -42,32 +42,28 @@ func seedRunAtRepo(t *testing.T, g *graph.Graph, title, repoPath string, beads [
 	return runID
 }
 
-// pageCeilingDecisionRecord is a stand-in for the real defect this bead
+// pageCeilingDecisionEntry is a stand-in for the real defect this bead
 // exists to close: bead arch-f40 named a crawl-stop enum variant
 // PageCeilingReached and, in doing so, explicitly considered and rejected
 // PageLimitReached - the exact name a second, unrelated bead (arch-hkk,
 // fifteen days later, in the production incident) went on to pick anyway,
 // because nothing carried the first decision forward into its prompt.
-const pageCeilingDecisionRecord = "## Decision\n\n" +
-	"Name the crawl-stop variant for a page-count bound.\n\n" +
-	"## Options Considered\n\n" +
-	"1. PageCeilingReached.\n2. PageLimitReached.\n\n" +
-	"## Trade-offs\n\n" +
-	"PageLimitReached reads fine in isolation, but a second word for a bound this project already calls a ceiling elsewhere makes the report harder to read, not easier.\n\n" +
-	"## Rationale\n\n" +
-	"PageCeilingReached is chosen over the more ordinary PageLimitReached because this project already calls a bound on a count a ceiling, in code and in prose, and a second word for the same idea makes the report harder to read than either word alone.\n"
+var pageCeilingDecisionEntry = backend.DecisionRecordEntry{
+	Decision:          "Name the crawl-stop variant for a page-count bound.",
+	OptionsConsidered: "1. PageCeilingReached.\n2. PageLimitReached.",
+	TradeOffs:         "PageLimitReached reads fine in isolation, but a second word for a bound this project already calls a ceiling elsewhere makes the report harder to read, not easier.",
+	Rationale:         "PageCeilingReached is chosen over the more ordinary PageLimitReached because this project already calls a bound on a count a ceiling, in code and in prose, and a second word for the same idea makes the report harder to read than either word alone.",
+}
 
-// unrelatedDecisionRecord shares no vocabulary with the crawl-stop naming
+// unrelatedDecisionEntry shares no vocabulary with the crawl-stop naming
 // question - the decoy that proves the relevance filter is not just "every
 // standing decision in the repository".
-const unrelatedDecisionRecord = "## Decision\n\n" +
-	"Use TOML for the export manifest.\n\n" +
-	"## Options Considered\n\n" +
-	"1. JSON.\n2. TOML.\n\n" +
-	"## Trade-offs\n\n" +
-	"TOML reads better hand-edited; JSON has wider tooling.\n\n" +
-	"## Rationale\n\n" +
-	"No existing precedent either way; TOML matches the config file already in the repo.\n"
+var unrelatedDecisionEntry = backend.DecisionRecordEntry{
+	Decision:          "Use TOML for the export manifest.",
+	OptionsConsidered: "1. JSON.\n2. TOML.",
+	TradeOffs:         "TOML reads better hand-edited; JSON has wider tooling.",
+	Rationale:         "No existing precedent either way; TOML matches the config file already in the repo.",
+}
 
 // TestFetchRelevantDecisions_ReproducesRealCase is the reproduction the
 // defect report asked for: two decisions, the second on a bead that would
@@ -79,7 +75,7 @@ func TestFetchRelevantDecisions_ReproducesRealCase(t *testing.T) {
 
 	firstBead := BeadRef{ID: "arch-f40", Title: "Add a page ceiling to the crawl stop enum", TrackerKind: "br", RepoPath: "/repo/archeion"}
 	runID := seedRunAtRepo(t, g, "archeion crawler", "/repo/archeion", []BeadRef{firstBead})
-	decisionID := writeTestDecision(t, g, runID, firstBead, firstBead, pageCeilingDecisionRecord)
+	decisionID := writeTestDecision(t, g, runID, firstBead, firstBead, pageCeilingDecisionEntry)
 
 	secondBead := &backend.Bead{
 		ID:          "arch-hkk",
@@ -125,7 +121,7 @@ func TestFetchRelevantDecisions_UnrelatedDecisionExcluded(t *testing.T) {
 
 	manifestBead := BeadRef{ID: "arch-manifest", Title: "Pick an export manifest format", TrackerKind: "br", RepoPath: "/repo/archeion"}
 	runID := seedRunAtRepo(t, g, "archeion crawler", "/repo/archeion", []BeadRef{manifestBead})
-	writeTestDecision(t, g, runID, manifestBead, manifestBead, unrelatedDecisionRecord)
+	writeTestDecision(t, g, runID, manifestBead, manifestBead, unrelatedDecisionEntry)
 
 	secondBead := &backend.Bead{
 		ID:          "arch-hkk",
@@ -153,7 +149,7 @@ func TestFetchRelevantDecisions_OtherRepositoryExcluded(t *testing.T) {
 
 	otherRepoBead := BeadRef{ID: "other-1", Title: "Add a page ceiling to the crawl stop enum", TrackerKind: "br", RepoPath: "/repo/a-different-project"}
 	runID := seedRunAtRepo(t, g, "a different project", "/repo/a-different-project", []BeadRef{otherRepoBead})
-	writeTestDecision(t, g, runID, otherRepoBead, otherRepoBead, pageCeilingDecisionRecord)
+	writeTestDecision(t, g, runID, otherRepoBead, otherRepoBead, pageCeilingDecisionEntry)
 
 	secondBead := &backend.Bead{
 		ID:          "arch-hkk",
@@ -182,7 +178,7 @@ func TestFetchRelevantDecisions_RevertedDecisionExcluded(t *testing.T) {
 
 	firstBead := BeadRef{ID: "arch-f40", Title: "Add a page ceiling to the crawl stop enum", TrackerKind: "br", RepoPath: "/repo/archeion"}
 	runID := seedRunAtRepo(t, g, "archeion crawler", "/repo/archeion", []BeadRef{firstBead})
-	decisionID := writeTestDecision(t, g, runID, firstBead, firstBead, pageCeilingDecisionRecord)
+	decisionID := writeTestDecision(t, g, runID, firstBead, firstBead, pageCeilingDecisionEntry)
 
 	if err := markDecisionReverted(ctx, g, decisionID, "the ceiling wording was confusing to operators after all"); err != nil {
 		t.Fatalf("markDecisionReverted: %v", err)
@@ -213,7 +209,7 @@ func TestFetchRelevantDecisions_SameBeadExcluded(t *testing.T) {
 
 	bead := BeadRef{ID: "arch-hkk", Title: "Enforce a page limit when the crawl loop stops", TrackerKind: "br", RepoPath: "/repo/archeion"}
 	runID := seedRunAtRepo(t, g, "archeion crawler", "/repo/archeion", []BeadRef{bead})
-	writeTestDecision(t, g, runID, bead, bead, pageCeilingDecisionRecord)
+	writeTestDecision(t, g, runID, bead, bead, pageCeilingDecisionEntry)
 
 	sameBead := &backend.Bead{
 		ID:          "arch-hkk",

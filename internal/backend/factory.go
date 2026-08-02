@@ -388,7 +388,7 @@ func CanonicalStageContracts() map[string]StageContract {
 				Kind: "commits",
 			},
 			DecisionRecord: StageArtifact{
-				Path: "<artifact_dir>/decision-record.md",
+				Path: "<artifact_dir>/decision-record.json",
 			},
 		},
 		"implementation_review": {

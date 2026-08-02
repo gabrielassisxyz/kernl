@@ -643,22 +643,7 @@ func TestHandleGateFailure_DecisionClassified_NoDAConfiguredEscalatesWithoutAski
 // --- The full-loop mechanism proof: DriveBeadToTerminal genuinely re-runs
 // the implementation stage a second time, carrying the DA's own answer. ---
 
-const decisionRecordFixture = `## Decision
-
-Use approach X for the retry policy.
-
-## Options Considered
-
-X (per-bead budget) and Y (per-epic budget).
-
-## Trade-offs
-
-X is simpler to reason about; Y shares the budget across an epic's beads.
-
-## Rationale
-
-X wins because nothing here yet needs an epic-wide budget.
-`
+const decisionRecordFixture = `{"decisions":[{"decision":"Use approach X for the retry policy.","optionsConsidered":"X (per-bead budget) and Y (per-epic budget).","tradeOffs":"X is simpler to reason about; Y shares the budget across an epic's beads.","rationale":"X wins because nothing here yet needs an epic-wide budget."}]}`
 
 // reviewDecisionReentryDriver is a named, counted-call fake BeadDriver
 // (AGENTS.md §4) driving three real stage attempts in sequence:
@@ -701,7 +686,7 @@ func (d *reviewDecisionReentryDriver) RunBead(_ context.Context, in RunBeadInput
 
 	switch d.calls {
 	case 1:
-		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(decisionRecordFixture), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(decisionRecordFixture), 0o644); err != nil {
 			return RunBeadResult{}, err
 		}
 	case 2:
@@ -709,7 +694,7 @@ func (d *reviewDecisionReentryDriver) RunBead(_ context.Context, in RunBeadInput
 			return RunBeadResult{}, err
 		}
 	case 3:
-		_ = os.Remove(filepath.Join(artifactDir, "decision-record.md"))
+		_ = os.Remove(filepath.Join(artifactDir, "decision-record.json"))
 	}
 	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses_test"}, nil
 }
@@ -746,7 +731,7 @@ func reviewDecisionReentryWorkflow(id string) backend.WorkflowDescriptor {
 			"ready_for_implementation_review": "implementation_review",
 		},
 		ExitGates: map[string][]backend.WorkflowExitGate{
-			"implementation":        {{Type: "decision_record", Path: "<artifact_dir>/decision-record.md"}},
+			"implementation":        {{Type: "decision_record", Path: "<artifact_dir>/decision-record.json"}},
 			"implementation_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"}},
 		},
 	}
@@ -834,13 +819,13 @@ func TestDriveBeadToTerminal_ReviewRaisedDecision_ReachesTheDAOnceAndCarriesTheA
 		t.Errorf("the FIRST invocation ran before any decision was ever handed to the DA - it must not already carry an answer:\n%s", firstPrompt)
 	}
 
-	// The THIRD invocation never wrote its own decision-record.md (this
+	// The THIRD invocation never wrote its own decision-record.json (this
 	// fake deliberately removes the first attempt's one instead), so its
 	// own exit gate genuinely fails and the bead blocks there - proof this
 	// is a REAL third attempt, evaluated by the real exit gate, not a
 	// rerun of the first success.
 	if res.Success || res.FinalState != "blocked" || res.BlockedAtState != "implementation" {
-		t.Errorf("res = %+v, want the third (real, gate-checked) attempt to block at implementation for a missing decision-record.md", res)
+		t.Errorf("res = %+v, want the third (real, gate-checked) attempt to block at implementation for a missing decision-record.json", res)
 	}
 }
 
@@ -883,7 +868,7 @@ func (d *reviewDecisionStaleRefireDriver) RunBead(_ context.Context, in RunBeadI
 
 	switch d.calls {
 	case 1, 3:
-		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.md"), []byte(decisionRecordFixture), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(artifactDir, "decision-record.json"), []byte(decisionRecordFixture), 0o644); err != nil {
 			return RunBeadResult{}, err
 		}
 	case 2:

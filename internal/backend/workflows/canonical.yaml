@@ -84,7 +84,7 @@ owners:
 exit_gates:
   implementation:
     - type: decision_record
-      path: "<artifact_dir>/decision-record.md"
+      path: "<artifact_dir>/decision-record.json"
 stages:
   planning:
     role: "Decompose the bead into an actionable plan. Identify subtasks, dependencies, and acceptance criteria. Do not write source code."
@@ -123,7 +123,7 @@ stages:
     output_artifact:
       kind: "commits"
     decision_record:
-      path: "<artifact_dir>/decision-record.md"
+      path: "<artifact_dir>/decision-record.json"
   implementation_review:
     role: "Review the implementation against the plan and acceptance criteria. Verify tests pass, code follows conventions, and all subtasks are addressed. Produce a verdict."
     inputs:

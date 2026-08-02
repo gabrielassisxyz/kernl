@@ -70,24 +70,21 @@ func seedRunAtPath(t *testing.T, dbPath, title string, beads []BeadRef) string {
 // WriteDecisionRecordNode path recordDecisionIfGateType calls in
 // production, so a test decision has the exact shape (Body split into
 // options/trade-offs, ImpactOnUse nil) a real one would.
-func writeTestDecision(t *testing.T, g *graph.Graph, runID string, bead, epic BeadRef, record string) string {
+func writeTestDecision(t *testing.T, g *graph.Graph, runID string, bead, epic BeadRef, entry backend.DecisionRecordEntry) string {
 	t.Helper()
-	sections := backend.DecisionRecordSectionBodies(record)
-	id, err := WriteDecisionRecordNode(context.Background(), g, sections, bead, epic, runID)
+	ids, err := WriteDecisionRecordNode(context.Background(), g, []backend.DecisionRecordEntry{entry}, bead, epic, runID)
 	if err != nil {
 		t.Fatalf("WriteDecisionRecordNode: %v", err)
 	}
-	return id
+	return ids[0]
 }
 
-const secondDecisionRecord = "## Decision\n\n" +
-	"Use TOML for the export manifest.\n\n" +
-	"## Options Considered\n\n" +
-	"1. JSON.\n2. TOML.\n\n" +
-	"## Trade-offs\n\n" +
-	"TOML reads better hand-edited; JSON has wider tooling.\n\n" +
-	"## Rationale\n\n" +
-	"No existing precedent either way; TOML matches the config file already in the repo.\n"
+var secondDecisionEntry = backend.DecisionRecordEntry{
+	Decision:          "Use TOML for the export manifest.",
+	OptionsConsidered: "1. JSON.\n2. TOML.",
+	TradeOffs:         "TOML reads better hand-edited; JSON has wider tooling.",
+	Rationale:         "No existing precedent either way; TOML matches the config file already in the repo.",
+}
 
 func baseReportInput(g *graph.Graph, stateDir, runID, epicID string) ComposeRunReportInput {
 	started := time.Date(2026, 7, 31, 12, 0, 0, 0, time.UTC)
@@ -123,11 +120,11 @@ func TestComposeRunReport_FindsOwnDecisionNotAnotherRuns(t *testing.T) {
 	child := BeadRef{ID: "kb-child-a", Title: "child A", TrackerKind: "br", RepoPath: "/repo"}
 
 	firstRun := seedRunWithBeads(t, g, "epic A", []BeadRef{epic, child})
-	writeTestDecision(t, g, firstRun, child, epic, wellFormedDecisionRecord)
+	writeTestDecision(t, g, firstRun, child, epic, wellFormedDecisionEntry)
 
 	// A resume, or a re-dispatch, of the same epic over the same bead.
 	secondRun := seedRunWithBeads(t, g, "epic A", []BeadRef{epic, child})
-	writeTestDecision(t, g, secondRun, child, epic, secondDecisionRecord)
+	writeTestDecision(t, g, secondRun, child, epic, secondDecisionEntry)
 
 	in := baseReportInput(g, stateDir, secondRun, "kb-epic-a")
 	path, err := ComposeRunReport(context.Background(), in)
@@ -158,7 +155,7 @@ func TestComposeRunReport_WritesImpactBackAndIntoReport(t *testing.T) {
 	epic := BeadRef{ID: "kb-epic-2", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
 	child := BeadRef{ID: "kb-child-2", Title: "child", TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic, child})
-	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionRecord)
+	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionEntry)
 
 	composer := &fakeImpactComposer{response: "Callers of the affected API now see a typed constant instead of a bare string."}
 	in := baseReportInput(g, stateDir, runID, "kb-epic-2")
@@ -228,7 +225,7 @@ func TestComposeRunReport_ThreadsRepositoryContextToTheComposer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartWorkflowRun: %v", err)
 	}
-	writeTestDecision(t, g, runID, child, epic, wellFormedDecisionRecord)
+	writeTestDecision(t, g, runID, child, epic, wellFormedDecisionEntry)
 
 	composer := &fakeImpactComposer{response: "callers see a typed constant now."}
 	in := baseReportInput(g, stateDir, runID, "kb-epic-ctx")
@@ -284,7 +281,7 @@ func TestComposeRunReport_ConfiguredContextDocsOverrideTheDefault(t *testing.T) 
 	if err != nil {
 		t.Fatalf("StartWorkflowRun: %v", err)
 	}
-	writeTestDecision(t, g, runID, epic, epic, wellFormedDecisionRecord)
+	writeTestDecision(t, g, runID, epic, epic, wellFormedDecisionEntry)
 
 	composer := &fakeImpactComposer{response: "callers see a typed constant now."}
 	in := baseReportInput(g, stateDir, runID, "kb-epic-ctx2")
@@ -313,7 +310,7 @@ func TestComposeRunReport_AlreadyComposedNeverOverwritten(t *testing.T) {
 	epic := BeadRef{ID: "kb-epic-3", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
 	child := BeadRef{ID: "kb-child-3", Title: "child", TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic, child})
-	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionRecord)
+	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionEntry)
 
 	existing := "a previous run's composer already wrote this."
 	if err := g.DoWrite(context.Background(), func(tx *graph.WriteTx) error {
@@ -375,7 +372,7 @@ func TestComposeRunReport_ComposerErrorLeavesImpactNilAndReportSaysAwaiting(t *t
 	epic := BeadRef{ID: "kb-epic-4", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
 	child := BeadRef{ID: "kb-child-4", Title: "child", TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic, child})
-	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionRecord)
+	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionEntry)
 
 	composer := &fakeImpactComposer{err: context.DeadlineExceeded}
 	in := baseReportInput(g, stateDir, runID, "kb-epic-4")
@@ -418,7 +415,7 @@ func TestComposeRunReport_NilComposerNeverCalledStillAwaits(t *testing.T) {
 	epic := BeadRef{ID: "kb-epic-5", Title: "epic", TrackerKind: "br", RepoPath: "/repo"}
 	child := BeadRef{ID: "kb-child-5", Title: "child", TrackerKind: "br", RepoPath: "/repo"}
 	runID := seedRunWithBeads(t, g, "epic", []BeadRef{epic, child})
-	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionRecord)
+	decisionID := writeTestDecision(t, g, runID, child, epic, wellFormedDecisionEntry)
 
 	in := baseReportInput(g, stateDir, runID, "kb-epic-5")
 	in.Composer = nil
@@ -631,8 +628,8 @@ func TestComposeRunReport_FixupDecisionSortsFirstAndIsLabeled(t *testing.T) {
 	// the fix-up bead's decision second - insertion order alone would put
 	// the original one first in the report; only the sort makes the fix-up
 	// one lead.
-	writeTestDecision(t, g, runID, originalChild, epic, wellFormedDecisionRecord)
-	writeTestDecision(t, g, runID, fixupChild, epic, secondDecisionRecord)
+	writeTestDecision(t, g, runID, originalChild, epic, wellFormedDecisionEntry)
+	writeTestDecision(t, g, runID, fixupChild, epic, secondDecisionEntry)
 
 	in := baseReportInput(g, stateDir, runID, "kb-epic-fx")
 	path, err := ComposeRunReport(context.Background(), in)
