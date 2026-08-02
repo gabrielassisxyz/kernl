@@ -419,7 +419,15 @@ func composeAndPersistImpact(ctx context.Context, g *graph.Graph, composer Impac
 		return "", "no LLM provider is configured for this run - set llm.provider in kernl.yaml to enable field 4"
 	}
 
-	options, tradeOffs, _ := SplitDecisionBody(d.Body)
+	// A false ok means Body was not the exact-length-prefixed shape
+	// buildDecisionBody produces (see SplitDecisionBody's own doc comment).
+	// The composer is not asked with half its input silently blank in that
+	// case - decision %s's own reason, not a generic composer failure,
+	// names precisely which decision to look at.
+	options, tradeOffs, ok := SplitDecisionBody(d.Body)
+	if !ok {
+		return "", fmt.Sprintf("decision %s's options-considered and trade-offs could not be recovered from its stored record, so field 4 cannot be composed from them", d.ID)
+	}
 	composeCtx, cancel := context.WithTimeout(ctx, impactComposeTimeout)
 	defer cancel()
 	impact, err := composer.ComposeImpact(composeCtx, DecisionImpact{
@@ -464,13 +472,27 @@ type decisionReportFields struct {
 	fromFixup bool
 }
 
+// decisionBodyUnrecoverableText is what a report shows for
+// optionsConsidered/tradeOffs when SplitDecisionBody cannot recover them -
+// the same "say so, don't guess" choice renderRevertedDecisionConstraint
+// already makes for the same failure (see decision_record.go). A blank
+// string there would read as "nothing was considered", which is a different
+// and false claim from "this could not be recovered".
+const decisionBodyUnrecoverableText = "(could not be recovered from this decision's stored record.)"
+
 // buildDecisionReportFields maps a Decision node plus its already-resolved
 // field 4 onto the decision model's §4.3 five-field shape. SplitDecisionBody
-// recovers options-considered and trade-offs from Body using the same
-// heading-aware parse buildDecisionBody's own boundary relies on (see
-// decision_record.go) - not a second, hand-rolled split.
+// recovers options-considered and trade-offs from Body using the exact-length
+// preamble buildDecisionBody wrote (see decision_record.go); ok is false
+// only for a Body this package itself did not build (hand-edited, foreign,
+// or predating that format), and the report says so explicitly rather than
+// rendering blank options/trade-offs that would read as "none were
+// considered".
 func buildDecisionReportFields(d *nodes.Decision, impactOnUse string, fromFixup bool) decisionReportFields {
-	options, tradeOffs, _ := SplitDecisionBody(d.Body)
+	options, tradeOffs, ok := SplitDecisionBody(d.Body)
+	if !ok {
+		options, tradeOffs = decisionBodyUnrecoverableText, decisionBodyUnrecoverableText
+	}
 	return decisionReportFields{
 		title:             d.Title,
 		whatWasDecided:    d.Context,

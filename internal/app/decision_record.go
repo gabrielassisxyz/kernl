@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -35,62 +36,102 @@ const (
 	DecisionBodyTradeOffsHeading = "## Trade-offs"
 )
 
+// decisionBodyLengthHeaderFormat is the machine-readable preamble
+// buildDecisionBody writes ahead of the two heading-labeled sections, and
+// SplitDecisionBody reads back before it ever looks at the body text
+// itself. It records each section's own byte length (of the trimmed text
+// buildDecisionBody actually wrote), so the split point is read off a
+// number instead of being re-derived by searching the body for a heading.
+//
+// This replaces an earlier version of SplitDecisionBody that re-parsed
+// Body's own markdown headings via backend.MarkdownSectionsByHeading - a
+// reasonable approach when Body might be arbitrary markdown, but Body here
+// is built ENTIRELY by this package from two already-extracted strings
+// (DecisionRecordEntry.OptionsConsidered/TradeOffs - see buildDecisionBody),
+// so nothing stops one of those strings from itself containing a standalone
+// line that reads as "## Trade-offs" (an implementer's OptionsConsidered
+// field legitimately discussing the trade-offs heading by name, verbatim).
+// When that happened, MarkdownSectionsByHeading saw two real, non-fenced
+// headings claiming the same key and reported it via its dupKey return -
+// which the old SplitDecisionBody discarded, so the ambiguity passed
+// unnoticed and the options text silently truncated at the wrong point. Two
+// programs, the writer and the reader, control this exact string. There is
+// no reason to keep re-deriving the boundary by scanning content for a
+// pattern that content itself might also contain, when the writer can just
+// tell the reader where the boundary is. Recording the length up front makes
+// the round trip unambiguous BY CONSTRUCTION: no string in either field,
+// however it is worded, can ever be mistaken for the boundary again, and
+// MarkdownSectionsByHeading's dupKey defense - still load-bearing for the
+// artifact parsers that read genuinely agent-authored markdown (fork
+// handover, the Phase 6 rejection artifacts) - is not needed here at all.
+const decisionBodyLengthHeaderFormat = "<!--kernl:decision-body-lengths options=%d tradeoffs=%d-->\n"
+
+// decisionBodyLengthHeaderRe parses decisionBodyLengthHeaderFormat's output
+// back into its two byte lengths. Anchored to the start of the string: the
+// header is only ever valid as Body's very first line.
+var decisionBodyLengthHeaderRe = regexp.MustCompile(`^<!--kernl:decision-body-lengths options=(\d+) tradeoffs=(\d+)-->\n`)
+
 // buildDecisionBody folds options-considered and trade-offs content into one
 // string under labeled headings, so the boundary between the two survives
-// being stored in Decision's single opaque Body field.
-//
-// This format predates the decision_record artifact's move to agent-authored
-// JSON and is unrelated to it: Body is kernl's OWN construction from two
-// already-extracted strings (DecisionRecordEntry.OptionsConsidered/TradeOffs),
-// never agent-authored markdown, so there is no reason to change it just
-// because the artifact the strings originally came from changed shape.
+// being stored in Decision's single opaque Body field. See
+// decisionBodyLengthHeaderFormat for why the result also carries a hidden
+// length preamble ahead of the human-readable headings.
 func buildDecisionBody(optionsConsidered, tradeOffs string) string {
-	return DecisionBodyOptionsHeading + "\n\n" + strings.TrimSpace(optionsConsidered) +
-		"\n\n" + DecisionBodyTradeOffsHeading + "\n\n" + strings.TrimSpace(tradeOffs)
-}
-
-// splitDecisionBodyHeadingKeys names the only two headings SplitDecisionBody
-// recognizes - the exact two buildDecisionBody writes, with their "## "
-// marker stripped (backend.MarkdownSectionsByHeading's keyFn receives a
-// heading's bare text, not its marker).
-var splitDecisionBodyHeadingKeys = map[string]string{
-	strings.TrimPrefix(DecisionBodyOptionsHeading, "## "):   "options_considered",
-	strings.TrimPrefix(DecisionBodyTradeOffsHeading, "## "): "trade_offs",
+	options := strings.TrimSpace(optionsConsidered)
+	tradeOffsTrimmed := strings.TrimSpace(tradeOffs)
+	header := fmt.Sprintf(decisionBodyLengthHeaderFormat, len(options), len(tradeOffsTrimmed))
+	return header + DecisionBodyOptionsHeading + "\n\n" + options +
+		"\n\n" + DecisionBodyTradeOffsHeading + "\n\n" + tradeOffsTrimmed
 }
 
 // SplitDecisionBody is buildDecisionBody's inverse: it recovers the
 // options-considered and trade-offs text a Decision.Body built by this
-// package folded together, using the same headings buildDecisionBody wrote.
+// package folded together. It reads the exact-length preamble
+// buildDecisionBody wrote and slices the two sections off by that recorded
+// length, rather than searching the body for the headings that separate
+// them - see decisionBodyLengthHeaderFormat for why a search can be made to
+// disagree with itself and a length recorded at write time cannot.
 //
-// It re-parses Body with backend.MarkdownSectionsByHeading - the same
-// fence- and HTML-comment-aware pass the old decision_record gate's own
-// markdown parser used - rather than a naive strings.Index search. A naive
-// search finds "## Trade-offs" anywhere in the text, including inside a
-// fenced code example the options text quotes verbatim, or as an inline
-// mention in prose; either one truncates the real options content and hands
-// the real separator's remainder to the wrong half. This matters even now
-// that decision_record itself is agent-authored JSON, not markdown: the
-// OptionsConsidered/TradeOffs strings folded into Body are still free text a
-// human or an agent wrote, and either one could still legitimately contain
-// the literal heading text while discussing it - buildDecisionBody's own
-// folded format is unaffected by the artifact's authoring format, so this
-// split still needs the same defense it always did.
-//
-// ok is false when Body does not parse into both parts (it was not built by
-// buildDecisionBody, or the two recognized headings could not be told apart
-// unambiguously), which callers should treat as "not individually
-// recoverable" rather than guess at a split.
+// ok is false when body does not carry a well-formed preamble matching the
+// two heading markers that must immediately follow it at the recorded
+// offsets - i.e. body was not built by buildDecisionBody (hand-edited,
+// foreign, or predates this format) - which callers should treat as "not
+// individually recoverable" rather than guess at a split.
 func SplitDecisionBody(body string) (optionsConsidered, tradeOffs string, ok bool) {
-	sections, _ := backend.MarkdownSectionsByHeading(body, func(headingText string) (string, bool) {
-		key, recognized := splitDecisionBodyHeadingKeys[strings.TrimSpace(headingText)]
-		return key, recognized
-	})
-	options, hasOptions := sections["options_considered"]
-	tradeOffsText, hasTradeOffs := sections["trade_offs"]
-	if !hasOptions || !hasTradeOffs {
+	m := decisionBodyLengthHeaderRe.FindStringSubmatch(body)
+	if m == nil {
 		return "", "", false
 	}
-	return options, tradeOffsText, true
+	optionsLen, err := strconv.Atoi(m[1])
+	if err != nil {
+		return "", "", false
+	}
+	tradeOffsLen, err := strconv.Atoi(m[2])
+	if err != nil {
+		return "", "", false
+	}
+
+	rest := body[len(m[0]):]
+	optionsPrefix := DecisionBodyOptionsHeading + "\n\n"
+	if !strings.HasPrefix(rest, optionsPrefix) {
+		return "", "", false
+	}
+	rest = rest[len(optionsPrefix):]
+	if len(rest) < optionsLen {
+		return "", "", false
+	}
+	options := rest[:optionsLen]
+	rest = rest[optionsLen:]
+
+	tradeOffsPrefix := "\n\n" + DecisionBodyTradeOffsHeading + "\n\n"
+	if !strings.HasPrefix(rest, tradeOffsPrefix) {
+		return "", "", false
+	}
+	rest = rest[len(tradeOffsPrefix):]
+	if len(rest) != tradeOffsLen {
+		return "", "", false
+	}
+	return options, rest, true
 }
 
 // fallbackDecisionTitle derives a short label from a decision's own text -
@@ -133,24 +174,56 @@ func decisionFromRecordEntry(e backend.DecisionRecordEntry, now time.Time) nodes
 	}
 }
 
+// decisionContentKey is the string WriteDecisionRecordNode groups entries by
+// to compute occurrenceRank for decisionRecordNodeID: the exact Title,
+// Context, Body and Outcome an entry resolves to (see
+// decisionFromRecordEntry), joined behind NUL separators. Two entries share
+// a decisionContentKey exactly when decisionFromRecordEntry would write them
+// as byte-identical Decision nodes.
+func decisionContentKey(d nodes.Decision) string {
+	return d.Title + "\x00" + d.Context + "\x00" + d.Body + "\x00" + d.Outcome
+}
+
 // decisionRecordNodeID derives a stable node ID from exactly the facts that
 // make two writes "the same decision": which run, which bead, which epic,
-// the entry's own position in the record's decisions array, and the entry's
-// own content. A re-run of the same bead against the same record within the
-// same run - the normal shape of a retry after Backend.Update fails
-// following a successful graph write, see WriteDecisionRecordNode - hashes
-// every entry to the same ID it hashed to before and so converges on the
-// existing nodes instead of minting a fresh UUID and a fresh set of edges
-// per attempt.
+// the entry's own resolved content, and occurrenceRank - how many entries
+// with that exact same resolved content already preceded this one in the
+// SAME record (0 for the first, 1 for the second, and so on; see
+// WriteDecisionRecordNode). A re-run of the same bead against the same
+// record within the same run - the normal shape of a retry after
+// Backend.Update fails following a successful graph write, see
+// WriteDecisionRecordNode - hashes every entry to the same ID it hashed to
+// before and so converges on the existing nodes instead of minting a fresh
+// UUID and a fresh set of edges per attempt.
 //
-// index is folded into the hash, not derived from content alone: two
-// decisions in the same record that happen to carry byte-identical content
-// (a pathological but possible case - nothing stops an agent from writing
-// the same words twice) must still become two distinct Decision nodes, not
-// silently collapse into one. This is the specific failure mode that made
-// the withdrawn prefix-matching approach unacceptable (see this file's own
-// git history / AGENTS.md): a fix for "more than one decision" that can
-// still make one of them vanish is not a fix.
+// This is deliberately content-addressed, not position-addressed: an
+// earlier version of this function folded the entry's own array INDEX into
+// the hash instead of occurrenceRank, which converged on retry only when the
+// record came back with every entry in exactly the same array slot. A retry
+// that reordered decisions, or inserted a new one before an existing one,
+// shifted every following entry's index and so minted a brand-new node for
+// each - the old nodes stayed behind, still linked to the run, orphaned but
+// never cleaned up. An entry's identity is what it SAYS, not where it sits
+// in the array; d already carries that content resolved exactly as it will
+// be written (decisionFromRecordEntry has already applied the title
+// fallback and trimmed every field), so hashing d's own fields is also
+// immune to two changes that used to mint spurious new nodes for an
+// otherwise-identical decision: an explicit title that merely repeats what
+// fallbackDecisionTitle would already have derived, and a change to a
+// field's leading/trailing whitespace alone.
+//
+// occurrenceRank, not content alone, is what still lets two decisions in the
+// same record that happen to carry byte-identical resolved content (a
+// pathological but possible case - nothing stops an agent from writing the
+// same words twice) become two distinct Decision nodes rather than silently
+// collapsing into one. This is the specific failure mode that made the
+// withdrawn prefix-matching approach unacceptable (see this file's own git
+// history / AGENTS.md): a fix for "more than one decision" that can still
+// make one of them vanish is not a fix. Ranking by content occurrence,
+// rather than by raw array position, keeps that guarantee while no longer
+// requiring the two duplicates to stay in the same relative array slots on
+// retry - swapping two byte-identical entries with each other changes
+// nothing observable about the record, so it must not mint new nodes either.
 //
 // runID is folded in too, not just recorded as an edge, so that two
 // DIFFERENT runs can never converge on the same Decision node even when a
@@ -160,10 +233,10 @@ func decisionFromRecordEntry(e backend.DecisionRecordEntry, now time.Time) nodes
 // that already belongs to an earlier run's report onto a second run,
 // reintroducing exactly the cross-run leak WriteDecisionRecordNode's own doc
 // comment on the run edge exists to prevent.
-func decisionRecordNodeID(runID, beadID, epicID string, index int, e backend.DecisionRecordEntry) string {
+func decisionRecordNodeID(runID, beadID, epicID string, occurrenceRank int, d nodes.Decision) string {
 	h := sha256.New()
-	_, _ = io.WriteString(h, "run:"+runID+"\x00bead:"+beadID+"\x00epic:"+epicID+"\x00index:"+strconv.Itoa(index)+"\x00")
-	_, _ = io.WriteString(h, "title:"+e.Title+"\x00decision:"+e.Decision+"\x00options:"+e.OptionsConsidered+"\x00tradeoffs:"+e.TradeOffs+"\x00rationale:"+e.Rationale+"\x00")
+	_, _ = io.WriteString(h, "run:"+runID+"\x00bead:"+beadID+"\x00epic:"+epicID+"\x00occurrence:"+strconv.Itoa(occurrenceRank)+"\x00")
+	_, _ = io.WriteString(h, "content:"+decisionContentKey(d)+"\x00")
 	return "decision-" + hex.EncodeToString(h.Sum(nil))
 }
 
@@ -317,11 +390,14 @@ func ensureBeadReferenceNode(ctx context.Context, tx *graph.WriteTx, ref BeadRef
 // same way any other broken reference would.
 //
 // Each Decision node's ID is content-addressed over the run id, bead id,
-// epic id, the entry's own array index, and the entry's own fields
-// (decisionRecordNodeID) - folding runID and index into the hash is what
-// makes two different runs, and two different positions within the same
-// record, structurally unable to ever converge on the same Decision node;
-// see that function's own doc comment. The reference node creates, each
+// epic id, the entry's own resolved content, and how many prior entries in
+// THIS record already resolved to that same content (decisionRecordNodeID)
+// - folding runID into the hash is what makes two different runs
+// structurally unable to ever converge on the same Decision node, and
+// ranking by content occurrence rather than array position is what lets a
+// retry that reorders decisions, or inserts a new one, still converge every
+// unchanged decision onto the node it already has; see that function's own
+// doc comment. The reference node creates, each
 // Decision create, and each edge create are all skipped when they already
 // exist (nodes.Exists, ensureBeadReferenceNode, ensureHasDecisionEdge) - a
 // caller that retries this same call for the same run, the same bead, and
@@ -343,6 +419,13 @@ func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, decisions []ba
 
 	author := nodes.Author{Name: "kernl-dispatch"}
 	ids := make([]string, len(decisions))
+	now := time.Now()
+	// occurrenceRank counts, per distinct resolved content, how many prior
+	// entries in THIS record already resolved to it - see
+	// decisionRecordNodeID's doc comment for why ranking by content
+	// occurrence (rather than raw array index) is what lets a retried
+	// record converge on existing nodes even when reordered.
+	occurrenceRank := make(map[string]int, len(decisions))
 
 	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		if err := ensureBeadReferenceNode(ctx, tx, bead, author); err != nil {
@@ -355,16 +438,20 @@ func WriteDecisionRecordNode(ctx context.Context, g *graph.Graph, decisions []ba
 		}
 
 		for i, entry := range decisions {
-			id := decisionRecordNodeID(runID, bead.ID, epic.ID, i, entry)
+			d := decisionFromRecordEntry(entry, now)
+			contentKey := decisionContentKey(d)
+			rank := occurrenceRank[contentKey]
+			occurrenceRank[contentKey] = rank + 1
+
+			id := decisionRecordNodeID(runID, bead.ID, epic.ID, rank, d)
 			ids[i] = id
+			d.ID = id
 
 			exists, err := nodes.Exists(ctx, tx, id)
 			if err != nil {
 				return err
 			}
 			if !exists {
-				d := decisionFromRecordEntry(entry, time.Now())
-				d.ID = id
 				if _, err := nodes.CreateDecision(ctx, tx, d, author); err != nil {
 					return err
 				}

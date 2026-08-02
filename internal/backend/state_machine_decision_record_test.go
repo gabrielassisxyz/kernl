@@ -1,8 +1,10 @@
 package backend
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -319,5 +321,282 @@ func TestBuiltinProfile_AutopilotWithPR_CarriesDecisionRecordGate(t *testing.T) 
 	autopilot := BuiltinProfileDescriptor("autopilot")
 	if len(autopilot.ExitGates) != 0 {
 		t.Errorf("autopilot must carry no exit gates, got %+v", autopilot.ExitGates)
+	}
+}
+
+// --- ParseDecisionRecordDocument: the two silent-drop paths a plain
+// json.Unmarshal leaves open (FIX 1). Every case below is written as a
+// literal JSON string, the way an agent actually writes one to disk - never
+// by marshalling DecisionRecordEntry, which would only prove this package
+// agrees with itself about field names, not that it catches a real typo or
+// a real duplicate key. ---
+
+// TestParseDecisionRecordDocument_RejectsUnknownField is the review's exact
+// example: a typo'd field name ("titel" for "title") that json.Unmarshal
+// would otherwise ignore outright, leaving the agent's intended title
+// silently replaced by the derived fallback with no error at all.
+func TestParseDecisionRecordDocument_RejectsUnknownField(t *testing.T) {
+	content := `{"decisions":[{"titel":"My title","decision":"d","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for an unrecognized field name")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_invalid_json: ") {
+		t.Errorf("reason must use the decision_record_invalid_json family, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "titel") {
+		t.Errorf("error must name the offending field, got %q", err.Error())
+	}
+}
+
+// TestParseDecisionRecordDocument_UnknownFieldInsideEntryRejected proves the
+// same guard reaches every array entry, not just the document's top level -
+// DisallowUnknownFields applies recursively through the nested struct, and
+// this pins that it actually does for THIS schema instead of assuming it.
+func TestParseDecisionRecordDocument_UnknownFieldInsideEntryRejected(t *testing.T) {
+	content := `{"decisions":[{"decision":"d","optionsConsidered":"o","tradeOffs":"t","rationale":"r","subject":"extra"}]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for an unrecognized field inside a decisions[] entry")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_invalid_json: ") {
+		t.Errorf("reason must use the decision_record_invalid_json family, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "subject") {
+		t.Errorf("error must name the offending field, got %q", err.Error())
+	}
+}
+
+// TestParseDecisionRecordDocument_UnknownTopLevelFieldRejected proves an
+// extra field on the ENVELOPE object (sibling to "decisions"), not just
+// inside an entry, is caught too.
+func TestParseDecisionRecordDocument_UnknownTopLevelFieldRejected(t *testing.T) {
+	content := `{"decisions":[{"decision":"d","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}],"summary":"extra"}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for an unrecognized top-level field")
+	}
+	if !strings.Contains(err.Error(), "summary") {
+		t.Errorf("error must name the offending field, got %q", err.Error())
+	}
+}
+
+// TestParseDecisionRecordDocument_CaseVariantFieldNameStillAccepted documents
+// a boundary of the unknown-field guard rather than asserting a rejection:
+// encoding/json's own field-matching falls back to a case-INSENSITIVE match
+// on the struct's tag/name before DisallowUnknownFields ever gets to call
+// anything "unknown", so a field spelled with different casing than the
+// wire name ("tradeoffs" for "tradeOffs") is not a typo the decoder can
+// tell apart from a deliberate rename - it resolves to the same field,
+// correctly, with no data lost. This is Go's own behavior, not a gap this
+// gate leaves open: the value the agent wrote is not silently dropped, it
+// is captured under the field it was clearly meant for.
+func TestParseDecisionRecordDocument_CaseVariantFieldNameStillAccepted(t *testing.T) {
+	content := `{"decisions":[{"decision":"d","optionsConsidered":"o","tradeoffs":"the real trade-off","rationale":"r"}]}`
+	entries, err := ParseDecisionRecordDocument(content)
+	if err != nil {
+		t.Fatalf("ParseDecisionRecordDocument: %v", err)
+	}
+	if entries[0].TradeOffs != "the real trade-off" {
+		t.Errorf("TradeOffs = %q, want the value written under the differently-cased key, not dropped", entries[0].TradeOffs)
+	}
+}
+
+// TestParseDecisionRecordDocument_RejectsDuplicateKeyWithinEntry is the
+// review's other example, reproduced exactly: two "decision" keys in the
+// same object. encoding/json.Unmarshal silently keeps only the last one -
+// this is the rejected-prefix-match failure mode ("later data silently
+// overrides earlier data, and the gate says nothing") reproduced one layer
+// down, at the JSON layer instead of the markdown layer.
+func TestParseDecisionRecordDocument_RejectsDuplicateKeyWithinEntry(t *testing.T) {
+	content := `{"decisions":[{"decision":"Use SQLite","decision":"Use Postgres","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for a duplicated object key")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_duplicate_key: ") {
+		t.Errorf("reason must use the decision_record_duplicate_key family, got %q", err.Error())
+	}
+	for _, want := range []string{"decision", "$.decisions[0]"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q, got %q", want, err.Error())
+		}
+	}
+}
+
+// TestParseDecisionRecordDocument_RejectsDuplicateTopLevelKey proves the
+// same guard reaches the envelope object itself, not only an entry -
+// {"decisions":[...],"decisions":[...]} is caught with the root path "$".
+func TestParseDecisionRecordDocument_RejectsDuplicateTopLevelKey(t *testing.T) {
+	content := `{"decisions":[{"decision":"d","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}],"decisions":[{"decision":"d2","optionsConsidered":"o2","tradeOffs":"t2","rationale":"r2"}]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for a duplicated top-level key")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_duplicate_key: ") {
+		t.Errorf("reason must use the decision_record_duplicate_key family, got %q", err.Error())
+	}
+	for _, want := range []string{"decisions", "$"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q, got %q", want, err.Error())
+		}
+	}
+}
+
+// TestParseDecisionRecordDocument_RejectsDuplicateKeyInSecondEntry proves
+// the walk does not stop at the first array element - a duplicate later in
+// the array must still be caught and named at its own index.
+func TestParseDecisionRecordDocument_RejectsDuplicateKeyInSecondEntry(t *testing.T) {
+	content := `{"decisions":[` +
+		`{"decision":"d1","optionsConsidered":"o1","tradeOffs":"t1","rationale":"r1"},` +
+		`{"decision":"d2","optionsConsidered":"o2","tradeOffs":"a","tradeOffs":"b","rationale":"r2"}` +
+		`]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for a duplicate key in the second entry")
+	}
+	for _, want := range []string{"tradeOffs", "$.decisions[1]"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error must name %q, got %q", want, err.Error())
+		}
+	}
+}
+
+// TestParseDecisionRecordDocument_DuplicateKeyDetectionDoesNotFlagDistinctEntries
+// guards against a broken implementation that tracks seen keys globally
+// instead of per-object: two DIFFERENT entries each legitimately using the
+// key "decision" once is not a duplicate, and a record with several
+// well-formed decisions (the exact shape this whole gate exists to accept)
+// must keep passing.
+func TestParseDecisionRecordDocument_DuplicateKeyDetectionDoesNotFlagDistinctEntries(t *testing.T) {
+	if _, err := ParseDecisionRecordDocument(threeDecisionsRecord()); err != nil {
+		t.Fatalf("ParseDecisionRecordDocument: %v", err)
+	}
+}
+
+// --- ParseDecisionRecordDocument: bounded entry count and field/document
+// size (FIX 4). ---
+
+// nDecisionsRecord builds a literal decision_record JSON document with n
+// well-formed, distinct entries - a hand-built string, not a marshalled
+// struct, for the same reason every other fixture in this file is.
+func nDecisionsRecord(n int) string {
+	var b strings.Builder
+	b.WriteString(`{"decisions":[`)
+	for i := 0; i < n; i++ {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"decision":"decision %d","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}`, i)
+	}
+	b.WriteString(`]}`)
+	return b.String()
+}
+
+// TestParseDecisionRecordDocument_AcceptsMaxEntries proves the limit is
+// inclusive - exactly maxDecisionRecordEntries must still pass, not just
+// one fewer.
+func TestParseDecisionRecordDocument_AcceptsMaxEntries(t *testing.T) {
+	entries, err := ParseDecisionRecordDocument(nDecisionsRecord(maxDecisionRecordEntries))
+	if err != nil {
+		t.Fatalf("ParseDecisionRecordDocument: %v", err)
+	}
+	if len(entries) != maxDecisionRecordEntries {
+		t.Fatalf("got %d entries, want %d", len(entries), maxDecisionRecordEntries)
+	}
+}
+
+// TestParseDecisionRecordDocument_RejectsTooManyEntries is the review's
+// runaway-record example: one entry over the limit must be rejected, naming
+// the count and the limit, not silently accepted and left for
+// WriteDecisionRecordNode / ComposeRunReport to choke on later.
+func TestParseDecisionRecordDocument_RejectsTooManyEntries(t *testing.T) {
+	_, err := ParseDecisionRecordDocument(nDecisionsRecord(maxDecisionRecordEntries + 1))
+	if err == nil {
+		t.Fatal("expected an error for a decisions array over the entry limit")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_too_many_entries: ") {
+		t.Errorf("reason must use the decision_record_too_many_entries family, got %q", err.Error())
+	}
+	want := strconv.Itoa(maxDecisionRecordEntries + 1)
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error must name the actual entry count %q, got %q", want, err.Error())
+	}
+}
+
+// TestParseDecisionRecordDocument_RejectsOversizedField proves a single
+// field far past any real decision's length (an agent pasting a log or a
+// whole source file into one field, say) is rejected by name, not
+// silently accepted into the graph and the composer's prompt.
+func TestParseDecisionRecordDocument_RejectsOversizedField(t *testing.T) {
+	huge := strings.Repeat("x", maxDecisionRecordFieldBytes+1)
+	content := fmt.Sprintf(`{"decisions":[{"decision":%q,"optionsConsidered":"o","tradeOffs":"t","rationale":"r"}]}`, huge)
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for a field over the byte limit")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_field_too_large: ") {
+		t.Errorf("reason must use the decision_record_field_too_large family, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "decisions[0].decision") {
+		t.Errorf("error must name the offending field, got %q", err.Error())
+	}
+}
+
+// TestParseDecisionRecordDocument_RejectsOversizedDocument proves the
+// whole-file size gate fires before the document is even unmarshalled -
+// checked directly against len(content), independent of the per-field
+// check above.
+func TestParseDecisionRecordDocument_RejectsOversizedDocument(t *testing.T) {
+	content := nDecisionsRecord(1) + strings.Repeat(" ", maxDecisionRecordDocumentBytes)
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for a document over the total byte limit")
+	}
+	if !strings.HasPrefix(err.Error(), "decision_record_too_large: ") {
+		t.Errorf("reason must use the decision_record_too_large family, got %q", err.Error())
+	}
+}
+
+// TestEvaluateExitGate_DecisionRecord_RejectsUnknownFieldEndToEnd and
+// TestEvaluateExitGate_DecisionRecord_RejectsDuplicateKeyEndToEnd run FIX 1's
+// two new rejections through the real gate entry point, not just the parser
+// helper - the same discipline every other decision_record gate test in
+// this file follows.
+func TestEvaluateExitGate_DecisionRecord_RejectsUnknownFieldEndToEnd(t *testing.T) {
+	worktree := t.TempDir()
+	artifactDir := t.TempDir()
+	path := filepath.Join(artifactDir, "decision-record.json")
+	content := `{"decisions":[{"titel":"t","decision":"d","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wf := decisionRecordGateWorkflow()
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
+	if ok {
+		t.Fatal("a record with an unrecognized field must not satisfy the decision_record gate")
+	}
+	if !strings.HasPrefix(reason, "decision_record_invalid_json: ") {
+		t.Errorf("reason must use the decision_record_invalid_json family, got %q", reason)
+	}
+}
+
+func TestEvaluateExitGate_DecisionRecord_RejectsDuplicateKeyEndToEnd(t *testing.T) {
+	worktree := t.TempDir()
+	artifactDir := t.TempDir()
+	path := filepath.Join(artifactDir, "decision-record.json")
+	content := `{"decisions":[{"decision":"a","decision":"b","optionsConsidered":"o","tradeOffs":"t","rationale":"r"}]}`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wf := decisionRecordGateWorkflow()
+	ok, reason := EvaluateExitGate(wf, ExitGateContext{FromState: "implementation", WorktreePath: worktree, ArtifactDir: artifactDir, BeadID: "kb-1"})
+	if ok {
+		t.Fatal("a record with a duplicated object key must not satisfy the decision_record gate")
+	}
+	if !strings.HasPrefix(reason, "decision_record_duplicate_key: ") {
+		t.Errorf("reason must use the decision_record_duplicate_key family, got %q", reason)
 	}
 }

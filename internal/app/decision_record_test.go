@@ -181,6 +181,66 @@ func TestSplitDecisionBody_InlineMentionOfHeadingTextIsNotABoundary(t *testing.T
 	}
 }
 
+// TestSplitDecisionBody_StandaloneHeadingLineInOptionsIsNotABoundary is FIX
+// 2's motivating case: unlike the fenced and inline variants above, this is
+// a REAL standalone "## Trade-offs" line, sitting on its own as a paragraph
+// inside the options-considered text - exactly what an implementer writes
+// when OptionsConsidered legitimately discusses the trade-offs heading by
+// name (e.g. explaining that a decision folds under a "## Trade-offs"
+// section). Under the earlier heading-search implementation this created a
+// second, real, non-fenced heading claiming the "trade_offs" key, which
+// backend.MarkdownSectionsByHeading's own dupKey return reported and the
+// old SplitDecisionBody silently discarded - ok=true with the options text
+// truncated at the fake boundary and the real trade-offs content lost. The
+// exact-length preamble buildDecisionBody now writes makes this impossible
+// by construction: nothing about the CONTENT of either field is ever
+// consulted to find the split point.
+func TestSplitDecisionBody_StandaloneHeadingLineInOptionsIsNotABoundary(t *testing.T) {
+	options := "We evaluated three approaches.\n\n## Trade-offs\n\nEvery approach folds under a section with this exact name in the final write-up."
+	tradeOffs := "The real trade-off, entirely separate from the options text above."
+
+	body := buildDecisionBody(options, tradeOffs)
+
+	gotOptions, gotTradeOffs, ok := SplitDecisionBody(body)
+	if !ok {
+		t.Fatalf("SplitDecisionBody could not split a body it built itself: %q", body)
+	}
+	if gotOptions != options {
+		t.Errorf("recovered options = %q, want %q (truncated at the embedded heading)", gotOptions, options)
+	}
+	if gotTradeOffs != tradeOffs {
+		t.Errorf("recovered trade-offs = %q, want %q", gotTradeOffs, tradeOffs)
+	}
+}
+
+// TestSplitDecisionBody_MismatchedDeclaredLengthRejected proves a Body whose
+// preamble declares a length that does not match what actually follows it
+// (hand-edited after the fact, or corrupted) is rejected rather than
+// silently sliced at the wrong offset.
+func TestSplitDecisionBody_MismatchedDeclaredLengthRejected(t *testing.T) {
+	body := buildDecisionBody("options text", "trade-offs text")
+	tampered := strings.Replace(body, "options=12", "options=999", 1)
+	if tampered == body {
+		t.Fatal("test fixture assumption broken: expected header to contain options=12")
+	}
+	_, _, ok := SplitDecisionBody(tampered)
+	if ok {
+		t.Error("SplitDecisionBody reported ok=true for a body whose declared length does not match its content")
+	}
+}
+
+// TestSplitDecisionBody_TruncatedBodyRejected proves a Body cut short after
+// the preamble (e.g. a partial write) fails closed instead of returning
+// whatever bytes happen to be present.
+func TestSplitDecisionBody_TruncatedBodyRejected(t *testing.T) {
+	body := buildDecisionBody("options text", "trade-offs text")
+	truncated := body[:len(body)-5]
+	_, _, ok := SplitDecisionBody(truncated)
+	if ok {
+		t.Error("SplitDecisionBody reported ok=true for a body truncated after the recorded length")
+	}
+}
+
 // --- recordDecisionIfGateType: no-op unless the gate is decision_record
 // (criterion 6, at the wiring boundary: nothing downstream fires for any
 // other gate type or a stage with no gate at all). ---
@@ -614,6 +674,155 @@ func TestWriteDecisionRecordNode_MultipleDecisionsEachGetsOwnNodeAndEdges(t *tes
 		if len(in) != 3 {
 			t.Errorf("decision %d has %d incoming has_decision edges, want 3 (run, bead, epic)", i, len(in))
 		}
+	}
+}
+
+// decisionNodeIDSet reads back every id WriteDecisionRecordNode returned as
+// an order-independent set, for tests that assert on WHICH nodes exist
+// after a retry rather than on the order ids were returned in.
+func decisionNodeIDSet(ids []string) map[string]bool {
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		set[id] = true
+	}
+	return set
+}
+
+// TestWriteDecisionRecordNode_ReorderedRetryConverges is FIX 3's core
+// acceptance case: a retry that resubmits the SAME decisions in a DIFFERENT
+// array order (the review's exact failure - "the stage is retried and the
+// agent emits the same decisions reordered"). A position-addressed id would
+// mint three brand-new nodes here, since every entry's array index changed;
+// content-addressed identity must converge on the same three nodes the first
+// attempt already created, leaving no orphans linked to the run.
+func TestWriteDecisionRecordNode_ReorderedRetryConverges(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-reorder-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	epic := BeadRef{ID: "kb-reorder-epic-1", Title: "epic bead", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "epic bead", []BeadRef{bead, epic})
+
+	a := backend.DecisionRecordEntry{Title: "A", Decision: "Decision A.", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+	b := backend.DecisionRecordEntry{Title: "B", Decision: "Decision B.", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+	c := backend.DecisionRecordEntry{Title: "C", Decision: "Decision C.", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+
+	firstIDs, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{a, b, c}, bead, epic, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (first order A,B,C): %v", err)
+	}
+	// Reordered, and with a new decision inserted first - the review's other
+	// example ("or inserts a new one first").
+	d := backend.DecisionRecordEntry{Title: "D", Decision: "Decision D.", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+	retryIDs, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{d, c, a, b}, bead, epic, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (retry order D,C,A,B): %v", err)
+	}
+
+	firstSet := decisionNodeIDSet(firstIDs)
+	for _, id := range []string{retryIDs[1], retryIDs[2], retryIDs[3]} { // C, A, B in the retry
+		if !firstSet[id] {
+			t.Errorf("retry id %s (an unchanged decision, just reordered) does not match any id from the first attempt %v", id, firstIDs)
+		}
+	}
+	if retryIDs[0] == firstIDs[0] || retryIDs[0] == firstIDs[1] || retryIDs[0] == firstIDs[2] {
+		t.Errorf("the newly-inserted decision D got an id colliding with an existing one: %s", retryIDs[0])
+	}
+
+	var decisionCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'decision'`).Scan(&decisionCount)
+	}); err != nil {
+		t.Fatalf("counting decision nodes: %v", err)
+	}
+	if decisionCount != 4 {
+		t.Errorf("decision node count = %d, want 4 (A, B, C converged, D new) - a reordered retry minted duplicates", decisionCount)
+	}
+}
+
+// TestWriteDecisionRecordNode_GenuinelyIdenticalEntriesStayDistinct proves
+// the flip side FIX 3 must not break: two entries in ONE record whose
+// content is byte-identical must still become two distinct Decision nodes
+// (the specific failure the withdrawn prefix-matching approach would have
+// caused - see decisionRecordNodeID's own doc comment), even though
+// identity is now content-addressed rather than position-addressed.
+func TestWriteDecisionRecordNode_GenuinelyIdenticalEntriesStayDistinct(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-identical-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "child bead", []BeadRef{bead})
+
+	twice := backend.DecisionRecordEntry{Decision: "Use approach B.", OptionsConsidered: "A or B.", TradeOffs: "B is simpler.", Rationale: "B wins."}
+	ids, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{twice, twice}, bead, bead, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode: %v", err)
+	}
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("two byte-identical entries collapsed into one id: %v", ids)
+	}
+
+	var decisionCount int
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`SELECT COUNT(*) FROM nodes WHERE type = 'decision'`).Scan(&decisionCount)
+	}); err != nil {
+		t.Fatalf("counting decision nodes: %v", err)
+	}
+	if decisionCount != 2 {
+		t.Errorf("decision node count = %d, want 2 (two genuinely distinct nodes for identical content)", decisionCount)
+	}
+}
+
+// TestWriteDecisionRecordNode_ExplicitTitleMatchingFallbackConverges is the
+// review's other named example: a retry that adds an explicit Title equal
+// to what fallbackDecisionTitle would already have derived from Decision
+// must converge on the same node, not mint a new one, because the two
+// records resolve to the exact same Decision.Title either way.
+func TestWriteDecisionRecordNode_ExplicitTitleMatchingFallbackConverges(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-title-fallback-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "child bead", []BeadRef{bead})
+
+	noTitle := backend.DecisionRecordEntry{Decision: "Use approach B.", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+	explicitFallback := noTitle
+	explicitFallback.Title = fallbackDecisionTitle(noTitle.Decision)
+
+	firstIDs, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{noTitle}, bead, bead, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (no title): %v", err)
+	}
+	retryIDs, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{explicitFallback}, bead, bead, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (explicit title == fallback): %v", err)
+	}
+	if firstIDs[0] != retryIDs[0] {
+		t.Errorf("an explicit title equal to the derived fallback minted a new node: first=%s retry=%s", firstIDs[0], retryIDs[0])
+	}
+}
+
+// TestWriteDecisionRecordNode_WhitespaceOnlyDifferenceConverges is the
+// review's whitespace example: a retry whose only difference from the first
+// attempt is leading/trailing whitespace on a field must converge, since
+// decisionFromRecordEntry trims every field before it is written and the
+// two attempts therefore produce byte-identical Decision nodes.
+func TestWriteDecisionRecordNode_WhitespaceOnlyDifferenceConverges(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	bead := BeadRef{ID: "kb-whitespace-1", Title: "child bead", TrackerKind: "br", RepoPath: "/repo"}
+	runID := seedRunWithBeads(t, g, "child bead", []BeadRef{bead})
+
+	tight := backend.DecisionRecordEntry{Decision: "Use approach B.", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+	padded := backend.DecisionRecordEntry{Decision: "  Use approach B.  \n", OptionsConsidered: "x", TradeOffs: "y", Rationale: "z"}
+
+	firstIDs, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{tight}, bead, bead, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (tight): %v", err)
+	}
+	retryIDs, err := WriteDecisionRecordNode(ctx, g, []backend.DecisionRecordEntry{padded}, bead, bead, runID)
+	if err != nil {
+		t.Fatalf("WriteDecisionRecordNode (padded): %v", err)
+	}
+	if firstIDs[0] != retryIDs[0] {
+		t.Errorf("a whitespace-only difference minted a new node: first=%s retry=%s", firstIDs[0], retryIDs[0])
 	}
 }
 

@@ -965,6 +965,43 @@ var decisionRecordRequiredFields = []decisionRecordRequiredField{
 	{"rationale", func(e DecisionRecordEntry) string { return e.Rationale }},
 }
 
+// maxDecisionRecordEntries bounds how many decisions a single decision_record
+// artifact may declare. Every real record this gate's own motivating cases
+// produced (the three implementers whose incompatible invented syntaxes
+// prompted this whole redesign) carried one to three decisions; twenty is
+// already a generous multiple of that. The bound exists because nothing else
+// on this path bounds entry count: WriteDecisionRecordNode writes one
+// Decision node and up to three has_decision edges PER entry, in one
+// transaction, and app.ComposeRunReport's own field-4 composer call runs
+// SEQUENTIALLY, one decision at a time, at up to 60 seconds each (see
+// app.impactComposeTimeout) - an unbounded entry count turns one runaway
+// record (measured: 1000 entries) into a run report that does not finish for
+// roughly 16 hours, not a config value anyone chose, and never a shape a
+// deliberated decision list has a legitimate reason to take.
+const maxDecisionRecordEntries = 20
+
+// maxDecisionRecordFieldBytes bounds any one field's length - title,
+// decision, optionsConsidered, tradeOffs, or rationale. This gate's own
+// fixtures and this project's one measured production record (see
+// realWorldDecisionEntry in app/revert_decision_test.go) run a few hundred
+// bytes per field at most; the limit here is two orders of magnitude above
+// that, so no genuine record is ever affected, while a field an agent filled
+// with, say, an entire source file or a log dump is rejected instead of
+// silently becoming the Decision node's Body/Context/Outcome content and
+// the composer's prompt input.
+const maxDecisionRecordFieldBytes = 20_000
+
+// maxDecisionRecordDocumentBytes bounds the raw artifact file's total size,
+// checked before the content is unmarshalled at all - json.Unmarshal has no
+// size limit of its own and would otherwise allocate for a file of any size
+// before this gate ever gets to look at entry count or field size. Derived
+// from the two limits above (worst case: every one of maxDecisionRecordEntries
+// entries has all 5 string fields at maxDecisionRecordFieldBytes each) with a
+// 2x multiplier for JSON syntax overhead - keys, quoting, commas, whitespace
+// - rather than picked independently, so it can never reject a document that
+// is otherwise within both of those limits.
+const maxDecisionRecordDocumentBytes = maxDecisionRecordEntries * 5 * maxDecisionRecordFieldBytes * 2
+
 // decisionRecordHeadingRe matches an ATX heading ("## Text", 1-6 hashes)
 // against a single already-comment-stripped line. It intentionally does not
 // require exactly two hashes - any level is accepted, matching how the rest
@@ -1247,6 +1284,81 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 	return bodies, dupKey
 }
 
+// duplicateJSONKeyError names where, inside a JSON document, the same object
+// key appeared twice: path is the enclosing object's own location ("$" for
+// the document root, "$.decisions[2]" for the third array entry), and key is
+// the repeated name. See detectDuplicateJSONKeys.
+type duplicateJSONKeyError struct {
+	path string
+	key  string
+}
+
+func (e *duplicateJSONKeyError) Error() string {
+	return fmt.Sprintf("object key %q appears twice at %s", e.key, e.path)
+}
+
+// detectDuplicateJSONKeys walks content's token stream looking for two
+// occurrences of the same key within the SAME JSON object, at any depth.
+//
+// encoding/json.Unmarshal does not report this at all: given
+// {"decision":"Use SQLite","decision":"Use Postgres"}, it silently keeps
+// only the LAST value and discards the first - exactly the "later data
+// silently overrides earlier data, and the gate that was supposed to catch
+// it says nothing" defect the withdrawn prefix-matching approach would have
+// reintroduced at the markdown layer (see ParseDecisionRecordDocument's own
+// doc comment and AGENTS.md), reproduced here one layer down, at the JSON
+// layer itself. Detecting it requires walking the raw token stream by hand -
+// the standard library exposes no option for this - via json.Decoder.Token,
+// which yields one flat sequence of tokens (Delim '{'/'}'/'['/']', or a
+// scalar) regardless of nesting depth. This function recurses one level
+// per '{' or '[' it opens, tracking only the CURRENT object's own key set
+// (a duplicate one level down must never be confused with a duplicate at
+// this level - {"a":{"b":1},"c":{"b":2}} is not a duplicate "b").
+//
+// dec must be freshly positioned at the start of a JSON value (a document's
+// root, when called from ParseDecisionRecordDocument). path is that value's
+// own location, used only to build a duplicate's error message.
+func detectDuplicateJSONKeys(dec *json.Decoder, path string) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	delim, isDelim := tok.(json.Delim)
+	if !isDelim {
+		return nil // a scalar value (string, number, bool, null) has no keys of its own
+	}
+
+	switch delim {
+	case '{':
+		seen := make(map[string]bool)
+		for dec.More() {
+			keyTok, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			key, _ := keyTok.(string) // a JSON object key token is always a string
+			if seen[key] {
+				return &duplicateJSONKeyError{path: path, key: key}
+			}
+			seen[key] = true
+			if err := detectDuplicateJSONKeys(dec, path+"."+key); err != nil {
+				return err
+			}
+		}
+		_, err := dec.Token() // consume the closing '}'
+		return err
+	case '[':
+		for i := 0; dec.More(); i++ {
+			if err := detectDuplicateJSONKeys(dec, fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+		_, err := dec.Token() // consume the closing ']'
+		return err
+	}
+	return nil
+}
+
 // ParseDecisionRecordDocument parses and validates a decision_record
 // artifact's JSON content. It is exported so a caller that already knows the
 // decision_record exit gate passed (see evaluateSingleExitGate's
@@ -1260,19 +1372,47 @@ func MarkdownSectionsByHeading(content string, keyFn func(headingText string) (k
 //
 //	{"decisions": [{"title": "...", "decision": "...", "optionsConsidered": "...", "tradeOffs": "...", "rationale": "..."}]}
 //
-// "decisions" must contain at least one entry, and every entry must carry
-// non-blank decision/optionsConsidered/tradeOffs/rationale ("title" is
-// optional). A malformed document is rejected with the exact problem named -
-// a JSON syntax error, an empty array, or which field at which array index
-// is missing or blank - never a generic "invalid": an agent told that cannot
-// act on it, one told "decisions[2].tradeOffs" can.
+// "decisions" must contain at least one entry and at most
+// maxDecisionRecordEntries, every entry must carry non-blank
+// decision/optionsConsidered/tradeOffs/rationale ("title" is optional), and
+// no field may exceed maxDecisionRecordFieldBytes. The document is also
+// rejected outright if it names a field this schema does not define (a typo
+// like "titel" instead of "title" would otherwise be silently ignored by
+// json.Unmarshal, and the value the agent meant to set never reaches the
+// graph) or if any single JSON object repeats a key (which json.Unmarshal
+// resolves by silently keeping only the LAST value - see
+// detectDuplicateJSONKeys). A malformed document is rejected with the exact
+// problem named - which check failed, and at which array index or object
+// path - never a generic "invalid": an agent told that cannot act on it, one
+// told "decisions[2].tradeOffs" can.
 func ParseDecisionRecordDocument(content string) ([]DecisionRecordEntry, error) {
-	var doc decisionRecordDocument
-	if err := json.Unmarshal([]byte(content), &doc); err != nil {
+	if len(content) > maxDecisionRecordDocumentBytes {
+		return nil, fmt.Errorf("decision_record_too_large: the record is %d bytes, over the %d byte limit - Fix: a decision_record artifact holds a short, deliberated list of the decisions actually made in this stage, not pasted file or log contents; trim each field to its own decision/options/trade-offs/rationale text", len(content), maxDecisionRecordDocumentBytes)
+	}
+
+	if err := detectDuplicateJSONKeys(json.NewDecoder(strings.NewReader(content)), "$"); err != nil {
+		var dupErr *duplicateJSONKeyError
+		if errors.As(err, &dupErr) {
+			return nil, fmt.Errorf(`decision_record_duplicate_key: %w - encoding/json keeps only the LAST value for a repeated object key and silently discards the rest, which can lose an entire decision without saying so - Fix: remove the duplicate key at %s, keeping only the one value that should survive`, dupErr, dupErr.path)
+		}
 		return nil, fmt.Errorf(`decision_record_invalid_json: %w - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]}`, err)
 	}
+
+	dec := json.NewDecoder(strings.NewReader(content))
+	dec.DisallowUnknownFields()
+	var doc decisionRecordDocument
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf(`decision_record_invalid_json: %w - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]} with no field beyond title/decision/optionsConsidered/tradeOffs/rationale`, err)
+	}
+	if dec.More() {
+		return nil, fmt.Errorf(`decision_record_invalid_json: unexpected content after the top-level JSON object - the file must contain exactly one JSON object shaped like {"decisions":[...]}`)
+	}
+
 	if len(doc.Decisions) == 0 {
 		return nil, fmt.Errorf(`decision_record_empty: the "decisions" array must contain at least one entry`)
+	}
+	if len(doc.Decisions) > maxDecisionRecordEntries {
+		return nil, fmt.Errorf(`decision_record_too_many_entries: the "decisions" array has %d entries, over the %d entry limit - Fix: a decision_record artifact is the deliberated list of decisions actually made in this stage, not every option ever discussed; if this stage genuinely made this many separate decisions, split the work across separate stages instead of one oversized record`, len(doc.Decisions), maxDecisionRecordEntries)
 	}
 
 	var problems []string
@@ -1286,6 +1426,22 @@ func ParseDecisionRecordDocument(content string) ([]DecisionRecordEntry, error) 
 	if len(problems) > 0 {
 		return nil, fmt.Errorf("decision_record_missing_fields: %s", strings.Join(problems, ", "))
 	}
+
+	var oversized []string
+	fieldLength := append([]decisionRecordRequiredField{
+		{"title", func(e DecisionRecordEntry) string { return e.Title }},
+	}, decisionRecordRequiredFields...)
+	for i, entry := range doc.Decisions {
+		for _, field := range fieldLength {
+			if n := len(field.value(entry)); n > maxDecisionRecordFieldBytes {
+				oversized = append(oversized, fmt.Sprintf("decisions[%d].%s is %d bytes, over the %d byte limit", i, field.wireName, n, maxDecisionRecordFieldBytes))
+			}
+		}
+	}
+	if len(oversized) > 0 {
+		return nil, fmt.Errorf("decision_record_field_too_large: %s - Fix: a decision_record field holds this decision's own reasoning, not pasted file or log contents", strings.Join(oversized, ", "))
+	}
+
 	return doc.Decisions, nil
 }
 
