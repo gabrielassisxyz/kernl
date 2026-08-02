@@ -1,6 +1,7 @@
 package epic
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -102,6 +103,78 @@ func TestLoadEpicBuildsDAGFromBackend(t *testing.T) {
 	ready := ep.DAG.ReadySet(map[string]bool{})
 	if !sameSet(ready, []string{"c1"}) {
 		t.Errorf("ready = %v, want [c1]", ready)
+	}
+}
+
+// A dependency on a bead outside the epic is a real and useful thing to
+// express - phase 10 depends on work landed in phase 9 - and once that work is
+// closed it must not stop the run. The loader used to reject any dependency
+// whose target was not a child of the epic, calling it a cycle.
+func TestLoadEpicDropsClosedCrossEpicDependency(t *testing.T) {
+	be := &fakeBackend{beads: []backend.Bead{
+		{ID: "e", Type: "epic"},
+		{ID: "c1", ParentID: "e"},
+		{ID: "c2", ParentID: "e", Dependencies: []backend.BeadDependency{
+			{SourceID: "c2", TargetID: "other.1", Type: "blocks"},
+		}},
+		{ID: "other.1", ParentID: "other", State: "closed"},
+	}}
+	ep, err := LoadEpic(be, "e", "/repo")
+	if err != nil {
+		t.Fatalf("LoadEpic: %v", err)
+	}
+	if len(ep.Children) != 2 {
+		t.Errorf("children = %d, want 2 - the external blocker is not a child", len(ep.Children))
+	}
+	ready := ep.DAG.ReadySet(map[string]bool{})
+	if !sameSet(ready, []string{"c1", "c2"}) {
+		t.Errorf("ready = %v, want [c1 c2] - a closed external blocker holds nothing back", ready)
+	}
+}
+
+// The other half of the same rule: an external blocker that is still open is a
+// genuine reason to refuse, and the refusal has to name where that work lives
+// so the operator knows which epic to run first.
+func TestLoadEpicRefusesOpenCrossEpicDependency(t *testing.T) {
+	be := &fakeBackend{beads: []backend.Bead{
+		{ID: "e", Type: "epic"},
+		{ID: "c1", ParentID: "e", Dependencies: []backend.BeadDependency{
+			{SourceID: "c1", TargetID: "other.1", Type: "blocks"},
+		}},
+		{ID: "other.1", ParentID: "other", State: "implementation"},
+	}}
+	_, err := LoadEpic(be, "e", "/repo")
+	if err == nil {
+		t.Fatal("expected a refusal: the external blocker is still open")
+	}
+	for _, want := range []string{"other.1", "other", "implementation"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not name %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "cycle") {
+		t.Errorf("error %q calls an open external blocker a cycle", err)
+	}
+}
+
+// A dependency the tracker has never heard of is the one case that really is a
+// broken graph - and it must say so in those words, not as a cycle.
+func TestLoadEpicRejectsDependencyOnBeadTheTrackerDoesNotHave(t *testing.T) {
+	be := &fakeBackend{beads: []backend.Bead{
+		{ID: "e", Type: "epic"},
+		{ID: "c1", ParentID: "e", Dependencies: []backend.BeadDependency{
+			{SourceID: "c1", TargetID: "ghost", Type: "blocks"},
+		}},
+	}}
+	_, err := LoadEpic(be, "e", "/repo")
+	if err == nil {
+		t.Fatal("expected a refusal: the blocker does not exist")
+	}
+	if !strings.Contains(err.Error(), "unknown bead ghost") {
+		t.Errorf("error %q does not name the unknown bead", err)
+	}
+	if strings.Contains(err.Error(), "cycle") {
+		t.Errorf("error %q calls a missing bead a cycle", err)
 	}
 }
 
