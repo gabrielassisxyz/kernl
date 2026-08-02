@@ -87,8 +87,18 @@ type RepoEntry struct {
 	// matched with path.Match against the repository-relative path. Unset means
 	// this repository declares nothing, which reads as "no mechanical reason to
 	// escalate" - never as "everything here is irreversible".
-	IrreversibleSurfaces []string       `yaml:"irreversibleSurfaces,omitempty"`
-	Shipment             ShipmentConfig `yaml:"shipment,omitempty"`
+	IrreversibleSurfaces []string `yaml:"irreversibleSurfaces,omitempty"`
+	// ContextDocs lists repository-relative paths, in the order they are
+	// read, that the Oracle sees when it writes a decision record's impact
+	// field: what this repository is for, since the Oracle itself has no
+	// repository access to find that out (see app.AssembleContext). The
+	// listed files are sent VERBATIM to whatever llm.agent/llm.endpoint
+	// points at - nothing leaves this machine that was not named here.
+	// Unset defaults to README.md, then ROADMAP.md; a repository that keeps
+	// no ROADMAP.md (this one, on purpose - see AGENTS.md §6) is not a
+	// failure, it renders as "not found" in the assembled text.
+	ContextDocs []string       `yaml:"contextDocs,omitempty"`
+	Shipment    ShipmentConfig `yaml:"shipment,omitempty"`
 }
 
 // ShipmentConfig declares where a repository is allowed to publish. It has no
@@ -183,13 +193,13 @@ type LLMConfig struct {
 	// falls back to the provider's default base URL.
 	Endpoint string `yaml:"endpoint"`
 	// Agent, when set, names a settings.agents entry that the run report's
-	// mayor is asked through - the agent's own CLI, in one-shot answer mode -
+	// oracle is asked through - the agent's own CLI, in one-shot answer mode -
 	// instead of the provider above. It changes nothing else: the DA chat
 	// keeps using Provider/Endpoint/Model either way.
 	//
 	// It exists because the two consumers of this block want different
 	// things from it. The DA chat needs a streaming, tool-calling API. The
-	// mayor needs one paragraph, and the best models available here live
+	// oracle needs one paragraph, and the best models available here live
 	// behind coding-plan CLIs rather than behind an endpoint that would have
 	// to be billed separately to serve them.
 	Agent string `yaml:"agent,omitempty"`

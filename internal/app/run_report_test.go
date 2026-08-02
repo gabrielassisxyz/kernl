@@ -201,6 +201,108 @@ func TestComposeRunReport_WritesImpactBackAndIntoReport(t *testing.T) {
 	}
 }
 
+// --- criterion: the repository's own docs reach the composer as context,
+// which is the whole point of Unit A (see AGENTS.md's plan reference and
+// prompt.RenderImpactOnUse's own doc comment) - the Oracle has no other way
+// to know what this repository is for. ---
+
+func TestComposeRunReport_ThreadsRepositoryContextToTheComposer(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	stateDir := t.TempDir()
+	repoPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("archeion crawls sitemaps and dedupes robots.txt fetches."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	epic := BeadRef{ID: "kb-epic-ctx", Title: "epic", TrackerKind: "br", RepoPath: repoPath}
+	child := BeadRef{ID: "kb-child-ctx", Title: "child", TrackerKind: "br", RepoPath: repoPath}
+	runID, err := StartWorkflowRun(context.Background(), g, StartWorkflowRunInput{
+		EntryPoint:     "epic run",
+		Title:          "epic",
+		WorkflowName:   "worker",
+		Beads:          []BeadRef{epic, child},
+		RepoPath:       repoPath,
+		TrackerCommand: "br --db '" + repoPath + "/.beads/beads.db'",
+		StartedAt:      time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("StartWorkflowRun: %v", err)
+	}
+	writeTestDecision(t, g, runID, child, epic, wellFormedDecisionRecord)
+
+	composer := &fakeImpactComposer{response: "callers see a typed constant now."}
+	in := baseReportInput(g, stateDir, runID, "kb-epic-ctx")
+	in.Composer = composer
+
+	if _, err := ComposeRunReport(context.Background(), in); err != nil {
+		t.Fatalf("ComposeRunReport: %v", err)
+	}
+	if len(composer.calls) != 1 {
+		t.Fatalf("composer called %d times, want 1", len(composer.calls))
+	}
+	got := composer.calls[0].RepositoryContext
+	if !strings.Contains(got, "archeion crawls sitemaps") {
+		t.Errorf("RepositoryContext = %q, want the repository's own README content", got)
+	}
+	if !strings.Contains(got, "README.md") {
+		t.Errorf("RepositoryContext = %q, want the file named under its own heading", got)
+	}
+	// ROADMAP.md is the second DefaultContextDocs entry and this test repo
+	// has none - an omitted section would be indistinguishable from the
+	// assembler never having run at all.
+	if !strings.Contains(got, "ROADMAP.md") {
+		t.Errorf("RepositoryContext = %q, want the missing default doc named explicitly", got)
+	}
+}
+
+// A repository that declares registry.repos[].contextDocs uses exactly that
+// list, in order, instead of DefaultContextDocs.
+func TestComposeRunReport_ConfiguredContextDocsOverrideTheDefault(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	stateDir := t.TempDir()
+	repoPath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoPath, "README.md"), []byte("the default doc, not configured"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoPath, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoPath, "docs", "ORIENTATION.md"), []byte("the configured doc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	epic := BeadRef{ID: "kb-epic-ctx2", Title: "epic", TrackerKind: "br", RepoPath: repoPath}
+	runID, err := StartWorkflowRun(context.Background(), g, StartWorkflowRunInput{
+		EntryPoint:     "epic run",
+		Title:          "epic",
+		WorkflowName:   "worker",
+		Beads:          []BeadRef{epic},
+		RepoPath:       repoPath,
+		TrackerCommand: "br --db '" + repoPath + "/.beads/beads.db'",
+		StartedAt:      time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("StartWorkflowRun: %v", err)
+	}
+	writeTestDecision(t, g, runID, epic, epic, wellFormedDecisionRecord)
+
+	composer := &fakeImpactComposer{response: "callers see a typed constant now."}
+	in := baseReportInput(g, stateDir, runID, "kb-epic-ctx2")
+	in.Composer = composer
+	in.ContextDocs = []string{"docs/ORIENTATION.md"}
+
+	if _, err := ComposeRunReport(context.Background(), in); err != nil {
+		t.Fatalf("ComposeRunReport: %v", err)
+	}
+	got := composer.calls[0].RepositoryContext
+	if !strings.Contains(got, "the configured doc") {
+		t.Errorf("RepositoryContext = %q, want the configured doc's content", got)
+	}
+	if strings.Contains(got, "the default doc, not configured") {
+		t.Errorf("RepositoryContext = %q, want README.md excluded once contextDocs is configured", got)
+	}
+}
+
 // --- criterion: a decision that already had a non-nil ImpactOnUse is not
 // re-composed and not overwritten. ---
 
@@ -520,5 +622,18 @@ func TestNonEmptyCompletion_RejectsWhitespaceOnly(t *testing.T) {
 	}
 	if got != "a real answer" {
 		t.Errorf("nonEmptyCompletion trimmed to %q, want %q", got, "a real answer")
+	}
+}
+
+func TestResolveContextDocs(t *testing.T) {
+	if got := resolveContextDocs(nil); strings.Join(got, ",") != strings.Join(DefaultContextDocs, ",") {
+		t.Errorf("resolveContextDocs(nil) = %v, want DefaultContextDocs %v", got, DefaultContextDocs)
+	}
+	if got := resolveContextDocs([]string{}); strings.Join(got, ",") != strings.Join(DefaultContextDocs, ",") {
+		t.Errorf("resolveContextDocs([]) = %v, want DefaultContextDocs %v", got, DefaultContextDocs)
+	}
+	configured := []string{"docs/ORIENTATION.md"}
+	if got := resolveContextDocs(configured); strings.Join(got, ",") != strings.Join(configured, ",") {
+		t.Errorf("resolveContextDocs(%v) = %v, want the configured list unchanged", configured, got)
 	}
 }

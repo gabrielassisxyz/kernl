@@ -39,6 +39,33 @@ func impactInput() DecisionImpact {
 	}
 }
 
+// The repository context assembled by AssembleContext must reach the agent
+// as part of the question - it is the only way this tool-less actor learns
+// what the repository under work is for.
+func TestCLIImpactComposer_RepositoryContextReachesTheQuestion(t *testing.T) {
+	runner := &recordingRunner{answer: "something"}
+	composer := CLIImpactComposer{
+		AgentID: "claude-opus",
+		Agent:   config.AgentConfig{Command: "claude"},
+		Run:     runner.run,
+	}
+	in := impactInput()
+	in.RepositoryContext = "### README.md\n\narcheion crawls sitemaps.\n\n"
+
+	if _, err := composer.ComposeImpact(context.Background(), in); err != nil {
+		t.Fatalf("ComposeImpact: %v", err)
+	}
+	found := false
+	for _, a := range runner.args {
+		if strings.Contains(a, "archeion crawls sitemaps") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("args = %q, want the assembled repository context inside the question sent to the agent", runner.args)
+	}
+}
+
 func TestCLIImpactComposer_AsksTheAgentAndReturnsItsAnswer(t *testing.T) {
 	runner := &recordingRunner{answer: "Crawls of large sitemaps stop hammering each host.\n"}
 	composer := CLIImpactComposer{
@@ -60,7 +87,7 @@ func TestCLIImpactComposer_AsksTheAgentAndReturnsItsAnswer(t *testing.T) {
 	if !contains(runner.args, "--model") || !contains(runner.args, "opus") {
 		t.Errorf("args = %q, want the configured model passed through", runner.args)
 	}
-	// No permission bypass: the mayor writes a paragraph, and a dialect that
+	// No permission bypass: the oracle writes a paragraph, and a dialect that
 	// has to ask before touching anything will touch nothing unattended.
 	for _, forbidden := range []string{"--dangerously-skip-permissions", "--dangerously-bypass-approvals-and-sandbox"} {
 		if contains(runner.args, forbidden) {
@@ -98,7 +125,7 @@ func TestCLIImpactComposer_WhitespaceAnswerIsAFailure(t *testing.T) {
 		Run:     runner.run,
 	}
 
-	// Persisting "" would tell a later reader the mayor looked at this
+	// Persisting "" would tell a later reader the oracle looked at this
 	// decision and had nothing to say. A truncated or refused answer is not
 	// that judgment, and the API-backed composer already treats it this way.
 	if _, err := composer.ComposeImpact(context.Background(), impactInput()); err == nil {

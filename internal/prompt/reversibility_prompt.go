@@ -7,7 +7,7 @@ import (
 	"text/template"
 )
 
-// ReversibilityInput feeds the reversibility question the mayor answers after
+// ReversibilityInput feeds the reversibility question the oracle answers after
 // an integration review rejection.
 //
 // It carries text and only text. The actor answering this runs with no tools

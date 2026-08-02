@@ -25,7 +25,7 @@ type AnswerRunner func(ctx context.Context, command string, args []string, workD
 // through CLI agents, where a coding plan's best models live, while
 // LLMImpactComposer reaches an openai-compatible endpoint that has to serve
 // that model itself. Pointing llm.agent at a configured agent lets the one
-// paragraph the mayor writes come from the same place the implementers come
+// paragraph the oracle writes come from the same place the implementers come
 // from, without a second billing route existing only for it.
 //
 // It is deliberately NOT a stage dispatch. The agent is asked one question in
@@ -61,14 +61,15 @@ func (c CLIImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact)
 		Outcome:           in.Outcome,
 		RepoPath:          in.RepoPath,
 		BeadTitle:         in.BeadTitle,
+		RepositoryContext: in.RepositoryContext,
 	}))
 }
 
-// Ask implements Mayor: it spawns the agent CLI in answer mode on one question
+// Ask implements Oracle: it spawns the agent CLI in answer mode on one question
 // and returns its whole answer, trimmed.
 //
 // Splitting this out of ComposeImpact is what lets a second question (see
-// MayorReversibilityJudge) reach the same actor without a second copy of the
+// OracleReversibilityJudge) reach the same actor without a second copy of the
 // answer-mode plumbing, and without the tool-less, throwaway-directory
 // property that makes it safe having to be re-established somewhere else.
 func (c CLIImpactComposer) Ask(ctx context.Context, question string) (string, error) {
@@ -134,24 +135,24 @@ func RunAnswerCommand(ctx context.Context, command string, args []string, workDi
 	return string(out), nil
 }
 
-// Mayor is the tool-less actor kernl asks a question it cannot answer from
+// Oracle is the tool-less actor kernl asks a question it cannot answer from
 // facts alone: today the decision record's impact field, and whether an
 // integration rejection would be expensive to reverse. One method, because
 // every such question is the same shape - text in, text out, no repository,
 // no tools, nothing recorded in the stage-attempt ledger.
-type Mayor interface {
+type Oracle interface {
 	Ask(ctx context.Context, question string) (string, error)
 }
 
-// mayor is what both configured actors are: the same object answers both
+// oracle is what both configured actors are: the same object answers both
 // questions, and the two interfaces exist separately only so a caller states
 // which one it needs.
-type mayor interface {
-	Mayor
+type oracle interface {
+	Oracle
 	ImpactComposer
 }
 
-// NewImpactComposer picks the mayor from configuration: the agent CLI named
+// NewImpactComposer picks the oracle from configuration: the agent CLI named
 // by llm.agent when there is one, the provider API at llm.endpoint otherwise,
 // and nothing at all when neither is configured.
 //
@@ -165,30 +166,30 @@ type mayor interface {
 // as a run finding out at shipment that it has nowhere it is allowed to
 // publish - the reason that check moved to startup too.
 func NewImpactComposer(cfg *config.Config) (ImpactComposer, error) {
-	m, err := newMayor(cfg)
+	m, err := newOracle(cfg)
 	if err != nil || m == nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// NewMayor resolves the same actor NewImpactComposer resolves, for the caller
-// that wants to ask it something other than the impact question. A nil Mayor
+// NewOracle resolves the same actor NewImpactComposer resolves, for the caller
+// that wants to ask it something other than the impact question. A nil Oracle
 // with a nil error means none is configured, which every caller must handle on
 // its own terms: the run report drops a field, the reversibility gate hands
 // the rejection to the operator.
-func NewMayor(cfg *config.Config) (Mayor, error) {
-	m, err := newMayor(cfg)
+func NewOracle(cfg *config.Config) (Oracle, error) {
+	m, err := newOracle(cfg)
 	if err != nil || m == nil {
 		return nil, err
 	}
 	return m, nil
 }
 
-// newMayor returns the interface value, never a typed nil: an unconfigured llm
-// must come back as a nil interface, or every "is a mayor configured" check in
+// newOracle returns the interface value, never a typed nil: an unconfigured llm
+// must come back as a nil interface, or every "is an oracle configured" check in
 // the codebase silently answers yes.
-func newMayor(cfg *config.Config) (mayor, error) {
+func newOracle(cfg *config.Config) (oracle, error) {
 	if cfg == nil {
 		return nil, nil
 	}

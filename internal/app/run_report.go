@@ -44,11 +44,21 @@ type DecisionImpact struct {
 	Outcome           string
 	RepoPath          string
 	BeadTitle         string
+	// RepositoryContext is what AssembleContext read out of the repository
+	// at RepoPath - the same text for every decision in one run, computed
+	// once by ComposeRunReport rather than per decision, since neither the
+	// repository nor its configured contextDocs change mid-run.
+	RepositoryContext string
 }
 
-// impactComposerMaxTokens bounds the mayor's answer to a few sentences - see
-// prompt.RenderImpactOnUse's own instruction for the shape it asks for.
-const impactComposerMaxTokens = 512
+// impactComposerMaxTokens is a truncation guard, not a design budget: the
+// answer's real shape is governed by prompt.RenderImpactOnUse's own
+// instruction (3-6 sentences), and this only exists because
+// dispatch.CompleteChat marshals max_tokens unconditionally and the
+// Anthropic API requires the field - there is no "unbounded" to fall back
+// to. 1024 is generous headroom over 3-6 sentences of prose, wide enough
+// that the instruction in the prompt is what actually shapes the answer.
+const impactComposerMaxTokens = 1024
 
 // LLMImpactComposer is the production ImpactComposer: it renders
 // DecisionImpact through prompt.RenderImpactOnUse and asks the configured
@@ -79,10 +89,11 @@ func (c LLMImpactComposer) ComposeImpact(ctx context.Context, in DecisionImpact)
 		Outcome:           in.Outcome,
 		RepoPath:          in.RepoPath,
 		BeadTitle:         in.BeadTitle,
+		RepositoryContext: in.RepositoryContext,
 	}))
 }
 
-// Ask implements Mayor: one question to the configured provider, one answer
+// Ask implements Oracle: one question to the configured provider, one answer
 // back. It carries the same token bound and the same emptiness rule as
 // ComposeImpact, because both questions want a few sentences and neither has
 // any use for a blank one.
@@ -121,7 +132,7 @@ func nonEmptyCompletion(text string) (string, error) {
 // carries none either, so without this an endpoint that accepts the
 // connection and never answers hangs the whole run close forever: no report,
 // no CloseWorkflowRun, no error, no exit - strictly worse than the
-// unreachable-mayor case this design otherwise already tolerates. 60 seconds
+// unreachable-oracle case this design otherwise already tolerates. 60 seconds
 // is generous for a 2-4 sentence completion and short enough that one dead
 // endpoint costs the operator under a minute of an otherwise-finished run,
 // not an indefinite hang.
@@ -170,6 +181,11 @@ type ComposeRunReportInput struct {
 	// `epic run`, the standalone bead's own id for `bead run`.
 	StateDir string
 	EpicID   string
+
+	// ContextDocs is registry.repos[].contextDocs for the repository this run
+	// worked in - what AssembleContext reads to give the Oracle something to
+	// judge field 4 against. Empty falls back to DefaultContextDocs.
+	ContextDocs []string
 }
 
 // runDecision is one decision belonging to a run, paired with the title of
@@ -185,11 +201,11 @@ type runDecision struct {
 }
 
 // ComposeRunReport is the run-close composer: it finds every decision
-// belonging to the run, asks the mayor (in.Composer) to write field 4 for
+// belonging to the run, asks the oracle (in.Composer) to write field 4 for
 // whichever ones do not already have it, writes a genuine answer back onto
 // the Decision node, and renders one Markdown report for the whole run.
 //
-// The mayor being unreachable - no llm.provider configured, the call itself
+// The oracle being unreachable - no llm.provider configured, the call itself
 // failing, or the call outliving impactComposeTimeout - never fails this
 // function and never writes "" in place of a real answer: an unresolved
 // field 4 stays nil on the node (see nodes.Decision.ImpactOnUse's own doc
@@ -233,9 +249,15 @@ func ComposeRunReport(ctx context.Context, in ComposeRunReportInput) (string, er
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: run %s's stored run data does not parse as JSON: %w - Fix: this indicates StartWorkflowRun wrote a malformed blob, a bug to fix there, not a value to paper over here", in.RunID, err)
 	}
 
+	// Assembled once per run, not once per decision: the repository and its
+	// configured contextDocs do not change between decisions in the same run,
+	// and re-reading the same files from disk once per decision would be
+	// pure waste.
+	repoContext := AssembleContext(rd.RepoPath, resolveContextDocs(in.ContextDocs))
+
 	fields := make([]decisionReportFields, 0, len(found))
 	for _, r := range found {
-		impact := resolveImpactField(ctx, in.Graph, in.Composer, rd.RepoPath, r.decision, r.beadTitle)
+		impact := resolveImpactField(ctx, in.Graph, in.Composer, rd.RepoPath, repoContext, r.decision, r.beadTitle)
 		fields = append(fields, buildDecisionReportFields(r.decision, impact, r.isFixup))
 	}
 	sortFixupDecisionsFirst(fields)
@@ -328,6 +350,15 @@ func beadRefForDecision(ctx context.Context, tx *graph.ReadTx, decisionID, runID
 	return title, isFixup, nil
 }
 
+// resolveContextDocs falls back to DefaultContextDocs when a repository
+// declares no registry.repos[].contextDocs of its own.
+func resolveContextDocs(configured []string) []string {
+	if len(configured) == 0 {
+		return DefaultContextDocs
+	}
+	return configured
+}
+
 // resolveImpactField answers field 4 for one decision's report entry, and is
 // the only place that decides between a real answer and the "awaiting"
 // placeholder. It never returns an error: every failure mode (no composer
@@ -335,7 +366,7 @@ func beadRefForDecision(ctx context.Context, tx *graph.ReadTx, decisionID, runID
 // is folded into the placeholder text, plus a warning to stderr naming what
 // happened - see ComposeRunReport's own doc comment for why this path must
 // never halt the run.
-func resolveImpactField(ctx context.Context, g *graph.Graph, composer ImpactComposer, repoPath string, d *nodes.Decision, beadTitle string) string {
+func resolveImpactField(ctx context.Context, g *graph.Graph, composer ImpactComposer, repoPath, repoContext string, d *nodes.Decision, beadTitle string) string {
 	if d.ImpactOnUse != nil {
 		if *d.ImpactOnUse == "" {
 			return "(the composer already ran for this decision and had nothing to add.)"
@@ -343,7 +374,7 @@ func resolveImpactField(ctx context.Context, g *graph.Graph, composer ImpactComp
 		return *d.ImpactOnUse
 	}
 
-	text, reason := composeAndPersistImpact(ctx, g, composer, repoPath, d, beadTitle)
+	text, reason := composeAndPersistImpact(ctx, g, composer, repoPath, repoContext, d, beadTitle)
 	if reason == "" {
 		return text
 	}
@@ -363,7 +394,7 @@ func resolveImpactField(ctx context.Context, g *graph.Graph, composer ImpactComp
 // whatever kernl.yaml names), and it is the only one with no deadline of its
 // own otherwise - see impactComposeTimeout's doc comment. A timed-out call
 // is just another composer error and lands in the same awaiting path.
-func composeAndPersistImpact(ctx context.Context, g *graph.Graph, composer ImpactComposer, repoPath string, d *nodes.Decision, beadTitle string) (text, reason string) {
+func composeAndPersistImpact(ctx context.Context, g *graph.Graph, composer ImpactComposer, repoPath, repoContext string, d *nodes.Decision, beadTitle string) (text, reason string) {
 	if composer == nil {
 		return "", "no LLM provider is configured for this run - set llm.provider in kernl.yaml to enable field 4"
 	}
@@ -379,6 +410,7 @@ func composeAndPersistImpact(ctx context.Context, g *graph.Graph, composer Impac
 		Outcome:           d.Outcome,
 		RepoPath:          repoPath,
 		BeadTitle:         beadTitle,
+		RepositoryContext: repoContext,
 	})
 	if err != nil {
 		return "", fmt.Sprintf("composing this decision's impact failed: %v", err)

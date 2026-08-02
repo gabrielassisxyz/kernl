@@ -717,7 +717,7 @@ func TestRunBeadMissingID(t *testing.T) {
 
 // TestRunBeadDispatchEscalatesAnUnwritableReport is the boundary of the
 // deliberate fail-loud exception around the composer. An unresolved field 4
-// is swallowed on purpose - the mayor being unreachable must not fail a run
+// is swallowed on purpose - the oracle being unreachable must not fail a run
 // whose code is already committed. A report file that does not exist at all
 // is a different failure: the operator judges a run by reading one, and
 // exiting 0 with only a stderr warning hands them a success they cannot

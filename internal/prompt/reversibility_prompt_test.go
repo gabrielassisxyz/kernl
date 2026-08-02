@@ -30,7 +30,7 @@ func TestRenderReversibility_AsksOneQuestionAndFixesTheAnswerShape(t *testing.T)
 		"REVERSAL: CHEAP",
 		"REVERSAL: EXPENSIVE",
 		"one or two sentences saying why",
-		// The mayor is tool-less and outside the repository: everything it may
+		// The oracle is tool-less and outside the repository: everything it may
 		// reason about arrives in the text, and it must not try to review.
 		"Do not review the code",
 	}

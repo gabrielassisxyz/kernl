@@ -484,7 +484,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	if err != nil {
 		return err
 	}
-	// The mayor is whichever LLM kernl.yaml configures - nil, deliberately,
+	// The oracle is whichever LLM kernl.yaml configures - nil, deliberately,
 	// when none is: ComposeRunReport's own doc comment on why that must
 	// never fail the close is the reason a missing llm.provider is not
 	// checked here. A configured-but-broken llm.agent DOES stop the run, and
@@ -497,7 +497,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	// an integration review rejects. Resolved here, with everything else the
 	// run needs, so a broken llm.agent is refused before any work is done
 	// rather than at the moment a rejection needs judging.
-	reversibilityMayor, err := app.NewMayor(a.Config)
+	reversibilityOracle, err := app.NewOracle(a.Config)
 	if err != nil {
 		return err
 	}
@@ -513,14 +513,15 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		// failed is worth more than no report, and the run's own status is
 		// one of the facts its header states.
 		reportPath, reportErr := app.ComposeRunReport(context.Background(), app.ComposeRunReportInput{
-			Graph:      a.Graph,
-			Composer:   impactComposer,
-			RunID:      runID,
-			Status:     status,
-			FinishedAt: finishedAt,
-			Beads:      beadRunOutcomes(a.Backend, repoPath, runBeads),
-			StateDir:   a.StateDir,
-			EpicID:     epicID,
+			Graph:       a.Graph,
+			Composer:    impactComposer,
+			RunID:       runID,
+			Status:      status,
+			FinishedAt:  finishedAt,
+			Beads:       beadRunOutcomes(a.Backend, repoPath, runBeads),
+			StateDir:    a.StateDir,
+			EpicID:      epicID,
+			ContextDocs: repoEntry.ContextDocs,
 		})
 		if reportErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: KERNL DISPATCH: composing the run report for epic %s failed: %v\n", epicID, reportErr)
@@ -640,10 +641,10 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		BaseBranch: baseBranch, VerifyCommand: verifyCommand, TrackerCommand: trackerCommand, Worktree: epicWorktree, RunID: runID,
 		StateStore: stateStore, Shipment: plan, Out: out,
 		IrreversibleSurfaces: repoEntry.IrreversibleSurfaces,
-		// The same actor the run report's mayor is, asked a different
+		// The same actor the run report's oracle is, asked a different
 		// question: nothing else in kernl has an opinion worth having about
 		// what a change costs to undo.
-		Judge: app.MayorReversibilityJudge{Mayor: reversibilityMayor},
+		Judge: app.OracleReversibilityJudge{Oracle: reversibilityOracle},
 	}); err != nil {
 		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
 		return err
@@ -776,7 +777,7 @@ type epicDrive struct {
 	// automatic fix-up round.
 	IrreversibleSurfaces []string
 	// Judge answers how expensive an integration rejection would be to
-	// reverse. Nil when no mayor is configured, which escalates rather than
+	// reverse. Nil when no oracle is configured, which escalates rather than
 	// guessing.
 	Judge app.ReversibilityJudge
 	// RunID is the same workflow run the children ran under: integration and

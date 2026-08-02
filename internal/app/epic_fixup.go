@@ -133,7 +133,7 @@ type EpicIntegrationTailResult struct {
 	// "continue" would be the same failure in the other direction.
 	ReversibilityCause GateCause
 	// ReversibilityReason is the judgment behind that cause, including the
-	// mayor's own words when it was asked.
+	// oracle's own words when it was asked.
 	ReversibilityReason string
 }
 

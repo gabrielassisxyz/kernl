@@ -9,7 +9,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/prompt"
 )
 
-// ReversibilityQuestion is what the mayor is asked about one rejection: the
+// ReversibilityQuestion is what the oracle is asked about one rejection: the
 // objection that was raised, and the shape of the change it was raised
 // against. Nothing else, because the actor answering it has nothing else -
 // see prompt.ReversibilityInput.
@@ -38,24 +38,24 @@ type ReversibilityJudge interface {
 
 // reversibilityJudgeTimeout bounds one question, for the same reason
 // impactComposeTimeout bounds the impact one: neither the provider client nor
-// a spawned CLI carries a deadline of its own, and a mayor that accepts the
+// a spawned CLI carries a deadline of its own, and an oracle that accepts the
 // question and never answers would hang the run at the exact moment it is
 // deciding whether to involve a human.
 const reversibilityJudgeTimeout = 90 * time.Second
 
-// MayorReversibilityJudge asks the configured mayor, tool-less and outside the
+// OracleReversibilityJudge asks the configured oracle, tool-less and outside the
 // repository. Deliberately so: the caller computes every fact from the
-// repository and hands them over as text. A mayor that could go and inspect
+// repository and hands them over as text. An oracle that could go and inspect
 // the repository to judge it is a much larger change with a much larger blast
 // radius, and this gate does not need one.
-type MayorReversibilityJudge struct {
-	Mayor Mayor
+type OracleReversibilityJudge struct {
+	Oracle Oracle
 }
 
 // JudgeReversibility implements ReversibilityJudge.
-func (j MayorReversibilityJudge) JudgeReversibility(ctx context.Context, q ReversibilityQuestion) (ReversibilityVerdict, error) {
-	if j.Mayor == nil {
-		return ReversibilityVerdict{}, fmt.Errorf("no mayor is configured to answer it - Fix: set llm.provider and llm.endpoint, or llm.agent, in kernl.yaml")
+func (j OracleReversibilityJudge) JudgeReversibility(ctx context.Context, q ReversibilityQuestion) (ReversibilityVerdict, error) {
+	if j.Oracle == nil {
+		return ReversibilityVerdict{}, fmt.Errorf("no oracle is configured to answer it - Fix: set llm.provider and llm.endpoint, or llm.agent, in kernl.yaml")
 	}
 	question, err := prompt.RenderReversibility(prompt.ReversibilityInput{
 		EpicID:        q.EpicID,
@@ -67,14 +67,14 @@ func (j MayorReversibilityJudge) JudgeReversibility(ctx context.Context, q Rever
 	}
 	askCtx, cancel := context.WithTimeout(ctx, reversibilityJudgeTimeout)
 	defer cancel()
-	answer, err := j.Mayor.Ask(askCtx, question)
+	answer, err := j.Oracle.Ask(askCtx, question)
 	if err != nil {
 		return ReversibilityVerdict{}, err
 	}
 	return ParseReversibilityAnswer(answer)
 }
 
-// ParseReversibilityAnswer reads the mayor's reply.
+// ParseReversibilityAnswer reads the oracle's reply.
 //
 // It is strict in one direction on purpose: an answer whose verdict line is
 // missing or unrecognized, or that carries no reason, is an error rather than
@@ -84,7 +84,7 @@ func (j MayorReversibilityJudge) JudgeReversibility(ctx context.Context, q Rever
 func ParseReversibilityAnswer(answer string) (ReversibilityVerdict, error) {
 	trimmed := strings.TrimSpace(answer)
 	if trimmed == "" {
-		return ReversibilityVerdict{}, fmt.Errorf("the mayor answered the reversibility question with nothing at all")
+		return ReversibilityVerdict{}, fmt.Errorf("the oracle answered the reversibility question with nothing at all")
 	}
 	verdictLine, rest, _ := strings.Cut(trimmed, "\n")
 	// A model that wraps the line in bold or backticks answered correctly and
@@ -93,11 +93,11 @@ func ParseReversibilityAnswer(answer string) (ReversibilityVerdict, error) {
 	normalized := strings.ToUpper(strings.Trim(strings.TrimSpace(verdictLine), "*`_ "))
 	value, ok := strings.CutPrefix(normalized, "REVERSAL:")
 	if !ok {
-		return ReversibilityVerdict{}, fmt.Errorf("the mayor's answer does not begin with a REVERSAL: line, so its verdict is not decidable: %q", firstLineOf(trimmed))
+		return ReversibilityVerdict{}, fmt.Errorf("the oracle's answer does not begin with a REVERSAL: line, so its verdict is not decidable: %q", firstLineOf(trimmed))
 	}
 	reason := strings.TrimSpace(rest)
 	if reason == "" {
-		return ReversibilityVerdict{}, fmt.Errorf("the mayor answered %q but gave no reason, and an unaccountable verdict is exactly what this gate must not act on", strings.TrimSpace(verdictLine))
+		return ReversibilityVerdict{}, fmt.Errorf("the oracle answered %q but gave no reason, and an unaccountable verdict is exactly what this gate must not act on", strings.TrimSpace(verdictLine))
 	}
 	switch strings.TrimSpace(value) {
 	case "CHEAP":
@@ -105,7 +105,7 @@ func ParseReversibilityAnswer(answer string) (ReversibilityVerdict, error) {
 	case "EXPENSIVE":
 		return ReversibilityVerdict{Expensive: true, Reason: reason}, nil
 	default:
-		return ReversibilityVerdict{}, fmt.Errorf("the mayor answered %q, which is neither CHEAP nor EXPENSIVE", strings.TrimSpace(verdictLine))
+		return ReversibilityVerdict{}, fmt.Errorf("the oracle answered %q, which is neither CHEAP nor EXPENSIVE", strings.TrimSpace(verdictLine))
 	}
 }
 

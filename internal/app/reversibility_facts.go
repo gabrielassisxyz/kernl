@@ -15,7 +15,7 @@ import (
 // are exactly the ones that must decide without a model.
 type ReversibilityFacts struct {
 	// EpicID is the epic these facts were measured for, carried so the
-	// question put to the mayor names it.
+	// question put to the oracle names it.
 	EpicID string
 	// Published is true once this branch exists somewhere outside this
 	// machine. Undoing published work is not a branch operation any more.
@@ -29,7 +29,7 @@ type ReversibilityFacts struct {
 	// true - and reads as "no mechanical reason to escalate", never as
 	// "everything is irreversible".
 	IrreversibleSurfacesTouched []string
-	// ChangeSummary is the diffstat handed to the mayor.
+	// ChangeSummary is the diffstat handed to the oracle.
 	ChangeSummary string
 	// FixupsSpent counts the fix-up beads this epic already drove through
 	// their own cycle.
