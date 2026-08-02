@@ -28,7 +28,7 @@ func writeImplementationReviewArtifact(t *testing.T, dir, beadID, content string
 
 func TestHandleGateFailure_NonDeliberateRejectionJustBlocks(t *testing.T) {
 	be := newPersistingBackend()
-	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation"}
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation", Labels: []string{"wf:state:implementation"}}
 	da := decidingDA("x")
 
 	got, err := handleGateFailure(context.Background(), gateFailureContext{
@@ -51,6 +51,13 @@ func TestHandleGateFailure_NonDeliberateRejectionJustBlocks(t *testing.T) {
 	}
 	if da.calls != 0 {
 		t.Errorf("the DA must never be asked about a non-rejection gate failure, got %d calls", da.calls)
+	}
+	bd, _ := be.Get("kb-1", "/repo")
+	if BlockedCauseFromLabels(bd.Labels) != BlockedCauseGate {
+		t.Errorf("labels = %v, want a wf:blocked:gate label recording the cause", bd.Labels)
+	}
+	if !HasLabel(bd.Labels, "wf:state:implementation") {
+		t.Errorf("labels = %v, want the pre-existing wf:state:implementation label left untouched", bd.Labels)
 	}
 }
 
@@ -299,7 +306,7 @@ func TestHandleGateFailure_DecisionClassified_SharedBudgetSpentEscalatesWithoutA
 
 func TestHandleGateFailure_DecisionClassified_DAEscalates(t *testing.T) {
 	be := newPersistingBackend()
-	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review", Labels: []string{"wf:state:implementation_review"}}
 	dir := t.TempDir()
 	writeImplementationReviewArtifact(t, dir, "kb-1", decisionClassifiedRejectionRecord)
 	da := &countingDA{answer: "FORK: ESCALATE\nthis genuinely needs the operator's own judgment.\n"}
@@ -322,6 +329,13 @@ func TestHandleGateFailure_DecisionClassified_DAEscalates(t *testing.T) {
 	}
 	if !strings.Contains(got.Result.GateFailureReason, "review_decision_escalated") {
 		t.Errorf("GateFailureReason = %q, want it to name review_decision_escalated", got.Result.GateFailureReason)
+	}
+	bd, _ := be.Get("kb-1", "/repo")
+	if BlockedCauseFromLabels(bd.Labels) != BlockedCauseJudgment {
+		t.Errorf("labels = %v, want a wf:blocked:judgment label - this is a genuine escalation, the only cause meaning a human is needed", bd.Labels)
+	}
+	if !HasLabel(bd.Labels, "wf:state:implementation_review") {
+		t.Errorf("labels = %v, want the pre-existing wf:state:implementation_review label left untouched", bd.Labels)
 	}
 }
 
