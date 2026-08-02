@@ -59,7 +59,7 @@ func TestRewindAfterReviewRejection_SendsTheBeadBack(t *testing.T) {
 	be := &rewindOnlyBackend{}
 	deps := DriveBeadDeps{BeadID: "arch-tws", RepoPath: "/repos/archeion", Backend: be}
 
-	rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", 0)
+	rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", 0, false)
 	if err != nil {
 		t.Fatalf("rewindAfterReviewRejection: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestRewindAfterReviewRejection_BudgetIsSpentAfterOne(t *testing.T) {
 	be := &rewindOnlyBackend{}
 	deps := DriveBeadDeps{BeadID: "arch-tws", RepoPath: "/repos/archeion", Backend: be}
 
-	rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", implementationReviewRewindLimit)
+	rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", implementationReviewRewindLimit, false)
 	if err != nil {
 		t.Fatalf("rewindAfterReviewRejection: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestRewindAfterReviewRejection_NowhereToSendItBlocks(t *testing.T) {
 		deps := DriveBeadDeps{BeadID: "arch-tws", RepoPath: "/repos/archeion", Backend: be}
 		wf := backend.WorkflowDescriptor{ID: "odd", RetakeState: retake}
 
-		rewound, err := rewindAfterReviewRejection(deps, wf, "verdict_reject: /tmp/review.md", 0)
+		rewound, err := rewindAfterReviewRejection(deps, wf, "verdict_reject: /tmp/review.md", 0, false)
 		if err != nil {
 			t.Fatalf("retake %q: %v", retake, err)
 		}
@@ -128,7 +128,7 @@ func TestRewindAfterReviewRejection_TrackerFailureIsLoud(t *testing.T) {
 	be := &rewindOnlyBackend{failErr: errors.New("br: database is locked")}
 	deps := DriveBeadDeps{BeadID: "arch-tws", RepoPath: "/repos/archeion", Backend: be}
 
-	rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", 0)
+	rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", 0, false)
 	if err == nil {
 		t.Fatal("a refused rewind returned no error")
 	}
@@ -142,30 +142,28 @@ func TestRewindAfterReviewRejection_TrackerFailureIsLoud(t *testing.T) {
 	}
 }
 
-// TestReviewRejectionCanBeRewound proves the shared predicate finding 4 of
-// the fork/decision-gate hardening pass extracted: handleReviewRaisedDecision
-// (review_decision_gate.go) calls this exact function BEFORE ever consulting
-// the DA, so it must agree, in every case, with what
-// rewindAfterReviewRejection itself would do - the two are built from the
-// same two booleans precisely so they cannot drift apart.
-func TestReviewRejectionCanBeRewound(t *testing.T) {
-	cases := []struct {
-		name        string
-		wf          backend.WorkflowDescriptor
-		rewindsUsed int
-		want        bool
-	}{
-		{"budget spent", workerWorkflow(), implementationReviewRewindLimit, false},
-		{"no retake state", backend.WorkflowDescriptor{ID: "odd", RetakeState: ""}, 0, false},
-		{"retake is the reviewing stage itself", backend.WorkflowDescriptor{ID: "odd", RetakeState: "implementation_review"}, 0, false},
-		{"budget available and a real retake state", workerWorkflow(), 0, true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := reviewRejectionCanBeRewound(c.wf, c.rewindsUsed); got != c.want {
-				t.Errorf("reviewRejectionCanBeRewound(%+v, %d) = %v, want %v", c.wf, c.rewindsUsed, got, c.want)
-			}
-		})
+// TestRewindAfterReviewRejection_ExtraGrantedOverridesTheBudgetRegardlessOfCount
+// proves extraRewindGranted is a real override, not a disguised arithmetic
+// trick: it must let the rewind through no matter how far above the limit
+// rewindsUsed sits, which a "hand it one fewer rewind than it used" approach
+// (the shape this replaced) could not - that only ever worked when
+// rewindsUsed sat exactly at the limit, and silently did nothing whenever it
+// sat any higher.
+func TestRewindAfterReviewRejection_ExtraGrantedOverridesTheBudgetRegardlessOfCount(t *testing.T) {
+	for _, rewindsUsed := range []int{implementationReviewRewindLimit, implementationReviewRewindLimit + 1, implementationReviewRewindLimit + 5} {
+		be := &rewindOnlyBackend{}
+		deps := DriveBeadDeps{BeadID: "arch-tws", RepoPath: "/repos/archeion", Backend: be}
+
+		rewound, err := rewindAfterReviewRejection(deps, workerWorkflow(), "verdict_reject: /tmp/review.md", rewindsUsed, true)
+		if err != nil {
+			t.Fatalf("rewindsUsed=%d: rewindAfterReviewRejection: %v", rewindsUsed, err)
+		}
+		if !rewound {
+			t.Errorf("rewindsUsed=%d: rewound = false, want the granted top-up to let this through", rewindsUsed)
+		}
+		if be.calls != 1 {
+			t.Errorf("rewindsUsed=%d: Rewind called %d times, want 1", rewindsUsed, be.calls)
+		}
 	}
 }
 

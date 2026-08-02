@@ -51,25 +51,25 @@ func reviewRewindBudgetSpent(rewindsUsed int) bool {
 // would re-review the same unchanged work forever. Shared with
 // handleReviewRaisedDecision's own pre-check for the same reason
 // reviewRewindBudgetSpent is.
+//
+// This used to be combined with reviewRewindBudgetSpent behind one shared
+// predicate (reviewRejectionCanBeRewound, since removed), built so both call
+// sites could never drift apart on whether a rewind was even possible. That
+// stopped being valid the moment the DA was given one rewind to grant back: a
+// spent budget alone no longer means "no rewind possible" the way a missing
+// retake state still does (see handleReviewRaisedDecision's own doc comment)
+// - the two would-be-combined checks answer genuinely different questions
+// now, so a single AND-of-both predicate would give the wrong answer for the
+// "budget spent, but the DA may still grant a top-up" case. Deleted rather
+// than reshaped: both call sites (this file's own rewindAfterReviewRejection,
+// and handleReviewRaisedDecision) call reviewRewindBudgetSpent and
+// reviewRewindHasNoRetakeState directly instead, which is what actually keeps
+// them from disagreeing now - the same two functions, just no longer forced
+// through one shared boolean that can no longer represent both call sites'
+// rules at once.
 func reviewRewindHasNoRetakeState(wf backend.WorkflowDescriptor) bool {
 	retake := strings.TrimSpace(wf.RetakeState)
 	return retake == "" || retake == "implementation_review"
-}
-
-// reviewRejectionCanBeRewound reports whether rewindAfterReviewRejection has
-// anywhere at all to send a rejected bead, without attempting the tracker
-// call itself. handleReviewRaisedDecision (review_decision_gate.go) calls
-// this BEFORE ever consulting the DA (finding 4): asking the DA for an
-// answer that could not be rewound to any stage anyway would spend a real
-// consultation and record a real decision that nothing could ever carry to
-// another attempt - the DA answered, review_decision_gate.go wrote
-// fork-answer.md and a comment naming the chosen option, and then the bead
-// blocked with that answer stranded, wasted work the operator has to notice
-// and repeat by hand. Extracted so this predicate and
-// rewindAfterReviewRejection's own checks can never drift apart into
-// disagreeing about whether a rewind is possible.
-func reviewRejectionCanBeRewound(wf backend.WorkflowDescriptor, rewindsUsed int) bool {
-	return !reviewRewindBudgetSpent(rewindsUsed) && !reviewRewindHasNoRetakeState(wf)
 }
 
 // rewindAfterReviewRejection sends a rejected bead back to the stage that can
@@ -78,16 +78,25 @@ func reviewRejectionCanBeRewound(wf backend.WorkflowDescriptor, rewindsUsed int)
 // It answers false - leaving the caller to block the bead exactly as before -
 // in three cases, each of which is a rejection with nowhere to go:
 //
-//   - the budget is spent (see implementationReviewRewindLimit)
+//   - the budget is spent (see implementationReviewRewindLimit) AND
+//     extraRewindGranted is false
 //   - the workflow declares no retake state, so there is no stage to return to
 //   - the retake state is the reviewing stage itself, which would re-review
 //     the same unchanged work forever
 //
+// extraRewindGranted is true for exactly one call per bead: the one
+// immediately after handleReviewRaisedDecision records the DA's one-time
+// top-up (see markReviewRewindExtraGranted). It overrides the ordinary
+// budget check outright rather than being folded into rewindsUsed as a
+// smaller number - an override is correct regardless of what rewindsUsed
+// actually is, where a decremented count is only ever correct when
+// rewindsUsed sits exactly at the limit.
+//
 // A tracker that refuses the rewind is an error, not a quiet block: the bead
 // would otherwise be left reading "blocked" while this function reported it
 // had been sent back.
-func rewindAfterReviewRejection(deps DriveBeadDeps, wf backend.WorkflowDescriptor, gateReason string, rewindsUsed int) (bool, error) {
-	if reviewRewindBudgetSpent(rewindsUsed) {
+func rewindAfterReviewRejection(deps DriveBeadDeps, wf backend.WorkflowDescriptor, gateReason string, rewindsUsed int, extraRewindGranted bool) (bool, error) {
+	if reviewRewindBudgetSpent(rewindsUsed) && !extraRewindGranted {
 		slog.Info("DRIVE_TRACE review rejection not rewound: budget spent",
 			"bead", deps.BeadID, "limit", implementationReviewRewindLimit)
 		return false, nil
