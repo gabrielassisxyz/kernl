@@ -295,7 +295,7 @@ func forkHandoverFromImplementationRejection(rejection *ImplementationRejection,
 // falls back to - factored out so handleGateFailure's own return points read
 // identically to what drive_bead.go inlined twice before this pass.
 func blockBeadForGateFailure(deps DriveBeadDeps, activeState, gateReason string) RunBeadResult {
-	_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
+	blockBeadWithCause(deps.Backend, deps.BeadID, deps.RepoPath, BlockedCauseGate)
 	_ = deps.Backend.Comment(deps.BeadID, "gate_failed: "+gateReason, deps.RepoPath)
 	return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: gateReason}
 }
@@ -309,7 +309,7 @@ func blockBeadForGateFailure(deps DriveBeadDeps, activeState, gateReason string)
 // established for the fix-up gate. One vocabulary across all three gates.
 func blockBeadForDecision(deps DriveBeadDeps, activeState, gateName string, decision ForkDecision) RunBeadResult {
 	reason := fmt.Sprintf("%s [%s]: %s", gateName, decision.Cause, decision.Reason)
-	_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
+	blockBeadWithCause(deps.Backend, deps.BeadID, deps.RepoPath, BlockedCauseJudgment)
 	_ = deps.Backend.Comment(deps.BeadID, reason, deps.RepoPath)
 	return RunBeadResult{
 		FinalState:        "blocked",

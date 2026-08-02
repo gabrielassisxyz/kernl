@@ -176,13 +176,39 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// This bead was already blocked BEFORE this call - a retry of a
 			// prior attempt, not a fresh gate failure this iteration
 			// produced. The transition that set State to "blocked" never
-			// touches labels, so the wf:state:* label is still whatever it
-			// was the moment before the block - the one place that
-			// information survives, since "blocked" itself carries no
-			// memory of which stage caused it.
+			// touches the wf:state:* label, so it is still whatever it was
+			// the moment before the block - the one place that information
+			// survives, since "blocked" itself carries no memory of which
+			// stage caused it. blockBeadWithCause's own wf:blocked:* label
+			// (blocked_cause.go) is what now says WHY, and that decides
+			// whether this call may retry the stage on its own or must
+			// leave the bead exactly as it found it - a judgment block (or
+			// one with no recorded cause at all, e.g. blocked by hand) is
+			// never resumed silently; only that decision is the one this
+			// bead is asking for.
 			blockedAt := stateFromStaleLabel(bead.Labels)
-			slog.Info("DRIVE_TRACE return blocked", "bead", deps.BeadID, "iter", i, "blockedAtState", blockedAt)
-			return RunBeadResult{FinalState: bead.State, Success: false, BlockedAtState: blockedAt}, nil
+			cause := BlockedCauseFromLabels(bead.Labels)
+			if cause.IsMechanical() && blockedAt != "" {
+				retries := blockedRetryCountFromLabels(bead.Labels)
+				if retries < mechanicalBlockRetryLimit {
+					newLabels := filterOutLabelPrefix(bead.Labels, blockedCauseLabelPrefix)
+					newLabels = filterOutLabelPrefix(newLabels, blockedRetryLabelPrefix)
+					newLabels = append(newLabels, blockedRetryLabelPrefix+strconv.Itoa(retries+1))
+					if err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{
+						State:     blockedAt,
+						SetLabels: newLabels,
+					}, deps.RepoPath); err != nil {
+						return RunBeadResult{FinalState: bead.State, Success: false},
+							fmt.Errorf("KERNL DISPATCH FAILURE: resuming bead %s from a %s block back to %s: %w", deps.BeadID, cause, blockedAt, err)
+					}
+					slog.Info("DRIVE_TRACE resume mechanical block", "bead", deps.BeadID, "iter", i, "cause", cause, "retry", retries+1, "limit", mechanicalBlockRetryLimit, "resumeState", blockedAt)
+					prevState = bead.State
+					continue
+				}
+				slog.Info("DRIVE_TRACE mechanical block retries exhausted", "bead", deps.BeadID, "iter", i, "cause", cause, "retries", retries, "limit", mechanicalBlockRetryLimit)
+			}
+			slog.Info("DRIVE_TRACE return blocked", "bead", deps.BeadID, "iter", i, "blockedAtState", blockedAt, "cause", cause)
+			return RunBeadResult{FinalState: bead.State, Success: false, BlockedAtState: blockedAt, GateFailureReason: string(cause)}, nil
 		}
 
 		if deps.StopBeforeState != "" && bead.State == deps.StopBeforeState {
@@ -208,6 +234,11 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			if ok {
 				newLabels := filterOutLabelPrefix(bead.Labels, "wf:state:")
 				newLabels = append(newLabels, "wf:state:"+nextState)
+				// A fresh claim means a genuinely NEW stage is starting -
+				// any wf:blocked-retries:* left over from a previous,
+				// unrelated stage's mechanical block must not count against
+				// this one (see mechanicalBlockRetryLimit).
+				newLabels = filterOutLabelPrefix(newLabels, blockedRetryLabelPrefix)
 				if err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{
 					State:     nextState,
 					SetLabels: newLabels,
@@ -331,7 +362,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 				commentBody := fmt.Sprintf("subprocess stage %s failed: %s\n\nStderr:\n%s", activeState, causeStr, stderr)
 
-				_ = deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{State: "blocked"}, deps.RepoPath)
+				blockBeadWithCause(deps.Backend, deps.BeadID, deps.RepoPath, BlockedCauseSubprocess)
 				_ = deps.Backend.Comment(deps.BeadID, commentBody, deps.RepoPath)
 				return RunBeadResult{FinalState: "blocked", Success: false, BlockedAtState: activeState, GateFailureReason: "subprocess_" + causeStr}, nil
 			}

@@ -675,7 +675,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 	}, doneSet)
 
 	if err := ex.Run(context.Background()); err != nil {
-		out(fmt.Sprintf("epic %s blocked - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
+		out(fmt.Sprintf("epic %s blocked - %s\n", epicID, blockedRunGuidance(a.Backend, repoPath, epicID, runBeads)))
 		return err
 	}
 
@@ -701,7 +701,7 @@ func runEpicRun(a *app.App, configPath string, args []string, out func(string)) 
 		DA:          forkDA,
 		ContextDocs: repoEntry.ContextDocs,
 	}); err != nil {
-		out(fmt.Sprintf("epic %s blocked at integration - fix the cause and re-run kernl epic run %s to resume\n", epicID, epicID))
+		out(fmt.Sprintf("epic %s blocked at integration - %s\n", epicID, blockedRunGuidance(a.Backend, repoPath, epicID, runBeads)))
 		return err
 	}
 
@@ -742,6 +742,39 @@ func beadRunOutcomes(be backend.BackendPort, repoPath string, runBeads []app.Bea
 		out = append(out, app.BeadRunOutcome{ID: ref.ID, Title: ref.Title, FinalState: state})
 	}
 	return out
+}
+
+// blockedRunGuidance names, for this run's own beads, whether a plain re-run
+// of `kernl epic run <epicID>` actually helps - the executor's own failure
+// error (internal/epic/wave.go's "bead %s in epic %s failed") only ever
+// names a final state, never why, so this is the one place left that can
+// still tell an operator the truth: DriveBeadToTerminal's entry branch
+// already treats a mechanical block (wf:blocked:subprocess, wf:blocked:gate)
+// and a judgment block (wf:blocked:judgment, or no cause label at all)
+// differently, and this message must not contradict that behavior the way
+// the old, unconditional "fix the cause and re-run to resume" text did for
+// all three.
+func blockedRunGuidance(be backend.BackendPort, repoPath, epicID string, beads []app.BeadRef) string {
+	var mechanical, needsHuman []string
+	for _, b := range beads {
+		bead, err := be.Get(b.ID, repoPath)
+		if err != nil || bead == nil || bead.State != "blocked" {
+			continue
+		}
+		if app.BlockedCauseFromLabels(bead.Labels).IsMechanical() {
+			mechanical = append(mechanical, b.ID)
+			continue
+		}
+		needsHuman = append(needsHuman, b.ID)
+	}
+	switch {
+	case len(needsHuman) > 0:
+		return fmt.Sprintf("bead(s) %s need a human decision - re-running kernl epic run %s will NOT resume them", strings.Join(needsHuman, ", "), epicID)
+	case len(mechanical) > 0:
+		return fmt.Sprintf("bead(s) %s hit a mechanical failure - re-run kernl epic run %s to retry automatically", strings.Join(mechanical, ", "), epicID)
+	default:
+		return fmt.Sprintf("fix the cause and re-run kernl epic run %s to resume", epicID)
+	}
 }
 
 // ensureWorkerEntry puts a freshly-created epic child (bd status "open") onto
@@ -1159,7 +1192,11 @@ func verifyPublishedPullRequest(a *app.App, epicID, repoPath string, plan shipme
 	// it there would make the tracker say the run succeeded while the CLI says
 	// it published somewhere it may not - and the tracker is what the next
 	// session reads. Block it, and say so if that itself fails.
-	if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: string(workflow.StatusBlocked)}, repoPath); err != nil {
+	//
+	// It blocks with the judgment cause: publishing to a repository nobody
+	// allowed is exactly the case a re-run must not retry on its own, since
+	// retrying would ship again toward the same unapproved destination.
+	if err := app.BlockBeadWithCause(a.Backend, epicID, repoPath, app.BlockedCauseJudgment); err != nil {
 		return fmt.Errorf("%w - and the epic could not be marked blocked (%v), so its state still reads as a successful run: fix it by hand", checkErr, err)
 	}
 	return fmt.Errorf("%w - epic %s marked blocked", checkErr, epicID)
