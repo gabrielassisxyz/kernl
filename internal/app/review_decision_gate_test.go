@@ -215,7 +215,16 @@ func TestHandleGateFailure_DecisionClassified_AlreadyRoutedEscalatesWithoutAskin
 // spent, a decision-classified rejection must escalate WITHOUT the DA ever
 // being consulted - asking it for an answer that cannot reach anyone would
 // waste a real consultation.
-func TestHandleGateFailure_DecisionClassified_RewindNotPossibleEscalatesWithoutAskingTheDA(t *testing.T) {
+// TestHandleGateFailure_DecisionClassified_BudgetSpentConsultsTheDAAndGrantsOneExtraRewind
+// is the acceptance test for the defect this gate exists to close: three (or
+// more) rejections deep on the same objection - exactly the point the
+// rewind budget runs out - is exactly the point an outside judgment is worth
+// the most, and the old behavior escalated right there without ever asking.
+// With the budget spent but this bead's one top-up not yet used, the DA must
+// now be consulted, and a Decided answer must earn this bead one extra
+// rewind rather than blocking for a human. This must FAIL against the
+// pre-fix implementation, which escalated on a spent budget unconditionally.
+func TestHandleGateFailure_DecisionClassified_BudgetSpentConsultsTheDAAndGrantsOneExtraRewind(t *testing.T) {
 	be := newPersistingBackend()
 	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
 	dir := t.TempDir()
@@ -233,14 +242,147 @@ func TestHandleGateFailure_DecisionClassified_RewindNotPossibleEscalatesWithoutA
 	if err != nil {
 		t.Fatalf("handleGateFailure: %v", err)
 	}
+	if da.calls != 1 {
+		t.Fatalf("expected the DA to be consulted exactly once with the budget spent, got %d calls", da.calls)
+	}
+	if !got.Reenter {
+		t.Fatalf("expected a Decided answer to restore a rewind (Reenter=true) rather than block, got %+v", got)
+	}
+	if got.ReviewRewinds != implementationReviewRewindLimit+1 {
+		t.Errorf("ReviewRewinds = %d, want %d (the ordinary rewind plus the DA-granted one)", got.ReviewRewinds, implementationReviewRewindLimit+1)
+	}
+	if bd, _ := be.Get("kb-1", "/repo"); bd.State != "ready_for_implementation" {
+		t.Errorf("bead state = %q, want it rewound to the workflow's retake state", bd.State)
+	}
+	if !reviewRewindExtraAlreadyGranted("kb-1", dir) {
+		t.Error("the extra rewind grant must be recorded durably once the DA decides")
+	}
+	answer := readForkAnswerArtifact("kb-1", dir)
+	if !strings.Contains(answer, "CHOSEN: reverted") {
+		t.Errorf("fork-answer.md = %q, want the DA's chosen option recorded", answer)
+	}
+}
+
+// TestHandleGateFailure_DecisionClassified_NoRetakeStateEscalatesWithoutAskingTheDA
+// is the other half of finding 4, now that a spent budget alone no longer
+// skips the DA: a workflow with nowhere to route an answer has to escalate
+// regardless of the rewind budget, because no top-up fixes a missing retake
+// state. This is a genuinely different reason from "budget spent" and must
+// keep escalating without ever consulting the DA.
+func TestHandleGateFailure_DecisionClassified_NoRetakeStateEscalatesWithoutAskingTheDA(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
+	dir := t.TempDir()
+	writeImplementationReviewArtifact(t, dir, "kb-1", decisionClassifiedRejectionRecord)
+	da := decidingDA("reverted")
+	wf := backend.WorkflowDescriptor{ID: "no-retake", RetakeState: ""}
+
+	got, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:        DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da, Config: decisionGateTestConfig(t)},
+		WF:          wf,
+		ActiveState: "implementation_review",
+		ArtifactDir: dir,
+		GateReason:  "verdict_reject: " + filepath.Join(dir, "implementation-review.md"),
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure: %v", err)
+	}
 	if got.Reenter {
-		t.Fatalf("expected an escalation once the rewind budget is spent, got %+v", got)
+		t.Fatalf("expected an escalation when the workflow declares no retake state, got %+v", got)
 	}
 	if da.calls != 0 {
 		t.Errorf("the DA must not be asked for an answer that could not be rewound to any stage, got %d calls", da.calls)
 	}
 	if !strings.Contains(got.Result.GateFailureReason, string(ForkCauseRewindNotPossible)) {
 		t.Errorf("GateFailureReason = %q, want it to name %q", got.Result.GateFailureReason, ForkCauseRewindNotPossible)
+	}
+	bd, _ := be.Get("kb-1", "/repo")
+	if BlockedCauseFromLabels(bd.Labels) != BlockedCauseJudgment {
+		t.Errorf("labels = %v, want a wf:blocked:judgment label - this is a genuine escalation", bd.Labels)
+	}
+}
+
+// TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnce is the
+// loop guard: a bead that already spent the one extra rewind the DA granted
+// it must escalate the NEXT time the budget runs out, never earning a
+// second top-up. Without this, an implementer and a reviewer that keep
+// disagreeing would earn a fresh rewind every time the budget ran out again,
+// turning the backstop into the exact infinite loop it exists to bound.
+func TestHandleGateFailure_DecisionClassified_ExtraRewindGrantedOnlyOnce(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review"}
+	dir := t.TempDir()
+	writeImplementationReviewArtifact(t, dir, "kb-1", decisionClassifiedRejectionRecord)
+	if err := markReviewRewindExtraGranted("kb-1", dir, "granted earlier in this same bead's history"); err != nil {
+		t.Fatalf("seeding the extra-rewind-granted marker: %v", err)
+	}
+	da := decidingDA("reverted")
+
+	got, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:          DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da, Config: decisionGateTestConfig(t)},
+		WF:            workerWorkflow(),
+		ActiveState:   "implementation_review",
+		ArtifactDir:   dir,
+		GateReason:    "verdict_reject: " + filepath.Join(dir, "implementation-review.md"),
+		ReviewRewinds: implementationReviewRewindLimit + 1,
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure: %v", err)
+	}
+	if got.Reenter {
+		t.Fatalf("expected an escalation once the granted top-up is also spent, got %+v", got)
+	}
+	if da.calls != 0 {
+		t.Errorf("the DA must not be consulted a second time once its one grant is already spent, got %d calls", da.calls)
+	}
+	if !strings.Contains(got.Result.GateFailureReason, string(ForkCauseRewindBudgetSpentAfterGrant)) {
+		t.Errorf("GateFailureReason = %q, want it to name %q", got.Result.GateFailureReason, ForkCauseRewindBudgetSpentAfterGrant)
+	}
+	bd, _ := be.Get("kb-1", "/repo")
+	if BlockedCauseFromLabels(bd.Labels) != BlockedCauseJudgment {
+		t.Errorf("labels = %v, want a wf:blocked:judgment label - this is a genuine escalation", bd.Labels)
+	}
+}
+
+// TestHandleGateFailure_DecisionClassified_BudgetSpentDAEscalatesStillBlocks
+// proves the other side of "only a Decided answer grants anything": with the
+// budget spent, if the DA itself chooses to escalate (or answers in a shape
+// this package cannot parse), the bead must still block for the operator,
+// and the grant marker must NOT be written - an escalating consultation
+// spends nothing, so a later, genuinely decisive one could still use it.
+func TestHandleGateFailure_DecisionClassified_BudgetSpentDAEscalatesStillBlocks(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation_review", Labels: []string{"wf:state:implementation_review"}}
+	dir := t.TempDir()
+	writeImplementationReviewArtifact(t, dir, "kb-1", decisionClassifiedRejectionRecord)
+	da := &countingDA{answer: "FORK: ESCALATE\nthis genuinely needs the operator's own judgment.\n"}
+
+	got, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:          DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da, Config: decisionGateTestConfig(t)},
+		WF:            workerWorkflow(),
+		ActiveState:   "implementation_review",
+		ArtifactDir:   dir,
+		GateReason:    "verdict_reject: " + filepath.Join(dir, "implementation-review.md"),
+		ReviewRewinds: implementationReviewRewindLimit,
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure: %v", err)
+	}
+	if da.calls != 1 {
+		t.Fatalf("expected the DA to be consulted exactly once, got %d calls", da.calls)
+	}
+	if got.Reenter {
+		t.Fatalf("expected an escalation, got %+v", got)
+	}
+	if !strings.Contains(got.Result.GateFailureReason, "review_decision_escalated") {
+		t.Errorf("GateFailureReason = %q, want it to name review_decision_escalated", got.Result.GateFailureReason)
+	}
+	if reviewRewindExtraAlreadyGranted("kb-1", dir) {
+		t.Error("an escalating DA answer must not spend the bead's one extra-rewind grant")
+	}
+	bd, _ := be.Get("kb-1", "/repo")
+	if BlockedCauseFromLabels(bd.Labels) != BlockedCauseJudgment {
+		t.Errorf("labels = %v, want a wf:blocked:judgment label", bd.Labels)
 	}
 }
 

@@ -58,16 +58,20 @@ func reviewRewindHasNoRetakeState(wf backend.WorkflowDescriptor) bool {
 
 // reviewRejectionCanBeRewound reports whether rewindAfterReviewRejection has
 // anywhere at all to send a rejected bead, without attempting the tracker
-// call itself. handleReviewRaisedDecision (review_decision_gate.go) calls
-// this BEFORE ever consulting the DA (finding 4): asking the DA for an
-// answer that could not be rewound to any stage anyway would spend a real
-// consultation and record a real decision that nothing could ever carry to
-// another attempt - the DA answered, review_decision_gate.go wrote
-// fork-answer.md and a comment naming the chosen option, and then the bead
-// blocked with that answer stranded, wasted work the operator has to notice
-// and repeat by hand. Extracted so this predicate and
-// rewindAfterReviewRejection's own checks can never drift apart into
-// disagreeing about whether a rewind is possible.
+// call itself - built from the exact same two checks
+// (reviewRewindBudgetSpent, reviewRewindHasNoRetakeState) that function
+// itself makes, so the two can never drift apart into disagreeing about
+// whether a rewind is possible.
+//
+// handleReviewRaisedDecision (review_decision_gate.go) no longer calls this
+// as one combined "may the DA even be asked" gate the way it originally did
+// (finding 4 of the fork/decision-gate hardening pass): a spent budget and a
+// missing retake state stopped being the same reason to skip the DA the
+// moment the DA was given one rewind to grant back (see that function's own
+// doc comment). It now calls reviewRewindHasNoRetakeState and
+// reviewRewindBudgetSpent separately - the same two building blocks this
+// predicate is made of - so the invariant this comment describes still
+// holds, just no longer through one shared call site.
 func reviewRejectionCanBeRewound(wf backend.WorkflowDescriptor, rewindsUsed int) bool {
 	return !reviewRewindBudgetSpent(rewindsUsed) && !reviewRewindHasNoRetakeState(wf)
 }
