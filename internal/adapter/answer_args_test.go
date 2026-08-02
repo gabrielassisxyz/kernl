@@ -10,7 +10,7 @@ func TestBuildAnswerModeArgs_Claude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildAnswerModeArgs: %v", err)
 	}
-	want := []string{"-p", "why does this matter", "--model", "opus"}
+	want := []string{"-p", "--tools", "", "--model", "opus", "why does this matter"}
 	if strings.Join(got.Args, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("Args = %q, want %q", got.Args, want)
 	}

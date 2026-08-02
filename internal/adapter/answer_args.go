@@ -12,7 +12,7 @@ import "fmt"
 // measured doing it - their stdout is the answer, with no framing to parse
 // off it:
 //
-//	claude  `-p <prompt>`                -> the answer, verbatim
+//	claude  `-p --tools "" <prompt>`     -> the answer, verbatim
 //	pi      `-p --no-tools <prompt>`     -> the answer, verbatim
 //
 // Every other dialect is refused rather than guessed at, and the two reasons
@@ -35,10 +35,18 @@ func BuildAnswerModeArgs(agent AgentTarget, prompt string) (PromptModeArgs, erro
 
 	switch ResolveDialect(cmd) {
 	case DialectClaude:
-		args := []string{"-p", prompt}
+		// --tools "" is claude 2.1.220's own documented way to turn every
+		// built-in tool off (`claude --help`: "Use \"\" to disable all
+		// tools"), measured against --allowed-tools/--disallowed-tools,
+		// which restrict WHICH tools are reachable rather than disabling
+		// tool use altogether. Omitting a tool flag - what this used to do -
+		// left the CLI's own default tool set enabled, which made the
+		// tool-less claim made about this actor elsewhere false for claude.
+		args := []string{"-p", "--tools", ""}
 		if agent.Model != "" {
 			args = append(args, "--model", agent.Model)
 		}
+		args = append(args, prompt)
 		return PromptModeArgs{Command: cmd, Args: args}, nil
 	case DialectPi:
 		args := []string{"-p", "--no-tools"}
