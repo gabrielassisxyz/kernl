@@ -82,7 +82,8 @@ func runBeadCmd(a *app.App, args []string) error {
 		return err
 	}
 
-	repoEntry, err := resolveRepoEntry(a.Config, repoFlag)
+	cwd, _ := os.Getwd()
+	repoEntry, err := resolveRepoEntry(a.Config, repoFlag, cwd)
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -25,7 +26,11 @@ func appForSelectedRepo(cfg *config.Config, verb string, args []string) (*app.Ap
 	if err != nil {
 		return nil, err
 	}
-	entry, err := resolveRepoEntry(cfg, requested)
+	// Getwd failing is not fatal here: it just leaves cwd empty, so the
+	// working directory cannot answer and resolveRepoEntry falls through to
+	// naming the repo explicitly or refusing.
+	cwd, _ := os.Getwd()
+	entry, err := resolveRepoEntry(cfg, requested, cwd)
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +51,15 @@ func appForSelectedRepo(cfg *config.Config, verb string, args []string) (*app.Ap
 //
 // requested matches a repository by its configured path or by the last element
 // of that path, which is the name an operator would type.
-func resolveRepoEntry(cfg *config.Config, requested string) (config.RepoEntry, error) {
+//
+// cwd is the caller's working directory, used only when requested is empty
+// and more than one repo is registered: standing inside a registered repo is
+// an explicit, checkable fact, so it answers the question before the refusal
+// does. It is a parameter rather than a call to os.Getwd() here so this stays
+// a pure function of its inputs and the tests stay hermetic (AGENTS.md SS4);
+// real callers pass os.Getwd()'s result, and a failed Getwd just means an
+// empty cwd, which falls through to the refusal like no match would.
+func resolveRepoEntry(cfg *config.Config, requested string, cwd string) (config.RepoEntry, error) {
 	repos := cfg.Registry.Repos
 	if len(repos) == 0 {
 		return config.RepoEntry{}, fmt.Errorf("KERNL DISPATCH FAILURE: no repos registered - Fix: add a repo to registry.repos in kernl.yaml")
@@ -56,9 +69,12 @@ func resolveRepoEntry(cfg *config.Config, requested string) (config.RepoEntry, e
 		if len(repos) == 1 {
 			return repos[0], nil
 		}
+		if entry, ok := repoAtOrAboveWorkingDir(repos, cwd); ok {
+			return entry, nil
+		}
 		return config.RepoEntry{}, fmt.Errorf(
-			"KERNL DISPATCH FAILURE: %d repos are registered and none was named, so which one this is for is a guess - Fix: pass --repo <path|name>, one of: %s",
-			len(repos), strings.Join(repoPaths(repos), ", "))
+			"KERNL DISPATCH FAILURE: %d repos are registered and none was named, and %s, so which one this is for is a guess - Fix: pass --repo <path|name>, one of: %s",
+			len(repos), workingDirTriedMessage(cwd), strings.Join(repoPaths(repos), ", "))
 	}
 
 	var matches []config.RepoEntry
@@ -92,6 +108,55 @@ func repoPaths(repos []config.RepoEntry) []string {
 		paths[i] = repo.Path
 	}
 	return paths
+}
+
+// repoAtOrAboveWorkingDir finds the registered repo whose configured path is
+// cwd itself or an ancestor of it, walking upward so a repo nested inside
+// another registered repo (the deepest match) wins over the coarser one. A
+// tie at the same level - two registered repos sharing a path - is refused
+// rather than picked, same as an ambiguous --repo name.
+func repoAtOrAboveWorkingDir(repos []config.RepoEntry, cwd string) (config.RepoEntry, bool) {
+	if cwd == "" {
+		return config.RepoEntry{}, false
+	}
+	for dir := filepath.Clean(cwd); ; {
+		if entry, ok, ambiguous := repoWithPath(repos, dir); ambiguous {
+			return config.RepoEntry{}, false
+		} else if ok {
+			return entry, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return config.RepoEntry{}, false
+		}
+		dir = parent
+	}
+}
+
+// repoWithPath reports the single repo configured at path, and separately
+// flags whether more than one repo shares it, so the caller can tell "no
+// match, keep climbing" apart from "matched, but ambiguous, stop climbing".
+func repoWithPath(repos []config.RepoEntry, path string) (entry config.RepoEntry, ok bool, ambiguous bool) {
+	for _, repo := range repos {
+		if filepath.Clean(repo.Path) != path {
+			continue
+		}
+		if ok {
+			return config.RepoEntry{}, false, true
+		}
+		entry, ok = repo, true
+	}
+	return entry, ok, false
+}
+
+// workingDirTriedMessage says what the cwd-based lookup found, so the
+// refusal names the working directory as something that was tried and
+// failed rather than a step the operator cannot see happened at all.
+func workingDirTriedMessage(cwd string) string {
+	if cwd == "" {
+		return "the working directory could not be determined"
+	}
+	return fmt.Sprintf("the working directory (%s) matched none of them", cwd)
 }
 
 // takeRepoFlag pulls --repo (and --repo=<value>) out of args so each verb can
