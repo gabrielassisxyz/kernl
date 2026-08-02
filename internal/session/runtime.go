@@ -645,14 +645,24 @@ func (r *SessionRuntime) processGeminiEvent(evtType string, obj map[string]any, 
 }
 
 // processPiEvent reads pi's NDJSON stream (`pi -p --mode json`), measured
-// against pi 0.81. Two events carry meaning beyond being printed:
+// against pi 0.81. Three events carry meaning beyond being printed:
 //
 //	session       - the first line, carrying the session id pi assigned
+//	agent_end     - carries the run's token totals, one line before the last
 //	agent_settled - the last line, after which the process exits
 //
 // pi's per-turn boundary is "turn_end", but a one-shot dispatch has exactly
 // one turn and "agent_settled" is the event that means the agent has stopped
 // for good, so that is what ends the turn here.
+//
+// "agent_end" is a separate case from that turn boundary because pi splits
+// what claude's "result" event fuses: the usage totals arrive on agent_end
+// and the stop signal on agent_settled. Reading only the last line - which is
+// what this function did until the totals were found missing from the
+// stage-attempt ledger - dropped every token pi ever reported, silently,
+// because a dialect that reports nothing and a dialect nobody asks are
+// indistinguishable downstream. Measured order on a real run: agent_end
+// precedes agent_settled, so the usage is logged before the turn ends.
 //
 // No error signal is derived: unlike claude's is_error or gemini's status,
 // pi's failure shape has not been observed on this stream, and inventing one
@@ -667,6 +677,19 @@ func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawL
 		r.mu.Unlock()
 	}
 	switch evtType {
+	case "agent_end":
+		r.mu.Lock()
+		r.lastEventType = "agent_end"
+		tokenLogger := r.tokenLogger
+		dialect := r.dialect
+		beadID := r.beadID
+		r.mu.Unlock()
+
+		if tokenLogger != nil {
+			LogTokenUsageForEvent(tokenLogger, adapter.AgentDialect(dialect), obj, beadID)
+		}
+
+		r.emit("stdout", rawLine)
 	case "agent_settled":
 		r.mu.Lock()
 		r.lastEventType = "agent_settled"

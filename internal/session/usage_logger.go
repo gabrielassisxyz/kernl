@@ -11,9 +11,9 @@ import "sync"
 //
 // One instance is meant to back a single RunBead invocation: a dispatched
 // agent reports at most one terminal usage event (codex's turn.completed,
-// claude's result) per run, so "most recent" and "only" coincide in
-// practice; a shared instance across concurrent runs would let one bead's
-// usage overwrite another's.
+// claude's result, pi's agent_end) per run, so "most recent" and "only"
+// coincide in practice; a shared instance across concurrent runs would let
+// one bead's usage overwrite another's.
 type CapturingUsageLogger struct {
 	mu    sync.Mutex
 	usage *TokenUsageCounts
