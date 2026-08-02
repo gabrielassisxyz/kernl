@@ -19,8 +19,16 @@ type Store struct {
 	db *sql.DB
 }
 
+// busyTimeoutMs is how long a writer waits for the database instead of failing
+// on the spot. One runstate.db is shared by every `kernl epic run` on the
+// machine, and SQLite serves one writer at a time, so without this the loser of
+// a race gets SQLITE_BUSY immediately. The writes here are single-row upserts
+// that finish in microseconds; five seconds is far past any legitimate wait and
+// is the same value the graph store uses.
+const busyTimeoutMs = 5000
+
 func Open(path string) (*Store, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: open sqlite: %w - cause: %v - Fix: verify path is writable", err, err)
 	}
@@ -53,6 +61,23 @@ func Open(path string) (*Store, error) {
 	}
 
 	return &Store{db: db}, nil
+}
+
+// dsn carries the busy timeout as a connection string pragma, which is the only
+// placement that reaches every connection database/sql opens. A
+// `PRAGMA busy_timeout` statement would set it on whichever pooled connection
+// happened to serve that one Exec, leaving the rest of the pool without it -
+// the failure would come back intermittently and look like disk trouble.
+//
+// journal_mode stays an Exec because WAL is a property of the file, set once
+// and read by every connection afterwards.
+func dsn(path string) string {
+	if path == ":memory:" {
+		// Every connection in the pool must reach the same in-memory database,
+		// or the schema created on one is missing from the next.
+		return fmt.Sprintf("file::memory:?cache=shared&_pragma=busy_timeout(%d)", busyTimeoutMs)
+	}
+	return fmt.Sprintf("file:%s?_pragma=busy_timeout(%d)", path, busyTimeoutMs)
 }
 
 func (s *Store) Close() error {
