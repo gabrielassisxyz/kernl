@@ -61,7 +61,83 @@ type SessionRuntime struct {
 	lastTurnError     string
 	tokenLogger       TokenUsageLogger
 	capturedSessionID string
+	turnCount         int
+	turnCeilingHit    bool
 	drainWG           sync.WaitGroup
+}
+
+// MaxTurnsPerDispatch is how many turn boundaries one dispatched agent may
+// cross before kernl stops it.
+//
+// It exists because the watchdog cannot see the failure it guards. The
+// watchdog measures SILENCE - its timer is re-armed on every event - and a
+// runaway loop is the noisiest thing an agent can do, so it re-arms the
+// timer thousands of times and never fires. The one failure mode that burns
+// tokens without bound was therefore the one nothing caught.
+//
+// Measured, and the reason for this constant: an implementer finished its
+// real work, committed it, and then spent 39 minutes and 79 MB of stream
+// trying to remove one trailing blank line from a file, running three
+// variants of the same `truncate` command 374 times across 422 turns. It was
+// killed by hand. Nothing in kernl would have stopped it.
+//
+// 150 is a safety margin rather than a target: healthy stages in the same
+// repositories cross tens of turns, and the run above was already past 400.
+// A stage that legitimately needs more than 150 turns is a stage that should
+// have been split into more than one bead.
+//
+// This binds only on dialects whose per-turn boundary is not also the end of
+// the run. claude's "result" and codex's "turn.completed" ARE the end, so
+// counting them could never reach a ceiling; pi's "turn_end" and opencode's
+// "step_finish" are mid-run boundaries and are what this counts.
+const MaxTurnsPerDispatch = 150
+
+// countTurn records one crossed turn boundary and reports whether that
+// crossing is the one that broke the ceiling. It answers true EXACTLY once
+// per run, so the caller's termination path cannot be entered twice by the
+// events that arrive between the kill signal and the stream closing.
+func (r *SessionRuntime) countTurn() bool {
+	r.mu.Lock()
+	r.turnCount++
+	if r.turnCount <= MaxTurnsPerDispatch || r.turnCeilingHit {
+		r.mu.Unlock()
+		return false
+	}
+	r.turnCeilingHit = true
+	r.isError = true
+	r.lastTurnError = fmt.Sprintf("turn ceiling exceeded: %d turns, over the %d turn limit", r.turnCount, MaxTurnsPerDispatch)
+	r.mu.Unlock()
+	return true
+}
+
+// stopForTurnCeiling ends a dispatch that has crossed too many turns. It
+// cancels the run's context, which is what kills the child process
+// (execSpawnFunc builds it with exec.CommandContext), rather than signalling
+// a pid this type does not hold.
+//
+// The agent is given no chance to finish the turn it is in. That is the
+// point: an agent that has crossed this many boundaries is repeating itself,
+// and one more turn is one more repetition.
+func (r *SessionRuntime) stopForTurnCeiling() {
+	r.mu.Lock()
+	count := r.turnCount
+	r.mu.Unlock()
+
+	slog.Warn("KERNL DISPATCH FAILURE: turn ceiling exceeded - stopping the agent",
+		"bead", r.beadID, "dialect", r.dialect, "turns", count, "limit", MaxTurnsPerDispatch)
+	r.emit("stderr", fmt.Sprintf("[kernl] turn ceiling exceeded: %d turns, over the %d turn limit - stopping this dispatch\n", count, MaxTurnsPerDispatch))
+	r.Stop()
+}
+
+// TurnCeilingExceeded reports whether this run was stopped for crossing
+// MaxTurnsPerDispatch, and how many turns it had crossed. The driver reads
+// it back after the stream drains, so a stage killed for looping is reported
+// as that rather than as the bare non-zero exit code the kill produces -
+// "exit code 143" names the signal, not the reason.
+func (r *SessionRuntime) TurnCeilingExceeded() (bool, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.turnCeilingHit, r.turnCount
 }
 
 func NewSessionRuntime(beadID, repoPath string) *SessionRuntime {
@@ -696,6 +772,19 @@ func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawL
 		r.mu.Unlock()
 		r.emit("stdout", rawLine)
 		r.handleTurnEnd("turn_ended")
+	case "turn_end":
+		// pi's mid-run turn boundary, not the end of the dispatch (see
+		// TestSessionRuntime_PiTurnEndAloneIsNotTheEnd). This is where a
+		// loop shows up: 422 of these crossed in the run that motivated
+		// MaxTurnsPerDispatch.
+		exceeded := r.countTurn()
+		r.mu.Lock()
+		r.lastEventType = evtType
+		r.mu.Unlock()
+		r.emit("stdout", rawLine)
+		if exceeded {
+			r.stopForTurnCeiling()
+		}
 	default:
 		r.mu.Lock()
 		r.lastEventType = evtType
@@ -732,10 +821,17 @@ func (r *SessionRuntime) processOpenCodeEvent(evtType string, obj map[string]any
 			r.handleTurnEnd("turn_ended")
 			return
 		}
+		// opencode's mid-run turn boundary: session_idle ends the dispatch,
+		// this does not, so this is the one that can run away. Same reason
+		// pi's turn_end is counted - see MaxTurnsPerDispatch.
+		exceeded := r.countTurn()
 		r.mu.Lock()
 		r.lastEventType = "step_finish"
 		r.mu.Unlock()
 		r.emit("stdout", rawLine)
+		if exceeded {
+			r.stopForTurnCeiling()
+		}
 	case "session_error":
 		r.mu.Lock()
 		r.lastEventType = "session_error"

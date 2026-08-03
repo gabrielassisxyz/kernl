@@ -265,6 +265,25 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// gate and advancing the bead on a stage nobody actually finished.
 	followUpCount, nudged := w.followUpStats()
 
+	// Checked before the follow-up refusal below because it is the more
+	// specific cause: a dispatch stopped for looping did not merely end
+	// badly, it was ended BY kernl, and the exit code it leaves behind
+	// names the signal rather than the reason. Without this the ledger
+	// records "agent exited non-zero (exit code 143)" for a runaway agent,
+	// which is indistinguishable from an operator killing it by hand - the
+	// exact ambiguity that made the first one take 39 minutes to notice.
+	if exceeded, turns := r.TurnCeilingExceeded(); exceeded {
+		return RunBeadResult{
+			SessionID:     resultSessionID,
+			FinalState:    finalState,
+			Success:       false,
+			ExitCode:      exitCode,
+			Usage:         usage,
+			FollowUpCount: followUpCount,
+			Nudged:        nudged,
+		}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s crossed %d turns in one dispatch, over the %d turn limit, and was stopped - an agent this far past the limit is repeating itself rather than progressing - Fix: read the stage's log for the repeated action, and if the work genuinely needs this many turns, split the bead", input.BeadID, turns, session.MaxTurnsPerDispatch)
+	}
+
 	if followUpErr := w.followUpError(); followUpErr != nil {
 		return RunBeadResult{
 			SessionID:     resultSessionID,
