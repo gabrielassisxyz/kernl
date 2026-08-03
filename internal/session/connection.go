@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 )
 
 const maxConnectionBuffer = 5000
@@ -53,6 +54,13 @@ type connection struct {
 	beadID       string
 	mu           sync.Mutex
 	nextListener uint64
+	// droppedEvents counts events a full subscriber channel refused. An agent
+	// writes stdout far faster than an SSE consumer drains it, so this is an
+	// expected condition, not an incident - but logging it per event buries
+	// every other line in the terminal. The count lets the first drop warn and
+	// the rest stay at debug. Atomic because the drop happens after the
+	// connection mutex is released.
+	droppedEvents atomic.Uint64
 }
 
 // ActiveSession is returned by ListActiveSessions.
@@ -211,7 +219,15 @@ func (m *SessionConnectionManager) handleEventForConn(conn *connection, sessionI
 		select {
 		case ch <- evt:
 		default:
-			slog.Warn("[connection-manager] subscriber channel full, dropping event",
+			// Only the live push is lost: the event was already appended to
+			// conn.buffer above, so a subscriber that reconnects replays
+			// whatever that buffer still holds.
+			if conn.droppedEvents.Add(1) == 1 {
+				slog.Warn("[connection-manager] subscriber channel full, dropping events - further drops for this session log at debug",
+					"type", evt.Type, "sessionId", sessionID)
+				continue
+			}
+			slog.Debug("[connection-manager] subscriber channel full, dropping event",
 				"type", evt.Type, "sessionId", sessionID)
 		}
 	}
