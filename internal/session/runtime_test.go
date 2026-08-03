@@ -1227,3 +1227,126 @@ func TestSessionRuntime_PiAgentEndReachesTheTokenLogger(t *testing.T) {
 		t.Errorf("ReasoningTokens = %v, want 4 - pi reports reasoning and the ledger has a column for it", usage.ReasoningTokens)
 	}
 }
+
+// A dispatch that stays under the ceiling must be untouched: the guard only
+// exists for the runaway case, and a stage stopped early is a stage whose
+// work is thrown away.
+func TestSessionRuntime_TurnsUnderTheCeilingAreNotStopped(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stream strings.Builder
+	for i := 0; i < MaxTurnsPerDispatch; i++ {
+		stream.WriteString(`{"type":"turn_end"}` + "\n")
+	}
+	stream.WriteString(`{"type":"agent_settled"}` + "\n")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, strings.NewReader(stream.String()), strings.NewReader(""))
+	time.Sleep(200 * time.Millisecond)
+
+	if exceeded, turns := r.TurnCeilingExceeded(); exceeded {
+		t.Errorf("TurnCeilingExceeded() = true at %d turns, want false at exactly the limit", turns)
+	}
+	if !r.ResultObserved() {
+		t.Error("the run should have ended normally on agent_settled")
+	}
+}
+
+// The run that motivated this crossed 422 turns while producing output the
+// whole time, which is precisely why the silence-based watchdog never fired.
+func TestSessionRuntime_TurnCeilingStopsARunawayDispatch(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stream strings.Builder
+	for i := 0; i < MaxTurnsPerDispatch+40; i++ {
+		stream.WriteString(`{"type":"turn_end"}` + "\n")
+	}
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, strings.NewReader(stream.String()), strings.NewReader(""))
+	time.Sleep(200 * time.Millisecond)
+
+	exceeded, turns := r.TurnCeilingExceeded()
+	if !exceeded {
+		t.Fatalf("TurnCeilingExceeded() = false after %d turns, want true", turns)
+	}
+	if turns <= MaxTurnsPerDispatch {
+		t.Errorf("turns = %d, want more than the %d limit", turns, MaxTurnsPerDispatch)
+	}
+	if !r.IsError() {
+		t.Error("a dispatch stopped for looping must be marked an error, not a clean finish")
+	}
+	if !strings.Contains(r.LastError(), "turn ceiling exceeded") {
+		t.Errorf("LastError() = %q, want it to name the turn ceiling rather than a signal", r.LastError())
+	}
+}
+
+// opencode's step_finish is a mid-run boundary exactly like pi's turn_end,
+// so it is counted too; session_idle is what ends that dialect's dispatch.
+func TestSessionRuntime_TurnCeilingCountsOpenCodeSteps(t *testing.T) {
+	r := newTestRuntime("opencode", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stream strings.Builder
+	for i := 0; i < MaxTurnsPerDispatch+10; i++ {
+		stream.WriteString(`{"type":"step_finish","reason":"stop"}` + "\n")
+	}
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, strings.NewReader(stream.String()), strings.NewReader(""))
+	time.Sleep(200 * time.Millisecond)
+
+	if exceeded, _ := r.TurnCeilingExceeded(); !exceeded {
+		t.Error("opencode step_finish should count toward the turn ceiling")
+	}
+}
+
+// claude's result and codex's turn.completed END the dispatch, so counting
+// them could never reach a ceiling. Pinning that keeps a later change from
+// "harmonising" the dialects and making a one-shot run trip the guard.
+func TestSessionRuntime_TerminalDialectsNeverTripTheCeiling(t *testing.T) {
+	for _, tc := range []struct{ dialect, line string }{
+		{"claude", `{"type":"result","usage":{"input_tokens":1,"output_tokens":1}}`},
+		{"codex", `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`},
+	} {
+		r := newTestRuntime(tc.dialect, false)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		go func() {
+			for evt := range r.Events() {
+				_ = evt
+			}
+		}()
+
+		r.Start(ctx, strings.NewReader(tc.line+"\n"), strings.NewReader(""))
+		time.Sleep(100 * time.Millisecond)
+
+		if exceeded, turns := r.TurnCeilingExceeded(); exceeded {
+			t.Errorf("%s: TurnCeilingExceeded() = true at %d turns, want false", tc.dialect, turns)
+		}
+		cancel()
+	}
+}
