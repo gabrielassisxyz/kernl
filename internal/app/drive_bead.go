@@ -640,6 +640,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			ArtifactDir:       artifactDir,
 			RelevantDecisions: relevantDecisions,
 			RejectedReview:    rejectedReview,
+			PriorGateFailure:  LastGateFailure(deps.StateDir, epicID, deps.BeadID, activeState),
 			ForkHandoverPath:  forkHandoverPath,
 			ForkAnswer:        forkAnswer,
 		}

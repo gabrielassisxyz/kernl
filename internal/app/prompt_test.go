@@ -647,3 +647,60 @@ func TestBuildBeadStagePrompt_ForkAnswer_RendersBeforeBeadDescription(t *testing
 		}
 	}
 }
+
+func TestBuildBeadStagePrompt_PriorGateFailureIsQuotedVerbatim(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "freeze the contract"}
+	reason := `decision_record_invalid_json: invalid character 'd' in string escape code on line 6: "optionsConsidered": "(A) keep the \d{4} regex"`
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "implementation", RepoPath: "/repo", Worktree: "/wt",
+		VerifyCommand: "bin/ci", TrackerCommand: "br", PriorGateFailure: reason,
+	})
+
+	if !strings.Contains(prompt, "previous attempt at this stage was refused") {
+		t.Error("prompt should carry the prior gate failure section")
+	}
+	if !strings.Contains(prompt, reason) {
+		t.Error("the gate's own reason must reach the agent verbatim - paraphrasing it here is a second place to keep the wording right")
+	}
+	// The agent cannot find this one by looking around: decision-record.json
+	// lives in the artifact dir, not in the worktree it was handed.
+	if !strings.Contains(prompt, "outside this worktree") {
+		t.Error("prompt should warn that the offending artifact may live outside the worktree")
+	}
+}
+
+// The default state of the world is "no gate has refused this", and saying so
+// on every first attempt is noise.
+func TestBuildBeadStagePrompt_NoPriorGateFailureRendersNothing(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "freeze the contract"}
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "implementation", RepoPath: "/repo", Worktree: "/wt",
+		VerifyCommand: "bin/ci", TrackerCommand: "br",
+	})
+
+	if strings.Contains(prompt, "previous attempt at this stage was refused") {
+		t.Error("a first attempt must not be told about a refusal that never happened")
+	}
+}
+
+// The two sections answer different questions and must both survive when a
+// bead has been both rejected and refused.
+func TestBuildBeadStagePrompt_RejectedReviewAndGateFailureCoexist(t *testing.T) {
+	bead := &backend.Bead{ID: "kb-1", Title: "freeze the contract"}
+
+	prompt := BuildBeadStagePrompt(StagePromptInput{
+		Bead: bead, State: "implementation", RepoPath: "/repo", Worktree: "/wt",
+		VerifyCommand: "bin/ci", TrackerCommand: "br",
+		RejectedReview:   "the contract contradicts PLAN.md",
+		PriorGateFailure: "commit_marker_missing: implementation",
+	})
+
+	if !strings.Contains(prompt, "reviewed and rejected") {
+		t.Error("the reviewer's rejection must still be rendered")
+	}
+	if !strings.Contains(prompt, "previous attempt at this stage was refused") {
+		t.Error("the gate refusal must still be rendered")
+	}
+}

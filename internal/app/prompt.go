@@ -58,6 +58,18 @@ type StagePromptInput struct {
 	// default state of the world and does not need saying, while "no prior
 	// decision was found" is a search result worth reporting.
 	RejectedReview string
+	// PriorGateFailure is the reason this bead's previous attempt at THIS
+	// stage failed its exit gate, when there was one and it failed. Empty is
+	// the normal case - a first attempt, or a previous attempt that passed -
+	// and renders nothing, the same silence RejectedReview keeps.
+	//
+	// It is not the same thing as RejectedReview and does not overlap it: a
+	// rejection is a reviewer's judgement of work that was accepted by the
+	// gate, while this is the gate itself refusing the attempt, usually over
+	// something mechanical the agent cannot otherwise discover (an artifact
+	// it wrote outside the worktree, a commit it never made). See
+	// app.LastGateFailure for why that was invisible until now.
+	PriorGateFailure string
 	// ForkHandoverPath is the absolute path an implementer may write a fork
 	// handover to, when it meets a choice the bead, this repository's own
 	// docs and existing precedent do not already determine (see
@@ -103,6 +115,7 @@ func BuildBeadStagePrompt(in StagePromptInput) string {
 
 	renderRole(&b, hasContract, contract)
 	renderRejectedReview(&b, in.RejectedReview)
+	renderPriorGateFailure(&b, in.PriorGateFailure)
 	renderForkAnswer(&b, in.ForkAnswer)
 	renderRelatedDecisions(&b, in.RelevantDecisions)
 	renderInputs(&b, hasContract, contract, in.Bead.ID, in.ArtifactDir)
@@ -326,6 +339,35 @@ func renderRejectedReview(b *strings.Builder, review string) {
 	b.WriteString("You are not implementing this bead from scratch. A previous implementation exists on this branch, a reviewer rejected it, and the rejection below is what you have to answer. Fix what it names. Do not start over, and do not re-litigate the bead's scope: if you believe the reviewer is wrong, say so in your decision record and explain why, rather than ignoring the objection.\n\n")
 	b.WriteString("```\n")
 	b.WriteString(strings.TrimSpace(review))
+	b.WriteString("\n```\n\n")
+}
+
+// renderPriorGateFailure tells the implementer why its predecessor's attempt
+// at this same stage was refused by the exit gate.
+//
+// Position matters for the same reason renderRejectedReview documents, but
+// the failure mode it guards is different and worse. A gate failure is
+// usually about an artifact kernl keeps OUTSIDE the worktree - the decision
+// record, the commit marker - so an agent re-dispatched after one cannot see
+// what went wrong by looking around: the evidence is not in the tree it was
+// given. Without this section it rewrites the same artifact from scratch and
+// has roughly even odds of reproducing the same mistake, which is exactly
+// what a malformed JSON escape did.
+//
+// The reason is quoted verbatim rather than summarised. The gate's own error
+// text is written to be actionable (see ParseDecisionRecordDocument, which
+// names the failing field or quotes the offending line), and paraphrasing it
+// here would be a second place to keep that wording correct.
+//
+// Empty renders nothing at all, the same rule RejectedReview follows.
+func renderPriorGateFailure(b *strings.Builder, reason string) {
+	if strings.TrimSpace(reason) == "" {
+		return
+	}
+	b.WriteString("## Your previous attempt at this stage was refused - read this first\n\n")
+	b.WriteString("A previous attempt ran this same stage and its exit gate refused the result. This is not a reviewer's opinion: the stage did not produce what it is required to produce, and the same gate will refuse this attempt too unless it is fixed. Note that the artifact in question may live outside this worktree, so you will not find the problem by looking at the tree alone - the exact reason is below.\n\n")
+	b.WriteString("```\n")
+	b.WriteString(strings.TrimSpace(reason))
 	b.WriteString("\n```\n\n")
 }
 

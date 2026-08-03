@@ -600,3 +600,68 @@ func TestEvaluateExitGate_DecisionRecord_RejectsDuplicateKeyEndToEnd(t *testing.
 		t.Errorf("reason must use the decision_record_duplicate_key family, got %q", reason)
 	}
 }
+
+// The real record that motivated this: an implementer wrote a regex straight
+// into a JSON string, where \d is not a valid escape. The parser said only
+// "invalid character 'd' in string escape code", and the next attempt had a
+// 7 KB file and no idea where to look.
+func TestParseDecisionRecordDocument_InvalidEscapeNamesTheLine(t *testing.T) {
+	content := `{
+  "decisions": [
+    {
+      "title": "date parsing",
+      "decision": "use fromisoformat instead of a regex",
+      "optionsConsidered": "(A) keep the \d{4}-\d{2}-\d{2} regex; (B) fromisoformat",
+      "tradeOffs": "the regex accepts impossible calendar dates",
+      "rationale": "the stdlib parser rejects them"
+    }
+  ]
+}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for the invalid \\d escape")
+	}
+	got := err.Error()
+	if !strings.Contains(got, "decision_record_invalid_json") {
+		t.Errorf("error = %q, want the decision_record_invalid_json family", got)
+	}
+	if !strings.Contains(got, "on line 6") {
+		t.Errorf("error = %q, want it to name line 6 - an agent told only \"invalid\" cannot fix it", got)
+	}
+	if !strings.Contains(got, `\d{4}-\d{2}-\d{2}`) {
+		t.Errorf("error = %q, want the offending line quoted back so the bad escape is visible", got)
+	}
+}
+
+// A structurally valid document must not grow a position suffix: there is no
+// offset to report, and inventing one would point at nothing.
+func TestParseDecisionRecordDocument_MissingFieldErrorHasNoLineSuffix(t *testing.T) {
+	content := `{"decisions":[{"decision":"d","optionsConsidered":"o","tradeOffs":"t","rationale":""}]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected a missing-field error")
+	}
+	if strings.Contains(err.Error(), "on line") {
+		t.Errorf("error = %q, want no line suffix - this failure has no byte offset", err.Error())
+	}
+}
+
+// A one-line document is the common machine-written shape, and quoting a
+// whole 7 KB line back would bury the message it is attached to.
+func TestParseDecisionRecordDocument_LongOffendingLineIsTruncated(t *testing.T) {
+	content := `{"decisions":[{"decision":"` + strings.Repeat("x", 900) + `\d"}]}`
+	_, err := ParseDecisionRecordDocument(content)
+	if err == nil {
+		t.Fatal("expected an error for the invalid \\d escape")
+	}
+	got := err.Error()
+	if !strings.Contains(got, "on line 1") {
+		t.Errorf("error = %q, want it to name line 1", got)
+	}
+	if !strings.Contains(got, "...") {
+		t.Errorf("error = %q, want the quoted line truncated with an ellipsis", got)
+	}
+	if len(got) > 900 {
+		t.Errorf("error is %d bytes, want the quoted line bounded", len(got))
+	}
+}
