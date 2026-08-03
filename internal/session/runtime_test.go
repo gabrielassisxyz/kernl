@@ -1175,10 +1175,12 @@ func TestSessionRuntime_PiCapturesItsSessionID(t *testing.T) {
 	}
 }
 
-// The stream shape here is trimmed from a real `pi -p --mode json` run: two
-// assistant messages carrying usage, then agent_end, then agent_settled. It
-// guards the gap this test was written for - pi's usage was parsed correctly
-// and never logged, because processPiEvent read only the last line.
+// The stream shape here is trimmed from a real `pi -p --mode json` run: an
+// agent_end carrying the conversation's usage, then the empty agent_end pi
+// emits per internal retry, then agent_settled. It guards two gaps at once -
+// pi's usage was parsed correctly and never logged, because processPiEvent
+// read only the last line; and once it was logged, the retry envelope
+// overwrote it with zero, which recorded a million-token run as free.
 func TestSessionRuntime_PiAgentEndReachesTheTokenLogger(t *testing.T) {
 	r := newTestRuntime("pi", false)
 	logger := NewCapturingUsageLogger()
@@ -1192,6 +1194,9 @@ func TestSessionRuntime_PiAgentEndReachesTheTokenLogger(t *testing.T) {
 			`{"type":"agent_end","willRetry":false,"messages":[` +
 			`{"model":"kimi-k2.7","usage":{"input":100,"output":7,"cacheRead":0,"cacheWrite":0,"reasoning":3,"totalTokens":107,"cost":{"total":0}}},` +
 			`{"model":"kimi-k2.7","usage":{"input":40,"output":5,"cacheRead":0,"cacheWrite":0,"reasoning":1,"totalTokens":45,"cost":{"total":0}}}` +
+			`]}` + "\n" +
+			`{"type":"agent_end","willRetry":true,"messages":[` +
+			`{"model":"kimi-k2.7","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"total":0}}}` +
 			`]}` + "\n" +
 			`{"type":"agent_settled"}` + "\n")
 	stderr := strings.NewReader("")
