@@ -507,3 +507,52 @@ func resolveAttemptLedgerPath(stateDir, epicID string) (string, error) {
 	}
 	return filepath.Join(epicDir, "attempts.jsonl"), nil
 }
+
+// LastGateFailure returns the reason the most recent recorded attempt at
+// beadID's given stage failed its exit gate, or "" when the last attempt
+// passed, when there is no attempt yet, or when the ledger cannot be read.
+//
+// It exists because a rejected REVIEW was the only gate outcome that ever
+// reached the next implementer: the rejection text lives in an artifact the
+// prompt reads back (see StagePromptInput.RejectedReview). Every other gate
+// failure - a missing commit marker, a decision record that is not valid
+// JSON - was recorded in the ledger, commented on the bead, and then never
+// shown to the agent that had to fix it. Observed for real: an implementer
+// wrote an invalid escape into decision-record.json, the bead blocked, and
+// the next attempt was dispatched with no way to know, because that file
+// lives in the artifact directory rather than in the worktree the agent can
+// see. It could only rewrite it and hope.
+//
+// Scoped to one stage on purpose. A review rejection is recorded against the
+// REVIEW stage, so filtering by the stage about to run cannot pick one up
+// and repeat, in this section, what renderRejectedReview already says in
+// its own.
+//
+// A read failure is silence rather than an error: this feeds one advisory
+// prompt section, and a run must not be stopped because an optional hint
+// could not be assembled.
+func LastGateFailure(stateDir, epicID, beadID, stage string) string {
+	path, err := resolveAttemptLedgerPath(stateDir, epicID)
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	records, _, err := parseLedgerBytes(path, data)
+	if err != nil {
+		return ""
+	}
+	for i := len(records) - 1; i >= 0; i-- {
+		rec := records[i]
+		if rec.BeadID != beadID || rec.Stage != stage {
+			continue
+		}
+		if rec.GatePassed || rec.GateFailureReason == nil {
+			return ""
+		}
+		return *rec.GateFailureReason
+	}
+	return ""
+}

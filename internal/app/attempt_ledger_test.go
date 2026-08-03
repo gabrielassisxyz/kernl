@@ -820,3 +820,85 @@ func must(t *testing.T, err error) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestLastGateFailure_ReturnsTheReasonOfTheLastFailedAttemptAtThatStage(t *testing.T) {
+	dir := t.TempDir()
+	reason := `decision_record_invalid_json: invalid character 'd' in string escape code on line 6`
+
+	writeAttempt := func(stage string, passed bool, why string) {
+		rec := StageAttemptRecord{BeadID: "kb-1", Stage: stage, GatePassed: passed}
+		if why != "" {
+			r := why
+			rec.GateFailureReason = &r
+		}
+		if err := AppendStageAttempt(dir, "ep-1", rec); err != nil {
+			t.Fatalf("AppendStageAttempt: %v", err)
+		}
+	}
+
+	writeAttempt("implementation", true, "")
+	writeAttempt("implementation", false, reason)
+
+	if got := LastGateFailure(dir, "ep-1", "kb-1", "implementation"); got != reason {
+		t.Errorf("LastGateFailure = %q, want the last failure's reason", got)
+	}
+}
+
+// A review rejection is recorded against the REVIEW stage, and the prompt
+// already carries it as RejectedReview. Scoping by stage is what keeps this
+// section from repeating it.
+func TestLastGateFailure_IgnoresAnotherStagesFailure(t *testing.T) {
+	dir := t.TempDir()
+	rejected := "verdict_reject: /artifacts/implementation-review.md"
+
+	rec := StageAttemptRecord{BeadID: "kb-1", Stage: "implementation_review", GatePassed: false, GateFailureReason: &rejected}
+	if err := AppendStageAttempt(dir, "ep-1", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	if got := LastGateFailure(dir, "ep-1", "kb-1", "implementation"); got != "" {
+		t.Errorf("LastGateFailure = %q, want empty - that failure belongs to the review stage", got)
+	}
+}
+
+// The most recent attempt is what counts. A bead that failed, was fixed, and
+// is running again for another reason must not be told about a defect it has
+// already corrected.
+func TestLastGateFailure_SilentWhenTheLastAttemptPassed(t *testing.T) {
+	dir := t.TempDir()
+	old := "commit_marker_missing: implementation"
+
+	failed := StageAttemptRecord{BeadID: "kb-1", Stage: "implementation", GatePassed: false, GateFailureReason: &old}
+	if err := AppendStageAttempt(dir, "ep-1", failed); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+	passed := StageAttemptRecord{BeadID: "kb-1", Stage: "implementation", GatePassed: true}
+	if err := AppendStageAttempt(dir, "ep-1", passed); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	if got := LastGateFailure(dir, "ep-1", "kb-1", "implementation"); got != "" {
+		t.Errorf("LastGateFailure = %q, want empty - the last attempt passed", got)
+	}
+}
+
+func TestLastGateFailure_SilentWhenNothingRecorded(t *testing.T) {
+	if got := LastGateFailure(t.TempDir(), "ep-1", "kb-1", "implementation"); got != "" {
+		t.Errorf("LastGateFailure = %q, want empty for a bead with no attempts", got)
+	}
+}
+
+// Another bead's failure is not this bead's.
+func TestLastGateFailure_ScopedToTheBead(t *testing.T) {
+	dir := t.TempDir()
+	other := "commit_marker_missing: implementation"
+
+	rec := StageAttemptRecord{BeadID: "kb-2", Stage: "implementation", GatePassed: false, GateFailureReason: &other}
+	if err := AppendStageAttempt(dir, "ep-1", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	if got := LastGateFailure(dir, "ep-1", "kb-1", "implementation"); got != "" {
+		t.Errorf("LastGateFailure = %q, want empty - that failure belongs to kb-2", got)
+	}
+}
