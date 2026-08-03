@@ -1174,3 +1174,51 @@ func TestSessionRuntime_PiCapturesItsSessionID(t *testing.T) {
 		t.Errorf("CapturedSessionID() = %q, want pi's own session id", got)
 	}
 }
+
+// The stream shape here is trimmed from a real `pi -p --mode json` run: two
+// assistant messages carrying usage, then agent_end, then agent_settled. It
+// guards the gap this test was written for - pi's usage was parsed correctly
+// and never logged, because processPiEvent read only the last line.
+func TestSessionRuntime_PiAgentEndReachesTheTokenLogger(t *testing.T) {
+	r := newTestRuntime("pi", false)
+	logger := NewCapturingUsageLogger()
+	r.SetTokenUsageLogger(logger)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fbd83-f97c-7137-aa40-7ff3f1d2445e"}` + "\n" +
+			`{"type":"agent_end","willRetry":false,"messages":[` +
+			`{"model":"kimi-k2.7","usage":{"input":100,"output":7,"cacheRead":0,"cacheWrite":0,"reasoning":3,"totalTokens":107,"cost":{"total":0}}},` +
+			`{"model":"kimi-k2.7","usage":{"input":40,"output":5,"cacheRead":0,"cacheWrite":0,"reasoning":1,"totalTokens":45,"cost":{"total":0}}}` +
+			`]}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	time.Sleep(100 * time.Millisecond)
+
+	usage := logger.Usage()
+	if usage == nil {
+		t.Fatal("pi agent_end should reach the token logger, got no usage")
+	}
+	// Summed across both messages, not read off the last one: a multi-step
+	// run would otherwise report one model call as the whole stage's cost.
+	if usage.InputTokens != 140 || usage.OutputTokens != 12 || usage.TotalTokens != 152 {
+		t.Errorf("usage = in %d / out %d / total %d, want 140 / 12 / 152",
+			usage.InputTokens, usage.OutputTokens, usage.TotalTokens)
+	}
+	if usage.Model == nil || *usage.Model != "kimi-k2.7" {
+		t.Errorf("Model = %v, want the identifier pi reported so the ledger row is modelResolved", usage.Model)
+	}
+	if usage.ReasoningTokens == nil || *usage.ReasoningTokens != 4 {
+		t.Errorf("ReasoningTokens = %v, want 4 - pi reports reasoning and the ledger has a column for it", usage.ReasoningTokens)
+	}
+}

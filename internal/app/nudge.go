@@ -118,6 +118,10 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	agentInput.BeadID = rec.BeadID
 	agentInput.RepoPath = rec.RepoPath
 	agentInput.Cwd = rec.Cwd
+	// A follow-up continues the same bead, so it carries the same affinity
+	// key: the conversation it resumes is the one whose prefix is already
+	// warm upstream. See LLMSessionEnvVar for why the bead is the unit.
+	agentInput.Env[LLMSessionEnvVar] = rec.BeadID
 
 	// Surface a marker in the SSE stream so the log panel shows the nudge
 	// landed even before the agent's first NDJSON line arrives.
