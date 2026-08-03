@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 type StepPhase string
@@ -1385,6 +1386,79 @@ func detectDuplicateJSONKeys(dec *json.Decoder, path string) error {
 // problem named - which check failed, and at which array index or object
 // path - never a generic "invalid": an agent told that cannot act on it, one
 // told "decisions[2].tradeOffs" can.
+// maxJSONErrorLineBytes bounds the offending line this quotes back. A
+// decision record is prose in JSON strings, so one line can be a whole
+// paragraph; the point is to show the agent where to look, not to reproduce
+// the file it already has.
+const maxJSONErrorLineBytes = 240
+
+// jsonErrorLocation renders where a JSON parse failure is, as
+// " on line L: <the line>", or "" when the error carries no position.
+//
+// It exists because the surrounding parser's own contract - name the exact
+// problem, never a generic "invalid", because an agent told "invalid" cannot
+// act on it - was met by every check EXCEPT the syntax one. A malformed
+// escape came back as `invalid character 'd' in string escape code` with a
+// 7 KB file to find it in, and the agent that has to fix it on the next
+// attempt cannot. Observed for real: an implementer wrote a regex
+// (`\d{4}-\d{2}-\d{2}`) straight into a JSON string, where `\d` is not a
+// valid escape.
+//
+// encoding/json HAS the position - both *json.SyntaxError and
+// *json.UnmarshalTypeError carry Offset - it was simply never rendered.
+//
+// The LINE is reported and the column deliberately is not. The offset of a
+// syntax error raised while streaming tokens (which is how the duplicate-key
+// pass reads the document) is where the decoder stopped, not where the bad
+// character is: on the real malformed record above it landed inside the
+// preceding key, 41 columns before the offending escape. A column number
+// that points at the wrong character is worse than no column, because it is
+// believed. The line is right either way, so the whole line is quoted and
+// the agent reads it.
+func jsonErrorLocation(content string, err error) string {
+	var offset int64 = -1
+	var syntaxErr *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	switch {
+	case errors.As(err, &syntaxErr):
+		offset = syntaxErr.Offset
+	case errors.As(err, &typeErr):
+		offset = typeErr.Offset
+	}
+	// encoding/json reports the offset just PAST the byte it stopped on, so
+	// a failure on the first byte arrives as 1. Anything outside the
+	// document is not a position this can describe honestly.
+	if offset <= 0 || offset > int64(len(content)) {
+		return ""
+	}
+
+	upto := content[:offset]
+	line := strings.Count(upto, "\n") + 1
+	lineStart := strings.LastIndex(upto, "\n") + 1
+
+	lineEnd := strings.IndexByte(content[lineStart:], '\n')
+	if lineEnd < 0 {
+		lineEnd = len(content)
+	} else {
+		lineEnd += lineStart
+	}
+
+	text := strings.TrimSpace(content[lineStart:lineEnd])
+	if len(text) > maxJSONErrorLineBytes {
+		cut := maxJSONErrorLineBytes
+		// Back off to a rune boundary so a truncated multi-byte character
+		// never reaches the agent as mojibake it then has to hunt through.
+		for cut > 0 && !utf8.RuneStart(text[cut]) {
+			cut--
+		}
+		text = text[:cut] + "..."
+	}
+	if text == "" {
+		return fmt.Sprintf(" on line %d", line)
+	}
+	return fmt.Sprintf(" on line %d: %s", line, text)
+}
+
 func ParseDecisionRecordDocument(content string) ([]DecisionRecordEntry, error) {
 	if len(content) > maxDecisionRecordDocumentBytes {
 		return nil, fmt.Errorf("decision_record_too_large: the record is %d bytes, over the %d byte limit - Fix: a decision_record artifact holds a short, deliberated list of the decisions actually made in this stage, not pasted file or log contents; trim each field to its own decision/options/trade-offs/rationale text", len(content), maxDecisionRecordDocumentBytes)
@@ -1395,14 +1469,14 @@ func ParseDecisionRecordDocument(content string) ([]DecisionRecordEntry, error) 
 		if errors.As(err, &dupErr) {
 			return nil, fmt.Errorf(`decision_record_duplicate_key: %w - encoding/json keeps only the LAST value for a repeated object key and silently discards the rest, which can lose an entire decision without saying so - Fix: remove the duplicate key at %s, keeping only the one value that should survive`, dupErr, dupErr.path)
 		}
-		return nil, fmt.Errorf(`decision_record_invalid_json: %w - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]}`, err)
+		return nil, fmt.Errorf(`decision_record_invalid_json: %w%s - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]}`, err, jsonErrorLocation(content, err))
 	}
 
 	dec := json.NewDecoder(strings.NewReader(content))
 	dec.DisallowUnknownFields()
 	var doc decisionRecordDocument
 	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf(`decision_record_invalid_json: %w - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]} with no field beyond title/decision/optionsConsidered/tradeOffs/rationale`, err)
+		return nil, fmt.Errorf(`decision_record_invalid_json: %w%s - the file must be a JSON object shaped like {"decisions":[{"decision":"...","optionsConsidered":"...","tradeOffs":"...","rationale":"..."}]} with no field beyond title/decision/optionsConsidered/tradeOffs/rationale`, err, jsonErrorLocation(content, err))
 	}
 	if dec.More() {
 		return nil, fmt.Errorf(`decision_record_invalid_json: unexpected content after the top-level JSON object - the file must contain exactly one JSON object shaped like {"decisions":[...]}`)
