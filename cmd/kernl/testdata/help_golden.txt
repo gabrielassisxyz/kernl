@@ -386,6 +386,7 @@ Usage:
 
 Subcommands:
   stats          Per-agent attempt counts, gate/review rates and medians
+  backfill-rework Recompute causedBy across every recorded attempt
 
 Reads every epic's stage-attempt ledger (written by the orchestrator as it
 dispatches beads) and reports, per agent: how many attempts it made, its
@@ -424,6 +425,30 @@ Flags:
   --stage <stage>     Only rows for this workflow stage (e.g. implementation)
   --since <duration>  Only rows started at or after now minus this - 720h or 30d
   --json              Emit the same numbers as one camelCase document, null where unmeasured
+
+### kernl orchestrator backfill-rework
+kernl orchestrator backfill-rework - Recompute causedBy across every recorded attempt
+
+Usage:
+  kernl orchestrator backfill-rework [--dry-run] [--yes] [--json]
+
+causedBy - the review artifact whose rejection sent a bead back - is
+derived once, when the attempt is recorded. Rows written while that
+derivation matched the wrong gate reason kept the wrong answer, and no
+reader can tell them apart from rows written since. The rework numbers in
+'orchestrator stats' therefore describe a mixture of two rules until this
+has run.
+
+Reports what would change and writes nothing unless you pass --yes. A
+rewrite keeps every unchanged row's exact bytes, so the resulting diff is
+the rows it decided about and nothing else, and it holds the same lock the
+orchestrator takes to append - a run in progress waits rather than
+interleaving.
+
+Flags:
+  --dry-run  Report what would change and write nothing (the default)
+  --yes      Actually rewrite the ledgers
+  --json     Emit {"applied","ledgersScanned","rowsScanned","ledgers":[...]}
 
 ### kernl bookmark
 kernl bookmark - Manage bookmarks

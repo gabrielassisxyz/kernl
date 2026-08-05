@@ -33,7 +33,7 @@ import (
 // carried as a JSON field that sits beside the data rather than around it.
 const qualityColumnNote = "revert rate is not part of this report - nothing here detects work that shipped and was reverted later. This report covers speed, gate/review outcomes, and the rework a review rejection caused; the epic-level fix-up bead count lives in the tracker, not in this ledger."
 
-var orchestratorSubcommands = []string{"stats"}
+var orchestratorSubcommands = []string{"stats", "backfill-rework"}
 
 var orchestratorCommand = commandMeta{
 	Name:    "orchestrator",
@@ -77,17 +77,123 @@ exits 0 - it is not an error.
 				{Name: "--json", Description: "Emit the same numbers as one camelCase document, null where unmeasured"},
 			},
 		},
+		{
+			Name:    "backfill-rework",
+			Summary: "Recompute causedBy across every recorded attempt",
+			Usage:   "kernl orchestrator backfill-rework [--dry-run] [--yes] [--json]",
+			Details: `causedBy - the review artifact whose rejection sent a bead back - is
+derived once, when the attempt is recorded. Rows written while that
+derivation matched the wrong gate reason kept the wrong answer, and no
+reader can tell them apart from rows written since. The rework numbers in
+'orchestrator stats' therefore describe a mixture of two rules until this
+has run.
+
+Reports what would change and writes nothing unless you pass --yes. A
+rewrite keeps every unchanged row's exact bytes, so the resulting diff is
+the rows it decided about and nothing else, and it holds the same lock the
+orchestrator takes to append - a run in progress waits rather than
+interleaving.
+
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--dry-run", Description: "Report what would change and write nothing (the default)"},
+				{Name: "--yes", Description: "Actually rewrite the ledgers"},
+				{Name: "--json", Description: "Emit {\"applied\",\"ledgersScanned\",\"rowsScanned\",\"ledgers\":[...]}"},
+			},
+		},
 	},
 }
 
 func runOrchestrator(w io.Writer, args []string) error {
-	// requireSub narrows to orchestratorSubcommands, whose only member is
-	// "stats" - there is nothing else to branch on yet.
-	_, rest, err := requireSub("orchestrator", args, orchestratorSubcommands)
+	sub, rest, err := requireSub("orchestrator", args, orchestratorSubcommands)
 	if err != nil {
 		return err
 	}
+	if sub == "backfill-rework" {
+		return runOrchestratorBackfillRework(w, rest)
+	}
 	return runOrchestratorStats(w, rest)
+}
+
+// orchestratorBackfillOutput is `kernl orchestrator backfill-rework --json`.
+// Ledgers carries only the files with something to change, the same list the
+// human output prints, so the two surfaces cannot disagree about the work.
+type orchestratorBackfillOutput struct {
+	Applied        bool                       `json:"applied"`
+	LedgersScanned int                        `json:"ledgersScanned"`
+	RowsScanned    int                        `json:"rowsScanned"`
+	Ledgers        []orchestratorBackfillFile `json:"ledgers"`
+}
+
+type orchestratorBackfillFile struct {
+	Path            string `json:"path"`
+	Marked          int    `json:"marked"`
+	Unmarked        int    `json:"unmarked"`
+	DanglingDropped bool   `json:"danglingDropped"`
+}
+
+func runOrchestratorBackfillRework(w io.Writer, args []string) error {
+	dryRun, rest := parseBoolFlag(args, "--dry-run")
+	confirmed, rest := parseBoolFlag(rest, "--yes")
+	asJSON, rest := parseBoolFlag(rest, "--json")
+	if err := rejectUnknownFlags("orchestrator backfill-rework", rest); err != nil {
+		return err
+	}
+	if len(rest) > 0 {
+		return usagef("KERNL DISPATCH FAILURE: orchestrator backfill-rework takes no positional arguments, got %q - run: kernl orchestrator backfill-rework --help", rest[0])
+	}
+	// Passing both is a contradiction about whether to write, and picking a
+	// winner would mean guessing which one the operator meant on a command
+	// that rewrites the ledger.
+	if dryRun && confirmed {
+		return usagef("KERNL DISPATCH FAILURE: orchestrator backfill-rework was given both --dry-run and --yes, which ask for opposite things - run: kernl orchestrator backfill-rework --yes to rewrite, or with neither flag to see what would change")
+	}
+
+	stateDir, err := app.DefaultStateDir()
+	if err != nil {
+		return err
+	}
+	result, err := app.BackfillCausedBy(stateDir, confirmed)
+	if err != nil {
+		return err
+	}
+
+	if asJSON {
+		out := orchestratorBackfillOutput{
+			Applied:        result.Applied,
+			LedgersScanned: result.LedgersScanned,
+			RowsScanned:    result.RowsScanned,
+			Ledgers:        make([]orchestratorBackfillFile, 0, len(result.Ledgers)),
+		}
+		for _, l := range result.Ledgers {
+			out.Ledgers = append(out.Ledgers, orchestratorBackfillFile{
+				Path: l.Path, Marked: l.Marked, Unmarked: l.Unmarked, DanglingDropped: l.DanglingDropped,
+			})
+		}
+		return json.NewEncoder(w).Encode(out)
+	}
+
+	if len(result.Ledgers) == 0 {
+		fmt.Fprintf(w, "every recorded attempt already agrees with the current rule (%d row(s) across %d ledger(s)) - nothing to do\n", result.RowsScanned, result.LedgersScanned)
+		return nil
+	}
+
+	marked, unmarked := 0, 0
+	for _, l := range result.Ledgers {
+		marked += l.Marked
+		unmarked += l.Unmarked
+		dangling := ""
+		if l.DanglingDropped {
+			dangling = ", and an incomplete trailing row to trim"
+		}
+		fmt.Fprintf(w, "%s: %d row(s) to mark as rework, %d to clear%s\n", l.Path, l.Marked, l.Unmarked, dangling)
+	}
+	fmt.Fprintf(w, "\n%d row(s) across %d ledger(s): %d gained a rejection they always had, %d lost one they never had\n",
+		result.RowsScanned, result.LedgersScanned, marked, unmarked)
+	if !result.Applied {
+		fmt.Fprintln(w, "nothing was written - re-run with --yes to apply")
+	}
+	return nil
 }
 
 func runOrchestratorStats(w io.Writer, args []string) error {
