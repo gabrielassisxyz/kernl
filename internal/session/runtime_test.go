@@ -1350,3 +1350,119 @@ func TestSessionRuntime_TerminalDialectsNeverTripTheCeiling(t *testing.T) {
 		cancel()
 	}
 }
+
+func TestSessionRuntime_PiErrorSetsIsErrorAndLastError(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fc4ff-74ee-79d1-910b-734b253f6668"}` + "\n" +
+			`{"type":"message","id":"9d37a587","message":{"role":"assistant","stopReason":"error","errorMessage":"429: litellm.RateLimitError: Model rate limit exceeded"}}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	r.WaitDrained()
+
+	if !r.IsError() {
+		t.Error("pi message with stopReason: error should set IsError()")
+	}
+	if !strings.Contains(r.LastError(), "RateLimitError") {
+		t.Errorf("LastError() = %q, want it to contain RateLimitError", r.LastError())
+	}
+}
+
+func TestSessionRuntime_PiTransientErrorFollowedByStopIsSuccess(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fbea3-abd9-7000-8000-000000000000"}` + "\n" +
+			`{"type":"message","id":"msg1","message":{"role":"assistant","stopReason":"toolUse"}}` + "\n" +
+			`{"type":"message","id":"msg2","message":{"role":"assistant","stopReason":"error","errorMessage":"429: litellm.RateLimitError: Model rate limit exceeded"}}` + "\n" +
+			`{"type":"message","id":"msg3","message":{"role":"assistant","stopReason":"toolUse"}}` + "\n" +
+			`{"type":"message","id":"msg4","message":{"role":"assistant","stopReason":"stop"}}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	r.WaitDrained()
+
+	if r.IsError() {
+		t.Errorf("pi session with transient 429 that ended in stopReason: stop should NOT set IsError(), got LastError=%q", r.LastError())
+	}
+}
+
+func TestSessionRuntime_PiUnfinishedToolUseIsFailure(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fbea3-abd9-7000-8000-000000000000"}` + "\n" +
+			`{"type":"message","id":"msg1","message":{"role":"assistant","stopReason":"toolUse"}}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	r.WaitDrained()
+
+	if !r.IsError() {
+		t.Error("pi session ending in stopReason: toolUse without stop should set IsError()")
+	}
+	if !strings.Contains(r.LastError(), "pi agent_incomplete") {
+		t.Errorf("LastError() = %q, want it to contain pi agent_incomplete", r.LastError())
+	}
+}
+
+func TestSessionRuntime_PiAbortedIsFailure(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stdout := strings.NewReader(
+		`{"type":"session","version":3,"id":"019fbea3-abd9-7000-8000-000000000000"}` + "\n" +
+			`{"type":"message","id":"msg1","message":{"role":"assistant","stopReason":"aborted"}}` + "\n" +
+			`{"type":"agent_settled"}` + "\n")
+	stderr := strings.NewReader("")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, stdout, stderr)
+	r.WaitDrained()
+
+	if !r.IsError() {
+		t.Error("pi session ending in stopReason: aborted should set IsError()")
+	}
+	if !strings.Contains(r.LastError(), "pi agent_aborted") {
+		t.Errorf("LastError() = %q, want it to contain pi agent_aborted", r.LastError())
+	}
+}

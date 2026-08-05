@@ -235,7 +235,16 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 
 	exitErr := proc.Wait()
 	exitCode := exitCodeFromErr(exitErr)
-	success := exitCode != nil && *exitCode == 0
+	success := exitCode != nil && *exitCode == 0 && !r.IsError()
+
+	gateFailureReason := ""
+	if !success {
+		if r.IsError() && r.LastError() != "" {
+			gateFailureReason = r.LastError()
+		} else if exitCode != nil && *exitCode != 0 {
+			gateFailureReason = fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(exitCode))
+		}
+	}
 
 	capturedSID := r.CapturedSessionID()
 	if capturedSID != "" {
@@ -297,13 +306,14 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	}
 
 	return RunBeadResult{
-		SessionID:     resultSessionID,
-		FinalState:    finalState,
-		Success:       success,
-		ExitCode:      exitCode,
-		Usage:         usage,
-		FollowUpCount: followUpCount,
-		Nudged:        nudged,
+		SessionID:         resultSessionID,
+		FinalState:        finalState,
+		Success:           success,
+		ExitCode:          exitCode,
+		Usage:             usage,
+		FollowUpCount:     followUpCount,
+		Nudged:            nudged,
+		GateFailureReason: gateFailureReason,
 	}, nil
 }
 

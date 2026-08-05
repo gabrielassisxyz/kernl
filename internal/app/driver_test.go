@@ -387,6 +387,28 @@ func TestDriverRunsToCompletionWhenOneShotClaudeFinishesCleanly(t *testing.T) {
 	}
 }
 
+func TestDriverReportsFailureWhenPiStreamContainsErrorDespiteExitZero(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	spawn := &fakeSpawner{
+		script: `{"type":"session","version":3,"id":"019fc4ff-74ee-79d1-910b-734b253f6668"}` + "\n" +
+			`{"type":"message","id":"9d37a587","message":{"role":"assistant","stopReason":"error","errorMessage":"429: litellm.RateLimitError: Model rate limit exceeded"}}` + "\n" +
+			`{"type":"agent_settled"}` + "\n",
+	}
+	scm := newTestSCM()
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: scm, LogDir: t.TempDir()})
+
+	res, err := d.RunBead(context.Background(), RunBeadInput{
+		BeadID: "kb-1", RepoPath: t.TempDir(), Command: "pi", AgentName: "pi-kimi",
+	})
+
+	if err == nil {
+		t.Fatal("expected RunBead to return an error when pi stream reports a RateLimitError")
+	}
+	if res.Success {
+		t.Error("expected Success=false when pi stream reports a RateLimitError")
+	}
+}
+
 // An empty LogDir used to fall back to deriving one from os.Getenv("HOME")
 // inside openStageLogs, which made agent stdout/stderr logs land in the
 // operator's real ~/.kernl/logs from any caller (test or otherwise) that

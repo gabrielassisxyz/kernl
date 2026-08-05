@@ -741,6 +741,10 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				fmt.Errorf("KERNL DISPATCH FAILURE: agent %s for bead %s: %w", agentInput.AgentName, deps.BeadID, err)
 		}
 		if !res.Success {
+			reason := res.GateFailureReason
+			if reason == "" {
+				reason = fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(res.ExitCode))
+			}
 			if ledgerErr := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 				AgentID:           agentInput.AgentName,
 				Dialect:           attemptDialect,
@@ -756,15 +760,15 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				CommitSHA:         headSHA.HeadSHA(deps.Worktree),
 				Worktree:          deps.Worktree,
 				GatePassed:        false,
-				GateFailureReason: fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(res.ExitCode)),
+				GateFailureReason: reason,
 				FollowUpCount:     res.FollowUpCount,
 				Nudged:            res.Nudged,
 				Usage:             res.Usage,
 			})); ledgerErr != nil {
 				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 			}
-			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)
-			return RunBeadResult{FinalState: res.FinalState, Success: false}, nil
+			slog.Info("DRIVE_TRACE return agent-not-success", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState, "reason", reason)
+			return RunBeadResult{FinalState: res.FinalState, Success: false, GateFailureReason: reason}, nil
 		}
 		duration := time.Since(startTime)
 		slog.Info("DRIVE_TRACE post-spawn ok", "bead", deps.BeadID, "iter", i, "resFinalState", res.FinalState)

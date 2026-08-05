@@ -39,31 +39,33 @@ type PromptDeliveryHook struct {
 type OnTurnEndedFunc func(exitReason string) bool
 
 type SessionRuntime struct {
-	beadID            string
-	repoPath          string
-	capabilities      DialectCapabilities
-	dialect           string
-	events            chan TerminalEvent
-	resultObserved    bool
-	exitReason        string
-	isError           bool
-	lastEventType     string
-	lastStdoutAt      *time.Time
-	stdinClosed       bool
-	autoAnswered      map[string]bool
-	mu                sync.Mutex
-	cancel            context.CancelFunc
-	stdin             io.Writer
-	stdinMu           sync.Mutex
-	onTurnEnded       OnTurnEndedFunc
-	promptHooks       PromptDeliveryHook
-	inputCloseTimer   *time.Timer
-	lastTurnError     string
-	tokenLogger       TokenUsageLogger
-	capturedSessionID string
-	turnCount         int
-	turnCeilingHit    bool
-	drainWG           sync.WaitGroup
+	beadID             string
+	repoPath           string
+	capabilities       DialectCapabilities
+	dialect            string
+	events             chan TerminalEvent
+	resultObserved     bool
+	exitReason         string
+	isError            bool
+	lastEventType      string
+	lastStdoutAt       *time.Time
+	stdinClosed        bool
+	autoAnswered       map[string]bool
+	mu                 sync.Mutex
+	cancel             context.CancelFunc
+	stdin              io.Writer
+	stdinMu            sync.Mutex
+	onTurnEnded        OnTurnEndedFunc
+	promptHooks        PromptDeliveryHook
+	inputCloseTimer    *time.Timer
+	lastTurnError      string
+	piLastStopReason   string
+	piLastErrorMessage string
+	tokenLogger        TokenUsageLogger
+	capturedSessionID  string
+	turnCount          int
+	turnCeilingHit     bool
+	drainWG            sync.WaitGroup
 }
 
 // MaxTurnsPerDispatch is how many turn boundaries one dispatched agent may
@@ -742,8 +744,37 @@ func (r *SessionRuntime) processGeminiEvent(evtType string, obj map[string]any, 
 //
 // No error signal is derived: unlike claude's is_error or gemini's status,
 // pi's failure shape has not been observed on this stream, and inventing one
-// from the field names would make a stage that failed look like a stage that
-// finished.
+func extractPiStopReasonAndError(obj map[string]any) (string, string) {
+	if obj == nil {
+		return "", ""
+	}
+	var stopReason, errMsg string
+
+	// 1. Check top-level
+	if sr, ok := obj["stopReason"].(string); ok && sr != "" {
+		stopReason = sr
+	}
+	if em, ok := obj["errorMessage"].(string); ok && em != "" {
+		errMsg = em
+	} else if ev, ok := obj["error"].(string); ok && ev != "" {
+		errMsg = ev
+	}
+
+	// 2. Check nested "message" object
+	if msg, ok := obj["message"].(map[string]any); ok {
+		if sr, ok := msg["stopReason"].(string); ok && sr != "" {
+			stopReason = sr
+		}
+		if em, ok := msg["errorMessage"].(string); ok && em != "" {
+			errMsg = em
+		} else if ev, ok := msg["error"].(string); ok && ev != "" {
+			errMsg = ev
+		}
+	}
+
+	return stopReason, errMsg
+}
+
 func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawLine string, caps DialectCapabilities) {
 	if sid, _ := obj["id"].(string); sid != "" && evtType == "session" {
 		r.mu.Lock()
@@ -752,6 +783,34 @@ func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawL
 		}
 		r.mu.Unlock()
 	}
+
+	if sr, errMsg := extractPiStopReasonAndError(obj); sr != "" {
+		r.mu.Lock()
+		r.piLastStopReason = sr
+		switch sr {
+		case "stop":
+			r.isError = false
+			r.lastTurnError = ""
+		case "error":
+			if errMsg == "" {
+				errMsg = "pi stopReason=error"
+			}
+			r.piLastErrorMessage = errMsg
+			r.isError = true
+			r.lastTurnError = "pi agent_error: " + r.piLastErrorMessage
+		case "aborted":
+			r.isError = true
+			r.lastTurnError = "pi agent_aborted: session ended with stopReason=aborted"
+		case "toolUse":
+			r.isError = true
+			r.lastTurnError = "pi agent_incomplete: session ended unexpectedly mid-tool call (stopReason=toolUse)"
+		default:
+			r.isError = true
+			r.lastTurnError = fmt.Sprintf("pi agent_unknown: session ended with unrecognized stopReason=%q", sr)
+		}
+		r.mu.Unlock()
+	}
+
 	switch evtType {
 	case "agent_end":
 		r.mu.Lock()
