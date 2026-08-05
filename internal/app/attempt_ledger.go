@@ -128,6 +128,7 @@ type StageAttemptRecord struct {
 	CacheWriteTokens *int64   `json:"cacheWriteTokens"`
 	ReasoningTokens  *int64   `json:"reasoningTokens"`
 	CostUSD          *float64 `json:"costUSD"`
+	CostSource       string   `json:"costSource,omitempty"`
 	Turns            *int64   `json:"turns"`
 }
 

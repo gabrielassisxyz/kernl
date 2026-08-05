@@ -355,6 +355,9 @@ func readAttemptLedgers(paths []string) (records []StageAttemptRecord, dangling 
 		if validSize != int64(len(data)) {
 			dangling = append(dangling, path)
 		}
+		for i := range parsed {
+			DeriveAttemptCost(&parsed[i])
+		}
 		records = append(records, parsed...)
 	}
 	return records, dangling, nil
