@@ -89,6 +89,7 @@ type AgentAttemptStats struct {
 	ReworkTokenObservations int
 	ReworkCostUSD           *float64
 	ReworkCostObservations  int
+	ReworkCostIsCeiling     bool
 
 	// BeadsStopped counts the beads whose last recorded attempt failed its
 	// gate: the run got no further and someone has to look. It is the other
@@ -400,6 +401,9 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 			if r.CostUSD != nil {
 				reworkCost += *r.CostUSD
 				stats.ReworkCostObservations++
+				if r.CostSource == "derived_ceiling" {
+					stats.ReworkCostIsCeiling = true
+				}
 			}
 		}
 		durations = append(durations, float64(r.DurationMs))

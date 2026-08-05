@@ -69,9 +69,9 @@ func NormalizeModel(rawModel, agentID string) string {
 type PiSessionUsage struct {
 	InputTokens      int64
 	OutputTokens     int64
-	CacheReadTokens  int64
-	CacheWriteTokens int64
-	ReasoningTokens  int64
+	CacheReadTokens  *int64
+	CacheWriteTokens *int64
+	ReasoningTokens  *int64
 }
 
 // ReadPiSessionUsage reads a pi session log matching sessionID under ~/.pi/agent/sessions/
@@ -106,7 +106,10 @@ func ReadPiSessionUsageInDir(sessionsDir, sessionID string) (*PiSessionUsage, er
 	defer f.Close()
 
 	var usage PiSessionUsage
+	var creadSum, cwriteSum, reasSum int64
+	var sawCread, sawCwrite, sawReas bool
 	var found bool
+
 	dec := json.NewDecoder(f)
 	for {
 		var row map[string]any
@@ -130,13 +133,16 @@ func ReadPiSessionUsageInDir(sessionsDir, sessionID string) (*PiSessionUsage, er
 						found = true
 					}
 					if cread, ok := uObj["cacheRead"].(float64); ok && cread >= 0 {
-						usage.CacheReadTokens += int64(cread)
+						creadSum += int64(cread)
+						sawCread = true
 					}
 					if cwrite, ok := uObj["cacheWrite"].(float64); ok && cwrite >= 0 {
-						usage.CacheWriteTokens += int64(cwrite)
+						cwriteSum += int64(cwrite)
+						sawCwrite = true
 					}
 					if reas, ok := uObj["reasoning"].(float64); ok && reas >= 0 {
-						usage.ReasoningTokens += int64(reas)
+						reasSum += int64(reas)
+						sawReas = true
 					}
 				}
 			}
@@ -144,6 +150,15 @@ func ReadPiSessionUsageInDir(sessionsDir, sessionID string) (*PiSessionUsage, er
 	}
 	if !found {
 		return nil, nil
+	}
+	if sawCread {
+		usage.CacheReadTokens = &creadSum
+	}
+	if sawCwrite {
+		usage.CacheWriteTokens = &cwriteSum
+	}
+	if sawReas {
+		usage.ReasoningTokens = &reasSum
 	}
 	return &usage, nil
 }
@@ -162,8 +177,9 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 		return
 	}
 
-	// 2. If tokens are missing and sessionID is available, try reading pi session usage logs.
-	if (rec.InputTokens == nil || rec.OutputTokens == nil) && rec.SessionID != "" {
+	// 2. If tokens are missing or zero (0/0 placeholder), try reading pi session usage logs.
+	tokensMissing := rec.InputTokens == nil || rec.OutputTokens == nil || (*rec.InputTokens == 0 && *rec.OutputTokens == 0)
+	if tokensMissing && rec.SessionID != "" {
 		if rec.AgentID == "pi-kimi" || rec.Dialect == "pi" {
 			var piUsage *PiSessionUsage
 			if customPiSessionsDir != "" {
@@ -174,9 +190,9 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 			if piUsage != nil {
 				rec.InputTokens = &piUsage.InputTokens
 				rec.OutputTokens = &piUsage.OutputTokens
-				rec.CacheReadTokens = &piUsage.CacheReadTokens
-				rec.CacheWriteTokens = &piUsage.CacheWriteTokens
-				rec.ReasoningTokens = &piUsage.ReasoningTokens
+				rec.CacheReadTokens = piUsage.CacheReadTokens
+				rec.CacheWriteTokens = piUsage.CacheWriteTokens
+				rec.ReasoningTokens = piUsage.ReasoningTokens
 			}
 		}
 	}
@@ -188,8 +204,8 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 	}
 	modelID := NormalizeModel(rawModel, rec.AgentID)
 
-	// 4. Missing tokens or unknown model yield unavailable (never 0).
-	if rec.InputTokens == nil || rec.OutputTokens == nil || modelID == "" {
+	// 4. Missing tokens, zero tokens, or unknown model yield unavailable (never 0).
+	if rec.InputTokens == nil || rec.OutputTokens == nil || (*rec.InputTokens == 0 && *rec.OutputTokens == 0) || modelID == "" {
 		rec.CostUSD = nil
 		rec.CostSource = "unavailable"
 		return
@@ -216,5 +232,12 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 
 	cost := (inp*price.InputPerM + out*price.OutputPerM + cread*price.CacheReadPerM + cwrite*price.CacheWritePerM) / 1000000.0
 	rec.CostUSD = &cost
-	rec.CostSource = "derived"
+
+	// 6. Distinguish between derived (cache read accounted for) and derived_ceiling (cache read unobservable).
+	// Dialect "pi" / agent "pi-kimi" / missing cacheReadTokens mean cache read is not reported by the provider.
+	if rec.CacheReadTokens == nil || rec.Dialect == "pi" || rec.AgentID == "pi-kimi" {
+		rec.CostSource = "derived_ceiling"
+	} else {
+		rec.CostSource = "derived"
+	}
 }

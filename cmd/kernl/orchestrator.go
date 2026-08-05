@@ -344,6 +344,7 @@ type orchestratorStatsAgent struct {
 	ReworkTokenObservations     int            `json:"reworkTokenObservations"`
 	ReworkCostUSD               *float64       `json:"reworkCostUSD"`
 	ReworkCostObservations      int            `json:"reworkCostObservations"`
+	ReworkCostIsCeiling         bool           `json:"reworkCostIsCeiling,omitempty"`
 	BeadsStopped                int            `json:"beadsStopped"`
 	BeadsImplemented            int            `json:"beadsImplemented"`
 	BeadsStoppedRate            *float64       `json:"beadsStoppedRate"`
@@ -379,6 +380,7 @@ func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResu
 			ReworkTokenObservations:     s.ReworkTokenObservations,
 			ReworkCostUSD:               s.ReworkCostUSD,
 			ReworkCostObservations:      s.ReworkCostObservations,
+			ReworkCostIsCeiling:         s.ReworkCostIsCeiling,
 			BeadsStopped:                s.BeadsStopped,
 			BeadsImplemented:            s.BeadsImplemented,
 			BeadsStoppedRate:            s.BeadsStoppedRate,
@@ -539,7 +541,7 @@ func printReworkTable(w io.Writer, result app.AttemptStatsResult) error {
 			formatRate(s.ReworkGatePassRate, s.ReworkGateObservations),
 			(time.Duration(s.ReworkDurationMs) * time.Millisecond).Round(time.Second).String(),
 			formatReworkTokens(s.ReworkOutputTokens, s.ReworkTokenObservations),
-			formatReworkCost(s.ReworkCostUSD, s.ReworkCostObservations),
+			formatReworkCost(s.ReworkCostUSD, s.ReworkCostObservations, s.ReworkCostIsCeiling),
 		)
 	}
 	if err := tw.Flush(); err != nil {
@@ -559,9 +561,12 @@ func formatReworkTokens(tokens *int64, n int) string {
 	return fmt.Sprintf("%d  (n=%d)", *tokens, n)
 }
 
-func formatReworkCost(cost *float64, n int) string {
+func formatReworkCost(cost *float64, n int, isCeiling bool) string {
 	if cost == nil {
 		return fmt.Sprintf("-  (n=%d)", n)
+	}
+	if isCeiling {
+		return fmt.Sprintf("$%.4f  (n=%d, ceiling)", *cost, n)
 	}
 	return fmt.Sprintf("$%.4f  (n=%d)", *cost, n)
 }
