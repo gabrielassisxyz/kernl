@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -53,9 +54,18 @@ the review-rejection rate above. An attempt that merely follows a rejection
 without redoing anything (a review re-running on unchanged work, a stage
 running for the first time) is not counted.
 
+A third table reports stopped beads: the ones whose last attempt failed its
+gate, so the run got no further and a person has to look. That is the cost
+that leaves a day rather than a quota, and it is broken down by what
+actually failed - a bead rejected twice and one that never produced a commit
+are different problems with different fixes. It is a snapshot: a bead that
+runs again stops counting, and one repaired by hand outside kernl leaves no
+row, so it undercounts, most for the oldest runs.
+
 Every rate and median is nil (printed as "-") when the ledger never
 measured it for that group - never a fabricated zero. The row alongside it
-says how many observations the number covers.
+says how many observations the number covers, which is what makes a rate
+over sixteen beads legible next to one over three.
 
 This command only reports. It never edits kernl.yaml or reweights a pool -
 that stays a human decision made with kernl settings.
@@ -315,25 +325,29 @@ type orchestratorStatsOutput struct {
 }
 
 type orchestratorStatsAgent struct {
-	AgentID                     string   `json:"agentId"`
-	Attempts                    int      `json:"attempts"`
-	FirstPassGateRate           *float64 `json:"firstPassGateRate"`
-	FirstPassGateObservations   int      `json:"firstPassGateObservations"`
-	ReviewRejectionRate         *float64 `json:"reviewRejectionRate"`
-	ReviewRejectionObservations int      `json:"reviewRejectionObservations"`
-	MedianDurationMs            *float64 `json:"medianDurationMs"`
-	DurationObservations        int      `json:"durationObservations"`
-	MedianDiffLines             *float64 `json:"medianDiffLines"`
-	DiffObservations            int      `json:"diffObservations"`
-	ReworkAttempts              int      `json:"reworkAttempts"`
-	ReworkRate                  *float64 `json:"reworkRate"`
-	ReworkGatePassRate          *float64 `json:"reworkGatePassRate"`
-	ReworkGateObservations      int      `json:"reworkGateObservations"`
-	ReworkDurationMs            int64    `json:"reworkDurationMs"`
-	ReworkOutputTokens          *int64   `json:"reworkOutputTokens"`
-	ReworkTokenObservations     int      `json:"reworkTokenObservations"`
-	ReworkCostUSD               *float64 `json:"reworkCostUSD"`
-	ReworkCostObservations      int      `json:"reworkCostObservations"`
+	AgentID                     string         `json:"agentId"`
+	Attempts                    int            `json:"attempts"`
+	FirstPassGateRate           *float64       `json:"firstPassGateRate"`
+	FirstPassGateObservations   int            `json:"firstPassGateObservations"`
+	ReviewRejectionRate         *float64       `json:"reviewRejectionRate"`
+	ReviewRejectionObservations int            `json:"reviewRejectionObservations"`
+	MedianDurationMs            *float64       `json:"medianDurationMs"`
+	DurationObservations        int            `json:"durationObservations"`
+	MedianDiffLines             *float64       `json:"medianDiffLines"`
+	DiffObservations            int            `json:"diffObservations"`
+	ReworkAttempts              int            `json:"reworkAttempts"`
+	ReworkRate                  *float64       `json:"reworkRate"`
+	ReworkGatePassRate          *float64       `json:"reworkGatePassRate"`
+	ReworkGateObservations      int            `json:"reworkGateObservations"`
+	ReworkDurationMs            int64          `json:"reworkDurationMs"`
+	ReworkOutputTokens          *int64         `json:"reworkOutputTokens"`
+	ReworkTokenObservations     int            `json:"reworkTokenObservations"`
+	ReworkCostUSD               *float64       `json:"reworkCostUSD"`
+	ReworkCostObservations      int            `json:"reworkCostObservations"`
+	BeadsStopped                int            `json:"beadsStopped"`
+	BeadsImplemented            int            `json:"beadsImplemented"`
+	BeadsStoppedRate            *float64       `json:"beadsStoppedRate"`
+	StoppedByReason             map[string]int `json:"stoppedByReason"`
 }
 
 func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResult) orchestratorStatsOutput {
@@ -365,6 +379,10 @@ func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResu
 			ReworkTokenObservations:     s.ReworkTokenObservations,
 			ReworkCostUSD:               s.ReworkCostUSD,
 			ReworkCostObservations:      s.ReworkCostObservations,
+			BeadsStopped:                s.BeadsStopped,
+			BeadsImplemented:            s.BeadsImplemented,
+			BeadsStoppedRate:            s.BeadsStoppedRate,
+			StoppedByReason:             s.StoppedByReason,
 		})
 	}
 	return out
@@ -401,8 +419,87 @@ func printOrchestratorStatsTable(w io.Writer, result app.AttemptStatsResult) err
 		if err := printReworkTable(w, result); err != nil {
 			return err
 		}
+		if err := printStoppedTable(w, result); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// printStoppedTable reports the beads that ended on a failed gate: the cost
+// that is not paid in quota. Rework is an agent fixing its own work; a stop is
+// a person's day, and an agent that is cheaper per token and stops more often
+// looks better in every other column on this report while being worse to live
+// with.
+//
+// The breakdown by reason is printed beside the rate rather than folded into
+// it, because the two failures it separates are not the same problem: a bead
+// rejected twice produced work that was judged and sent back, while one that
+// never emitted a commit marker produced nothing on its first and only
+// attempt. Reading the total alone turns the second into evidence about the
+// first.
+func printStoppedTable(w io.Writer, result app.AttemptStatsResult) error {
+	total := 0
+	for _, s := range result.Agents {
+		total += s.BeadsStopped
+	}
+
+	fmt.Fprintln(w)
+	if total == 0 {
+		fmt.Fprintln(w, "stopped: every bead in this window ended on a gate that passed")
+		return nil
+	}
+
+	fmt.Fprintln(w, "stopped - beads whose last attempt failed its gate, so the run got no")
+	fmt.Fprintln(w, "further and a person has to look. Charged to whoever produced the work:")
+	fmt.Fprintln(w)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "AGENT\tSTOPPED\tOF BEADS WORKED\tWHY")
+	for _, s := range result.Agents {
+		if s.BeadsStopped == 0 {
+			continue
+		}
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\n",
+			s.AgentID, s.BeadsStopped,
+			formatRate(s.BeadsStoppedRate, s.BeadsImplemented),
+			formatStopReasons(s.StoppedByReason),
+		)
+	}
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: writing orchestrator stopped table: %w", err)
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "A stop is what the ledger can see now: a bead that runs again stops counting,")
+	fmt.Fprintln(w, "and one repaired by hand outside kernl leaves no row at all, so this")
+	fmt.Fprintln(w, "undercounts - most for the oldest runs. Read the rates as directional and")
+	fmt.Fprintln(w, "look at the n= before quoting one.")
+	return nil
+}
+
+// formatStopReasons renders the breakdown deterministically - map order would
+// otherwise shuffle two reports of the same data and make them impossible to
+// diff, the same reason configuredBinaries sorts its agent ids.
+func formatStopReasons(byReason map[string]int) string {
+	if len(byReason) == 0 {
+		return "-"
+	}
+	reasons := make([]string, 0, len(byReason))
+	for reason := range byReason {
+		reasons = append(reasons, reason)
+	}
+	sort.Slice(reasons, func(i, j int) bool {
+		if byReason[reasons[i]] != byReason[reasons[j]] {
+			return byReason[reasons[i]] > byReason[reasons[j]]
+		}
+		return reasons[i] < reasons[j]
+	})
+	parts := make([]string, 0, len(reasons))
+	for _, reason := range reasons {
+		parts = append(parts, fmt.Sprintf("%s %d", reason, byReason[reason]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // printReworkTable reports what redoing rejected work cost, in a table of its

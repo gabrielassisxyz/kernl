@@ -539,3 +539,163 @@ func TestAggregateAttemptStats_NoRejectionMeansZeroReworkNotUnmeasured(t *testin
 		t.Errorf("ReworkGatePassRate = %v, want nil - there was no redo to recover", *claude.ReworkGatePassRate)
 	}
 }
+
+// --- stopped beads: the cost that leaves a person's day rather than a quota ---
+
+func TestAggregateAttemptStats_AStoppedBeadIsChargedToWhoeverProducedTheWork(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+	verdict := "REJECT"
+
+	// bead-1: the implementer works, the reviewer rejects, and nothing runs
+	// after - the bead is sitting there waiting for a person.
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "pi-kimi", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: time.Second, GatePassed: true,
+	})
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "codex", BeadID: "bead-1", Stage: "implementation_review",
+		StartedAt: now.Add(time.Minute), Duration: time.Second, GatePassed: false,
+		GateFailureReason: "verdict_reject: /artifacts/implementation-review.md",
+		ReviewVerdict:     &verdict,
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+
+	kimi := agentByID(t, result, "pi-kimi")
+	if kimi.BeadsStopped != 1 {
+		t.Errorf("BeadsStopped = %d, want 1 - the work that was not accepted is the implementer's", kimi.BeadsStopped)
+	}
+	if kimi.StoppedByReason["verdict_reject"] != 1 {
+		t.Errorf("StoppedByReason = %v, want one verdict_reject", kimi.StoppedByReason)
+	}
+	if kimi.BeadsImplemented != 1 || kimi.BeadsStoppedRate == nil || *kimi.BeadsStoppedRate != 1 {
+		t.Errorf("rate = %v over %d beads, want 1/1", kimi.BeadsStoppedRate, kimi.BeadsImplemented)
+	}
+
+	codex := agentByID(t, result, "codex")
+	if codex.BeadsStopped != 0 {
+		t.Errorf("codex BeadsStopped = %d, want 0 - it judged the work, it did not produce it", codex.BeadsStopped)
+	}
+	// A pure reviewer has no denominator, so it has no rate - not a zero,
+	// which would read as "it worked beads and never stopped one".
+	if codex.BeadsImplemented != 0 || codex.BeadsStoppedRate != nil {
+		t.Errorf("codex rate = %v over %d beads, want no rate at all", codex.BeadsStoppedRate, codex.BeadsImplemented)
+	}
+}
+
+// A stop at a stage that is not implementation still belongs to the agent
+// that ran it, and its denominator has to include that bead - otherwise the
+// numerator is drawn from a population the denominator does not contain, and
+// an agent that only ever integrated reads as one stop out of zero beads.
+func TestAggregateAttemptStats_TheDenominatorCoversEveryStageThatProducesWork(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "epic-a", Stage: "integration",
+		StartedAt: now, Duration: time.Second, GatePassed: false,
+		GateFailureReason: "commit_marker_missing: integration",
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	claude := agentByID(t, result, "claude")
+	if claude.BeadsImplemented != 1 {
+		t.Errorf("BeadsImplemented = %d, want 1 - integration produces work too", claude.BeadsImplemented)
+	}
+	if claude.StoppedByReason["commit_marker_missing"] != 1 {
+		t.Errorf("StoppedByReason = %v, want one commit_marker_missing", claude.StoppedByReason)
+	}
+}
+
+// A bead that ran again is not stopped any more. The number is a snapshot of
+// what is sitting there now, not a count of every time something failed.
+func TestAggregateAttemptStats_ABeadThatRanAgainIsNoLongerStopped(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: time.Second, GatePassed: false,
+		GateFailureReason: "commit_marker_missing: implementation",
+	})
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now.Add(time.Minute), Duration: time.Second, GatePassed: true,
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	claude := agentByID(t, result, "claude")
+	if claude.BeadsStopped != 0 {
+		t.Errorf("BeadsStopped = %d, want 0 - the bead moved on", claude.BeadsStopped)
+	}
+	if claude.BeadsStoppedRate == nil || *claude.BeadsStoppedRate != 0 {
+		t.Errorf("rate = %v, want 0 over one bead worked", claude.BeadsStoppedRate)
+	}
+}
+
+// The breakdown separates two failures with different fixes: work that was
+// judged and sent back, and work that never produced a commit at all. A total
+// that merges them reads the second as evidence about the first.
+func TestAggregateAttemptStats_StopsAreBrokenDownByWhatFailed(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+
+	for i, bead := range []string{"bead-1", "bead-2"} {
+		writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+			AgentID: "pi-kimi", BeadID: bead, Stage: "implementation",
+			StartedAt: now.Add(time.Duration(i) * time.Minute), Duration: time.Second,
+			GatePassed: false, GateFailureReason: "commit_marker_missing: implementation",
+		})
+	}
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "pi-kimi", BeadID: "bead-3", Stage: "implementation",
+		StartedAt: now.Add(2 * time.Minute), Duration: time.Second, GatePassed: true,
+	})
+	verdict := "REJECT"
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "codex", BeadID: "bead-3", Stage: "implementation_review",
+		StartedAt: now.Add(3 * time.Minute), Duration: time.Second, GatePassed: false,
+		GateFailureReason: "verdict_reject: /artifacts/implementation-review.md",
+		ReviewVerdict:     &verdict,
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	kimi := agentByID(t, result, "pi-kimi")
+	if kimi.BeadsStopped != 3 {
+		t.Fatalf("BeadsStopped = %d, want 3", kimi.BeadsStopped)
+	}
+	if kimi.StoppedByReason["commit_marker_missing"] != 2 || kimi.StoppedByReason["verdict_reject"] != 1 {
+		t.Errorf("StoppedByReason = %v, want 2 commit_marker_missing and 1 verdict_reject", kimi.StoppedByReason)
+	}
+}
+
+// A failed attempt that recorded no reason is a gap in the record, not a
+// category of failure - and must not be silently folded into a real one.
+func TestAggregateAttemptStats_AStopWithNoRecordedReasonIsNamedUnknown(t *testing.T) {
+	stateDir := t.TempDir()
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, GatePassed: false,
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	if got := agentByID(t, result, "claude").StoppedByReason; got["unknown"] != 1 {
+		t.Errorf("StoppedByReason = %v, want one unknown", got)
+	}
+}

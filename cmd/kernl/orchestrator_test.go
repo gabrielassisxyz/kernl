@@ -619,3 +619,89 @@ func TestOrchestratorBackfillReworkJSON(t *testing.T) {
 		t.Errorf("unexpected document: %+v", out)
 	}
 }
+
+// --- stopped beads ---
+
+func TestOrchestratorStatsStoppedTableCarriesADenominatorAndTheReason(t *testing.T) {
+	home := orchestratorTestHome(t)
+	now := time.Now()
+
+	// Two beads worked by the same agent; one of them stops.
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "pi-kimi", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: time.Second, GatePassed: false,
+		GateFailureReason: "commit_marker_missing: implementation",
+	})
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "pi-kimi", BeadID: "bead-2", Stage: "implementation",
+		StartedAt: now.Add(time.Minute), Duration: time.Second, GatePassed: true,
+	})
+
+	var buf bytes.Buffer
+	if err := runOrchestratorStats(&buf, nil); err != nil {
+		t.Fatalf("runOrchestratorStats: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "OF BEADS WORKED") {
+		t.Errorf("the stopped table must carry a denominator column, got: %q", out)
+	}
+	// One stop out of two beads worked, with the population visible: a bare
+	// "1" is not comparable to another agent's "8".
+	if !strings.Contains(out, "50%  (n=2)") {
+		t.Errorf("the rate must be printed over the beads worked, got: %q", out)
+	}
+	if !strings.Contains(out, "commit_marker_missing 1") {
+		t.Errorf("the breakdown by reason must be printed, got: %q", out)
+	}
+	if !strings.Contains(out, "directional") {
+		t.Errorf("the output must say the rates are directional, got: %q", out)
+	}
+}
+
+func TestOrchestratorStatsSaysWhenNothingStopped(t *testing.T) {
+	home := orchestratorTestHome(t)
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, GatePassed: true,
+	})
+
+	var buf bytes.Buffer
+	if err := runOrchestratorStats(&buf, nil); err != nil {
+		t.Fatalf("runOrchestratorStats: %v", err)
+	}
+	if !strings.Contains(buf.String(), "ended on a gate that passed") {
+		t.Errorf("a clean window must say so rather than printing an empty table, got: %q", buf.String())
+	}
+}
+
+func TestOrchestratorStatsStoppedReachesJSON(t *testing.T) {
+	home := orchestratorTestHome(t)
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "pi-kimi", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, GatePassed: false,
+		GateFailureReason: "commit_marker_missing: implementation",
+	})
+
+	var buf bytes.Buffer
+	if err := runOrchestratorStats(&buf, []string{"--json"}); err != nil {
+		t.Fatalf("runOrchestratorStats --json: %v", err)
+	}
+	var out orchestratorStatsOutput
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("not valid JSON: %v (%s)", err, buf.String())
+	}
+	if len(out.Agents) != 1 {
+		t.Fatalf("expected one agent, got %+v", out.Agents)
+	}
+	a := out.Agents[0]
+	if a.BeadsStopped != 1 || a.BeadsImplemented != 1 {
+		t.Errorf("beadsStopped/beadsImplemented = %d/%d, want 1/1", a.BeadsStopped, a.BeadsImplemented)
+	}
+	if a.StoppedByReason["commit_marker_missing"] != 1 {
+		t.Errorf("stoppedByReason = %v, want one commit_marker_missing", a.StoppedByReason)
+	}
+	if a.BeadsStoppedRate == nil {
+		t.Error("beadsStoppedRate must be present when the agent worked a bead")
+	}
+}

@@ -402,9 +402,18 @@ the review-rejection rate above. An attempt that merely follows a rejection
 without redoing anything (a review re-running on unchanged work, a stage
 running for the first time) is not counted.
 
+A third table reports stopped beads: the ones whose last attempt failed its
+gate, so the run got no further and a person has to look. That is the cost
+that leaves a day rather than a quota, and it is broken down by what
+actually failed - a bead rejected twice and one that never produced a commit
+are different problems with different fixes. It is a snapshot: a bead that
+runs again stops counting, and one repaired by hand outside kernl leaves no
+row, so it undercounts, most for the oldest runs.
+
 Every rate and median is nil (printed as "-") when the ledger never
 measured it for that group - never a fabricated zero. The row alongside it
-says how many observations the number covers.
+says how many observations the number covers, which is what makes a rate
+over sixteen beads legible next to one over three.
 
 This command only reports. It never edits kernl.yaml or reweights a pool -
 that stays a human decision made with kernl settings.

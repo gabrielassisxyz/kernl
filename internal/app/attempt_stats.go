@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -88,6 +89,34 @@ type AgentAttemptStats struct {
 	ReworkTokenObservations int
 	ReworkCostUSD           *float64
 	ReworkCostObservations  int
+
+	// BeadsStopped counts the beads whose last recorded attempt failed its
+	// gate: the run got no further and someone has to look. It is the other
+	// half of what a rejection costs, and the half that is not paid in quota
+	// - rework is the agent fixing its own work, this is a person's day.
+	//
+	// Charged like rework, to whoever produced the work rather than to
+	// whoever judged it: a review stage that fails is the reviewer's row, so
+	// the stop goes to the implementer of the attempt it was judging.
+	BeadsStopped int
+	// BeadsImplemented is the denominator: distinct beads this agent
+	// produced work on (any stage that is not a review). A count of stops
+	// with no denominator is not comparable between agents - eight stops out
+	// of sixteen beads and one out of one are not the same fact - and the
+	// two populations must match, which is why this counts beads the agent
+	// worked rather than beads it merely touched: a stop can only ever be
+	// charged to an agent that produced something.
+	BeadsImplemented int
+	// BeadsStoppedRate is BeadsStopped over BeadsImplemented, nil when the
+	// agent produced work on nothing (a pure reviewer).
+	BeadsStoppedRate *float64
+	// StoppedByReason breaks the stops down by the gate that failed, keyed
+	// by the reason's prefix (commit_marker_missing, verdict_reject,
+	// fork_gate, ...). It is the result rather than a detail: "stopped
+	// because a reviewer rejected it twice" and "stopped without ever
+	// producing a commit" are different failures with different fixes, and a
+	// single total hides which one an agent actually has.
+	StoppedByReason map[string]int
 }
 
 // AttemptLedgerPaths lists every stage-attempt ledger file across every epic
@@ -180,11 +209,120 @@ func AggregateAttemptStats(stateDir, stage string, since time.Time) (AttemptStat
 	}
 	sort.Strings(agentIDs)
 
+	stopped, implemented := computeBeadOutcomes(records, byAgent)
+
 	stats := make([]AgentAttemptStats, 0, len(agentIDs))
 	for _, id := range agentIDs {
-		stats = append(stats, computeAgentAttemptStats(id, byAgent[id]))
+		agent := computeAgentAttemptStats(id, byAgent[id])
+		agent.BeadsImplemented = implemented[id]
+		agent.StoppedByReason = stopped[id]
+		for _, n := range stopped[id] {
+			agent.BeadsStopped += n
+		}
+		if agent.BeadsImplemented > 0 {
+			rate := float64(agent.BeadsStopped) / float64(agent.BeadsImplemented)
+			agent.BeadsStoppedRate = &rate
+		}
+		stats = append(stats, agent)
 	}
 	return AttemptStatsResult{Agents: stats, DanglingLedgers: dangling}, nil
+}
+
+// isReviewStage reports whether a stage judges work rather than producing it.
+// The project's workflows name every such stage <thing>_review (plan_review,
+// implementation_review, integration_review, shipment_review), and this reads
+// that convention rather than listing the four: a custom workflow that follows
+// it is classified correctly without being enumerated here.
+func isReviewStage(stage string) bool {
+	return strings.HasSuffix(stage, "_review")
+}
+
+// computeBeadOutcomes answers, per agent, which beads it produced work on and
+// which of those ended on a failed gate - the two halves of the stopped rate,
+// computed together so the numerator can never be drawn from a population the
+// denominator does not contain.
+//
+// A bead is "stopped" when its LAST recorded attempt failed. That is a
+// snapshot, not a lifetime count: a bead that runs again stops counting the
+// moment its next row lands. It also cannot see a bead someone repaired by
+// hand outside kernl - the ledger records what kernl ran, and a manual rescue
+// leaves no row - so this undercounts, and undercounts older runs most. The
+// tracker's own bead status is what would close that gap; the ledger cannot.
+func computeBeadOutcomes(records []StageAttemptRecord, byAgent map[string][]StageAttemptRecord) (stopped map[string]map[string]int, implemented map[string]int) {
+	stopped = map[string]map[string]int{}
+	implemented = map[string]int{}
+
+	// Only rows that survived the caller's stage/time filter take part, so a
+	// windowed report describes the window rather than quietly reading rows
+	// it excluded from every other number.
+	kept := map[string]bool{}
+	for agentID, rows := range byAgent {
+		for range rows {
+			kept[agentID] = true
+		}
+	}
+
+	byBead := map[string][]StageAttemptRecord{}
+	order := []string{}
+	for _, rec := range records {
+		if !kept[rec.AgentID] {
+			continue
+		}
+		key := rec.EpicID + "\x00" + rec.BeadID
+		if _, seen := byBead[key]; !seen {
+			order = append(order, key)
+		}
+		byBead[key] = append(byBead[key], rec)
+	}
+
+	for _, key := range order {
+		rows := byBead[key]
+		producers := map[string]bool{}
+		for _, r := range rows {
+			if !isReviewStage(r.Stage) {
+				producers[r.AgentID] = true
+			}
+		}
+		for agentID := range producers {
+			implemented[agentID]++
+		}
+
+		last := rows[len(rows)-1]
+		if last.GatePassed {
+			continue
+		}
+		culprit := last.AgentID
+		if isReviewStage(last.Stage) {
+			// The row belongs to the reviewer; the bead stopped because the
+			// work it was judging was not accepted. Walk back to the attempt
+			// that produced that work.
+			for i := len(rows) - 2; i >= 0; i-- {
+				if rows[i].Stage != last.Stage {
+					culprit = rows[i].AgentID
+					break
+				}
+			}
+		}
+		if stopped[culprit] == nil {
+			stopped[culprit] = map[string]int{}
+		}
+		stopped[culprit][gateFailureCategory(last.GateFailureReason)]++
+	}
+	return stopped, implemented
+}
+
+// gateFailureCategory is the part of a gate reason before its colon - the
+// kind of failure, without the artifact path that makes every instance
+// unique. "unknown" covers a failed attempt that recorded no reason at all,
+// which is a gap in the record rather than a category of failure.
+func gateFailureCategory(reason *string) string {
+	if reason == nil || *reason == "" {
+		return "unknown"
+	}
+	if idx := strings.IndexByte(*reason, ':'); idx != -1 {
+		return (*reason)[:idx]
+	}
+	return *reason
 }
 
 // readAttemptLedgers reads and parses every ledger file named by paths.
