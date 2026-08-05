@@ -13,30 +13,33 @@ import (
 const PriceTableDate = "2026-08-05"
 
 // DefaultCacheShare is the measured floor of request turn gaps <=60s for Ollama Cloud (96%).
+// Derived as the fraction of turns whose interval to the previous request in the same session
+// is <=60s (measured over LiteLLM_SpendLogs, where Ollama Cloud prefix caching applies).
 // Used to compute the estimated lower bound for derived_ceiling costs where the provider
 // does not report cached_tokens.
 const DefaultCacheShare = 0.96
 
-// ModelPrice defines rates per 1,000,000 tokens (in USD).
+// ModelPrice defines rates per 1,000,000 tokens (in USD) and whether the provider reports cache tokens.
 type ModelPrice struct {
-	InputPerM      float64
-	OutputPerM     float64
-	CacheReadPerM  float64
-	CacheWritePerM float64
+	InputPerM          float64
+	OutputPerM         float64
+	CacheReadPerM      float64
+	CacheWritePerM     float64
+	ReportsCacheTokens bool
 }
 
 // DefaultModelPrices contains the pricing table resolved on PriceTableDate (2026-08-05).
 // Sources: tokscale pricing (OpenRouter for moonshot/z-ai, LiteLLM for deepseek/anthropic/openai).
 var DefaultModelPrices = map[string]ModelPrice{
-	"kimi-k2.7":         {InputPerM: 0.95, OutputPerM: 4.00, CacheReadPerM: 0.19, CacheWritePerM: 0.0},
-	"kimi-k2.6":         {InputPerM: 0.95, OutputPerM: 4.00, CacheReadPerM: 0.16, CacheWritePerM: 0.0},
-	"glm-5.2":           {InputPerM: 1.40, OutputPerM: 4.40, CacheReadPerM: 0.26, CacheWritePerM: 0.0},
-	"glm-5.1":           {InputPerM: 1.40, OutputPerM: 4.40, CacheReadPerM: 0.26, CacheWritePerM: 0.0},
-	"deepseek-v4-pro":   {InputPerM: 0.43, OutputPerM: 0.87, CacheReadPerM: 0.00, CacheWritePerM: 0.0},
-	"deepseek-v4-flash": {InputPerM: 0.14, OutputPerM: 0.28, CacheReadPerM: 0.00, CacheWritePerM: 0.0},
-	"gpt-5.6-sol":       {InputPerM: 5.00, OutputPerM: 30.00, CacheReadPerM: 0.50, CacheWritePerM: 6.25},
-	"claude-opus-5":     {InputPerM: 5.00, OutputPerM: 25.00, CacheReadPerM: 0.50, CacheWritePerM: 6.25},
-	"claude-sonnet-5":   {InputPerM: 2.00, OutputPerM: 10.00, CacheReadPerM: 0.20, CacheWritePerM: 2.50},
+	"kimi-k2.7":         {InputPerM: 0.95, OutputPerM: 4.00, CacheReadPerM: 0.19, CacheWritePerM: 0.0, ReportsCacheTokens: false},
+	"kimi-k2.6":         {InputPerM: 0.95, OutputPerM: 4.00, CacheReadPerM: 0.16, CacheWritePerM: 0.0, ReportsCacheTokens: false},
+	"glm-5.2":           {InputPerM: 1.40, OutputPerM: 4.40, CacheReadPerM: 0.26, CacheWritePerM: 0.0, ReportsCacheTokens: false},
+	"glm-5.1":           {InputPerM: 1.40, OutputPerM: 4.40, CacheReadPerM: 0.26, CacheWritePerM: 0.0, ReportsCacheTokens: false},
+	"deepseek-v4-pro":   {InputPerM: 0.43, OutputPerM: 0.87, CacheReadPerM: 0.00, CacheWritePerM: 0.0, ReportsCacheTokens: false},
+	"deepseek-v4-flash": {InputPerM: 0.14, OutputPerM: 0.28, CacheReadPerM: 0.00, CacheWritePerM: 0.0, ReportsCacheTokens: false},
+	"gpt-5.6-sol":       {InputPerM: 5.00, OutputPerM: 30.00, CacheReadPerM: 0.50, CacheWritePerM: 6.25, ReportsCacheTokens: true},
+	"claude-opus-5":     {InputPerM: 5.00, OutputPerM: 25.00, CacheReadPerM: 0.50, CacheWritePerM: 6.25, ReportsCacheTokens: true},
+	"claude-sonnet-5":   {InputPerM: 2.00, OutputPerM: 10.00, CacheReadPerM: 0.20, CacheWritePerM: 2.50, ReportsCacheTokens: true},
 }
 
 // ModelAliases maps bare or vendor-prefixed aliases onto canonical model IDs.
@@ -241,8 +244,8 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 	rec.CostUSD = &costCeiling
 
 	// 6. Distinguish between derived (cache read accounted for) and derived_ceiling (cache read unobservable).
-	// Dialect "pi" / agent "pi-kimi" / missing cacheReadTokens mean cache read is not reported by the provider.
-	if rec.CacheReadTokens == nil || rec.Dialect == "pi" || rec.AgentID == "pi-kimi" {
+	// If CacheReadTokens is nil or the model provider does not report cache tokens (ModelPrice.ReportsCacheTokens == false), cost is a ceiling.
+	if rec.CacheReadTokens == nil || !price.ReportsCacheTokens {
 		rec.CostSource = "derived_ceiling"
 		// Calculate estimated floor at DefaultCacheShare (96% cache hit rate for <=60s gaps)
 		effectiveInRate := (1.0-DefaultCacheShare)*price.InputPerM + DefaultCacheShare*price.CacheReadPerM

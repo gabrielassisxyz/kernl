@@ -128,9 +128,11 @@ type StageAttemptRecord struct {
 	CacheWriteTokens *int64   `json:"cacheWriteTokens"`
 	ReasoningTokens  *int64   `json:"reasoningTokens"`
 	CostUSD          *float64 `json:"costUSD"`
-	CostFloorUSD     *float64 `json:"costFloorUSD,omitempty"`
-	CostSource       string   `json:"costSource,omitempty"`
-	Turns            *int64   `json:"turns"`
+	// CostFloorUSD and CostSource are populated at read time by DeriveAttemptCost
+	// for stats display and reporting. They are transient and must never be written to disk / persisted.
+	CostFloorUSD *float64 `json:"costFloorUSD,omitempty"`
+	CostSource   string   `json:"costSource,omitempty"`
+	Turns        *int64   `json:"turns"`
 }
 
 // DiffStatter reports how many lines a stage's own commits added and

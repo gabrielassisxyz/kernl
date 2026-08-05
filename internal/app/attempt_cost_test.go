@@ -122,12 +122,15 @@ func TestDeriveAttemptCost_PiSessionLookupYieldsDerivedCeiling(t *testing.T) {
 		t.Errorf("OutputTokens = %v, want 10000", rec.OutputTokens)
 	}
 	if rec.CostSource != "derived_ceiling" {
-		t.Errorf("CostSource = %q, want %q (pi does not report cache read tokens)", rec.CostSource, "derived_ceiling")
+		t.Errorf("CostSource = %q, want %q (pi/ollama does not report cache read tokens)", rec.CostSource, "derived_ceiling")
 	}
 	// kimi-k2.7: in=$0.95/1M, out=$4.00/1M => (100k*0.95 + 10k*4.00)/1e6 = (0.095 + 0.04) = 0.135
-	expected := 0.135
-	if rec.CostUSD == nil || *rec.CostUSD != expected {
-		t.Errorf("CostUSD = %v, want %v", rec.CostUSD, expected)
+	expectedCeiling := 0.135
+	if rec.CostUSD == nil || *rec.CostUSD != expectedCeiling {
+		t.Errorf("CostUSD = %v, want %v", rec.CostUSD, expectedCeiling)
+	}
+	if rec.CostFloorUSD == nil || *rec.CostFloorUSD >= *rec.CostUSD {
+		t.Errorf("CostFloorUSD = %v, want non-nil floor strictly less than ceiling %v", rec.CostFloorUSD, *rec.CostUSD)
 	}
 }
 
@@ -170,6 +173,31 @@ func TestDeriveAttemptCost_ZeroTokenPlaceholderTriggersFallback(t *testing.T) {
 	}
 	if rec.CostUSD == nil || *rec.CostUSD <= 0 {
 		t.Errorf("CostUSD = %v, want non-zero derived cost", rec.CostUSD)
+	}
+}
+
+func TestDeriveAttemptCost_NewAgentNameOnOllamaModelYieldsDerivedCeiling(t *testing.T) {
+	// Asserts that derived_ceiling is driven by ModelPrice.ReportsCacheTokens, not by agentID == "pi-kimi".
+	inp, out := int64(100000), int64(10000)
+	model := "glm-5.2"
+	rec := StageAttemptRecord{
+		AgentID:      "brand-new-custom-agent",
+		Dialect:      "openai-compat",
+		Model:        &model,
+		InputTokens:  &inp,
+		OutputTokens: &out,
+	}
+
+	DeriveAttemptCost(&rec)
+
+	if rec.CostSource != "derived_ceiling" {
+		t.Errorf("CostSource = %q, want %q for model with ReportsCacheTokens: false", rec.CostSource, "derived_ceiling")
+	}
+	if rec.CostUSD == nil || *rec.CostUSD <= 0 {
+		t.Errorf("CostUSD = %v, want non-nil derived ceiling cost", rec.CostUSD)
+	}
+	if rec.CostFloorUSD == nil || *rec.CostFloorUSD >= *rec.CostUSD {
+		t.Errorf("CostFloorUSD = %v, want non-nil floor strictly less than ceiling", rec.CostFloorUSD)
 	}
 }
 
