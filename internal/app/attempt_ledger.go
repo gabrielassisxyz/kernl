@@ -98,16 +98,24 @@ type StageAttemptRecord struct {
 	ReviewVerdict     *string `json:"reviewVerdict"`
 	FirstPassApproved *bool   `json:"firstPassApproved"`
 	// CausedBy points at the review artifact whose deliberate rejection sent
-	// this bead back, when this attempt is the retry that rejection caused -
-	// a fact derived once, here, from the ledger's own history, so every
-	// later reader (AggregateAttemptStats' rework rollup, and anything after
-	// it) starts from the same rows instead of re-deriving it differently.
+	// this bead back, when this attempt is the retry that rejection caused.
+	// Non-nil is the ledger's definition of rework: this attempt is redoing
+	// work a reviewer rejected.
 	//
-	// Non-nil is therefore the ledger's definition of rework: this attempt
-	// is redoing work a reviewer rejected. Not merely the attempt that
-	// FOLLOWS a rejection - see findCausedBy for the two shapes that follow
-	// one without redoing anything, both of which occur in real ledgers and
-	// both of which would charge the rework to the wrong agent.
+	// It has two sources, and the order between them is the point. The
+	// driver DECLARES it (StageAttemptInput.CausedBy) when this dispatch is
+	// the retake of a rewind that same call performed: it does not need to
+	// work out whether this is rework, it is the code that decided to rewind.
+	// Only when nothing was declared does the writer fall back to inferring
+	// it from the bead's own prior rows (findCausedBy).
+	//
+	// The fallback is not redundancy. A rewind and its retake do not have to
+	// happen in one process - an epic's integration is rewound by
+	// DriveEpicIntegrationTail and re-driven by a later call, and any
+	// resumed run crosses the same boundary - and an in-memory declaration
+	// does not survive that. Inference is what still marks those; it is also
+	// the only thing that could mark the 116 attempts recorded before the
+	// declaration existed.
 	CausedBy      *string `json:"causedBy"`
 	FollowUpCount int     `json:"followUpCount"`
 	Nudged        bool    `json:"nudged"`
@@ -200,9 +208,15 @@ type StageAttemptInput struct {
 	GatePassed        bool
 	GateFailureReason string
 	ReviewVerdict     *string
-	FollowUpCount     int
-	Nudged            bool
-	Usage             *session.TokenUsageCounts
+	// CausedBy is the review artifact whose rejection this dispatch is
+	// answering, set by the driver when this dispatch is the retake of a
+	// rewind that same call performed. Empty means "not declared", which is
+	// the normal case for every stage that is not a retake - and leaves the
+	// writer to fall back to inference. See StageAttemptRecord.CausedBy.
+	CausedBy      string
+	FollowUpCount int
+	Nudged        bool
+	Usage         *session.TokenUsageCounts
 	// DiffStats is the DiffStatter to use. Nil defaults to GitDiffStatter{}
 	// (the real git-shelling implementation) - production call sites never
 	// need to set this; only tests inject a fake.
@@ -210,9 +224,11 @@ type StageAttemptInput struct {
 }
 
 // BuildStageAttemptRecord turns one dispatch's facts into the ledger row
-// shape. AttemptNumber, CausedBy and FirstPassApproved are left unset here -
+// shape. AttemptNumber and FirstPassApproved are left unset here -
 // AppendStageAttempt derives them from the ledger's own prior rows, because
-// they depend on history this function does not have.
+// they depend on history this function does not have. CausedBy is carried
+// through when the caller declared one, and left unset otherwise for the
+// same writer to infer.
 func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 	var model *string
 	modelResolved := false
@@ -236,6 +252,12 @@ func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 		gateFailureReason = &reason
 	}
 
+	var causedBy *string
+	if in.CausedBy != "" {
+		declared := in.CausedBy
+		causedBy = &declared
+	}
+
 	rec := StageAttemptRecord{
 		AgentID:           in.AgentID,
 		Dialect:           in.Dialect,
@@ -253,6 +275,7 @@ func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 		DiffLinesRemoved:  removed,
 		GatePassed:        in.GatePassed,
 		GateFailureReason: gateFailureReason,
+		CausedBy:          causedBy,
 		ReviewVerdict:     in.ReviewVerdict,
 		FollowUpCount:     in.FollowUpCount,
 		Nudged:            in.Nudged,
@@ -367,7 +390,12 @@ func appendStageAttempt(stateDir, epicID string, rec StageAttemptRecord, open fu
 
 	rec.EpicID = epicID
 	rec.AttemptNumber = countPriorAttempts(existing, rec.BeadID, rec.Stage) + 1
-	rec.CausedBy = findCausedBy(existing, rec.BeadID, rec.Stage)
+	// A declaration from the driver wins: it comes from the code that
+	// performed the rewind, which knows what this dispatch is answering
+	// rather than working it out from the rows around it.
+	if rec.CausedBy == nil {
+		rec.CausedBy = findCausedBy(existing, rec.BeadID, rec.Stage)
+	}
 	if rec.ReviewVerdict != nil {
 		firstPassApproved := rec.AttemptNumber == 1 && *rec.ReviewVerdict == "PASS"
 		rec.FirstPassApproved = &firstPassApproved

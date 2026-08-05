@@ -184,6 +184,22 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 	// decided (re-entering the same stage each time) - the budget that stops
 	// an implementer and the DA looping forever. See forkHandoverLimit.
 	forkGateCalls := 0
+	// pendingRework carries the review artifact of a rejection this call just
+	// rewound, so the dispatch that answers it records what it is answering
+	// instead of leaving the ledger to work that out from the rows around it
+	// (StageAttemptRecord.CausedBy). Empty except between a rewind and the
+	// one attempt that follows it.
+	pendingRework := ""
+	// takeRework hands that artifact to the attempt being recorded and
+	// forgets it. Every ledger write in this loop takes it, so a rewind can
+	// only ever mark the FIRST attempt after it - including an attempt that
+	// died before its gate, which is a retake that failed, not a rewind still
+	// waiting to be claimed by a later stage.
+	takeRework := func() string {
+		claimed := pendingRework
+		pendingRework = ""
+		return claimed
+	}
 
 	for i := 0; i < maxStages; i++ {
 		bead, err := deps.Backend.Get(deps.BeadID, deps.RepoPath)
@@ -395,6 +411,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					Worktree:          deps.Worktree,
 					GatePassed:        false,
 					GateFailureReason: "subprocess_" + causeStr,
+					CausedBy:          takeRework(),
 				})); ledgerErr != nil {
 					slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 				}
@@ -494,6 +511,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				GatePassed:        gatePassed,
 				GateFailureReason: gateReason,
 				ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
+				CausedBy:          takeRework(),
 			})); err != nil {
 				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 			}
@@ -549,6 +567,16 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 					return RunBeadResult{FinalState: activeState, Success: false}, handleErr
 				}
 				if handled.Reenter {
+					// Every re-entry handleGateFailure returns today is a
+					// rewind, so this guard never fires. It states the
+					// dependency rather than assuming it holds forever: the
+					// proactive fork gate above already re-enters WITHOUT
+					// sending work back, and a second such path returning
+					// from here would otherwise be recorded as rework
+					// silently.
+					if handled.ReviewRewinds > reviewRewinds {
+						pendingRework = reworkArtifact(gateReason)
+					}
 					reviewRewinds = handled.ReviewRewinds
 					forkGateCalls = handled.ForkGateCalls
 					prevState = bead.State
@@ -820,6 +848,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			GatePassed:        gatePassed,
 			GateFailureReason: gateReason,
 			ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
+			CausedBy:          takeRework(),
 			FollowUpCount:     res.FollowUpCount,
 			Nudged:            res.Nudged,
 			Usage:             res.Usage,
@@ -877,6 +906,9 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				return RunBeadResult{FinalState: activeState, Success: false}, handleErr
 			}
 			if handled.Reenter {
+				if handled.ReviewRewinds > reviewRewinds {
+					pendingRework = reworkArtifact(gateReason)
+				}
 				reviewRewinds = handled.ReviewRewinds
 				forkGateCalls = handled.ForkGateCalls
 				prevState = bead.State

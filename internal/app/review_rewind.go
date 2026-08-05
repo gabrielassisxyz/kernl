@@ -36,6 +36,21 @@ func isDeliberateRejection(state, gateReason string) bool {
 	return state == "implementation_review" && strings.HasPrefix(gateReason, verdictRejectReasonPrefix)
 }
 
+// reworkArtifact names the review document behind a deliberate rejection, for
+// the retake that answers it to record as its cause. It reads the same gate
+// reason isDeliberateRejection matched, so the driver states the artifact it
+// already has rather than the ledger inferring one later.
+//
+// A reason of any other shape yields "": a caller that has not established a
+// rejection must not be handed a path anyway, and an empty declaration leaves
+// the writer's own fallback in charge.
+func reworkArtifact(gateReason string) string {
+	if !strings.HasPrefix(gateReason, verdictRejectReasonPrefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(gateReason, verdictRejectReasonPrefix))
+}
+
 // reviewRewindBudgetSpent reports whether this call has already used up
 // implementationReviewRewindLimit - shared by rewindAfterReviewRejection and
 // handleReviewRaisedDecision's own pre-check (finding 4 of the

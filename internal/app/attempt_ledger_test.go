@@ -1022,3 +1022,59 @@ func TestAppendStageAttempt_AStageRunningForTheFirstTimeIsNotRework(t *testing.T
 		t.Error("integration re-running after its review rejected is rework and must be marked")
 	}
 }
+
+// The driver knows what a dispatch is answering: it is the code that decided
+// to rewind. When it says so, the writer records that and does not go looking
+// through the rows for an answer it was already given.
+func TestAppendStageAttempt_ADeclaredCauseWinsOverInference(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+	declared := "/artifacts/the-review-that-rejected.md"
+
+	// Nothing here is inferable as rework: a single first attempt, no prior
+	// rejection anywhere. Inference would answer nil.
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+		CausedBy: declared,
+	})))
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	if lines[0].CausedBy == nil || *lines[0].CausedBy != declared {
+		t.Errorf("CausedBy = %v, want the declared %q", lines[0].CausedBy, declared)
+	}
+}
+
+// And an undeclared attempt still gets the inferred answer, which is what
+// keeps a rewind and a retake recorded by different processes connected.
+func TestAppendStageAttempt_InferenceStillRunsWhenNothingWasDeclared(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+	artifact := filepath.Join(stateDir, "implementation-review.md")
+	verdict := "REJECT"
+
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "reviewer", Dialect: "claude", BeadID: "bead-1", Stage: "implementation_review",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: false, DiffStats: fakeDiffStatter{},
+		GateFailureReason: "verdict_reject: " + artifact,
+		ReviewVerdict:     &verdict,
+	})))
+	// A different process drives the retake, so it declares nothing.
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	if lines[2].CausedBy == nil || *lines[2].CausedBy != artifact {
+		t.Errorf("CausedBy = %v, want the inferred %q - a retake in another process is still rework", lines[2].CausedBy, artifact)
+	}
+}

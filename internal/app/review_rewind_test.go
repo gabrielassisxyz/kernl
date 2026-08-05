@@ -238,3 +238,22 @@ func TestBuildBeadStagePrompt_RejectionComesFirst(t *testing.T) {
 		t.Error("the prompt does not tell the implementer that an implementation already exists")
 	}
 }
+
+func TestReworkArtifact(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		gateReason string
+		want       string
+	}{
+		{"a deliberate rejection names its review", "verdict_reject: /artifacts/implementation-review.md", "/artifacts/implementation-review.md"},
+		{"a verdict that merely did not pass sent nothing back", "verdict_not_pass: /artifacts/implementation-review.md", ""},
+		{"another gate failure entirely", "commit_marker_missing: implementation", ""},
+		{"no reason at all", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := reworkArtifact(tc.gateReason); got != tc.want {
+				t.Errorf("reworkArtifact(%q) = %q, want %q", tc.gateReason, got, tc.want)
+			}
+		})
+	}
+}

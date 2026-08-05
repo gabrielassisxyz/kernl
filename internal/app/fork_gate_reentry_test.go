@@ -318,3 +318,35 @@ func TestDriveBeadToTerminal_TwoForksInOneCall_BothAnswersSurviveIntoTheNextProm
 		t.Errorf("res = %+v, want the third (real, gate-checked) attempt to block at implementation for missing decision-record.json", res)
 	}
 }
+
+// A fork handover re-enters the same stage because the implementer asked the
+// DA a question, not because a reviewer rejected anything. No work is being
+// redone, so nothing about that second attempt is rework - and marking it
+// would charge an implementer for having asked.
+func TestDriveBeadToTerminal_ForkHandover_ReentryIsNotRecordedAsRework(t *testing.T) {
+	const profileID = "fork_reentry_rework_test"
+	backend.ClearWorkflowRegistry()
+	backend.RegisterWorkflow(forkReentryWorkflow(profileID))
+	defer backend.ClearWorkflowRegistry()
+
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "ready_for_implementation", ProfileID: profileID}
+
+	stateDir := t.TempDir()
+	driver := &forkReentryDriver{stateDir: stateDir, epicID: "kb-1", beadID: "kb-1", handoverBody: forkHandoverRecord}
+
+	if _, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand: "bd", StateDir: stateDir, VerifyCommand: "bin/ci",
+		Backend: be, Driver: driver, Config: forkGateTestConfig(t),
+		BeadID: "kb-1", RepoPath: "/tmp/repo", Worktree: "/tmp/worktree",
+		DA: decidingDA("relevance-first"), MaxStages: 8,
+	}); err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v", err)
+	}
+
+	for i, row := range readLedgerLines(t, filepath.Join(stateDir, "run", "kb-1", "attempts.jsonl")) {
+		if row.CausedBy != nil {
+			t.Errorf("row %d (%s) was recorded as rework, but nothing was rejected here: causedBy=%q", i, row.Stage, *row.CausedBy)
+		}
+	}
+}

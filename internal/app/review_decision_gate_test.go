@@ -954,3 +954,123 @@ func TestDriveBeadToTerminal_ReviewRaisedDecision_StaleUnrewrittenReviewIsNotRou
 		t.Errorf("GateFailureReason = %q, want it to name %q", res.GateFailureReason, ForkCauseReviewDecisionAlreadyRouted)
 	}
 }
+
+// --- The rework declaration: the loop that rewound states what the retake
+// is answering, rather than leaving the ledger to read it off the rows. ---
+
+// reworkRetakeWorkflow rewinds into a stage that has never run. Every
+// production workflow rewinds back into a stage that already ran, where the
+// ledger's own inference reaches the same answer - so a test built on one
+// cannot tell the declaration from the inference, and would pass with the
+// declaration deleted.
+//
+// This shape separates them, and it is not a contrivance for its own sake:
+// inference refuses a stage running for the first time on purpose (a first
+// shipment after an integration_review rejection is not rework), which means
+// a workflow that rewinds somewhere new is rework only the driver can report.
+func reworkRetakeWorkflow(id string) backend.WorkflowDescriptor {
+	return backend.WorkflowDescriptor{
+		ID:           id,
+		InitialState: "ready_for_implementation",
+		States: []string{
+			"ready_for_implementation", "implementation",
+			"ready_for_implementation_review", "implementation_review",
+			"ready_for_rescue", "rescue", "done",
+		},
+		TerminalStates: []string{"done"},
+		Transitions: []backend.WorkflowTransition{
+			{From: "ready_for_implementation", To: "implementation"},
+			{From: "implementation", To: "ready_for_implementation_review"},
+			{From: "ready_for_implementation_review", To: "implementation_review"},
+			{From: "implementation_review", To: "done"},
+			{From: "implementation_review", To: "ready_for_rescue"},
+			{From: "ready_for_rescue", To: "rescue"},
+			{From: "rescue", To: "done"},
+		},
+		RetakeState: "ready_for_rescue",
+		Owners: map[string]backend.ActionOwnerKind{
+			"implementation":        backend.ActionOwnerAgent,
+			"implementation_review": backend.ActionOwnerAgent,
+			"rescue":                backend.ActionOwnerAgent,
+		},
+		ActionStates: []string{"implementation", "implementation_review", "rescue"},
+		QueueStates:  []string{"ready_for_implementation", "ready_for_implementation_review", "ready_for_rescue"},
+		QueueActions: map[string]string{
+			"ready_for_implementation":        "implementation",
+			"ready_for_implementation_review": "implementation_review",
+			"ready_for_rescue":                "rescue",
+		},
+		ExitGates: map[string][]backend.WorkflowExitGate{
+			"implementation_review": {{Type: "artifact_verdict", Path: "<artifact_dir>/implementation-review.md"}},
+		},
+	}
+}
+
+// reworkRetakeDriver rejects on its second call - an unclassified rejection,
+// which rewinds without the DA being involved at all - and succeeds on every
+// other one.
+type reworkRetakeDriver struct {
+	stateDir, epicID, beadID string
+	calls                    int
+}
+
+func (d *reworkRetakeDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
+	d.calls++
+	if d.calls == 2 {
+		artifactDir, err := ArtifactDirPath(d.stateDir, d.epicID, d.beadID)
+		if err != nil {
+			return RunBeadResult{}, err
+		}
+		if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+			return RunBeadResult{}, err
+		}
+		if err := os.WriteFile(filepath.Join(artifactDir, "implementation-review.md"), []byte(unclassifiedRejectionRecord), 0o644); err != nil {
+			return RunBeadResult{}, err
+		}
+	}
+	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses_test"}, nil
+}
+
+func TestDriveBeadToTerminal_TheRetakeRecordsWhatItIsAnswering(t *testing.T) {
+	const profileID = "rework_retake_declaration_test"
+	backend.ClearWorkflowRegistry()
+	backend.RegisterWorkflow(reworkRetakeWorkflow(profileID))
+	defer backend.ClearWorkflowRegistry()
+
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "ready_for_implementation", ProfileID: profileID}
+
+	stateDir := t.TempDir()
+	driver := &reworkRetakeDriver{stateDir: stateDir, epicID: "kb-1", beadID: "kb-1"}
+
+	// The retake stage is one no production workflow has, so its pool has to
+	// be declared here - dispatch refuses a stage whose pool is missing.
+	cfg := forkGateTestConfig(t)
+	cfg.Settings.Pools["rescue"] = config.PoolConfig{Agents: []config.WeightedAgent{{AgentID: "opencode", Weight: 1}}}
+
+	if _, err := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
+		TrackerCommand: "bd", StateDir: stateDir, VerifyCommand: "bin/ci",
+		Backend: be, Driver: driver, Config: cfg,
+		BeadID: "kb-1", RepoPath: "/tmp/repo", Worktree: "/tmp/worktree",
+		MaxStages: 16,
+	}); err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v", err)
+	}
+
+	rows := readLedgerLines(t, filepath.Join(stateDir, "run", "kb-1", "attempts.jsonl"))
+	if len(rows) != 3 {
+		t.Fatalf("expected implementation, implementation_review and the retake (3 rows), got %d", len(rows))
+	}
+	if rows[2].Stage != "rescue" {
+		t.Fatalf("the third attempt must be the retake stage, got %q", rows[2].Stage)
+	}
+	if rows[0].CausedBy != nil || rows[1].CausedBy != nil {
+		t.Error("neither the first implementation nor the review that rejected it is rework")
+	}
+	if rows[2].CausedBy == nil {
+		t.Fatal("the retake must record the review artifact it is answering - inference cannot reach a stage running for the first time, so only the driver's own declaration can")
+	}
+	if !strings.HasSuffix(*rows[2].CausedBy, "implementation-review.md") {
+		t.Errorf("causedBy = %q, want the review artifact that rejected", *rows[2].CausedBy)
+	}
+}
