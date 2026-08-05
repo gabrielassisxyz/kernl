@@ -957,18 +957,37 @@ func buildReviewedChildren(children []backend.Bead) []prompt.ReviewedChild {
 // ready_for_integration therefore fails that gate forever, parks at blocked,
 // and cannot be rescued by hand either: a manual advance to
 // ready_for_shipment was observed being overwritten by the next run seconds
-// later. The message the run prints on failure - "re-run kernl epic run <id>
-// to resume" - was false for every epic past integration.
+// "blocked" was originally excluded from this check, so that `kernl epic run <id>`
+// on a blocked epic rewound it to "ready_for_integration" - the way an operator
+// unstuck one. That exclusion is retired, and the two failures it caused are why.
 //
-// "blocked" is deliberately NOT treated as being in the tail. It is not one
-// of the profile's own states, and rewinding a blocked epic to the entry is
-// the existing way an operator unsticks one; taking that away is a separate
-// decision from fixing the rewind, and it is not this change's to take. What
-// this does buy a blocked epic is that a deliberate advance now sticks.
-func epicAlreadyInTail(state string) bool {
+// An epic blocked after integration had already succeeded was rewound to the entry
+// and re-dispatched. The tree was already merged, so the stage produced no new
+// commit, commit_marker refused it, and the epic returned to "blocked" - a loop with
+// no exit that spends a dispatched agent on every turn of it.
+//
+// Worse, the rewind overwrote a manual repair: an operator advance to
+// "ready_for_shipment" was observed being reverted by the next run seconds later.
+// An unstick mechanism that undoes the operator's own unstick is not one.
+//
+// So a blocked epic whose wf:state:* label already names a tail state keeps that
+// state, and only an epic blocked at or before the integration entry is rewound.
+// Re-running integration deliberately is a state change through the CLI; no flag
+// was added for a case that has not appeared.
+func epicAlreadyInTail(state string, labels []string) bool {
+	checkState := state
+	if checkState == "blocked" {
+		for _, l := range labels {
+			if strings.HasPrefix(l, "wf:state:") {
+				checkState = strings.TrimPrefix(l, "wf:state:")
+				break
+			}
+		}
+	}
+
 	for _, s := range backend.BuiltinProfileDescriptor("epic").States {
-		if s == state {
-			return state != "ready_for_integration"
+		if s == checkState {
+			return checkState != "ready_for_integration"
 		}
 	}
 	return false
@@ -988,7 +1007,7 @@ func driveEpic(ctx context.Context, d epicDrive) error {
 		return fmt.Errorf("KERNL DISPATCH FAILURE: epic %s not found in repo %s: %w", epicID, repoPath, err)
 	}
 	labels := setWFLabel(epicBead.Labels, "wf:profile:", "epic")
-	if !epicAlreadyInTail(epicBead.State) {
+	if !epicAlreadyInTail(epicBead.State, epicBead.Labels) {
 		labels = setWFLabel(labels, "wf:state:", "ready_for_integration")
 		if err := a.Backend.Update(epicID, backend.UpdateBeadInput{State: "ready_for_integration", SetLabels: labels}, repoPath); err != nil {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: cannot set epic %s to ready_for_integration: %w", epicID, err)

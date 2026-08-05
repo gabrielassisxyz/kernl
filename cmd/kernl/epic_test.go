@@ -664,24 +664,31 @@ func TestEpicAlreadyInTailStopsTheRewind(t *testing.T) {
 		"integration", "ready_for_integration_review", "integration_review",
 		"ready_for_shipment", "shipment", "awaiting_pr_review",
 	} {
-		if !epicAlreadyInTail(state) {
-			t.Errorf("epicAlreadyInTail(%q) = false; an epic at this state must not be rewound to ready_for_integration", state)
+		if !epicAlreadyInTail(state, nil) {
+			t.Errorf("epicAlreadyInTail(%q, nil) = false; an epic at this state must not be rewound to ready_for_integration", state)
 		}
 	}
 
 	// The entry state itself is not "already in the tail" - writing it there
 	// is the no-op that puts a fresh epic onto the profile.
-	if epicAlreadyInTail("ready_for_integration") {
-		t.Error(`epicAlreadyInTail("ready_for_integration") = true; the entry state must still be written for a fresh epic`)
+	if epicAlreadyInTail("ready_for_integration", nil) {
+		t.Error(`epicAlreadyInTail("ready_for_integration", nil) = true; the entry state must still be written for a fresh epic`)
 	}
 
-	// Deliberately unchanged: "blocked" is not one of the profile's states,
-	// so a blocked epic is still rewound. That is the existing way an
-	// operator unsticks one, and changing it is a separate decision.
+	// Non-tail states without tail labels still rewind
 	for _, state := range []string{"", "open", "blocked", "ready_for_implementation"} {
-		if epicAlreadyInTail(state) {
-			t.Errorf("epicAlreadyInTail(%q) = true; only the epic profile's own post-entry states count", state)
+		if epicAlreadyInTail(state, nil) {
+			t.Errorf("epicAlreadyInTail(%q, nil) = true; only the epic profile's own post-entry states count", state)
 		}
+	}
+
+	// Option B (Chesterton's fence removal): A blocked epic whose wf:state:*
+	// label is in the tail must NOT be rewound to ready_for_integration.
+	if !epicAlreadyInTail("blocked", []string{"wf:state:integration_review"}) {
+		t.Error(`epicAlreadyInTail("blocked", ["wf:state:integration_review"]) = false; a blocked epic past integration must not be rewound`)
+	}
+	if epicAlreadyInTail("blocked", []string{"wf:state:ready_for_integration"}) {
+		t.Error(`epicAlreadyInTail("blocked", ["wf:state:ready_for_integration"]) = true; a blocked epic at entry state must still rewind`)
 	}
 }
 
