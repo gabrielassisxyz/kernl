@@ -101,6 +101,10 @@ func Run(deps Deps) *Report {
 
 	checks = append(checks, cfgCheck)
 
+	if storeCheck, reported := trackerStoreCheck(cfg); reported {
+		checks = append(checks, storeCheck)
+	}
+
 	if deps.VaultOrphans != nil {
 		checks = append(checks, vaultLayoutCheck(deps.VaultOrphans))
 	}
@@ -139,6 +143,66 @@ func configCheck(path string) (Check, *config.Config) {
 		}, nil
 	}
 	return Check{Name: "config", OK: true}, cfg
+}
+
+// trackerStoreCheck reports registered repositories that declare a tracker they
+// have no store for. The binary checks above answer "can this tracker run"; a
+// repository that was never initialized passes every one of them and still
+// fails on the first call, which is how a `bd list` failure ended up being
+// discovered from the sweep loop logging it every tick with the server up.
+//
+// It is advisory, for the same reason compositeSweeper carries on past a
+// failing repository rather than aborting the tick: refusing to serve the
+// graph, the API and every healthy repository because one registered entry
+// points at an uninitialized directory turns a one-line config mistake into a
+// total outage. The verdict is loud (`⚠` plus the fix, in doctor and at
+// startup) and never fatal.
+//
+// The second return value reports whether there is anything to say at all;
+// a configuration with no registered repository produces no check rather than
+// a passing one about nothing.
+func trackerStoreCheck(cfg *config.Config) (Check, bool) {
+	if cfg == nil || len(cfg.Registry.Repos) == 0 {
+		return Check{}, false
+	}
+
+	var missing []string
+	checked := 0
+	for _, repo := range cfg.Registry.Repos {
+		mm, err := backend.ResolveMemoryManager(repo.Path, repo.MemoryManager)
+		if err != nil {
+			// Already reported as the unresolved tracker it is. A second
+			// verdict here would name a store nobody can act on, because
+			// which tracker owns it is exactly what is unknown.
+			continue
+		}
+		checked++
+		if _, err := backend.TrackerStorePath(mm, repo.Path); err != nil {
+			missing = append(missing, reasonOnly(err))
+		}
+	}
+
+	if checked == 0 {
+		return Check{}, false
+	}
+	if len(missing) == 0 {
+		return Check{Name: "tracker-store", OK: true, Advisory: true}, true
+	}
+	return Check{
+		Name:     "tracker-store",
+		Detail:   fmt.Sprintf("%d of %d registered repositories have no store for the tracker they declare: %s", len(missing), checked, strings.Join(missing, "; ")),
+		Fix:      "initialize the tracker in that repository, or remove its entry from registry.repos in kernl.yaml - until then every call against it fails, including the sweep loop and the beads API",
+		Advisory: true,
+	}, true
+}
+
+// reasonOnly keeps the part of a backend error that says what is wrong, and
+// drops the dispatch marker and the trailing fix. A Check carries its own Fix
+// and doctor prints it on its own line, so an error that already ends in one
+// would put two fixes on the same line and bury the reason between them.
+func reasonOnly(err error) string {
+	reason, _, _ := strings.Cut(err.Error(), " - Fix: ")
+	return strings.TrimPrefix(reason, "KERNL DISPATCH FAILURE: ")
 }
 
 // requiredBinary is one CLI the configuration would execute, and who asked

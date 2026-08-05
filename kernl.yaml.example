@@ -79,6 +79,11 @@ registry:
       # unset and it is detected from what is inside .beads/ - both trackers use
       # that directory name, so the name alone decides nothing. Declaring it is
       # what lets `kernl doctor` tell you the CLI is missing before a run does.
+      # A declaration is never overruled by what is on disk, so declaring a
+      # tracker this repository was never initialized for is a real state:
+      # doctor's `tracker-store` check is what names it, because every call
+      # against such a repository fails - the sweep loop once per tick, and
+      # the beads API on every request.
       memoryManager: br
       # What epic and bead branches are cut from. Leave it unset and the branch
       # is read out of the repository - what origin advertises as its HEAD,

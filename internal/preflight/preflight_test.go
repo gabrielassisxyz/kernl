@@ -211,3 +211,100 @@ func TestVaultLayoutCheckSurvivesAScanError(t *testing.T) {
 		t.Fatalf("a scan error must surface as an advisory failure, got %+v", c)
 	}
 }
+
+// The tracker binary being installed says nothing about the repository having
+// a store for it. A repo declaring a tracker it was never initialized for used
+// to reach `✓ bd` and `✓ config`, and the first thing to notice was the sweep
+// loop, logging the same failure every tick with the server already up.
+func TestDoctorReportsARegisteredRepoWithNoTrackerStore(t *testing.T) {
+	initialized := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(initialized, ".beads", "embeddeddolt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bare := t.TempDir()
+
+	cfgPath := filepath.Join(t.TempDir(), "kernl.yaml")
+	content := []byte("settings:\n  agents:\n    stub:\n      command: stub\n  pools: {}\nregistry:\n  repos:\n    - path: " + initialized + "\n      memoryManager: beads\n    - path: " + bare + "\n      memoryManager: beads\n")
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	present := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+	rep := Run(Deps{LookPath: present, ConfigPath: cfgPath, GoVersion: "go1.26", Orchestrator: true})
+
+	c := rep.Check("tracker-store")
+	if c == nil {
+		t.Fatal("a registered repository with no store must produce a check")
+	}
+	if c.OK {
+		t.Error("a repository declaring a tracker it has no store for is not healthy")
+	}
+	if !strings.Contains(c.Detail, bare) {
+		t.Errorf("the detail must name the repository that is missing its store, got %q", c.Detail)
+	}
+	if strings.Contains(c.Detail, initialized) {
+		t.Errorf("a repository that does have its store must not be reported, got %q", c.Detail)
+	}
+	if c.Fix == "" {
+		t.Error("a failing check must carry an actionable Fix string")
+	}
+	// The Fix is printed on its own line, so the detail must not end in a
+	// second one: two fixes on one line bury the reason between them.
+	if strings.Contains(c.Detail, "Fix:") {
+		t.Errorf("the detail must carry the reason alone, got %q", c.Detail)
+	}
+	if strings.Contains(c.Detail, "KERNL DISPATCH FAILURE") {
+		t.Errorf("a report line is not a dispatch failure and must not wear its marker, got %q", c.Detail)
+	}
+	// Advisory on purpose, and for the reason compositeSweeper already carries
+	// on past a failing repository: one registered repo without a store must
+	// not take the graph, the API and every other repository down with it.
+	if !c.Advisory {
+		t.Error("one uninitialized repository is drift to report, not a reason to refuse to serve")
+	}
+	if rep.RequiredFailed() {
+		t.Error("an advisory failure must not fail doctor")
+	}
+}
+
+func TestTrackerStoreCheckPassesWhenEveryRepoIsInitialized(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".beads", "embeddeddolt"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(t.TempDir(), "kernl.yaml")
+	content := []byte("settings:\n  agents:\n    stub:\n      command: stub\n  pools: {}\nregistry:\n  repos:\n    - path: " + repo + "\n      memoryManager: beads\n")
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	present := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+	rep := Run(Deps{LookPath: present, ConfigPath: cfgPath, GoVersion: "go1.26", Orchestrator: true})
+
+	c := rep.Check("tracker-store")
+	if c == nil || !c.OK {
+		t.Fatalf("an initialized repository must pass the store check, got %+v", c)
+	}
+}
+
+// A memoryManager kernl cannot resolve is already reported as the unresolved
+// tracker it is. Reporting it a second time as a missing store would be two
+// verdicts about one mistake, and the second one names a store nobody can act
+// on because the tracker itself is unknown.
+func TestTrackerStoreCheckStaysSilentAboutAnUnresolvableTracker(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "kernl.yaml")
+	content := []byte("settings:\n  agents:\n    stub:\n      command: stub\n  pools: {}\nregistry:\n  repos:\n    - path: " + t.TempDir() + "\n      memoryManager: beadz\n")
+	if err := os.WriteFile(cfgPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	present := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+
+	rep := Run(Deps{LookPath: present, ConfigPath: cfgPath, GoVersion: "go1.26", Orchestrator: true})
+
+	if c := rep.Check("tracker-store"); c != nil {
+		t.Errorf("an unresolvable tracker is one finding, not two, got %+v", c)
+	}
+	if rep.Check("tracker") == nil {
+		t.Error("the unresolved tracker must still be reported")
+	}
+}

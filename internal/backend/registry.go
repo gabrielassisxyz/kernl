@@ -76,6 +76,43 @@ func TrackerBinary(mm MemoryManagerType) (string, error) {
 	return "", fmt.Errorf("KERNL DISPATCH FAILURE: no tracker CLI is registered for memory manager %q - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", mm, strings.Join(knownMemoryManagerTypes(), ", "))
 }
 
+// TrackerStorePath is where a memory manager keeps a repository's store, and
+// an error naming what to run when the repository has none.
+//
+// It exists because a declared memoryManager wins over detection in
+// ResolveMemoryManager - deliberately, it is the one thing checkable before
+// anything runs - which also means the declaration is never compared against
+// what is on disk. A repository declaring a tracker it was never initialized
+// for therefore builds a backend happily and fails on its first call instead:
+// once per sweep tick, forever, with the server already up and `kernl doctor`
+// reporting the tracker CLI present and the config valid the whole time.
+//
+// The binary check answers "can this tracker run"; this answers "is there
+// anything here for it to run against", and they fail independently.
+func TrackerStorePath(mm MemoryManagerType, repoPath string) (string, error) {
+	// br names its database freely, so the store is whichever *.db sits in
+	// .beads/ - the same scan the adapter does to build --db, rather than the
+	// fixed name detection matches on. Insisting on that name here would
+	// report a working repository broken.
+	if mm == MemoryManagerBeadsRust {
+		return BrDatabasePath(repoPath)
+	}
+	for _, impl := range knownMemoryManagers {
+		if impl.Type != mm {
+			continue
+		}
+		store := filepath.Join(repoPath, impl.MarkerDirectory)
+		if impl.MarkerEntry != "" {
+			store = filepath.Join(store, impl.MarkerEntry)
+		}
+		if _, err := os.Stat(store); err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: repo %s declares memoryManager %q but there is no store at %s - Fix: run `%s init` in %s, or drop the entry from registry.repos in kernl.yaml if the repository is not tracked", repoPath, mm, store, impl.Binary, repoPath)
+		}
+		return store, nil
+	}
+	return "", fmt.Errorf("KERNL DISPATCH FAILURE: no store layout is registered for memory manager %q - Fix: set registry.repos[].memoryManager in kernl.yaml to one of %s", mm, strings.Join(knownMemoryManagerTypes(), ", "))
+}
+
 // TrackerInvocation is how an agent working in a worktree types this
 // repository's tracker: the binary plus whatever it takes to reach the store
 // from outside the repository.

@@ -569,3 +569,75 @@ func TestExtractBaseName(t *testing.T) {
 		}
 	}
 }
+
+// A declared memoryManager skips detection entirely, so nothing ever compares
+// the declaration against what is on disk. A repository declaring a tracker it
+// was never initialized for built a backend happily and failed on its first
+// call instead - once per sweep tick, forever, with `kernl doctor` reporting
+// the configuration healthy throughout.
+func TestTrackerStorePath_RefusesARepositoryThatHasNoStore(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := TrackerStorePath(MemoryManagerBeads, dir)
+	if err == nil {
+		t.Fatal("a repository with no .beads/embeddeddolt has no bd store and must not resolve one")
+	}
+	if !strings.Contains(err.Error(), "embeddeddolt") {
+		t.Errorf("the error must name the store that is missing, got %q", err)
+	}
+	if !strings.Contains(err.Error(), "Fix:") {
+		t.Errorf("the error must carry the fix, got %q", err)
+	}
+}
+
+func TestTrackerStorePath_FindsEachTrackersStore(t *testing.T) {
+	t.Run("bd stores under embeddeddolt", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".beads", "embeddeddolt"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		store, err := TrackerStorePath(MemoryManagerBeads, dir)
+		if err != nil {
+			t.Fatalf("an initialized bd repository must resolve its store: %v", err)
+		}
+		if store != filepath.Join(dir, ".beads", "embeddeddolt") {
+			t.Errorf("unexpected store path %q", store)
+		}
+	})
+
+	// br names its database freely, so the store is whichever *.db sits in
+	// .beads/ - the same scan the adapter does to build --db. Insisting on the
+	// fixed name detection matches would report a working repository broken.
+	t.Run("br stores a database whose name it chooses", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".beads"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".beads", "renamed.db"), []byte("sqlite"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		store, err := TrackerStorePath(MemoryManagerBeadsRust, dir)
+		if err != nil {
+			t.Fatalf("an initialized br repository must resolve its store: %v", err)
+		}
+		if store != filepath.Join(dir, ".beads", "renamed.db") {
+			t.Errorf("unexpected store path %q", store)
+		}
+	})
+
+	t.Run("knots stores in a marker directory of its own", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, ".knots"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := TrackerStorePath(MemoryManagerKnots, dir); err != nil {
+			t.Fatalf("an initialized knots repository must resolve its store: %v", err)
+		}
+	})
+}
+
+func TestTrackerStorePath_RefusesATrackerItDoesNotKnow(t *testing.T) {
+	if _, err := TrackerStorePath(MemoryManagerType("beadz"), t.TempDir()); err == nil {
+		t.Fatal("a tracker with no registered store layout must not resolve a path")
+	}
+}
