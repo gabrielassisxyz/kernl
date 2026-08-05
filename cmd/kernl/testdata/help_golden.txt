@@ -393,6 +393,12 @@ first-pass gate rate, its review-rejection rate, and its median duration
 and diff size. This is the answer to "which agent should implement" from
 recorded history instead of a hunch.
 
+A second table reports rework: the attempts that exist only because a
+reviewer rejected the previous one, what share of an agent's work they
+were, how often the redo passed, and what it cost. Rework is charged to
+whoever redid the work, never to the reviewer that rejected it - that
+reviewer's own behaviour is the review-rejection rate above.
+
 Every rate and median is nil (printed as "-") when the ledger never
 measured it for that group - never a fabricated zero. The row alongside it
 says how many observations the number covers.

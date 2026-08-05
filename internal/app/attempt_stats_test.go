@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
 // writeAttemptFixture appends one attempt to stateDir/run/<epic>/attempts.jsonl
@@ -360,5 +362,180 @@ func TestAttemptLedgerPaths_MissingRunDirIsGenuinelyEmpty(t *testing.T) {
 	}
 	if len(paths) != 0 {
 		t.Errorf("expected no ledger paths, got %v", paths)
+	}
+}
+
+// --- rework: attempts that exist because a reviewer rejected the previous one ---
+
+// rejectingReview writes the review row whose deliberate rejection makes the
+// NEXT attempt for that bead rework. It is the shape backend's artifact_verdict
+// gate produces for a "VERDICT: REJECT" at a state that has somewhere to send
+// the work back to.
+func rejectingReview(t *testing.T, stateDir, epic, bead string, at time.Time) {
+	t.Helper()
+	verdict := "REJECT"
+	writeAttemptFixture(t, stateDir, epic, StageAttemptInput{
+		AgentID: "reviewer", BeadID: bead, Stage: "implementation_review",
+		StartedAt: at, Duration: time.Second, GatePassed: false,
+		GateFailureReason: "verdict_reject: /artifacts/" + bead + "/implementation-review.md",
+		ReviewVerdict:     &verdict,
+	})
+}
+
+func agentByID(t *testing.T, result AttemptStatsResult, id string) AgentAttemptStats {
+	t.Helper()
+	for _, a := range result.Agents {
+		if a.AgentID == id {
+			return a
+		}
+	}
+	t.Fatalf("no stats for agent %q in %+v", id, result.Agents)
+	return AgentAttemptStats{}
+}
+
+func TestAggregateAttemptStats_ReworkIsChargedToWhoeverRedidTheWork(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+	cost := 0.25
+	usage := func() *session.TokenUsageCounts {
+		c := cost
+		return &session.TokenUsageCounts{OutputTokens: 1000, CostUSD: &c}
+	}
+
+	// bead-1: implementation, rejected, redone (the redo passes).
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: 10 * time.Second, GatePassed: true, Usage: usage(),
+	})
+	rejectingReview(t, stateDir, "epic-a", "bead-1", now.Add(time.Minute))
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now.Add(2 * time.Minute), Duration: 30 * time.Second, GatePassed: true, Usage: usage(),
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+
+	claude := agentByID(t, result, "claude")
+	if claude.ReworkAttempts != 1 {
+		t.Errorf("ReworkAttempts = %d, want 1", claude.ReworkAttempts)
+	}
+	if claude.ReworkRate == nil || *claude.ReworkRate != 0.5 {
+		t.Errorf("ReworkRate = %v, want 0.5 - one of claude's two attempts was a redo", claude.ReworkRate)
+	}
+	if claude.ReworkGatePassRate == nil || *claude.ReworkGatePassRate != 1 {
+		t.Errorf("ReworkGatePassRate = %v, want 1 - the redo passed its gate", claude.ReworkGatePassRate)
+	}
+	if claude.ReworkDurationMs != (30 * time.Second).Milliseconds() {
+		t.Errorf("ReworkDurationMs = %d, want only the redo's own 30s", claude.ReworkDurationMs)
+	}
+	if claude.ReworkOutputTokens == nil || *claude.ReworkOutputTokens != 1000 {
+		t.Errorf("ReworkOutputTokens = %v, want 1000 - the first attempt's tokens are not rework", claude.ReworkOutputTokens)
+	}
+	if claude.ReworkCostUSD == nil || *claude.ReworkCostUSD != cost {
+		t.Errorf("ReworkCostUSD = %v, want %v", claude.ReworkCostUSD, cost)
+	}
+
+	// The reviewer rejected; it did not redo anything. Charging the rework to
+	// it would double-count the same rejection - it already carries it as a
+	// review verdict.
+	reviewer := agentByID(t, result, "reviewer")
+	if reviewer.ReworkAttempts != 0 {
+		t.Errorf("reviewer ReworkAttempts = %d, want 0 - rejecting is not redoing", reviewer.ReworkAttempts)
+	}
+	if reviewer.ReviewRejectionRate == nil || *reviewer.ReviewRejectionRate != 1 {
+		t.Errorf("reviewer ReviewRejectionRate = %v, want 1 - its own rejection still counts there", reviewer.ReviewRejectionRate)
+	}
+}
+
+func TestAggregateAttemptStats_ReworkThatFailedAgainIsNotRecovered(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: time.Second, GatePassed: true,
+	})
+	rejectingReview(t, stateDir, "epic-a", "bead-1", now.Add(time.Minute))
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now.Add(2 * time.Minute), Duration: time.Second, GatePassed: false,
+		GateFailureReason: "commit_marker_missing: implementation",
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	claude := agentByID(t, result, "claude")
+	if claude.ReworkGatePassRate == nil || *claude.ReworkGatePassRate != 0 {
+		t.Errorf("ReworkGatePassRate = %v, want 0 - the redo failed its own gate", claude.ReworkGatePassRate)
+	}
+	if claude.ReworkGateObservations != 1 {
+		t.Errorf("ReworkGateObservations = %d, want 1", claude.ReworkGateObservations)
+	}
+}
+
+// A dialect that reports no usage (codex reports neither model nor cost)
+// leaves the rework sums nil rather than zero: rework nobody priced must not
+// read as rework that was free.
+func TestAggregateAttemptStats_ReworkCostIsNilWhenNothingReportedIt(t *testing.T) {
+	stateDir := t.TempDir()
+	now := time.Now()
+
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "codex", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: time.Second, GatePassed: true,
+	})
+	rejectingReview(t, stateDir, "epic-a", "bead-1", now.Add(time.Minute))
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "codex", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now.Add(2 * time.Minute), Duration: 5 * time.Second, GatePassed: true,
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	codex := agentByID(t, result, "codex")
+	if codex.ReworkAttempts != 1 {
+		t.Fatalf("ReworkAttempts = %d, want 1", codex.ReworkAttempts)
+	}
+	if codex.ReworkCostUSD != nil {
+		t.Errorf("ReworkCostUSD = %v, want nil - codex reports no cost", *codex.ReworkCostUSD)
+	}
+	if codex.ReworkOutputTokens != nil {
+		t.Errorf("ReworkOutputTokens = %v, want nil", *codex.ReworkOutputTokens)
+	}
+	if codex.ReworkCostObservations != 0 || codex.ReworkTokenObservations != 0 {
+		t.Errorf("observation counts must say the sums rest on nothing, got cost=%d tokens=%d", codex.ReworkCostObservations, codex.ReworkTokenObservations)
+	}
+	// The duration is always measured, even when the dialect reports no usage.
+	if codex.ReworkDurationMs != (5 * time.Second).Milliseconds() {
+		t.Errorf("ReworkDurationMs = %d, want the redo's real elapsed time", codex.ReworkDurationMs)
+	}
+}
+
+// A run with no rejection has no rework, and the rate must say "none of what
+// this agent did was a redo" rather than being absent.
+func TestAggregateAttemptStats_NoRejectionMeansZeroReworkNotUnmeasured(t *testing.T) {
+	stateDir := t.TempDir()
+	writeAttemptFixture(t, stateDir, "epic-a", StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, GatePassed: true,
+	})
+
+	result, err := AggregateAttemptStats(stateDir, "", time.Time{})
+	if err != nil {
+		t.Fatalf("AggregateAttemptStats: %v", err)
+	}
+	claude := agentByID(t, result, "claude")
+	if claude.ReworkRate == nil || *claude.ReworkRate != 0 {
+		t.Errorf("ReworkRate = %v, want 0", claude.ReworkRate)
+	}
+	if claude.ReworkGatePassRate != nil {
+		t.Errorf("ReworkGatePassRate = %v, want nil - there was no redo to recover", *claude.ReworkGatePassRate)
 	}
 }

@@ -374,15 +374,16 @@ func TestAppendStageAttempt_SecondAttemptRecordsCausedByAndAttemptNumber(t *test
 	})))
 
 	// Review runs against the implementation and rejects it - the exit gate
-	// fails with the exact reason shape backend.EvaluateExitGate produces
-	// for artifact_verdict gates.
+	// fails with the exact reason shape backend.evaluateSingleExitGate
+	// produces for a deliberate "VERDICT: REJECT" at a state that has
+	// somewhere to send the work back to.
 	reviewArtifact := filepath.Join(stateDir, "run", "epic-1", "bead-1", "implementation-review.md")
 	rejectVerdict := "FAIL"
 	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
 		AgentID: "reviewer", Dialect: "claude", BeadID: "bead-1", Stage: "implementation_review",
 		StartedAt: time.Now(), Duration: time.Second, BaseSHA: "base-sha", CommitSHA: "head-sha",
 		Worktree: worktree, GatePassed: false, DiffStats: fakeDiffStatter{},
-		GateFailureReason: "verdict_not_pass: " + reviewArtifact,
+		GateFailureReason: "verdict_reject: " + reviewArtifact,
 		ReviewVerdict:     &rejectVerdict,
 	})))
 
@@ -900,5 +901,36 @@ func TestLastGateFailure_ScopedToTheBead(t *testing.T) {
 
 	if got := LastGateFailure(dir, "ep-1", "kb-1", "implementation"); got != "" {
 		t.Errorf("LastGateFailure = %q, want empty - that failure belongs to kb-2", got)
+	}
+}
+
+// verdict_not_pass is not a rejection: it is a review that produced no usable
+// verdict (missing artifact, truncated document, a reviewer out of budget).
+// Nothing is sent back to an implementer for it, so the attempt that follows
+// is not rework and must not be marked as caused by a rejection. This is the
+// exact confusion the field carried until the rework rollup needed it: it
+// matched this reason and never the one a real rejection emits.
+func TestAppendStageAttempt_VerdictNotPassIsNotARejection(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "reviewer", Dialect: "claude", BeadID: "bead-1", Stage: "implementation_review",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: false, DiffStats: fakeDiffStatter{},
+		GateFailureReason: "verdict_not_pass: " + filepath.Join(stateDir, "review.md"),
+	})))
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 lines, got %d", len(lines))
+	}
+	if lines[1].CausedBy != nil {
+		t.Errorf("CausedBy = %q, want nil - a verdict gate that produced no verdict never sent work back", *lines[1].CausedBy)
 	}
 }

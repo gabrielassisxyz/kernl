@@ -13,19 +13,25 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 )
 
-// qualityColumnNote explains why this report has no revert/fix-up column:
-// the plan calls that "the rate at which the work it produced was later
-// reverted or fixed up", sourced from Phase 5 (revert detection) and Phase 6
-// (fix-up attribution) - neither of which exists yet. A column of dashes
-// standing in for a measurement that was never taken would read as
-// "measured, and it's zero everywhere," which is worse than leaving the
-// column out.
+// qualityColumnNote explains what this report still cannot say about quality.
+// Fix-up attribution now exists at the attempt level - the rework table below
+// charges every attempt that followed a deliberate rejection to the agent
+// that redid it - so the note no longer disclaims that half. Revert detection
+// does not exist: nothing here notices work that shipped and was reverted
+// afterwards, which is the one outcome that would contradict a clean
+// first-pass rate. A column of dashes standing in for a measurement that was
+// never taken would read as "measured, and it's zero everywhere," which is
+// worse than leaving the column out.
+//
+// The epic-level fix-up count stays out for a different reason: fix-up beads
+// are labelled in the tracker, not recorded in this ledger, so counting them
+// here would mean this command reading a second, unrelated source.
 //
 // The wording names what it qualifies ("this report") instead of leaning on
 // print order, because it is read from two positions that disagree about
 // where "above" and "below" point: printed ahead of the human table, and
 // carried as a JSON field that sits beside the data rather than around it.
-const qualityColumnNote = "revert/fix-up rate is not part of this report - it needs the revert/fix-up tracking that later phases (revert detection, fix-up attribution) are meant to supply, and neither exists yet. This report covers speed and gate/review outcomes only, not a quality verdict."
+const qualityColumnNote = "revert rate is not part of this report - nothing here detects work that shipped and was reverted later. This report covers speed, gate/review outcomes, and the rework a review rejection caused; the epic-level fix-up bead count lives in the tracker, not in this ledger."
 
 var orchestratorSubcommands = []string{"stats"}
 
@@ -38,6 +44,12 @@ dispatches beads) and reports, per agent: how many attempts it made, its
 first-pass gate rate, its review-rejection rate, and its median duration
 and diff size. This is the answer to "which agent should implement" from
 recorded history instead of a hunch.
+
+A second table reports rework: the attempts that exist only because a
+reviewer rejected the previous one, what share of an agent's work they
+were, how often the redo passed, and what it cost. Rework is charged to
+whoever redid the work, never to the reviewer that rejected it - that
+reviewer's own behaviour is the review-rejection rate above.
 
 Every rate and median is nil (printed as "-") when the ledger never
 measured it for that group - never a fabricated zero. The row alongside it
@@ -205,6 +217,15 @@ type orchestratorStatsAgent struct {
 	DurationObservations        int      `json:"durationObservations"`
 	MedianDiffLines             *float64 `json:"medianDiffLines"`
 	DiffObservations            int      `json:"diffObservations"`
+	ReworkAttempts              int      `json:"reworkAttempts"`
+	ReworkRate                  *float64 `json:"reworkRate"`
+	ReworkGatePassRate          *float64 `json:"reworkGatePassRate"`
+	ReworkGateObservations      int      `json:"reworkGateObservations"`
+	ReworkDurationMs            int64    `json:"reworkDurationMs"`
+	ReworkOutputTokens          *int64   `json:"reworkOutputTokens"`
+	ReworkTokenObservations     int      `json:"reworkTokenObservations"`
+	ReworkCostUSD               *float64 `json:"reworkCostUSD"`
+	ReworkCostObservations      int      `json:"reworkCostObservations"`
 }
 
 func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResult) orchestratorStatsOutput {
@@ -227,6 +248,15 @@ func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResu
 			DurationObservations:        s.DurationObservations,
 			MedianDiffLines:             s.MedianDiffLines,
 			DiffObservations:            s.DiffObservations,
+			ReworkAttempts:              s.ReworkAttempts,
+			ReworkRate:                  s.ReworkRate,
+			ReworkGatePassRate:          s.ReworkGatePassRate,
+			ReworkGateObservations:      s.ReworkGateObservations,
+			ReworkDurationMs:            s.ReworkDurationMs,
+			ReworkOutputTokens:          s.ReworkOutputTokens,
+			ReworkTokenObservations:     s.ReworkTokenObservations,
+			ReworkCostUSD:               s.ReworkCostUSD,
+			ReworkCostObservations:      s.ReworkCostObservations,
 		})
 	}
 	return out
@@ -260,8 +290,75 @@ func printOrchestratorStatsTable(w io.Writer, result app.AttemptStatsResult) err
 		if err := tw.Flush(); err != nil {
 			return fmt.Errorf("KERNL DISPATCH FAILURE: writing orchestrator stats table: %w", err)
 		}
+		if err := printReworkTable(w, result); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// printReworkTable reports what redoing rejected work cost, in a table of its
+// own rather than as six more columns on the one above - which would already
+// be past the width of a terminal, and would put "how this agent normally
+// performs" and "what its rejections cost" on one line where neither is
+// readable.
+//
+// A window with no rework prints one line saying so instead of an empty
+// table: "no rows" and "no rework happened" are the same picture otherwise,
+// and only the second is good news.
+func printReworkTable(w io.Writer, result app.AttemptStatsResult) error {
+	total := 0
+	for _, s := range result.Agents {
+		total += s.ReworkAttempts
+	}
+
+	fmt.Fprintln(w)
+	if total == 0 {
+		fmt.Fprintln(w, "rework: no attempt in this window followed a review rejection")
+		return nil
+	}
+
+	fmt.Fprintln(w, "rework - attempts that exist because a reviewer rejected the previous one,")
+	fmt.Fprintln(w, "charged to the agent that redid the work (not to the reviewer that rejected it):")
+	fmt.Fprintln(w)
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "AGENT\tREWORK\tSHARE OF ATTEMPTS\tRECOVERED\tTIME SPENT\tOUTPUT TOKENS\tCOST")
+	for _, s := range result.Agents {
+		if s.ReworkAttempts == 0 {
+			continue
+		}
+		fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			s.AgentID, s.ReworkAttempts,
+			formatRate(s.ReworkRate, s.Attempts),
+			formatRate(s.ReworkGatePassRate, s.ReworkGateObservations),
+			(time.Duration(s.ReworkDurationMs) * time.Millisecond).Round(time.Second).String(),
+			formatReworkTokens(s.ReworkOutputTokens, s.ReworkTokenObservations),
+			formatReworkCost(s.ReworkCostUSD, s.ReworkCostObservations),
+		)
+	}
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: writing orchestrator rework table: %w", err)
+	}
+	return nil
+}
+
+// formatReworkTokens and formatReworkCost print "-" for a sum nobody
+// measured. A dialect that reports no usage (codex reports neither model nor
+// cost) leaves the sum nil, and printing 0 there would read as rework that
+// was free rather than rework nobody priced.
+func formatReworkTokens(tokens *int64, n int) string {
+	if tokens == nil {
+		return fmt.Sprintf("-  (n=%d)", n)
+	}
+	return fmt.Sprintf("%d  (n=%d)", *tokens, n)
+}
+
+func formatReworkCost(cost *float64, n int) string {
+	if cost == nil {
+		return fmt.Sprintf("-  (n=%d)", n)
+	}
+	return fmt.Sprintf("$%.4f  (n=%d)", *cost, n)
 }
 
 func formatRate(rate *float64, n int) string {

@@ -48,6 +48,46 @@ type AgentAttemptStats struct {
 	// reports neither, and a partial pair is not a diff size).
 	MedianDiffLines  *float64
 	DiffObservations int
+
+	// ReworkAttempts counts this agent's rows carrying causedBy: attempts
+	// that exist because a reviewer rejected the previous one. The ledger
+	// writes causedBy on exactly the attempt that follows a rejection, so
+	// this is also the number of rejections that sent work back to this
+	// agent.
+	//
+	// It is charged to the agent that REDID the work, not to the reviewer
+	// that rejected it. The reviewer's own behaviour is already
+	// ReviewRejectionRate above, computed from its verdict rows; asking one
+	// number to carry both would make neither answerable.
+	ReworkAttempts int
+	// ReworkRate is ReworkAttempts over Attempts - the share of what this
+	// agent did that was redoing work. Nil only when the agent has no rows
+	// at all, which AggregateAttemptStats never produces (an agent is
+	// listed because it has some).
+	ReworkRate *float64
+
+	// ReworkGatePassRate is the share of the rework attempts whose own exit
+	// gate passed: how often the second try actually landed. Nil when there
+	// was no rework to observe, which is not the same as rework that never
+	// recovered.
+	ReworkGatePassRate     *float64
+	ReworkGateObservations int
+
+	// ReworkDurationMs is the wall-clock the rework attempts cost, summed.
+	// Always measured (the ledger records a real elapsed duration on every
+	// row), so this is 0 only when there was no rework.
+	ReworkDurationMs int64
+
+	// ReworkOutputTokens and ReworkCostUSD are what the rework cost where
+	// the dialect reported it, and nil - never 0 - where none of the rework
+	// rows reported anything. codex reports neither, so an epic implemented
+	// by codex has real rework with no price on it, and a zero here would
+	// read as "rework was free" rather than "nobody measured it". The
+	// observation counts say how many rows each sum is actually built from.
+	ReworkOutputTokens      *int64
+	ReworkTokenObservations int
+	ReworkCostUSD           *float64
+	ReworkCostObservations  int
 }
 
 // AttemptLedgerPaths lists every stage-attempt ledger file across every epic
@@ -187,6 +227,9 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 
 	var firstPassTotal, firstPassPassed int
 	var reviewTotal, reviewRejected int
+	var reworkTotal, reworkPassed int
+	var reworkTokens int64
+	var reworkCost float64
 	durations := make([]float64, 0, len(recs))
 	diffs := make([]float64, 0, len(recs))
 
@@ -201,6 +244,21 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 			reviewTotal++
 			if *r.ReviewVerdict != "PASS" {
 				reviewRejected++
+			}
+		}
+		if r.CausedBy != nil {
+			reworkTotal++
+			if r.GatePassed {
+				reworkPassed++
+			}
+			stats.ReworkDurationMs += r.DurationMs
+			if r.OutputTokens != nil {
+				reworkTokens += *r.OutputTokens
+				stats.ReworkTokenObservations++
+			}
+			if r.CostUSD != nil {
+				reworkCost += *r.CostUSD
+				stats.ReworkCostObservations++
 			}
 		}
 		durations = append(durations, float64(r.DurationMs))
@@ -229,6 +287,24 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 	stats.DiffObservations = len(diffs)
 	if med, ok := median(diffs); ok {
 		stats.MedianDiffLines = &med
+	}
+
+	stats.ReworkAttempts = reworkTotal
+	if len(recs) > 0 {
+		rate := float64(reworkTotal) / float64(len(recs))
+		stats.ReworkRate = &rate
+	}
+
+	stats.ReworkGateObservations = reworkTotal
+	if reworkTotal > 0 {
+		rate := float64(reworkPassed) / float64(reworkTotal)
+		stats.ReworkGatePassRate = &rate
+	}
+	if stats.ReworkTokenObservations > 0 {
+		stats.ReworkOutputTokens = &reworkTokens
+	}
+	if stats.ReworkCostObservations > 0 {
+		stats.ReworkCostUSD = &reworkCost
 	}
 
 	return stats

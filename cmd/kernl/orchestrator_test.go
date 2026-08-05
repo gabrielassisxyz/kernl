@@ -91,7 +91,7 @@ func TestOrchestratorStatsAggregatesAndFormatsTable(t *testing.T) {
 	if !strings.Contains(out, "claude") {
 		t.Errorf("table must list the claude agent, got: %q", out)
 	}
-	if !strings.Contains(out, "revert/fix-up rate is not part of this report") {
+	if !strings.Contains(out, "revert rate is not part of this report") {
 		t.Errorf("table must carry the quality-column disclaimer, got: %q", out)
 	}
 }
@@ -370,5 +370,112 @@ func TestOrchestratorRequiresSubcommand(t *testing.T) {
 func TestOrchestratorCommandIsInDispatchTable(t *testing.T) {
 	if findCommand(commandTable, "orchestrator") == nil {
 		t.Fatal(`"orchestrator" is missing from commandTable - help/capabilities/robot-docs would not see it`)
+	}
+}
+
+// --- rework table ---
+
+func TestOrchestratorStatsReworkTableChargesTheAgentThatRedidTheWork(t *testing.T) {
+	home := orchestratorTestHome(t)
+	now := time.Now()
+	verdict := "REJECT"
+
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: 10 * time.Second, GatePassed: true,
+	})
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "codex", BeadID: "bead-1", Stage: "implementation_review",
+		StartedAt: now.Add(time.Minute), Duration: time.Second, GatePassed: false,
+		GateFailureReason: "verdict_reject: /artifacts/implementation-review.md",
+		ReviewVerdict:     &verdict,
+	})
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now.Add(2 * time.Minute), Duration: 30 * time.Second, GatePassed: true,
+	})
+
+	var buf bytes.Buffer
+	if err := runOrchestratorStats(&buf, nil); err != nil {
+		t.Fatalf("runOrchestratorStats: %v", err)
+	}
+	out := buf.String()
+
+	if !strings.Contains(out, "REWORK") {
+		t.Errorf("the rework table must be printed when there is rework, got: %q", out)
+	}
+	if !strings.Contains(out, "30s") {
+		t.Errorf("the rework row must carry the time the redo cost, got: %q", out)
+	}
+	// codex only rejected; it redid nothing, so it has no row here even
+	// though it appears in the table above.
+	reworkSection := out[strings.Index(out, "REWORK"):]
+	if strings.Contains(reworkSection, "codex") {
+		t.Errorf("an agent that only reviewed must not appear in the rework table, got: %q", reworkSection)
+	}
+}
+
+// A window with no rework says so. An empty table would look identical to a
+// window with no attempts at all, and only one of the two is good news.
+func TestOrchestratorStatsSaysWhenThereWasNoRework(t *testing.T) {
+	home := orchestratorTestHome(t)
+
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, GatePassed: true,
+	})
+
+	var buf bytes.Buffer
+	if err := runOrchestratorStats(&buf, nil); err != nil {
+		t.Fatalf("runOrchestratorStats: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "no attempt in this window followed a review rejection") {
+		t.Errorf("a clean window must say there was no rework, got: %q", out)
+	}
+	if strings.Contains(out, "REWORK\t") {
+		t.Errorf("an empty rework table must not be printed at all, got: %q", out)
+	}
+}
+
+func TestOrchestratorStatsReworkReachesJSON(t *testing.T) {
+	home := orchestratorTestHome(t)
+	now := time.Now()
+	verdict := "REJECT"
+
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now, Duration: time.Second, GatePassed: true,
+	})
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation_review",
+		StartedAt: now.Add(time.Minute), Duration: time.Second, GatePassed: false,
+		GateFailureReason: "verdict_reject: /artifacts/implementation-review.md",
+		ReviewVerdict:     &verdict,
+	})
+	writeOrchestratorFixture(t, home, "epic-a", app.StageAttemptInput{
+		AgentID: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: now.Add(2 * time.Minute), Duration: time.Second, GatePassed: true,
+	})
+
+	var buf bytes.Buffer
+	if err := runOrchestratorStats(&buf, []string{"--json"}); err != nil {
+		t.Fatalf("runOrchestratorStats --json: %v", err)
+	}
+	var out orchestratorStatsOutput
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(out.Agents) != 1 {
+		t.Fatalf("expected one agent, got %+v", out.Agents)
+	}
+	if out.Agents[0].ReworkAttempts != 1 {
+		t.Errorf("reworkAttempts = %d, want 1", out.Agents[0].ReworkAttempts)
+	}
+	if out.Agents[0].ReworkCostUSD != nil {
+		t.Errorf("reworkCostUSD must be null when no dialect reported one, got %v", *out.Agents[0].ReworkCostUSD)
+	}
+	if !strings.Contains(buf.String(), "\"reworkRate\"") {
+		t.Errorf("the JSON surface must carry reworkRate, got: %q", buf.String())
 	}
 }
