@@ -647,9 +647,14 @@ func TestOrchestratorStatsStoppedTableCarriesADenominatorAndTheReason(t *testing
 		t.Errorf("the stopped table must carry a denominator column, got: %q", out)
 	}
 	// One stop out of two beads worked, with the population visible: a bare
-	// "1" is not comparable to another agent's "8".
-	if !strings.Contains(out, "50%  (n=2)") {
+	// "1" is not comparable to another agent's "8". Two observations is
+	// below minObservationsForPercent, so it prints as counts rather than as
+	// a percentage that would read as comparable to one over sixteen.
+	if !strings.Contains(out, "1 of 2") {
 		t.Errorf("the rate must be printed over the beads worked, got: %q", out)
+	}
+	if strings.Contains(out, "50%") {
+		t.Errorf("a rate over two observations must not print as a percentage, got: %q", out)
 	}
 	if !strings.Contains(out, "commit_marker_missing 1") {
 		t.Errorf("the breakdown by reason must be printed, got: %q", out)
@@ -703,5 +708,30 @@ func TestOrchestratorStatsStoppedReachesJSON(t *testing.T) {
 	}
 	if a.BeadsStoppedRate == nil {
 		t.Error("beadsStoppedRate must be present when the agent worked a bead")
+	}
+}
+
+// A percentage detaches from its denominator when it is read, and a small one
+// invites a comparison it cannot support. Below minObservationsForPercent the
+// rate prints as the counts it came from, which carry the denominator with
+// them wherever the number is quoted.
+func TestFormatRateSwitchesToCountsBelowTheObservationFloor(t *testing.T) {
+	rate := func(v float64) *float64 { return &v }
+
+	if got := formatRate(rate(1.0/3.0), 3); got != "1 of 3" {
+		t.Errorf("formatRate(1/3, 3) = %q, want %q", got, "1 of 3")
+	}
+	if got := formatRate(rate(0.5), 16); got != "50%  (n=16)" {
+		t.Errorf("formatRate(0.5, 16) = %q, want a percentage once the base is big enough", got)
+	}
+	// The boundary itself prints as a percentage: the constant is the first
+	// count considered enough, not the last one considered too few.
+	if got := formatRate(rate(0.4), minObservationsForPercent); got != "40%  (n=5)" {
+		t.Errorf("formatRate at the floor = %q, want a percentage", got)
+	}
+	// An unmeasured rate is still a dash, never counts reconstructed from
+	// nothing.
+	if got := formatRate(nil, 3); got != "-  (n=3)" {
+		t.Errorf("formatRate(nil, 3) = %q, want a dash", got)
 	}
 }

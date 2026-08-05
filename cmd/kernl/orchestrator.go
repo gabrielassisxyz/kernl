@@ -473,8 +473,8 @@ func printStoppedTable(w io.Writer, result app.AttemptStatsResult) error {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "A stop is what the ledger can see now: a bead that runs again stops counting,")
 	fmt.Fprintln(w, "and one repaired by hand outside kernl leaves no row at all, so this")
-	fmt.Fprintln(w, "undercounts - most for the oldest runs. Read the rates as directional and")
-	fmt.Fprintln(w, "look at the n= before quoting one.")
+	fmt.Fprintln(w, "undercounts - most for the oldest runs. Read the rates as directional, and")
+	fmt.Fprintln(w, "note that one resting on fewer than 5 beads prints as counts, not a percent.")
 	return nil
 }
 
@@ -566,9 +566,30 @@ func formatReworkCost(cost *float64, n int) string {
 	return fmt.Sprintf("$%.4f  (n=%d)", *cost, n)
 }
 
+// minObservationsForPercent is where a rate starts being printed as a
+// percentage instead of the two counts it came from.
+//
+// A percentage detaches from its denominator the moment it is read. "33%"
+// printed beside "50%" invites exactly the comparison the (n=3) next to it is
+// supposed to prevent, and it travels: quoted once, the number outlives the
+// note saying it rested on three observations. "1 of 3" cannot be quoted that
+// way, because it carries its own denominator wherever it goes.
+//
+// Five is a judgement, not something derived - small enough that the ordinary
+// case still reads as a percentage, large enough that one observation moving
+// cannot swing the printed number by more than twenty points.
+const minObservationsForPercent = 5
+
 func formatRate(rate *float64, n int) string {
 	if rate == nil {
 		return fmt.Sprintf("-  (n=%d)", n)
+	}
+	if n < minObservationsForPercent {
+		// The numerator is recovered rather than passed in: every rate here is
+		// k/n over small integer counts, so k = rate*n exactly, and threading
+		// a second count through five call sites to re-derive what the pair
+		// already determines would buy nothing.
+		return fmt.Sprintf("%d of %d", int(math.Round(*rate*float64(n))), n)
 	}
 	return fmt.Sprintf("%.0f%%  (n=%d)", *rate*100, n)
 }
