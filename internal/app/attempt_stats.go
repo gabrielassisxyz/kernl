@@ -88,6 +88,7 @@ type AgentAttemptStats struct {
 	ReworkOutputTokens      *int64
 	ReworkTokenObservations int
 	ReworkCostUSD           *float64
+	ReworkCostFloorUSD      *float64
 	ReworkCostObservations  int
 	ReworkCostIsCeiling     bool
 
@@ -371,7 +372,7 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 	var reviewTotal, reviewRejected int
 	var reworkTotal, reworkPassed int
 	var reworkTokens int64
-	var reworkCost float64
+	var reworkCost, reworkCostFloor float64
 	durations := make([]float64, 0, len(recs))
 	diffs := make([]float64, 0, len(recs))
 
@@ -400,6 +401,11 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 			}
 			if r.CostUSD != nil {
 				reworkCost += *r.CostUSD
+				if r.CostFloorUSD != nil {
+					reworkCostFloor += *r.CostFloorUSD
+				} else {
+					reworkCostFloor += *r.CostUSD
+				}
 				stats.ReworkCostObservations++
 				if r.CostSource == "derived_ceiling" {
 					stats.ReworkCostIsCeiling = true
@@ -450,6 +456,7 @@ func computeAgentAttemptStats(agentID string, recs []StageAttemptRecord) AgentAt
 	}
 	if stats.ReworkCostObservations > 0 {
 		stats.ReworkCostUSD = &reworkCost
+		stats.ReworkCostFloorUSD = &reworkCostFloor
 	}
 
 	return stats

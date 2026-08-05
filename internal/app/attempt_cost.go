@@ -12,6 +12,11 @@ import (
 // Recorded alongside rates because model prices rot over time.
 const PriceTableDate = "2026-08-05"
 
+// DefaultCacheShare is the measured floor of request turn gaps <=60s for Ollama Cloud (96%).
+// Used to compute the estimated lower bound for derived_ceiling costs where the provider
+// does not report cached_tokens.
+const DefaultCacheShare = 0.96
+
 // ModelPrice defines rates per 1,000,000 tokens (in USD).
 type ModelPrice struct {
 	InputPerM      float64
@@ -207,6 +212,7 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 	// 4. Missing tokens, zero tokens, or unknown model yield unavailable (never 0).
 	if rec.InputTokens == nil || rec.OutputTokens == nil || (*rec.InputTokens == 0 && *rec.OutputTokens == 0) || modelID == "" {
 		rec.CostUSD = nil
+		rec.CostFloorUSD = nil
 		rec.CostSource = "unavailable"
 		return
 	}
@@ -214,6 +220,7 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 	price, ok := DefaultModelPrices[modelID]
 	if !ok {
 		rec.CostUSD = nil
+		rec.CostFloorUSD = nil
 		rec.CostSource = "unavailable"
 		return
 	}
@@ -230,13 +237,17 @@ func DeriveAttemptCostInDir(rec *StageAttemptRecord, customPiSessionsDir string)
 		cwrite = float64(*rec.CacheWriteTokens)
 	}
 
-	cost := (inp*price.InputPerM + out*price.OutputPerM + cread*price.CacheReadPerM + cwrite*price.CacheWritePerM) / 1000000.0
-	rec.CostUSD = &cost
+	costCeiling := (inp*price.InputPerM + out*price.OutputPerM + cread*price.CacheReadPerM + cwrite*price.CacheWritePerM) / 1000000.0
+	rec.CostUSD = &costCeiling
 
 	// 6. Distinguish between derived (cache read accounted for) and derived_ceiling (cache read unobservable).
 	// Dialect "pi" / agent "pi-kimi" / missing cacheReadTokens mean cache read is not reported by the provider.
 	if rec.CacheReadTokens == nil || rec.Dialect == "pi" || rec.AgentID == "pi-kimi" {
 		rec.CostSource = "derived_ceiling"
+		// Calculate estimated floor at DefaultCacheShare (96% cache hit rate for <=60s gaps)
+		effectiveInRate := (1.0-DefaultCacheShare)*price.InputPerM + DefaultCacheShare*price.CacheReadPerM
+		costFloor := (inp*effectiveInRate + out*price.OutputPerM) / 1000000.0
+		rec.CostFloorUSD = &costFloor
 	} else {
 		rec.CostSource = "derived"
 	}

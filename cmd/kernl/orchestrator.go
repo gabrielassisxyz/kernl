@@ -343,6 +343,7 @@ type orchestratorStatsAgent struct {
 	ReworkOutputTokens          *int64         `json:"reworkOutputTokens"`
 	ReworkTokenObservations     int            `json:"reworkTokenObservations"`
 	ReworkCostUSD               *float64       `json:"reworkCostUSD"`
+	ReworkCostFloorUSD          *float64       `json:"reworkCostFloorUSD,omitempty"`
 	ReworkCostObservations      int            `json:"reworkCostObservations"`
 	ReworkCostIsCeiling         bool           `json:"reworkCostIsCeiling,omitempty"`
 	BeadsStopped                int            `json:"beadsStopped"`
@@ -379,6 +380,7 @@ func newOrchestratorStatsOutput(stage, since string, result app.AttemptStatsResu
 			ReworkOutputTokens:          s.ReworkOutputTokens,
 			ReworkTokenObservations:     s.ReworkTokenObservations,
 			ReworkCostUSD:               s.ReworkCostUSD,
+			ReworkCostFloorUSD:          s.ReworkCostFloorUSD,
 			ReworkCostObservations:      s.ReworkCostObservations,
 			ReworkCostIsCeiling:         s.ReworkCostIsCeiling,
 			BeadsStopped:                s.BeadsStopped,
@@ -541,7 +543,7 @@ func printReworkTable(w io.Writer, result app.AttemptStatsResult) error {
 			formatRate(s.ReworkGatePassRate, s.ReworkGateObservations),
 			(time.Duration(s.ReworkDurationMs) * time.Millisecond).Round(time.Second).String(),
 			formatReworkTokens(s.ReworkOutputTokens, s.ReworkTokenObservations),
-			formatReworkCost(s.ReworkCostUSD, s.ReworkCostObservations, s.ReworkCostIsCeiling),
+			formatReworkCost(s.ReworkCostUSD, s.ReworkCostFloorUSD, s.ReworkCostObservations, s.ReworkCostIsCeiling),
 		)
 	}
 	if err := tw.Flush(); err != nil {
@@ -561,12 +563,12 @@ func formatReworkTokens(tokens *int64, n int) string {
 	return fmt.Sprintf("%d  (n=%d)", *tokens, n)
 }
 
-func formatReworkCost(cost *float64, n int, isCeiling bool) string {
+func formatReworkCost(cost *float64, floor *float64, n int, isCeiling bool) string {
 	if cost == nil {
 		return fmt.Sprintf("-  (n=%d)", n)
 	}
-	if isCeiling {
-		return fmt.Sprintf("$%.4f  (n=%d, ceiling)", *cost, n)
+	if isCeiling && floor != nil && *floor < *cost {
+		return fmt.Sprintf("$%.2f–$%.2f  (n=%d, ceiling)", *floor, *cost, n)
 	}
 	return fmt.Sprintf("$%.4f  (n=%d)", *cost, n)
 }
