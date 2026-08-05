@@ -15,8 +15,8 @@ import (
 
 // qualityColumnNote explains what this report still cannot say about quality.
 // Fix-up attribution now exists at the attempt level - the rework table below
-// charges every attempt that followed a deliberate rejection to the agent
-// that redid it - so the note no longer disclaims that half. Revert detection
+// charges an attempt that redoes rejected work to the agent that redid it -
+// so the note no longer disclaims that half. Revert detection
 // does not exist: nothing here notices work that shipped and was reverted
 // afterwards, which is the one outcome that would contradict a clean
 // first-pass rate. A column of dashes standing in for a measurement that was
@@ -45,11 +45,13 @@ first-pass gate rate, its review-rejection rate, and its median duration
 and diff size. This is the answer to "which agent should implement" from
 recorded history instead of a hunch.
 
-A second table reports rework: the attempts that exist only because a
-reviewer rejected the previous one, what share of an agent's work they
-were, how often the redo passed, and what it cost. Rework is charged to
-whoever redid the work, never to the reviewer that rejected it - that
-reviewer's own behaviour is the review-rejection rate above.
+A second table reports rework: the attempts that redo work a reviewer
+rejected, what share of an agent's work they were, how often the redo
+passed, and what it cost. Rework is charged to whoever redid the work,
+never to the reviewer that rejected it - that reviewer's own behaviour is
+the review-rejection rate above. An attempt that merely follows a rejection
+without redoing anything (a review re-running on unchanged work, a stage
+running for the first time) is not counted.
 
 Every rate and median is nil (printed as "-") when the ledger never
 measured it for that group - never a fabricated zero. The row alongside it
@@ -420,11 +422,11 @@ func printReworkTable(w io.Writer, result app.AttemptStatsResult) error {
 
 	fmt.Fprintln(w)
 	if total == 0 {
-		fmt.Fprintln(w, "rework: no attempt in this window followed a review rejection")
+		fmt.Fprintln(w, "rework: no attempt in this window redid work a review rejected")
 		return nil
 	}
 
-	fmt.Fprintln(w, "rework - attempts that exist because a reviewer rejected the previous one,")
+	fmt.Fprintln(w, "rework - attempts that redo work a reviewer rejected,")
 	fmt.Fprintln(w, "charged to the agent that redid the work (not to the reviewer that rejected it):")
 	fmt.Fprintln(w)
 

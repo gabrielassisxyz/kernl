@@ -104,10 +104,10 @@ type StageAttemptRecord struct {
 	// it) starts from the same rows instead of re-deriving it differently.
 	//
 	// Non-nil is therefore the ledger's definition of rework: this attempt
-	// exists because a reviewer rejected the previous one. Exactly one row
-	// carries it per rejection - the attempt that immediately follows -
-	// which is what makes counting these rows the same as counting the
-	// rejections that sent work back.
+	// is redoing work a reviewer rejected. Not merely the attempt that
+	// FOLLOWS a rejection - see findCausedBy for the two shapes that follow
+	// one without redoing anything, both of which occur in real ledgers and
+	// both of which would charge the rework to the wrong agent.
 	CausedBy      *string `json:"causedBy"`
 	FollowUpCount int     `json:"followUpCount"`
 	Nudged        bool    `json:"nudged"`
@@ -367,7 +367,7 @@ func appendStageAttempt(stateDir, epicID string, rec StageAttemptRecord, open fu
 
 	rec.EpicID = epicID
 	rec.AttemptNumber = countPriorAttempts(existing, rec.BeadID, rec.Stage) + 1
-	rec.CausedBy = findCausedBy(existing, rec.BeadID)
+	rec.CausedBy = findCausedBy(existing, rec.BeadID, rec.Stage)
 	if rec.ReviewVerdict != nil {
 		firstPassApproved := rec.AttemptNumber == 1 && *rec.ReviewVerdict == "PASS"
 		rec.FirstPassApproved = &firstPassApproved
@@ -416,31 +416,48 @@ func countPriorAttempts(existing []StageAttemptRecord, beadID, stage string) int
 	return n
 }
 
-// findCausedBy walks backward to this bead's most recent recorded attempt
-// (any stage). If it failed its gate because a reviewer deliberately
-// rejected the work ("verdict_reject: <artifact>" - see
-// backend.evaluateSingleExitGate), the new attempt is presumed caused by
-// that rejection and CausedBy names the artifact. Any other outcome (the
-// prior attempt passed, or failed for a reason that is not a rejection)
-// yields nil: this function only ever states what the immediately preceding
-// row recorded, never a judgment about whether today's attempt is "really"
-// a retry.
+// findCausedBy answers whether this attempt is redoing work a reviewer
+// rejected, and names the review artifact that rejected it.
 //
-// The prefix is verdict_reject, not verdict_not_pass, and the difference is
-// the whole meaning of the field. Only two states can send work back
-// (backend.IsRejectableVerdictState), and only for them does a verdict of
-// REJECT produce verdict_reject; verdict_not_pass is every OTHER way a
-// verdict gate fails - a missing artifact, a truncated document, a reviewer
-// that ran out of budget - which blocks the bead for a human rather than
-// handing it to an implementer to redo. Matching that reason instead marked
-// as rework exactly the attempts that were not, and left the real ones -
-// the rewinds - unmarked, because the rewind path emits the other string.
-func findCausedBy(existing []StageAttemptRecord, beadID string) *string {
+// It walks backward to this bead's most recent recorded attempt (any stage)
+// and requires three things of what it finds, each ruling out a shape that
+// really occurs in a recorded ledger and is not rework:
+//
+// The prior attempt must have failed with "verdict_reject: <artifact>" (see
+// backend.evaluateSingleExitGate). The prefix is not verdict_not_pass, and
+// the difference is the whole meaning of the field: only two states can send
+// work back (backend.IsRejectableVerdictState), and only for them does a
+// verdict of REJECT produce verdict_reject. verdict_not_pass is every OTHER
+// way a verdict gate fails - a missing artifact, a truncated document, a
+// reviewer that ran out of budget - which blocks the bead for a human
+// rather than handing it to an implementer to redo.
+//
+// This attempt must be at a DIFFERENT stage than the one that rejected.
+// A review stage re-running straight after its own rejection is a second
+// opinion on unchanged work, not a redo of it - and marking it charged the
+// rework to the reviewer, which is precisely the attribution this field
+// exists to avoid. It happens: one such re-run rejected and then passed the
+// same code with no implementation between the two.
+//
+// And this attempt's stage must already have run for this bead. The stage
+// that follows a rejection is not always a retake: an epic whose
+// integration_review rejected has been seen recording a shipment attempt
+// next, and a stage running for the first time cannot be redoing anything.
+//
+// What survives all three is an attempt at a stage that had already run and
+// was sent back to run again, which is what "rework" names.
+func findCausedBy(existing []StageAttemptRecord, beadID, stage string) *string {
 	const verdictRejectionPrefix = "verdict_reject: "
+	if countPriorAttempts(existing, beadID, stage) == 0 {
+		return nil
+	}
 	for i := len(existing) - 1; i >= 0; i-- {
 		rec := existing[i]
 		if rec.BeadID != beadID {
 			continue
+		}
+		if rec.Stage == stage {
+			return nil
 		}
 		if rec.GatePassed || rec.GateFailureReason == nil {
 			return nil

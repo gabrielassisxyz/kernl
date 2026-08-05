@@ -133,7 +133,7 @@ func rebuildLedgerLines(valid string, records []StageAttemptRecord, outcome *Led
 		rec := records[next]
 		next++
 
-		want := findCausedBy(seen, rec.BeadID)
+		want := findCausedBy(seen, rec.BeadID, rec.Stage)
 		seen = append(seen, rec)
 
 		if sameCausedBy(rec.CausedBy, want) {

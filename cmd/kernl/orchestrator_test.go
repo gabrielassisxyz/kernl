@@ -430,7 +430,7 @@ func TestOrchestratorStatsSaysWhenThereWasNoRework(t *testing.T) {
 		t.Fatalf("runOrchestratorStats: %v", err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "no attempt in this window followed a review rejection") {
+	if !strings.Contains(out, "no attempt in this window redid work a review rejected") {
 		t.Errorf("a clean window must say there was no rework, got: %q", out)
 	}
 	if strings.Contains(out, "REWORK\t") {

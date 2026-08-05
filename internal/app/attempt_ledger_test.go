@@ -934,3 +934,91 @@ func TestAppendStageAttempt_VerdictNotPassIsNotARejection(t *testing.T) {
 		t.Errorf("CausedBy = %q, want nil - a verdict gate that produced no verdict never sent work back", *lines[1].CausedBy)
 	}
 }
+
+// A review stage re-running straight after its own rejection is a second
+// opinion on unchanged work, not a redo of it. Marking it charged the rework
+// to the reviewer - the exact attribution the field exists to avoid. Observed
+// in a real ledger, where such a re-run rejected and then passed the same code
+// with no implementation between the two.
+func TestAppendStageAttempt_AReviewRerunAfterItsOwnRejectionIsNotRework(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+	reject := func() {
+		verdict := "REJECT"
+		must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+			AgentID: "reviewer", Dialect: "claude", BeadID: "bead-1", Stage: "implementation_review",
+			StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+			GatePassed: false, DiffStats: fakeDiffStatter{},
+			GateFailureReason: "verdict_reject: " + filepath.Join(stateDir, "implementation-review.md"),
+			ReviewVerdict:     &verdict,
+		})))
+	}
+
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+	reject()
+	reject()
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+	if lines[2].CausedBy != nil {
+		t.Errorf("CausedBy = %q, want nil - the reviewer re-reviewed, it did not redo the work", *lines[2].CausedBy)
+	}
+}
+
+// The stage that follows a rejection is not always a retake. An epic whose
+// integration_review rejected has been seen recording a shipment attempt
+// next, and a stage running for the first time cannot be redoing anything.
+func TestAppendStageAttempt_AStageRunningForTheFirstTimeIsNotRework(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+	verdict := "REJECT"
+
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "epic-1", Stage: "integration",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "reviewer", Dialect: "claude", BeadID: "epic-1", Stage: "integration_review",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: false, DiffStats: fakeDiffStatter{},
+		GateFailureReason: "verdict_reject: " + filepath.Join(stateDir, "integration-review.md"),
+		ReviewVerdict:     &verdict,
+	})))
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "shipper", Dialect: "claude", BeadID: "epic-1", Stage: "shipment",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	if lines[2].CausedBy != nil {
+		t.Errorf("CausedBy = %q, want nil - shipment had never run, so it is redoing nothing", *lines[2].CausedBy)
+	}
+
+	// The stage that WAS sent back still counts: integration running a second
+	// time after its own review rejected is the rework here.
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "epic-1", Stage: "integration_review",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: false, DiffStats: fakeDiffStatter{},
+		GateFailureReason: "verdict_reject: " + filepath.Join(stateDir, "integration-review.md"),
+		ReviewVerdict:     &verdict,
+	})))
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "epic-1", Stage: "integration",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+	lines = readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	last := lines[len(lines)-1]
+	if last.CausedBy == nil {
+		t.Error("integration re-running after its review rejected is rework and must be marked")
+	}
+}

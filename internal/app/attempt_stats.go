@@ -50,10 +50,10 @@ type AgentAttemptStats struct {
 	DiffObservations int
 
 	// ReworkAttempts counts this agent's rows carrying causedBy: attempts
-	// that exist because a reviewer rejected the previous one. The ledger
-	// writes causedBy on exactly the attempt that follows a rejection, so
-	// this is also the number of rejections that sent work back to this
-	// agent.
+	// redoing work a reviewer rejected. Not every attempt that follows a
+	// rejection qualifies - see findCausedBy, which rules out a review
+	// re-running on unchanged work and a stage running for the first time,
+	// neither of which is redoing anything.
 	//
 	// It is charged to the agent that REDID the work, not to the reviewer
 	// that rejected it. The reviewer's own behaviour is already
