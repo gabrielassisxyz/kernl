@@ -71,7 +71,11 @@ docs/solutions/
 .bv
 .beads
 
-kernl.yaml
+# The glob, not the exact name: a hand-made backup (kernl.yaml.bak-<date>,
+# kernl.yaml.old) carries the same absolute paths, orchestrated repositories and
+# proxy key as the real config, and ignoring only the exact string left every one
+# of them untracked-but-committable, one distracted `git add .` from publication.
+kernl.yaml*
 !kernl.yaml.example
 *.env
 *.local
