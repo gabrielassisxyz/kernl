@@ -9,12 +9,16 @@ import (
 )
 
 type fakeGitRunner struct {
-	calls  [][]string
-	branch map[string]bool
+	calls    [][]string
+	branch   map[string]bool
+	unmerged map[string]int
 }
 
 func newFakeGitRunner() *fakeGitRunner {
-	return &fakeGitRunner{branch: make(map[string]bool)}
+	return &fakeGitRunner{
+		branch:   make(map[string]bool),
+		unmerged: make(map[string]int),
+	}
 }
 
 func (f *fakeGitRunner) run(dir string, args ...string) (string, error) {
@@ -27,10 +31,31 @@ func (f *fakeGitRunner) run(dir string, args ...string) (string, error) {
 			}
 			return "", nil
 		}
+		if len(args) >= 3 && args[1] == "-D" {
+			delete(f.branch, args[2])
+			return "", nil
+		}
+		if len(args) >= 4 && args[1] == "-m" {
+			delete(f.branch, args[2])
+			f.branch[args[3]] = true
+			return "", nil
+		}
 		if len(args) >= 3 && args[0] == "branch" {
 			f.branch[args[1]] = true
 		}
 		return "", nil
+	case "rev-list":
+		if len(args) >= 3 && args[1] == "--count" {
+			parts := strings.Split(args[2], "..")
+			if len(parts) == 2 {
+				branch := parts[1]
+				if count, ok := f.unmerged[branch]; ok {
+					return fmt.Sprintf("%d\n", count), nil
+				}
+			}
+			return "0\n", nil
+		}
+		return "0\n", nil
 	case "worktree":
 		return "", nil
 	}
@@ -484,5 +509,63 @@ func TestCleanupEpic_RemovesWorktreesAndBranches(t *testing.T) {
 	}
 	if !foundC2Branch {
 		t.Error("expected branch -D kernl/c2")
+	}
+}
+
+func TestCleanupEpic_PreservesUnmergedBeadBranch(t *testing.T) {
+	root := t.TempDir()
+	repoPath := t.TempDir()
+	fr := newFakeGitRunner()
+	fr.branch["feat/e1"] = true
+	fr.branch["kernl/c1"] = true
+	fr.unmerged["kernl/c1"] = 3
+
+	wm := NewWorktreeManager(root, repoPath, "main", fr.run, nil)
+
+	err := wm.CleanupEpic("e1", []string{"c1"})
+	if err != nil {
+		t.Fatalf("CleanupEpic: %v", err)
+	}
+
+	for _, call := range fr.calls {
+		if call[0] == "branch" && len(call) >= 3 && call[1] == "-D" && call[2] == "kernl/c1" {
+			t.Errorf("branch -D must NOT be called for unmerged bead branch kernl/c1")
+		}
+	}
+
+	foundRename := false
+	var archiveBranch string
+	for _, call := range fr.calls {
+		if call[0] == "branch" && len(call) >= 4 && call[1] == "-m" && call[2] == "kernl/c1" {
+			foundRename = true
+			archiveBranch = call[3]
+		}
+	}
+
+	if !foundRename {
+		t.Fatalf("expected branch -m kernl/c1 archive/e1-c1-..., but rename was not called; calls: %v", fr.calls)
+	}
+
+	if !strings.HasPrefix(archiveBranch, "archive/e1-c1-") {
+		t.Errorf("archived branch name should start with archive/e1-c1-, got: %q", archiveBranch)
+	}
+
+	if !fr.branch[archiveBranch] {
+		t.Errorf("archived branch %q should exist in git branches after rename", archiveBranch)
+	}
+}
+
+func TestCleanupEpic_FailsWithoutBaseBranch(t *testing.T) {
+	root := t.TempDir()
+	repoPath := t.TempDir()
+	fr := newFakeGitRunner()
+	wm := NewWorktreeManager(root, repoPath, "", fr.run, nil)
+
+	err := wm.CleanupEpic("e1", []string{"c1"})
+	if err == nil {
+		t.Fatal("expected loud failure when baseBranch is empty")
+	}
+	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+		t.Errorf("expected error to contain KERNL DISPATCH FAILURE, got: %v", err)
 	}
 }

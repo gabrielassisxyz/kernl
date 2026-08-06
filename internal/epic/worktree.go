@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
@@ -102,11 +103,11 @@ func (m *WorktreeManager) AddEpicWorktree(epicID string) (string, error) {
 // CleanupEpic removes all artifacts for an epic from the local filesystem.
 // It deletes:
 //   - the epic worktree directory root/<epicID> (including all child worktrees)
-//   - the feat/<epicID> branch
-//   - the kernl/<childID> branches for every child bead.
+//   - the feat/<epicID> branch (if fully merged) or renames it to archive/<epicID>-<timestamp> (if unmerged)
+//   - the kernl/<childID> branches for every child bead (or renames them to archive/<epicID>-<childID>-<timestamp> if unmerged).
 //
-// Branch deletion errors are silently ignored because the branches may never
-// have been created (hermetic tests or a bead that never reached implementation).
+// Branch non-existence is ignored because branches may never have been created
+// (hermetic tests or a bead that never reached implementation).
 func (m *WorktreeManager) CleanupEpic(epicID string, childIDs []string) error {
 	epicDir := filepath.Join(m.root, epicID)
 	if err := os.RemoveAll(epicDir); err != nil {
@@ -117,10 +118,64 @@ func (m *WorktreeManager) CleanupEpic(epicID string, childIDs []string) error {
 		return nil
 	}
 
-	_, _ = m.gitRun(m.repoPath, "branch", "-D", "feat/"+epicID)
-	for _, childID := range childIDs {
-		_, _ = m.gitRun(m.repoPath, "branch", "-D", "kernl/"+childID)
+	if m.baseBranch == "" {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: no base branch for %s - cannot safely check unmerged commits during CleanupEpic - Fix: pass baseBranch resolved by ResolveBaseBranch to NewWorktreeManager", m.repoPath)
 	}
+
+	if err := m.cleanupBranch(epicID, "", "feat/"+epicID); err != nil {
+		return err
+	}
+	for _, childID := range childIDs {
+		if err := m.cleanupBranch(epicID, childID, "kernl/"+childID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *WorktreeManager) cleanupBranch(epicID, beadID, branchName string) error {
+	out, err := m.gitRun(m.repoPath, "branch", "--list", branchName)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: checking branch %s - %w - Fix: verify repo at %s", branchName, err, m.repoPath)
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil
+	}
+
+	countOut, err := m.gitRun(m.repoPath, "rev-list", "--count", m.baseBranch+".."+branchName)
+	if err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: checking unmerged commits for branch %s against %s - %w - Fix: verify branch %s exists in %s", branchName, m.baseBranch, err, m.baseBranch, m.repoPath)
+	}
+
+	var count int
+	if _, err := fmt.Sscanf(strings.TrimSpace(countOut), "%d", &count); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: parsing unmerged commit count %q for branch %s: %w", countOut, branchName, err)
+	}
+
+	if count == 0 {
+		if _, err := m.gitRun(m.repoPath, "branch", "-D", branchName); err != nil {
+			return fmt.Errorf("KERNL DISPATCH FAILURE: deleting branch %s - %w", branchName, err)
+		}
+		return nil
+	}
+
+	ts := time.Now().Format("20060102-150405")
+	var archiveBranch string
+	if beadID != "" {
+		archiveBranch = fmt.Sprintf("archive/%s-%s-%s", epicID, beadID, ts)
+	} else {
+		archiveBranch = fmt.Sprintf("archive/%s-%s", epicID, ts)
+	}
+
+	if _, err := m.gitRun(m.repoPath, "branch", "-m", branchName, archiveBranch); err != nil {
+		return fmt.Errorf("KERNL DISPATCH FAILURE: renaming branch %s with unmerged commits to %s - %w", branchName, archiveBranch, err)
+	}
+
+	slog.Warn("preserving branch with unmerged commits",
+		"old_branch", branchName,
+		"new_branch", archiveBranch,
+		"unmerged_commits", count,
+	)
 	return nil
 }
 
