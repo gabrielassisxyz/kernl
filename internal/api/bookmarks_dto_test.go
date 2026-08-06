@@ -119,3 +119,54 @@ func TestAddHighlightJSONContract(t *testing.T) {
 		t.Errorf("appended highlight not returned: %+v", items[0].Highlights[1])
 	}
 }
+
+func TestEmptyBookmarkListAndHighlightsJSONContract(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	a := &app.App{
+		Config: &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}},
+		Graph:  g,
+	}
+	mux := http.NewServeMux()
+	RegisterBookmarkRoutes(mux, a)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/bookmarks", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+	if body := w.Body.String(); body != "[]\n" {
+		t.Errorf("expected empty bookmark list JSON to be %q, got %q", "[]\n", body)
+	}
+
+	if err := g.DoWrite(t.Context(), func(tx *graph.WriteTx) error {
+		_, err := nodes.CreateBookmark(t.Context(), tx, nodes.Bookmark{
+			Title:      "Bookmark without highlights",
+			URL:        "https://example.org",
+			Highlights: nil,
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("create bookmark: %v", err)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/bookmarks", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var items []map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &items); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 bookmark, got %d", len(items))
+	}
+	if string(items[0]["highlights"]) != "[]" {
+		t.Errorf("expected highlights field to be %q, got %q", "[]", string(items[0]["highlights"]))
+	}
+}

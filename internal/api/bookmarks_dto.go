@@ -45,9 +45,6 @@ func newHighlightResponse(h nodes.Highlight) highlightResponse {
 }
 
 func newHighlightResponses(highlights []nodes.Highlight) []highlightResponse {
-	if len(highlights) == 0 {
-		return nil
-	}
 	out := make([]highlightResponse, 0, len(highlights))
 	for _, h := range highlights {
 		out = append(out, newHighlightResponse(h))
@@ -71,11 +68,7 @@ func newBookmarkResponse(b *nodes.Bookmark) bookmarkResponse {
 }
 
 func newBookmarkResponses(list []*nodes.Bookmark) []bookmarkResponse {
-	// nil in, nil out: an empty list already encoded as JSON null on this route,
-	// and switching it to [] is a wire change this conversion does not need.
-	if len(list) == 0 {
-		return nil
-	}
+	// Always return an allocated slice so empty lists encode as JSON [] instead of null.
 	out := make([]bookmarkResponse, 0, len(list))
 	for _, b := range list {
 		out = append(out, newBookmarkResponse(b))
