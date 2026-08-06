@@ -531,3 +531,68 @@ func TestContextCancellation(t *testing.T) {
 		t.Error("expected channel to be closed after unsubscribe")
 	}
 }
+
+func TestConnectDoesNotLeakListenersOnRepeatedCalls(t *testing.T) {
+	provider, scm := setupTest(t)
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
+
+	for i := 0; i < 10; i++ {
+		scm.Connect("s-1")
+	}
+
+	scm.mu.RLock()
+	conn, exists := scm.connections["s-1"]
+	scm.mu.RUnlock()
+
+	if !exists {
+		t.Fatalf("expected connection s-1 to exist")
+	}
+
+	conn.mu.Lock()
+	listenerCount := len(conn.listeners)
+	conn.mu.Unlock()
+
+	if listenerCount != 0 {
+		t.Errorf("expected 0 listeners after 10 Connect calls, got %d", listenerCount)
+	}
+}
+
+func TestConnectAndSubscribeDeliversEventsAndUnsubRemovesListener(t *testing.T) {
+	provider, scm := setupTest(t)
+	provider.addSession("s-1", "bead-1", "Title", "/repo", "running")
+
+	scm.Connect("s-1")
+	ch, unsub := scm.ConnectAndSubscribe("s-1")
+
+	scm.mu.RLock()
+	conn := scm.connections["s-1"]
+	scm.mu.RUnlock()
+
+	conn.mu.Lock()
+	if len(conn.listeners) != 1 {
+		t.Errorf("expected 1 listener after ConnectAndSubscribe, got %d", len(conn.listeners))
+	}
+	conn.mu.Unlock()
+
+	scm.HandleEvent("s-1", TerminalEvent{
+		Type:    "stdout",
+		Content: "test event",
+	})
+
+	select {
+	case evt := <-ch:
+		if evt.Content != "test event" {
+			t.Errorf("expected content 'test event', got '%s'", evt.Content)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("timed out waiting for event on subscriber channel")
+	}
+
+	unsub()
+
+	conn.mu.Lock()
+	if len(conn.listeners) != 0 {
+		t.Errorf("expected 0 listeners after unsub, got %d", len(conn.listeners))
+	}
+	conn.mu.Unlock()
+}

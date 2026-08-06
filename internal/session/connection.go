@@ -88,26 +88,20 @@ func NewSessionConnectionManager(provider SessionProvider, notify func(Notificat
 	}
 }
 
-// Connect creates an SSE fan-out for the given session. Idempotent: repeated
-// calls for the same sessionID do not create duplicate connections.
-func (m *SessionConnectionManager) Connect(sessionID string) <-chan TerminalEvent {
+// Connect ensures a connection exists for the given session. Idempotent: repeated
+// calls for the same sessionID do not create duplicate connections or register
+// undrained listener channels.
+func (m *SessionConnectionManager) Connect(sessionID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if conn, exists := m.connections[sessionID]; exists {
-		ch := make(chan TerminalEvent, 500)
-		conn.mu.Lock()
-		conn.nextListener++
-		key := conn.nextListener
-		conn.listeners[key] = ch
-		conn.mu.Unlock()
-		return ch
+	if _, exists := m.connections[sessionID]; exists {
+		return
 	}
 
 	conn := &connection{
-		listeners:    make(map[uint64]chan TerminalEvent),
-		buffer:       make([]BufferedEvent, 0, maxConnectionBuffer),
-		nextListener: 1,
+		listeners: make(map[uint64]chan TerminalEvent),
+		buffer:    make([]BufferedEvent, 0, maxConnectionBuffer),
 	}
 
 	m.connections[sessionID] = conn
@@ -116,11 +110,9 @@ func (m *SessionConnectionManager) Connect(sessionID string) <-chan TerminalEven
 	if !exists {
 		slog.Debug("[connection-manager] connect: session not found, buffering anyway",
 			"sessionId", sessionID)
-		return nil
+		return
 	}
 	_ = info
-
-	return nil
 }
 
 func (m *SessionConnectionManager) ConnectAndSubscribe(sessionID string) (<-chan TerminalEvent, func()) {

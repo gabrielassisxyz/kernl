@@ -24,8 +24,8 @@ func (m *SessionConnectionManager) ServeSSE(w http.ResponseWriter, r *http.Reque
 	// would override it for the route that streams terminal output.
 	flusher.Flush()
 
-	m.Connect(sessionID)
-
+	// ConnectAndSubscribe already initializes the session connection if missing
+	// and returns a tracked channel/unsub pair; calling Connect beforehand is redundant.
 	ch, unsub := m.ConnectAndSubscribe(sessionID)
 	defer unsub()
 
