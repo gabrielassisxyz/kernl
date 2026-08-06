@@ -282,6 +282,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("KERNL DISPATCH FAILURE: parsing config %s: %w", path, err)
 	}
 
+	for i := range cfg.Registry.Repos {
+		expanded, err := expandHomePath(cfg.Registry.Repos[i].Path)
+		if err != nil {
+			return nil, err
+		}
+		cfg.Registry.Repos[i].Path = expanded
+	}
+
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
 	}
@@ -367,4 +375,39 @@ func validateDAPairing(da DAConfig) error {
 		return fmt.Errorf("da.agent is set but da.workDir is not - the fork gate needs both or neither: Fix: set da.workDir to the operator's own system repository, or clear da.agent to leave the fork gate off")
 	}
 	return fmt.Errorf("da.workDir is set but da.agent is not - the fork gate needs both or neither: Fix: set da.agent to a settings.agents key, or clear da.workDir to leave the fork gate off")
+}
+
+// expandHomePath expands a leading ~ or ~/ (or ~\) in a path to the user's home directory.
+//
+// WHY exclusion of ~user: Username expansion (~otheruser/...) is deliberately not
+// supported to avoid user lookup dependencies and security surprises across environments.
+// Paths starting with ~ followed by non-separator characters (other than ~ alone)
+// fail loud with KERNL DISPATCH FAILURE.
+//
+// WHY exclusion of symlink/existence checks: Resolving symlinks or non-existent paths
+// is deliberately out of scope at config load time. Config loading only normalizes path
+// representations (~ expansion); filesystem validity is checked downstream by domain
+// components (git, beads, etc.) that consume the path.
+func expandHomePath(p string) (string, error) {
+	if p == "" {
+		return "", nil
+	}
+	if p == "~" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir to expand path %q: %w", p, err)
+		}
+		return home, nil
+	}
+	if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: cannot resolve home dir to expand path %q: %w", p, err)
+		}
+		return filepath.Join(home, p[2:]), nil
+	}
+	if strings.HasPrefix(p, "~") {
+		return "", fmt.Errorf("KERNL DISPATCH FAILURE: user-specific tilde expansion (%q) is not supported; use an explicit path", p)
+	}
+	return p, nil
 }

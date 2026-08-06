@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,5 +227,84 @@ func TestLoadRejectsEmptyAgentsWithActionableError(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error missing %q: %v", want, err)
 		}
+	}
+}
+
+func TestLoadRegistryRepoPathExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir error: %v", err)
+	}
+
+	base := `settings:
+  agents:
+    stub:
+      command: stub
+  pools: {}
+`
+
+	cases := []struct {
+		name     string
+		repoPath string
+		wantPath string
+		wantErr  bool
+	}{
+		{
+			name:     "expand tilde with subpath",
+			repoPath: "~/repositories/foo",
+			wantPath: filepath.Join(home, "repositories/foo"),
+		},
+		{
+			name:     "expand tilde alone",
+			repoPath: "~",
+			wantPath: home,
+		},
+		{
+			name:     "absolute path unaltered",
+			repoPath: "/var/repos/bar",
+			wantPath: "/var/repos/bar",
+		},
+		{
+			name:     "relative path unaltered",
+			repoPath: "relative/path/baz",
+			wantPath: "relative/path/baz",
+		},
+		{
+			name:     "unsupported username tilde expansion fails loud",
+			repoPath: "~otheruser/repo",
+			wantErr:  true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgPath := filepath.Join(dir, "kernl.yaml")
+			content := base + "registry:\n  repos:\n    - path: " + fmt.Sprintf("%q", tc.repoPath) + "\n      memoryManager: br\n"
+			if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg, err := Load(cfgPath)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for path %q, got nil", tc.repoPath)
+				}
+				if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+					t.Errorf("error missing KERNL DISPATCH FAILURE marker: %v", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Load() error: %v", err)
+			}
+			if len(cfg.Registry.Repos) != 1 {
+				t.Fatalf("expected 1 repo entry, got %d", len(cfg.Registry.Repos))
+			}
+			if cfg.Registry.Repos[0].Path != tc.wantPath {
+				t.Errorf("repo path = %q, want %q", cfg.Registry.Repos[0].Path, tc.wantPath)
+			}
+		})
 	}
 }
