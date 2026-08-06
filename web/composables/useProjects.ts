@@ -10,6 +10,7 @@ export interface Project {
   updatedAt: string
   taskCount: number
   doneCount: number
+  tags?: string[]
 }
 
 export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived'

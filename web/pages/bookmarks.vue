@@ -59,7 +59,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import BookmarkItem from '~/components/bookmarks/BookmarkItem.vue'
 import BookmarkReader from '~/components/bookmarks/BookmarkReader.vue'
 import type { BookmarkItemData } from '~/components/bookmarks/BookmarkItem.vue'
@@ -76,6 +76,17 @@ const { data, pending, refresh, error } = useFetch<BookmarkItemData[]>('/api/boo
 const bookmarks = computed(() => data.value || [])
 const selectedIndex = ref(0)
 const selectedBookmark = computed(() => bookmarks.value[selectedIndex.value] || null)
+const route = useRoute()
+
+watch(
+  [bookmarks, () => route.query.bookmark],
+  ([items, id]) => {
+    if (typeof id !== 'string') return
+    const index = items.findIndex((bookmark) => bookmark.id === id)
+    if (index >= 0) selectedIndex.value = index
+  },
+  { immediate: true },
+)
 
 const toastMessage = ref('')
 let toastTimer: any = null

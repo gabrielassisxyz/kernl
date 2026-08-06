@@ -23,14 +23,16 @@ func RegisterMemoryRoutes(mux *http.ServeMux, a *app.App) {
 			// GET /claims path already filters refuted claims, so the two views
 			// must agree.
 			rows, err := tx.Query(`
-				SELECT DISTINCT json_extract(n.attrs, '$.subject')
+				SELECT json_extract(n.attrs, '$.subject') AS subject
 				FROM nodes n
 				WHERE n.type = 'memory_claim'
 				  AND json_extract(n.attrs, '$.subject') IS NOT NULL
 				  AND n.deleted_at IS NULL
 				  AND NOT EXISTS (
-				      SELECT 1 FROM edges e WHERE e.label = 'refutes' AND e.dst = n.id
-				  )`)
+					  SELECT 1 FROM edges e WHERE e.label = 'refutes' AND e.dst = n.id
+				  )
+				GROUP BY subject
+				ORDER BY MAX(COALESCE(n.updated_at, '')) DESC, subject COLLATE NOCASE`)
 			if err != nil {
 				return err
 			}

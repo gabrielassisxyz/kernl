@@ -35,6 +35,7 @@ export interface BookmarkHighlight {
 export interface BookmarkItemData {
   id: string
   createdAt: string
+  updatedAt?: string
   title: string
   url: string
   description: string

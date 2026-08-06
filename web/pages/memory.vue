@@ -125,6 +125,7 @@ import UiTextarea from '~/components/ui/UiTextarea.vue'
 // Memory has two halves: Telos (always-injected identity) and learned Topics
 // (relevance-retrieved claims). Identity leads - the page opens on Telos.
 const view = ref<'telos' | 'topics'>('telos')
+const route = useRoute()
 
 // Fetch topics - the API wraps the array as { topics: [...] }.
 const { data: topicsData, pending: topicsPending, error: topicsError, refresh: refreshTopics } = useFetch<{ topics: string[] }>('/api/memory/topics', {
@@ -137,10 +138,22 @@ const selectedTopic = ref<string>('')
 
 // Auto-select first topic when loaded
 watch(topics, (newTopics) => {
+	const routeTopic = typeof route.query.topic === 'string' ? route.query.topic : ''
+	if (routeTopic && newTopics.includes(routeTopic)) {
+		selectedTopic.value = routeTopic
+		view.value = 'topics'
+		return
+	}
   if (newTopics.length > 0 && !selectedTopic.value) {
     selectedTopic.value = newTopics[0]
   }
 }, { immediate: true })
+
+watch(() => route.query.topic, (topic) => {
+	if (typeof topic !== 'string' || !topics.value.includes(topic)) return
+	selectedTopic.value = topic
+	view.value = 'topics'
+})
 
 // Fetch claims based on selected topic - the API wraps as { claims: [...] }.
 const { data: claimsData, pending: claimsPending, refresh: refreshClaimsRaw, error: claimsError } = useFetch<{ claims: any[] }>('/api/memory/claims', {

@@ -18,10 +18,10 @@ import { dirname, resolve } from 'node:path'
 const ICONS = [
   'account_circle', 'account_tree', 'add', 'analytics', 'arrow_forward',
   'arrow_upward', 'auto_awesome', 'bookmark', 'center_focus_strong', 'check', 'check_circle',
-  'checklist', 'chrome_reader_mode', 'close', 'cloud_off', 'code', 'dashboard',
+  'checklist', 'chrome_reader_mode', 'close', 'cloud_off', 'code',
   'delete', 'description', 'edit', 'edit_note', 'event', 'expand_more', 'explore', 'filter_list',
   'fit_screen', 'folder_open', 'format_list_numbered', 'help', 'history',
-  'hourglass_empty', 'hub', 'inbox', 'input', 'keyboard', 'left_panel_close',
+  'home', 'hourglass_empty', 'hub', 'inbox', 'input', 'keyboard', 'left_panel_close',
   'left_panel_open', 'link_off', 'lock', 'memory', 'neurology', 'open_in_new',
   'play_arrow', 'policy', 'progress_activity', 'queue', 'refresh', 'save', 'search',
   'settings', 'smart_toy', 'source', 'swap_vert', 'sync', 'tag', 'task_alt',
@@ -38,10 +38,10 @@ const outFile = resolve(here, '../public/fonts/material-symbols-outlined.woff2')
 
 // Axis ranges are pinned to what the app actually renders, which keeps the
 // woff2 small: opsz 20 (rail) → 24 (body), wght 260/280 (rail) → 300 (body),
-// FILL and GRAD never vary, so they're pinned to single values.
+// GRAD stays pinned; FILL varies so active navigation can use filled glyphs.
 const cssUrl =
   'https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:' +
-  'opsz,wght,FILL,GRAD@20..24,260..300,0,-25' +
+  'opsz,wght,FILL,GRAD@20..24,260..300,0..1,-25' +
   `&icon_names=${ICONS.join(',')}&display=swap`
 
 const cssRes = await fetch(cssUrl, { headers: { 'User-Agent': UA } })

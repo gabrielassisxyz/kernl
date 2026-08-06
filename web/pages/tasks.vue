@@ -219,6 +219,16 @@ watch(
   },
 )
 
+watch(
+  [tasks, () => route.query.task],
+  ([items, id]) => {
+    if (typeof id !== 'string') return
+    const task = items.find((item) => item.id === id)
+    if (task) selected.value = task
+  },
+  { immediate: true },
+)
+
 function setProjectFilter(id: string) {
   // Shareable URL + consistent with the Projects → Tasks drill-in; the watch
   // above reacts to the query change and reloads.

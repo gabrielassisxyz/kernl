@@ -11,6 +11,7 @@ export interface Task {
   dueDate: string
   createdAt: string
   updatedAt: string
+  tags?: string[]
 }
 
 export type TaskStatus = 'todo' | 'in_progress' | 'done'
