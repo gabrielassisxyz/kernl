@@ -248,6 +248,21 @@ func TestBrCliGet(t *testing.T) {
 	}
 }
 
+func TestBrIssueToRawBeadDecodesDueAt(t *testing.T) {
+	rawJSON := `[{"id":"kb-1","title":"a bead","due_at":"2026-12-31T23:59:59Z"}]`
+	var issues []brIssue
+	if err := json.Unmarshal([]byte(rawJSON), &issues); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(issues))
+	}
+	rawBead := issues[0].toRawBead()
+	if rawBead.Due != "2026-12-31T23:59:59Z" {
+		t.Errorf("RawBead.Due = %q, want 2026-12-31T23:59:59Z", rawBead.Due)
+	}
+}
+
 // br has no --parent. Children come from the reverse dependency lookup and are
 // then fetched, because `br list` never returns the dependencies the epic's DAG
 // is built from.

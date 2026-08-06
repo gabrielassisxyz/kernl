@@ -217,7 +217,9 @@ type brIssue struct {
 	CloseReason        string         `json:"close_reason"`
 	Metadata           map[string]any `json:"metadata"`
 	EstimatedMinutes   int            `json:"estimated_minutes"`
-	Due                string         `json:"due"`
+	// Due is tagged due_at because br (beads_rust >=0.2.10) emits the field as
+	// due_at across br show, br create, br list, and br search.
+	Due string `json:"due_at"`
 }
 
 // brIssueDep is a dependency as `br show` embeds it: the id of the *other*
