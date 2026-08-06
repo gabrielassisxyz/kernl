@@ -21,6 +21,9 @@ var taskCommand = commandMeta{
 	Details: `Talks to a running server over the REST API, so 'kernl serve' must be up
 (or point elsewhere with --server <url> / KERNL_SERVER).
 
+Example:
+  kernl task list --project <project-id>
+
 Run 'kernl task <subcommand> --help' for details on each.`,
 	Subs: []commandMeta{
 		{
