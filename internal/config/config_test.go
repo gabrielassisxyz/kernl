@@ -410,3 +410,147 @@ func TestLoadOrchestratorPathExpansion(t *testing.T) {
 		}
 	})
 }
+
+func TestLoadRemainingPathsExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir error: %v", err)
+	}
+
+	base := `settings:
+  agents:
+    stub:
+      command: stub
+  pools: {}
+`
+
+	t.Run("empty paths remain empty", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `vault: {}
+da: {}
+orchestrator: {}
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.Vault.Root != "" {
+			t.Errorf("Vault.Root = %q, want empty", cfg.Vault.Root)
+		}
+		if cfg.DA.WorkDir != "" {
+			t.Errorf("DA.WorkDir = %q, want empty", cfg.DA.WorkDir)
+		}
+		if cfg.Orchestrator.OpencodeConfigPath != "" {
+			t.Errorf("OpencodeConfigPath = %q, want empty", cfg.Orchestrator.OpencodeConfigPath)
+		}
+	})
+
+	t.Run("tilde expansion", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `vault:
+  root: "~/notes-vault"
+da:
+  agent: "stub"
+  workDir: "~/system-repo"
+orchestrator:
+  opencodeConfigPath: "~/opencode.json"
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		wantVault := filepath.Join(home, "notes-vault")
+		wantDA := filepath.Join(home, "system-repo")
+		wantOpencode := filepath.Join(home, "opencode.json")
+		if cfg.Vault.Root != wantVault {
+			t.Errorf("Vault.Root = %q, want %q", cfg.Vault.Root, wantVault)
+		}
+		if cfg.DA.WorkDir != wantDA {
+			t.Errorf("DA.WorkDir = %q, want %q", cfg.DA.WorkDir, wantDA)
+		}
+		if cfg.Orchestrator.OpencodeConfigPath != wantOpencode {
+			t.Errorf("OpencodeConfigPath = %q, want %q", cfg.Orchestrator.OpencodeConfigPath, wantOpencode)
+		}
+	})
+
+	t.Run("absolute paths unaltered", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `vault:
+  root: "/var/notes-vault"
+da:
+  agent: "stub"
+  workDir: "/var/system-repo"
+orchestrator:
+  opencodeConfigPath: "/var/opencode.json"
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		if cfg.Vault.Root != "/var/notes-vault" {
+			t.Errorf("Vault.Root = %q, want /var/notes-vault", cfg.Vault.Root)
+		}
+		if cfg.DA.WorkDir != "/var/system-repo" {
+			t.Errorf("DA.WorkDir = %q, want /var/system-repo", cfg.DA.WorkDir)
+		}
+		if cfg.Orchestrator.OpencodeConfigPath != "/var/opencode.json" {
+			t.Errorf("OpencodeConfigPath = %q, want /var/opencode.json", cfg.Orchestrator.OpencodeConfigPath)
+		}
+	})
+
+	t.Run("unsupported username tilde expansion fails loud for all three", func(t *testing.T) {
+		cases := []struct {
+			name string
+			yaml string
+		}{
+			{
+				name: "vault.root",
+				yaml: base + `vault:
+  root: "~otheruser/vault"
+`,
+			},
+			{
+				name: "da.workDir",
+				yaml: base + `da:
+  agent: "stub"
+  workDir: "~otheruser/repo"
+`,
+			},
+			{
+				name: "orchestrator.opencodeConfigPath",
+				yaml: base + `orchestrator:
+  opencodeConfigPath: "~otheruser/opencode.json"
+`,
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := t.TempDir()
+				cfgPath := filepath.Join(dir, "kernl.yaml")
+				if err := os.WriteFile(cfgPath, []byte(tc.yaml), 0644); err != nil {
+					t.Fatal(err)
+				}
+				_, err := Load(cfgPath)
+				if err == nil {
+					t.Fatalf("expected error for %s, got nil", tc.name)
+				}
+				if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+					t.Errorf("error missing KERNL DISPATCH FAILURE marker: %v", err)
+				}
+			})
+		}
+	})
+}

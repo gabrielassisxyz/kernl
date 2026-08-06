@@ -290,17 +290,15 @@ func Load(path string) (*Config, error) {
 		cfg.Registry.Repos[i].Path = expanded
 	}
 
-	expandedWorktreeRoot, err := expandHomePath(cfg.Orchestrator.WorktreeRoot)
-	if err != nil {
+	if err := expandHomePaths(
+		&cfg.Orchestrator.WorktreeRoot,
+		&cfg.Orchestrator.RunStatePath,
+		&cfg.Orchestrator.OpencodeConfigPath,
+		&cfg.Vault.Root,
+		&cfg.DA.WorkDir,
+	); err != nil {
 		return nil, err
 	}
-	cfg.Orchestrator.WorktreeRoot = expandedWorktreeRoot
-
-	expandedRunStatePath, err := expandHomePath(cfg.Orchestrator.RunStatePath)
-	if err != nil {
-		return nil, err
-	}
-	cfg.Orchestrator.RunStatePath = expandedRunStatePath
 
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
@@ -422,4 +420,16 @@ func expandHomePath(p string) (string, error) {
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: user-specific tilde expansion (%q) is not supported; use an explicit path", p)
 	}
 	return p, nil
+}
+
+// expandHomePaths expands tilde paths in place for the given string pointers using expandHomePath.
+func expandHomePaths(paths ...*string) error {
+	for _, p := range paths {
+		expanded, err := expandHomePath(*p)
+		if err != nil {
+			return err
+		}
+		*p = expanded
+	}
+	return nil
 }
