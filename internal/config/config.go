@@ -290,6 +290,18 @@ func Load(path string) (*Config, error) {
 		cfg.Registry.Repos[i].Path = expanded
 	}
 
+	expandedWorktreeRoot, err := expandHomePath(cfg.Orchestrator.WorktreeRoot)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Orchestrator.WorktreeRoot = expandedWorktreeRoot
+
+	expandedRunStatePath, err := expandHomePath(cfg.Orchestrator.RunStatePath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Orchestrator.RunStatePath = expandedRunStatePath
+
 	if cfg.Server.Port == 0 {
 		cfg.Server.Port = 8080
 	}

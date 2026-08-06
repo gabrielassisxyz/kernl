@@ -308,3 +308,105 @@ func TestLoadRegistryRepoPathExpansion(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadOrchestratorPathExpansion(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir error: %v", err)
+	}
+
+	base := `settings:
+  agents:
+    stub:
+      command: stub
+  pools: {}
+`
+
+	t.Run("defaults when left empty", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `orchestrator: {}
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		wantWorktree := filepath.Join(home, ".kernl", "worktrees")
+		wantRunState := filepath.Join(home, ".kernl", "runstate.db")
+		if cfg.Orchestrator.WorktreeRoot != wantWorktree {
+			t.Errorf("WorktreeRoot = %q, want default %q", cfg.Orchestrator.WorktreeRoot, wantWorktree)
+		}
+		if cfg.Orchestrator.RunStatePath != wantRunState {
+			t.Errorf("RunStatePath = %q, want default %q", cfg.Orchestrator.RunStatePath, wantRunState)
+		}
+	})
+
+	t.Run("tilde expansion", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `orchestrator:
+  worktreeRoot: "~/custom/worktrees"
+  runStatePath: "~/custom/runstate.db"
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		wantWorktree := filepath.Join(home, "custom/worktrees")
+		wantRunState := filepath.Join(home, "custom/runstate.db")
+		if cfg.Orchestrator.WorktreeRoot != wantWorktree {
+			t.Errorf("WorktreeRoot = %q, want %q", cfg.Orchestrator.WorktreeRoot, wantWorktree)
+		}
+		if cfg.Orchestrator.RunStatePath != wantRunState {
+			t.Errorf("RunStatePath = %q, want %q", cfg.Orchestrator.RunStatePath, wantRunState)
+		}
+	})
+
+	t.Run("absolute path unaltered", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `orchestrator:
+  worktreeRoot: "/var/kernl/worktrees"
+  runStatePath: "/var/kernl/runstate.db"
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := Load(cfgPath)
+		if err != nil {
+			t.Fatalf("Load() error: %v", err)
+		}
+		wantWorktree := "/var/kernl/worktrees"
+		wantRunState := "/var/kernl/runstate.db"
+		if cfg.Orchestrator.WorktreeRoot != wantWorktree {
+			t.Errorf("WorktreeRoot = %q, want %q", cfg.Orchestrator.WorktreeRoot, wantWorktree)
+		}
+		if cfg.Orchestrator.RunStatePath != wantRunState {
+			t.Errorf("RunStatePath = %q, want %q", cfg.Orchestrator.RunStatePath, wantRunState)
+		}
+	})
+
+	t.Run("unsupported username tilde expansion fails loud", func(t *testing.T) {
+		dir := t.TempDir()
+		cfgPath := filepath.Join(dir, "kernl.yaml")
+		content := base + `orchestrator:
+  worktreeRoot: "~otheruser/worktrees"
+`
+		if err := os.WriteFile(cfgPath, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Load(cfgPath)
+		if err == nil {
+			t.Fatal("expected error for ~otheruser path, got nil")
+		}
+		if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
+			t.Errorf("error missing KERNL DISPATCH FAILURE marker: %v", err)
+		}
+	})
+}
