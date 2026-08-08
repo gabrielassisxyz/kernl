@@ -11,14 +11,14 @@
 @theme {
   --color-on-surface-variant: #c5c6d0;
   --color-error-container: #93000a;
-  --color-surface-hover: #1D222D;
+  --color-surface-hover: #191d22;
   --color-primary-fixed-dim: #b4c5fe;
   --color-error: #ffb4ab;
-  --color-on-primary: #1d2e5e;
+  --color-on-primary: #10161a;
   --color-on-error-container: #ffdad6;
-  --color-border-hairline: #1B2029;
-  --color-text-dim: #444A57;
-  --color-background: #0F1217;
+  --color-border-hairline: #22262b;
+  --color-text-dim: #4f555c;
+  --color-background: #121417;
   --color-surface-bright: #39393d;
   --color-primary-fixed: #dbe1ff;
   --color-inverse-on-surface: #303034;
@@ -31,27 +31,27 @@
   --color-on-error: #690005;
   --color-tertiary-fixed: #ffdf97;
   --color-surface-container-highest: #343438;
-  --color-text-primary: #D6DBE3;
-  --color-surface: #131317;
-  --color-primary: #b4c5fe;
-  --color-primary-container: #7f8fc5;
+  --color-text-primary: #e6e8ea;
+  --color-surface: #16181c;
+  --color-primary: #4e9e93;
+  --color-primary-container: #54ab9f;
   --color-outline: #8f909a;
   --color-surface-dim: #131317;
   --color-secondary-fixed-dim: #c3c6d4;
   --color-surface-variant: #343438;
   --color-surface-container: #1f1f23;
-  --color-text-muted: #9098A7;
+  --color-text-muted: #7d848c;
   --color-on-primary-fixed-variant: #344576;
   --color-on-primary-fixed: #031848;
   --color-on-secondary-fixed: #171b25;
-  --color-bg-elevated: #141821;
+  --color-bg-elevated: #191c21;
   --color-surface-overlay: #181C26;
   --color-on-tertiary-fixed-variant: #5a4300;
   --color-on-tertiary: #3e2e00;
   --color-surface-container-high: #292a2d;
   --color-on-secondary-fixed-variant: #434752;
   --color-tertiary-fixed-dim: #e5c270;
-  --color-bg-base: #0F1217;
+  --color-bg-base: #121417;
   --color-on-secondary-container: #b5b8c5;
   --color-inverse-primary: #4c5c8f;
   --color-on-tertiary-container: #362800;
@@ -59,16 +59,16 @@
   --color-secondary-container: #454954;
   --color-tertiary: #e5c270;
   --color-surface-container-low: #1b1b1f;
-  --color-status-failed: #C2675C;
+  --color-status-failed: #c2705f;
   --color-on-surface: #e4e2e6;
   --color-on-background: #e4e2e6;
   --color-status-running: #8089A0;
-  --color-status-active: #4FA89C;
-  --color-text-faint: #8A93A6;
+  --color-status-active: #4f9d7f;
+  --color-text-faint: #5f666e;
   --color-on-tertiary-fixed: #251a00;
   --color-outline-variant: #45464f;
-  --color-border-default: #242935;
-  --color-status-gate: #C99A4A;
+  --color-border-default: #282d34;
+  --color-status-gate: #b3903f;
   --color-secondary: #c3c6d4;
   --color-da-accent: #6B7BB0;
   --color-node-note: #7B8FE0;
@@ -108,9 +108,9 @@
   --font-label-caps: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-display: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 
-  --text-mono-data: 12px;
+  --text-mono-data: 11px;
   --text-mono-data--line-height: 16px;
-  --text-mono-data--font-weight: 500;
+  --text-mono-data--font-weight: 400;
   
   --text-headline: 16px;
   --text-headline--line-height: 24px;
@@ -121,15 +121,35 @@
   --text-body--line-height: 20px;
   --text-body--font-weight: 400;
   
-  --text-label-caps: 12px;
+  --text-label-caps: 10.5px;
   --text-label-caps--line-height: 16px;
-  --text-label-caps--letter-spacing: 0em;
-  --text-label-caps--font-weight: 600;
+  --text-label-caps--letter-spacing: 0.1em;
+  --text-label-caps--font-weight: 500;
 
-  --text-display: 20px;
-  --text-display--line-height: 28px;
+  --text-display: 25px;
+  --text-display--line-height: 32px;
   --text-display--letter-spacing: -0.02em;
   --text-display--font-weight: 600;
+
+  /* Roles the previous scale had no name for. Each one earned its place by
+     appearing on both redesigned screens with a distinct job; near-duplicates
+     were folded into the token above them rather than given a name of their own. */
+  --color-text-heading: #f0f2f4;      /* page title only - one step above body text */
+  --color-text-secondary: #b6bcc3;    /* nav labels, description bodies */
+  --color-text-label: #868d95;        /* uppercase section captions */
+  --color-surface-nav-hover: #1c2026; /* row hover on the sidebar surface */
+  --color-surface-control-hover: #262b31; /* icon-button hover; also a progress track */
+  --color-surface-chip: #1d2126;      /* the ground under a mono tag chip */
+  --color-border-row: #1c2025;        /* divider between list rows - fainter than a hairline */
+  --color-status-done: #6b7a8c;
+  --color-status-archived: #565d65;
+
+  /* Derived from the accent, never literal: the accent is a user-facing choice,
+     and a resolved oklab() copied out of the running page would silently stop
+     tracking it the first time it changes. */
+  --color-accent-tint: color-mix(in oklab, var(--color-primary) 16%, transparent);
+  --color-accent-tint-strong: color-mix(in oklab, var(--color-primary) 22%, var(--color-surface));
+  --color-accent-edge: color-mix(in oklab, var(--color-primary) 55%, transparent);
 }
 
 @utility z-dropdown {
