@@ -22,6 +22,15 @@ export const TASK_STATUSES: { id: TaskStatus; label: string }[] = [
   { id: 'done', label: 'Done' },
 ]
 
+export interface TaskPatch {
+  title?: string
+  description?: string
+  status?: TaskStatus
+  projectId?: string
+  tags?: string[]
+  dueDate?: string
+}
+
 export interface NewTask {
   title: string
   description?: string
@@ -69,32 +78,13 @@ export function useTasks() {
     return id
   }
 
-  async function setStatus(id: string, status: TaskStatus): Promise<void> {
-    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    })
-    if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
-  }
-
-  /** An empty string clears the due date. */
-  async function setDueDate(id: string, dueDate: string): Promise<void> {
-    const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dueDate }),
-    })
-    if (!res.ok) throw new Error(`PATCH /api/tasks/${id} → ${res.status}`)
-  }
-
-  // An omitted key leaves the field alone; `description: ""` clears it, which
-  // the PATCH handler distinguishes with a pointer field. Same for projectId:
-  // "" unassigns the task, and an id that names no project is refused with 400.
-  async function update(
-    id: string,
-    patch: { title?: string; description?: string; projectId?: string; tags?: string[] },
-  ): Promise<void> {
+  // One PATCH for every field, because the endpoint takes them together and a
+  // per-field wrapper only multiplied the ways to spell the same request. An
+  // omitted key leaves the field alone; an empty string is a real value the
+  // handler distinguishes with a pointer field - `description: ""` clears the
+  // text, `dueDate: ""` removes the deadline, `projectId: ""` unassigns the
+  // task. A projectId naming no project is refused with 400.
+  async function update(id: string, patch: TaskPatch): Promise<void> {
     const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -109,5 +99,5 @@ export function useTasks() {
     if (!res.ok) throw new Error(`DELETE /api/tasks/${id} → ${res.status}`)
   }
 
-  return { tasks, loading, error, load, create, setStatus, setDueDate, update, remove }
+  return { tasks, loading, error, load, create, update, remove }
 }

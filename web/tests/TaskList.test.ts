@@ -10,6 +10,8 @@ function task(id: string, status: TaskStatus): Task {
     description: '',
     status,
     projectId: '',
+    tags: [],
+    dueDate: '',
     createdAt: '',
     updatedAt: '',
   }
@@ -28,59 +30,111 @@ const tasks: Task[] = Array.from({ length: OPEN + DONE }, (_, i) =>
   i % 5 === 0 && i / 5 < OPEN ? task(`open-${i}`, 'todo') : task(`done-${i}`, 'done'),
 )
 
-// Every row carries an id cell; the toggle row is the one with a button in it.
-const taskRows = (w: ReturnType<typeof mount>) => w.findAll('tbody tr').filter((r) => !r.find('button').exists())
+const rows = (w: ReturnType<typeof mount>) => w.findAll('.task-row')
+const doneToggle = (w: ReturnType<typeof mount>) =>
+  w.findAll('button').find((b) => b.text().includes('Done'))
 
 describe('TaskList', () => {
   const projectTitles = {}
 
   it('renders only the open tasks until the done section is opened', () => {
     const w = mount(TaskList, { props: { tasks, projectTitles } })
-    expect(taskRows(w)).toHaveLength(tasks.filter((t) => t.status !== 'done').length)
+    expect(rows(w)).toHaveLength(OPEN)
     expect(w.text()).not.toContain('done-1')
   })
 
   it('names the done section with its count, so the omission is visible', () => {
     const w = mount(TaskList, { props: { tasks, projectTitles } })
-    const toggle = w.get('tbody button')
-    expect(toggle.text()).toContain('Done')
+    const toggle = doneToggle(w)!
     expect(toggle.text()).toContain(String(DONE))
     expect(toggle.attributes('aria-expanded')).toBe('false')
   })
 
   it('reveals the done tasks below the open ones when expanded', async () => {
     const w = mount(TaskList, { props: { tasks, projectTitles } })
-    await w.get('tbody button').trigger('click')
-    expect(taskRows(w)).toHaveLength(tasks.length)
-    expect(w.get('tbody button').attributes('aria-expanded')).toBe('true')
+    await doneToggle(w)!.trigger('click')
+    expect(rows(w)).toHaveLength(tasks.length)
+    expect(doneToggle(w)!.attributes('aria-expanded')).toBe('true')
     // Order matters: the archive goes underneath the open work, never above it.
-    const titles = taskRows(w).map((r) => r.text())
+    const titles = rows(w).map((r) => r.text())
     expect(titles[0]).toContain('open-')
     expect(titles[titles.length - 1]).toContain('done-')
   })
 
   it('omits the done section entirely when nothing is done', () => {
     const w = mount(TaskList, { props: { tasks: [task('a', 'todo')], projectTitles } })
-    expect(w.find('tbody button').exists()).toBe(false)
+    expect(doneToggle(w)).toBeUndefined()
   })
 
-  it('says the open list is empty rather than showing a bare header', () => {
+  // An empty section is dropped rather than rendered as a heading over nothing,
+  // so a list where everything is finished would otherwise be one collapsed
+  // header and blank space.
+  it('says the open list is empty rather than showing only a collapsed header', () => {
     const w = mount(TaskList, { props: { tasks: [task('a', 'done')], projectTitles } })
     expect(w.text()).toContain('Nothing open.')
-    expect(w.get('tbody button').exists()).toBe(true)
+    expect(doneToggle(w)).toBeDefined()
+  })
+
+  it('does not say that when there is open work', () => {
+    const w = mount(TaskList, { props: { tasks: [task('a', 'todo')], projectTitles } })
+    expect(w.text()).not.toContain('Nothing open.')
+  })
+
+  // In progress leads, because it is the shortest section and the one being
+  // worked on; to do follows; done is last and closed.
+  it('orders the sections in progress, to do, done', async () => {
+    const w = mount(TaskList, {
+      props: {
+        tasks: [task('a', 'done'), task('b', 'todo'), task('c', 'in_progress')],
+        projectTitles,
+      },
+    })
+    await doneToggle(w)!.trigger('click')
+    const headings = w.findAll('section').map((s) => s.text())
+    expect(headings[0]).toContain('In progress')
+    expect(headings[1]).toContain('To do')
+    expect(headings[2]).toContain('Done')
   })
 
   it('emits open with the task when a row is clicked', async () => {
     const w = mount(TaskList, { props: { tasks: [task('a', 'todo')], projectTitles } })
-    await taskRows(w)[0].trigger('click')
+    await rows(w)[0].trigger('click')
     expect(w.emitted('open')?.[0][0]).toMatchObject({ id: 'a' })
   })
 
   it('emits open for a done task too, once it is visible', async () => {
     const w = mount(TaskList, { props: { tasks: [task('a', 'todo'), task('b', 'done')], projectTitles } })
-    await w.get('tbody button').trigger('click')
-    const rows = taskRows(w)
-    await rows[rows.length - 1].trigger('click')
+    await doneToggle(w)!.trigger('click')
+    const all = rows(w)
+    await all[all.length - 1].trigger('click')
     expect(w.emitted('open')?.[0][0]).toMatchObject({ id: 'b' })
+  })
+
+  // The bullet is the one action reachable without hovering, and it must not
+  // also open the panel behind it.
+  it('toggles done from the bullet without opening the task', async () => {
+    const w = mount(TaskList, { props: { tasks: [task('a', 'todo')], projectTitles } })
+    await rows(w)[0].get('button').trigger('click')
+    expect(w.emitted('toggle-done')?.[0][0]).toMatchObject({ id: 'a' })
+    expect(w.emitted('open')).toBeUndefined()
+  })
+
+  // Deleting is two-step and inline: the row asks, and the confirmation replaces
+  // the action cluster rather than opening a dialog over the list.
+  it('shows the inline confirmation only on the row being deleted', () => {
+    const w = mount(TaskList, {
+      props: { tasks: [task('a', 'todo'), task('b', 'todo')], projectTitles, confirmId: 'b' },
+    })
+    expect(rows(w)[0].text()).not.toContain('Delete?')
+    expect(rows(w)[1].text()).toContain('Delete?')
+  })
+
+  // The panel takes the right-hand column, so the row drops the metadata that
+  // no longer fits rather than truncating every title to nothing.
+  it('drops the metadata columns while the panel is open', () => {
+    const withPanel = mount(TaskList, {
+      props: { tasks: [task('a', 'todo')], projectTitles: { '': 'kernl' }, compact: true },
+    })
+    expect(withPanel.get('.task-row').classes()).toContain('task-row--compact')
   })
 })

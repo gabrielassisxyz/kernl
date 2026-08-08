@@ -1,67 +1,53 @@
 <template>
-  <div class="flex flex-col h-full min-h-0 relative">
-    <header class="px-section pt-margin pb-component border-b border-border-hairline flex items-end justify-between gap-section shrink-0">
+  <div class="flex flex-col h-full min-h-0 text-body">
+    <header class="shrink-0 px-7 pt-[22px] pb-4 border-b border-border-hairline flex items-end justify-between gap-6">
       <div class="min-w-0">
-        <h1 class="font-headline text-display text-text-primary font-medium tracking-tight">Tasks</h1>
-        <p class="font-body text-body text-text-muted mt-tight">{{ summary }}</p>
+        <h1 class="font-display text-display text-text-heading">Tasks</h1>
+        <p class="mt-[5px] text-text-muted">{{ summary }}</p>
       </div>
 
-      <div class="flex items-center gap-base shrink-0">
-        <div class="relative" ref="filterContainerRef" @keydown.esc.stop="closeFilter">
-          <button
-            ref="filterTriggerRef"
-            class="flex items-center gap-tight px-component py-base border border-border-hairline rounded font-body text-body text-text-muted hover:text-text-primary hover:bg-surface transition-colors cursor-pointer outline-none focus-visible:border-primary/70 focus-visible:ring-1 focus-visible:ring-primary/30"
-            aria-haspopup="listbox"
-            :aria-expanded="filterOpen"
-            @click="filterOpen = !filterOpen"
-          >
-            <span class="material-symbols-outlined !text-[16px]">filter_list</span>
-            {{ projectFilter ? (projectTitles[projectFilter] || 'Project') : 'All projects' }}
-          </button>
-          <div
-            v-if="filterOpen"
-            class="absolute right-0 mt-tight w-[200px] max-h-[320px] overflow-y-auto py-tight bg-surface border border-border-hairline rounded z-dropdown"
-            @click="filterOpen = false"
-          >
-            <button
-              class="w-full text-left px-component py-base font-body text-body hover:bg-surface-hover transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
-              :class="!projectFilter ? 'text-text-primary' : 'text-text-muted'"
-              @click="setProjectFilter('')"
-            >
-              All projects
-            </button>
-            <button
-              v-for="p in projects"
-              :key="p.id"
-              class="w-full text-left px-component py-base font-body text-body hover:bg-surface-hover transition-colors truncate cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
-              :class="projectFilter === p.id ? 'text-text-primary' : 'text-text-muted'"
-              @click="setProjectFilter(p.id)"
-            >
-              {{ p.title }}
-            </button>
-          </div>
+      <div class="flex items-center gap-2.5 shrink-0">
+        <div class="flex items-center gap-[7px] h-[30px] w-[230px] px-[9px] rounded-lg bg-bg-elevated border border-border-default focus-within:border-primary/70 transition-colors">
+          <span class="material-symbols-outlined control-icon text-text-muted" aria-hidden="true">search</span>
+          <input
+            v-model="query"
+            type="search"
+            placeholder="Search tasks"
+            aria-label="Search tasks"
+            class="flex-1 min-w-0 bg-transparent border-0 outline-none text-text-primary placeholder:text-text-faint"
+          />
         </div>
 
-        <div class="flex items-center border border-border-hairline rounded overflow-hidden">
+        <div class="flex items-center gap-1.5 h-[30px] pl-2 pr-[9px] rounded-lg bg-bg-elevated border border-border-default">
+          <span class="material-symbols-outlined control-icon text-text-muted" aria-hidden="true">filter_list</span>
+          <select
+            :value="projectFilter"
+            aria-label="Filter by project"
+            class="w-[120px] bg-transparent border-0 outline-none cursor-pointer font-mono-data text-mono-data text-text-secondary"
+            @change="setProjectFilter(($event.target as HTMLSelectElement).value)"
+          >
+            <option value="">all projects</option>
+            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.title }}</option>
+          </select>
+        </div>
+
+        <div class="flex h-[30px] rounded-lg border border-border-default overflow-hidden">
           <button
-            v-for="opt in views"
+            v-for="opt in VIEWS"
             :key="opt.id"
-            class="flex items-center gap-tight px-component py-base font-body text-body transition-colors duration-150 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
-            :class="view === opt.id ? 'bg-surface-hover text-text-primary' : 'text-text-muted hover:text-text-primary hover:bg-surface'"
+            type="button"
+            class="w-8 flex items-center justify-center cursor-pointer transition-colors outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary/30"
+            :class="view === opt.id ? 'bg-accent-tint text-primary' : 'text-text-muted hover:text-text-primary'"
+            :title="opt.title"
+            :aria-label="opt.title"
+            :aria-pressed="view === opt.id"
             @click="view = opt.id"
           >
-            <span class="material-symbols-outlined !text-[16px]">{{ opt.icon }}</span>
-            {{ opt.label }}
+            <span class="material-symbols-outlined control-icon" aria-hidden="true">{{ opt.icon }}</span>
           </button>
         </div>
 
-        <button
-          class="flex items-center gap-tight px-component py-base rounded bg-primary text-on-primary font-body text-body hover:bg-primary-container transition-colors cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary/30"
-          @click="showCreate = true"
-        >
-          <span class="material-symbols-outlined !text-[16px]">add</span>
-          New task
-        </button>
+        <UiButton size="sm" variant="primary" icon="add" :icon-size="13" @click="openCreate">New task</UiButton>
       </div>
     </header>
 
@@ -87,109 +73,97 @@
       body="Create a task directly, or process captures from Inbox into tasks."
       action-label="New task"
       action-icon="add"
-      @action="showCreate = true"
+      @action="openCreate"
     />
 
-    <TaskBoard v-else-if="view === 'kanban'" :tasks="tasks" :project-titles="projectTitles" @open="openDetail" />
-    <TaskList v-else :tasks="tasks" :project-titles="projectTitles" @open="openDetail" />
+    <div v-else class="flex-1 min-h-0 flex">
+      <div v-if="visible.length === 0" class="flex-1 px-7 py-16 text-text-muted">
+        No tasks match “{{ query }}”.
+      </div>
 
-    <TaskDetail
-      :task="selected"
-      :project-title="selected ? projectTitles[selected.projectId] : undefined"
-      @close="selected = null"
-      @set-status="changeStatus"
-      @set-due-date="changeDueDate"
-      @set-title="changeTitle"
-      @set-description="changeDescription"
-      @delete="askDelete"
-    />
+      <TaskBoard
+        v-else-if="view === 'board'"
+        :tasks="visible"
+        :project-titles="projectTitles"
+        @open="openEdit"
+        @advance="advance"
+      />
 
-    <TaskCreateModal
-      v-if="showCreate"
-      :default-project-id="projectFilter"
-      @close="showCreate = false"
-      @created="reload"
-    />
+      <TaskList
+        v-else
+        :tasks="visible"
+        :project-titles="projectTitles"
+        :compact="panelOpen"
+        :confirm-id="confirmId"
+        @open="openEdit"
+        @toggle-done="toggleDone"
+        @advance="advance"
+        @ask-delete="confirmId = $event.id"
+        @confirm-delete="removeTask"
+        @cancel-delete="confirmId = null"
+      />
 
-    <UiModal :open="!!deleting" title="Delete task" size="sm" @close="deleting = null">
-      <p class="font-body text-body text-text-muted">
-        Delete <span class="text-text-primary">{{ deleting?.title }}</span>? Its companion note is
-        removed too. This cannot be undone.
-      </p>
-      <p v-if="deleteError" class="mt-base font-mono-data text-mono-data text-status-failed-text">{{ deleteError }}</p>
-      <template #footer>
-        <div class="flex justify-end gap-base">
-          <UiButton variant="ghost" @click="deleting = null">Cancel</UiButton>
-          <UiButton variant="primary" :loading="removing" @click="confirmDelete">Delete task</UiButton>
-        </div>
-      </template>
-    </UiModal>
+      <TaskPanel
+        v-if="panelOpen"
+        :key="editing?.id ?? 'create'"
+        :task="editing"
+        :projects="projects"
+        :briefing="briefing"
+        @close="closePanel"
+        @patch="applyPatch"
+        @create="createTask"
+        @delete="removeTask"
+      />
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
-import { useTasks, type Task, type TaskStatus, TASK_STATUSES } from '~/composables/useTasks'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useTasks, type NewTask, type Task, type TaskPatch, type TaskStatus } from '~/composables/useTasks'
 import { useProjects } from '~/composables/useProjects'
 import TaskBoard from '~/components/tasks/TaskBoard.vue'
 import TaskList from '~/components/tasks/TaskList.vue'
-import TaskDetail from '~/components/tasks/TaskDetail.vue'
-import TaskCreateModal from '~/components/tasks/TaskCreateModal.vue'
+import TaskPanel from '~/components/tasks/TaskPanel.vue'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
-import UiModal from '~/components/ui/UiModal.vue'
 import UiSkeleton from '~/components/ui/UiSkeleton.vue'
 
-const { tasks, loading, error, load, setStatus, setDueDate, update, remove } = useTasks()
+const { tasks, loading, error, load, create, update, remove } = useTasks()
 const { projects, load: loadProjects } = useProjects()
 
 const route = useRoute()
 const projectFilter = ref<string>(typeof route.query.project === 'string' ? route.query.project : '')
 
-type View = 'kanban' | 'list'
-const view = ref<View>('kanban')
-const views: { id: View; label: string; icon: string }[] = [
-  { id: 'kanban', label: 'Kanban', icon: 'view_kanban' },
-  { id: 'list', label: 'List', icon: 'view_list' },
+type View = 'list' | 'board'
+const VIEWS: { id: View; icon: string; title: string }[] = [
+  { id: 'list', icon: 'view_list', title: 'List view' },
+  { id: 'board', icon: 'view_kanban', title: 'Board view' },
 ]
+const view = ref<View>('list')
 
-const showCreate = ref(false)
-const filterOpen = ref(false)
-const selected = ref<Task | null>(null)
-const deleting = ref<Task | null>(null)
-const removing = ref(false)
-const deleteError = ref<string | null>(null)
-
-// --- Filter dropdown: refs for outside-click + focus restore ---
-const filterTriggerRef = ref<HTMLButtonElement | null>(null)
-const filterContainerRef = ref<HTMLElement | null>(null)
-
-function onDocumentClick(e: MouseEvent) {
-  if (!filterContainerRef.value?.contains(e.target as Node)) {
-    filterOpen.value = false
-  }
-}
-
-// Escape handler called from @keydown.esc.stop on the container div.
-function closeFilter() {
-  filterOpen.value = false
-  filterTriggerRef.value?.focus()
-}
-
-// Add / remove the outside-click listener in sync with open state.
-// nextTick defers the add so the triggering click doesn't immediately re-close.
-watch(filterOpen, (open) => {
-  if (open) {
-    nextTick(() => document.addEventListener('click', onDocumentClick))
-  } else {
-    document.removeEventListener('click', onDocumentClick)
-  }
-})
+const query = ref('')
+const confirmId = ref<string | null>(null)
+// `editing === null` while the panel is open means create mode; a task means
+// edit. The panel's :key uses that difference to rebuild its draft.
+const editing = ref<Task | null>(null)
+const panelOpen = ref(false)
+const briefing = ref<{ body: string } | null>(null)
 
 const projectTitles = computed<Record<string, string>>(() =>
-  Object.fromEntries(projects.value.map((p) => [p.id, p.title]))
+  Object.fromEntries(projects.value.map((p) => [p.id, p.title])),
 )
+
+// Search is client-side: the whole list is already loaded, and a round trip per
+// keystroke would be slower than filtering what is in memory.
+const visible = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return tasks.value
+  return tasks.value.filter((t) =>
+    `${t.title} ${t.description} ${projectTitles.value[t.projectId] ?? ''}`.toLowerCase().includes(q),
+  )
+})
 
 const summary = computed(() => {
   const counts: Record<TaskStatus, number> = { todo: 0, in_progress: 0, done: 0 }
@@ -198,7 +172,7 @@ const summary = computed(() => {
   if (counts.todo) parts.push(`${counts.todo} to do`)
   if (counts.in_progress) parts.push(`${counts.in_progress} in progress`)
   if (counts.done) parts.push(`${counts.done} done`)
-  return parts.length ? parts.join(', ') : 'Nothing here yet.'
+  return parts.length ? parts.join(' · ') : 'Nothing here yet.'
 })
 
 function reload() {
@@ -207,10 +181,8 @@ function reload() {
 
 // The URL's ?project= is the single source of truth for the filter. On a
 // statically-generated page the router hydrates with the server route (empty
-// query) and only resolves the real location a tick after onMounted, so the
-// setup-time init above misses the filter on a hard reload of /tasks/?project=X.
-// Watching the query catches that late resolution (and any in-app change), so
-// setProjectFilter only has to navigate - this watch does the reload.
+// query) and only resolves the real location a tick after onMounted, so a
+// setup-time init misses the filter on a hard reload of /tasks/?project=X.
 watch(
   () => route.query.project,
   (id) => {
@@ -220,62 +192,72 @@ watch(
 )
 
 function setProjectFilter(id: string) {
-  // Shareable URL + consistent with the Projects → Tasks drill-in; the watch
-  // above reacts to the query change and reloads.
   navigateTo({ path: '/tasks', query: id ? { project: id } : {} })
 }
 
-function openDetail(task: Task) {
-  selected.value = task
+function openCreate() {
+  editing.value = null
+  briefing.value = null
+  confirmId.value = null
+  panelOpen.value = true
 }
 
-async function changeStatus(id: string, status: string) {
-  await setStatus(id, status as TaskStatus)
-  if (selected.value?.id === id) selected.value = { ...selected.value, status: status as TaskStatus }
-  reload()
-}
-
-// An empty string clears the deadline.
-async function changeDueDate(id: string, dueDate: string) {
-  await setDueDate(id, dueDate)
-  if (selected.value?.id === id) selected.value = { ...selected.value, dueDate }
-  reload()
-}
-
-async function changeTitle(id: string, title: string) {
-  await update(id, { title })
-  if (selected.value?.id === id) selected.value = { ...selected.value, title }
-  reload()
-}
-
-async function changeDescription(id: string, description: string) {
-  await update(id, { description })
-  if (selected.value?.id === id) selected.value = { ...selected.value, description }
-  reload()
-}
-
-function askDelete(id: string) {
-  deleting.value = tasks.value.find((t) => t.id === id) ?? null
-}
-
-async function confirmDelete() {
-  if (!deleting.value || removing.value) return
-  removing.value = true
-  deleteError.value = null
+async function openEdit(task: Task) {
+  editing.value = task
+  confirmId.value = null
+  panelOpen.value = true
+  briefing.value = null
   try {
-    await remove(deleting.value.id)
-    if (selected.value?.id === deleting.value.id) selected.value = null
-    deleting.value = null
-    reload()
-  } catch (e) {
-    deleteError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    removing.value = false
+    briefing.value = await $fetch<{ body: string }>(`/api/nodes/${task.id}/briefing`)
+  } catch {
+    briefing.value = null // 404 = this task did not come from a capture
   }
 }
 
+function closePanel() {
+  panelOpen.value = false
+  editing.value = null
+  briefing.value = null
+}
+
+// Every write reloads: the list carries fields only the server recomputes -
+// updatedAt, and which section the task now belongs to.
+async function applyPatch(id: string, patch: TaskPatch) {
+  await update(id, patch)
+  if (editing.value?.id === id) {
+    editing.value = { ...editing.value, ...patch }
+  }
+  reload()
+}
+
+async function createTask(t: NewTask) {
+  await create(t)
+  closePanel()
+  reload()
+}
+
+const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
+  todo: 'in_progress',
+  in_progress: 'done',
+  done: 'todo',
+}
+
+const advance = (t: Task) => applyPatch(t.id, { status: NEXT_STATUS[t.status] })
+const toggleDone = (t: Task) => applyPatch(t.id, { status: t.status === 'done' ? 'todo' : 'done' })
+
+async function removeTask(task: Task) {
+  confirmId.value = null
+  await remove(task.id)
+  if (editing.value?.id === task.id) closePanel()
+  reload()
+}
+
+// Escape from anywhere on the page. The panel stops the event when focus is
+// inside it, so this only fires when focus is not.
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && selected.value) selected.value = null
+  if (e.key !== 'Escape') return
+  if (confirmId.value) confirmId.value = null
+  else if (panelOpen.value) closePanel()
 }
 
 onMounted(() => {
@@ -283,8 +265,12 @@ onMounted(() => {
   reload()
   window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => {
-  window.removeEventListener('keydown', onKeydown)
-  document.removeEventListener('click', onDocumentClick)
-})
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
+
+<style scoped>
+.control-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+</style>
