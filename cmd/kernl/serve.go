@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -154,6 +155,26 @@ func resolveBindHost(configured, env string) string {
 	return "127.0.0.1"
 }
 
+// bannerConfigPath resolves the config file to an absolute path for the
+// startup banner. Nothing else in a running server says which config it read,
+// and the default is the bare relative "kernl.yaml" - meaningless from
+// anywhere but the working directory the process happened to have. On a host
+// keeping more than one config, an edit can then land for days in a file the
+// server never opens. An empty path prints nothing: a "config:" label with
+// nothing after it answers the question worse than silence.
+func bannerConfigPath(configPath string) string {
+	if strings.TrimSpace(configPath) == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(configPath)
+	if err != nil {
+		// Still worth naming. The job is to identify the file, and the raw
+		// value identifies it better than silence does.
+		return configPath
+	}
+	return abs
+}
+
 func runServe(configPath string, port int, noOrchestrator bool) error {
 	if noOrchestrator {
 		slog.Info("starting in GUI-only mode (orchestrator disabled): bd is not required")
@@ -225,6 +246,9 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		fmt.Printf("kernl serving - API http://%s\n", srv.Addr)
 		if host == "0.0.0.0" || host == "::" {
 			fmt.Printf("  reachable from the network, and the API has no authentication.\n")
+		}
+		if p := bannerConfigPath(configPath); p != "" {
+			fmt.Printf("  config: %s\n", p)
 		}
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "error", err)

@@ -230,6 +230,33 @@ func TestDefaultSweeperFactoryBuildsOneSweeperPerRepo(t *testing.T) {
 	}
 }
 
+func TestBannerConfigPathIdentifiesOneFileOnDisk(t *testing.T) {
+	// A relative path in the banner names a different file depending on where
+	// the process was started, which is exactly the ambiguity the line exists
+	// to remove - so the answer is always absolute.
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	tests := []struct {
+		name       string
+		configPath string
+		want       string
+	}{
+		{name: "unset prints no line", configPath: "", want: ""},
+		{name: "blank prints no line", configPath: "   ", want: ""},
+		{name: "the default is resolved against the working directory", configPath: "kernl.yaml", want: filepath.Join(dir, "kernl.yaml")},
+		{name: "a nested relative path is resolved too", configPath: "conf/kernl.local.yaml", want: filepath.Join(dir, "conf", "kernl.local.yaml")},
+		{name: "an absolute path is already the answer", configPath: "/etc/kernl/kernl.yaml", want: "/etc/kernl/kernl.yaml"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := bannerConfigPath(tt.configPath); got != tt.want {
+				t.Errorf("bannerConfigPath(%q) = %q, want %q", tt.configPath, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveBindHostDefaultsToLoopback(t *testing.T) {
 	// The API has no authentication, so the default must never be an address
 	// other machines can reach - an unconfigured kernl is a private kernl.
