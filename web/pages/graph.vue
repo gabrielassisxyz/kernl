@@ -614,7 +614,7 @@ onUnmounted(() => {
 }
 .ctrl-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; border-radius: var(--radius-full);
+  width: 34px; height: 34px; border-radius: var(--radius-xl);
   color: var(--color-text-muted);
   background: var(--color-surface);
   border: 1px solid var(--color-border-hairline);
@@ -623,14 +623,14 @@ onUnmounted(() => {
 .ctrl-btn:hover { color: var(--color-text-primary); border-color: var(--color-border-default); background: var(--color-surface-hover); }
 .ctrl-btn:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 1px; }
 
-.stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--color-border-hairline); border-radius: var(--radius-full); background: var(--color-surface-container-low); }
+.stat { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--color-border-hairline); border-radius: var(--radius-xl); background: var(--color-surface-container-low); }
 .stat-num { font-family: var(--font-mono-data); font-size: var(--text-display); line-height: 1; color: var(--color-text-primary); }
 .stat-lbl { font-family: var(--font-mono-data); font-size: var(--text-mono-data); color: var(--color-text-faint); }
 
 .conn-head { font-family: var(--font-label-caps); font-size: var(--text-label-caps); color: var(--color-text-faint); margin-bottom: 8px; }
 .conn-row {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 7px 9px; border-radius: var(--radius-full);
+  padding: 7px 9px; border-radius: var(--radius-xl);
   border: 1px solid transparent;
   background: var(--color-surface-container-low);
   text-align: left; transition: background 120ms, border-color 120ms;

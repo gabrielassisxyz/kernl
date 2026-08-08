@@ -204,13 +204,13 @@ const startNewConversation = () => {
   font-size: 0.85em;
   background-color: var(--color-surface-container-low);
   border: 1px solid var(--color-border-hairline);
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius);
   padding: 0.1em 0.35em;
 }
 .da-prose :deep(pre) {
   background-color: var(--color-surface-container-low);
   border: 1px solid var(--color-border-hairline);
-  border-radius: var(--radius-lg, 6px);
+  border-radius: var(--radius-xl);
   padding: 10px 12px;
   overflow-x: auto;
 }
