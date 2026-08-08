@@ -2,78 +2,63 @@
   <div class="bg-bg-base text-text-primary h-screen flex flex-col overflow-hidden font-body selection:bg-da-accent selection:text-white">
     <!-- Top Layout Wrapper -->
     <div class="flex flex-1 overflow-hidden">
-      <!-- Left SideNav (Icon Rail) -->
-      <nav class="side-rail w-rail-width h-full bg-surface border-r border-border-hairline flex flex-col items-center py-base z-dropdown flex-shrink-0">
-        <!-- Logo -->
-        <NuxtLink to="/" class="mb-component flex flex-col items-center gap-1 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded p-1 group">
-          <div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center group-active:scale-95 transition-transform">
-            <span class="material-symbols-outlined rail-logo-icon text-primary">terminal</span>
-          </div>
-          <span class="rail-logo-label text-primary">Kernl</span>
-        </NuxtLink>
-        
-        <!-- Nav Items (only built, reachable surfaces; ordered by the magic loop) -->
-        <div class="flex flex-col gap-1 flex-grow w-full items-center px-1">
-          <NuxtLink to="/" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">dashboard</span>
-            <span class="rail-label">Home</span>
+      <!-- Left sidebar: labelled destinations, grouped -->
+      <nav class="side-nav w-rail-width shrink-0 h-full bg-surface border-r border-border-hairline flex flex-col px-3 pb-3 overflow-y-auto z-dropdown">
+        <div class="flex items-center justify-between pt-4 pb-[18px] px-2">
+          <NuxtLink to="/" class="flex items-center gap-[9px] rounded outline-none focus-visible:ring-1 focus-visible:ring-primary/30">
+            <span class="w-[22px] h-[22px] shrink-0 flex items-center justify-center rounded-lg bg-accent-tint-strong">
+              <span class="material-symbols-outlined nav-logo-icon text-primary">hub</span>
+            </span>
+            <span class="font-headline text-[14px] font-semibold tracking-[-0.01em] text-text-primary">Kernl</span>
           </NuxtLink>
-          <NuxtLink to="/inbox" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">inbox</span>
-            <span class="rail-label">Inbox</span>
-          </NuxtLink>
-          <NuxtLink to="/notes" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">description</span>
-            <span class="rail-label">Notes</span>
-          </NuxtLink>
-          <NuxtLink to="/bookmarks" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">bookmark</span>
-            <span class="rail-label">Marks</span>
-          </NuxtLink>
-          <NuxtLink to="/memory" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">neurology</span>
-            <span class="rail-label">Memory</span>
-          </NuxtLink>
-          <NuxtLink to="/projects" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">folder_open</span>
-            <span class="rail-label">Projects</span>
-          </NuxtLink>
-          <NuxtLink to="/tasks" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">checklist</span>
-            <span class="rail-label">Tasks</span>
-          </NuxtLink>
-          <NuxtLink to="/graph" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">hub</span>
-            <span class="rail-label">Graph</span>
-          </NuxtLink>
-          <NuxtLink to="/orchestrator" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">account_tree</span>
-            <span class="rail-label">Orch</span>
-          </NuxtLink>
-          <NuxtLink to="/ingest" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">input</span>
-            <span class="rail-label">Ingest</span>
-          </NuxtLink>
-          <NuxtLink to="/audit" class="rail-link relative w-full h-10 rounded flex flex-col items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer" active-class="text-primary bg-surface-hover">
-            <span class="material-symbols-outlined rail-icon">policy</span>
-            <span class="rail-label">Audit</span>
-          </NuxtLink>
-        </div>
-        
-        <!-- Footer Nav -->
-        <div class="flex flex-col gap-base pb-base w-full items-center">
-          <NuxtLink
-            to="/settings"
-            class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-95 transition-[color,transform] duration-150 cursor-pointer"
-            active-class="text-primary bg-surface-hover"
-            aria-label="Settings"
+          <button
+            class="flex p-1 rounded text-text-muted hover:bg-surface-nav-hover hover:text-text-secondary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            @click="collapse"
           >
-            <span class="material-symbols-outlined rail-footer-icon">settings</span>
-          </NuxtLink>
-          <button class="w-full h-10 flex items-center justify-center text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 active:scale-95 transition-[color,transform] duration-150 cursor-pointer" aria-label="Account">
-            <span class="material-symbols-outlined rail-footer-icon">account_circle</span>
+            <span class="material-symbols-outlined nav-icon">left_panel_close</span>
           </button>
         </div>
+
+        <div v-for="(group, i) in NAV_GROUPS" :key="group.caption" class="contents">
+          <!-- Group separation is the sidebar's only vertical rhythm, so it is a
+               larger step than the gap between rows. The first caption already
+               sits under the wordmark's padding and does not need it. -->
+          <div
+            class="font-label-caps text-label-caps font-normal uppercase text-text-faint px-2 mb-1.5"
+            :class="i === 0 ? 'mt-0.5' : 'mt-[18px]'"
+          >
+            {{ group.caption }}
+          </div>
+          <div class="flex flex-col gap-px">
+            <NuxtLink
+              v-for="item in group.items"
+              :key="item.to"
+              :to="item.to"
+              class="nav-row flex items-center gap-2.5 px-2 py-1.5 rounded-lg outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer"
+              :class="isActive(item)
+                ? 'bg-accent-tint text-text-primary'
+                : 'text-text-secondary hover:bg-surface-nav-hover'"
+            >
+              <span class="material-symbols-outlined nav-icon" :class="isActive(item) ? 'text-primary' : ''">{{ item.icon }}</span>
+              <span>{{ item.label }}</span>
+            </NuxtLink>
+          </div>
+        </div>
+
+        <div class="flex-1 min-h-6"></div>
+
+        <NuxtLink
+          to="/settings"
+          class="nav-row flex items-center gap-2.5 px-2 py-1.5 rounded-lg outline-none focus-visible:ring-1 focus-visible:ring-primary/30 transition-colors duration-150 cursor-pointer"
+          :class="isActive(SETTINGS_ITEM)
+            ? 'bg-accent-tint text-text-primary'
+            : 'text-text-secondary hover:bg-surface-nav-hover'"
+        >
+          <span class="material-symbols-outlined nav-icon" :class="isActive(SETTINGS_ITEM) ? 'text-primary' : ''">settings</span>
+          <span>Settings</span>
+        </NuxtLink>
       </nav>
 
       <!-- Main Content Area -->
@@ -99,25 +84,11 @@
       </button>
     </div>
 
-    <!-- Shell: Footer Status Bar -->
-    <footer class="h-[26px] bg-surface-container-low text-text-muted border-t border-border-hairline flex items-center justify-between px-base z-dropdown divide-x divide-border-hairline shrink-0">
-      <div class="flex items-center gap-component pr-component">
-        <div class="flex items-center gap-tight">
-          <span class="w-2 h-2 rounded-full bg-status-passed"></span>
-          <span class="font-mono-data text-mono-data text-status-passed uppercase">system_online</span>
-        </div>
-        <div class="h-3 w-px bg-border-hairline mx-tight"></div>
-        <span class="font-mono-data text-mono-data">{{ vaultLabel }}</span>
-      </div>
-
-      <div class="flex items-center gap-component pl-component">
-        <div class="flex items-center gap-tight">
-          <span class="material-symbols-outlined text-[14px]">sync</span>
-          <span class="font-mono-data text-mono-data">synced</span>
-        </div>
-        <div class="h-3 w-px bg-border-hairline mx-tight"></div>
-        <span class="font-mono-data text-mono-data">{{ currentTime }}</span>
-      </div>
+    <!-- Shell footer: only state that is real - where the vault is, and the time.
+         The system/sync indicators it replaces reported neither. -->
+    <footer class="h-7 shrink-0 border-t border-border-hairline flex items-center justify-between px-4 font-mono-data text-mono-data text-text-faint">
+      <span>{{ vaultLabel }}</span>
+      <span>{{ currentTime }}</span>
     </footer>
   </div>
 </template>
@@ -125,12 +96,65 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 
+// Grouped destinations. Home is the only exact match: every path starts with
+// "/", so a prefix test would light it up on every page.
+const NAV_GROUPS = [
+  {
+    caption: 'Overview',
+    items: [
+      { to: '/', label: 'Home', icon: 'dashboard', exact: true },
+      { to: '/inbox', label: 'Inbox', icon: 'inbox' },
+    ],
+  },
+  {
+    caption: 'Knowledge',
+    items: [
+      { to: '/notes', label: 'Notes', icon: 'description' },
+      { to: '/bookmarks', label: 'Bookmarks', icon: 'bookmark' },
+      { to: '/memory', label: 'Memory', icon: 'neurology' },
+      { to: '/graph', label: 'Graph', icon: 'hub' },
+    ],
+  },
+  {
+    caption: 'Work',
+    items: [
+      { to: '/projects', label: 'Projects', icon: 'folder_open' },
+      { to: '/tasks', label: 'Tasks', icon: 'checklist' },
+    ],
+  },
+  {
+    caption: 'Operations',
+    items: [
+      { to: '/orchestrator', label: 'Orchestrator', icon: 'account_tree' },
+      { to: '/ingest', label: 'Ingest', icon: 'input' },
+      { to: '/audit', label: 'Audit', icon: 'policy' },
+    ],
+  },
+]
+
+const SETTINGS_ITEM = { to: '/settings' }
+
 const route = useRoute()
 const daRelevantRoutes = new Set(['/chat'])
 const daOpen = ref(daRelevantRoutes.has(route.path))
-const currentTime = ref('---- -- -- --:--:--')
+const currentTime = ref('--:--')
 const userPreference = ref(false)
 const vaultLabel = ref('~/vault')
+
+// Nuxt's static build serves /tasks/ with a trailing slash, so the raw path is
+// normalised before it is compared with the link target.
+function isActive(item) {
+  const path = route.path.replace(/\/$/, '') || '/'
+  if (item.exact) return path === item.to
+  return path === item.to || path.startsWith(`${item.to}/`)
+}
+
+// The collapsed icon rail is not built. The control ships anyway because the
+// expanded default has to be reversible to be judged - and it says what it is
+// rather than silently doing nothing.
+function collapse() {
+  window.alert('The collapsed icon rail is not built yet.')
+}
 
 const loadVaultLabel = async () => {
   try {
@@ -169,13 +193,9 @@ let timer;
 
 const updateTime = () => {
   const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
   const hours = String(now.getHours()).padStart(2, '0')
   const minutes = String(now.getMinutes()).padStart(2, '0')
-  const seconds = String(now.getSeconds()).padStart(2, '0')
-  currentTime.value = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+  currentTime.value = `${hours}:${minutes}`
 }
 
 const handleKeydown = (e) => {
@@ -222,49 +242,25 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.side-rail .material-symbols-outlined {
-  font-weight: 260;
+/* A lighter optical weight than the body set: at the default grade these read
+   heavy next to a 13px label. `line-height: 1` keeps the glyph from setting the
+   row height, which the label should own. */
+.side-nav .material-symbols-outlined {
+  font-size: 16px;
+  line-height: 1;
   font-variation-settings: 'FILL' 0, 'wght' 260, 'GRAD' -25, 'opsz' 20;
 }
 
-.rail-logo-icon {
-  font-size: 19px;
-  font-weight: 280;
-  font-variation-settings: 'FILL' 0, 'wght' 280, 'GRAD' -25, 'opsz' 20;
+.nav-logo-icon {
+  font-size: 15px;
 }
 
-.rail-logo-label {
-  font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 12px;
-  letter-spacing: 0;
-}
-
-.rail-link {
-  gap: 3px;
-}
-
-.rail-icon {
-  font-size: 19px;
-}
-
-.rail-label {
-  font-family: var(--font-body);
-  font-size: 10px;
-  font-weight: 400;
-  line-height: 12px;
-  letter-spacing: 0;
-  opacity: 0.72;
-}
-
-.rail-link[aria-current="page"] .rail-label,
-.rail-link:hover .rail-label {
-  opacity: 0.88;
-}
-
-.rail-footer-icon {
-  font-size: 20px;
+/* `normal` rather than the body's 20px: the extra leading turns a 29px row into
+   a 32px one, and the sidebar's density is what buys it eleven visible
+   destinations without scrolling. */
+.nav-row {
+  font-size: 13px;
+  line-height: normal;
 }
 </style>
 
