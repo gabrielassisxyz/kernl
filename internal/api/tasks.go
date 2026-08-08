@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -161,6 +162,7 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		Title       *string   `json:"title"`
 		Description *string   `json:"description"`
 		Status      *string   `json:"status"`
+		ProjectID   *string   `json:"projectId"`
 		Tags        *[]string `json:"tags"`
 		DueDate     *string   `json:"dueDate"`
 	}
@@ -168,8 +170,8 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Title == nil && req.Description == nil && req.Status == nil && req.Tags == nil && req.DueDate == nil {
-		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, status, tags or dueDate")
+	if req.Title == nil && req.Description == nil && req.Status == nil && req.ProjectID == nil && req.Tags == nil && req.DueDate == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, status, projectId, tags or dueDate")
 		return
 	}
 	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
@@ -192,7 +194,24 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	ctx := r.Context()
 	author := nodes.Author{Name: "api"}
 	var companionFile companion.File
+	// A project id that names nothing would leave the task pointing at a
+	// project the UI cannot resolve, so it is rejected rather than stored. The
+	// check lives inside the transaction because that is where the write is.
+	var unknownProject bool
 	err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		if req.ProjectID != nil && *req.ProjectID != "" {
+			var one int
+			switch err := tx.QueryRow(
+				`SELECT 1 FROM nodes WHERE id = ? AND type = 'project' AND deleted_at IS NULL`,
+				*req.ProjectID,
+			).Scan(&one); {
+			case err == sql.ErrNoRows:
+				unknownProject = true
+				return graph.ErrNotFound
+			case err != nil:
+				return err
+			}
+		}
 		if req.Title != nil {
 			// The companion note keeps its file name. After duplicate titles
 			// became legal the path stopped being a function of the title, so a
@@ -221,11 +240,35 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
+		if req.ProjectID != nil {
+			if err := nodes.SetTaskProject(ctx, tx, id, *req.ProjectID, author); err != nil {
+				return err
+			}
+			// The attr above is the filtering mirror; this is the canonical
+			// link. Both move together or a reassigned task keeps answering the
+			// old project's graph queries.
+			if _, err := edges.DeleteBySource(ctx, tx, id, edges.EdgeTypePartOf, author); err != nil {
+				return err
+			}
+			if *req.ProjectID != "" {
+				if _, err := edges.Create(ctx, tx, edges.Edge{
+					Src:  id,
+					Dst:  *req.ProjectID,
+					Type: edges.EdgeTypePartOf,
+				}, author); err != nil {
+					return err
+				}
+			}
+		}
 		if req.Tags != nil {
 			return nodes.SetTaskTags(ctx, tx, id, *req.Tags, author)
 		}
 		return nil
 	})
+	if unknownProject {
+		writeError(w, http.StatusBadRequest, "projectId does not name an existing project")
+		return
+	}
 	if err == graph.ErrNotFound {
 		writeError(w, http.StatusNotFound, "task not found")
 		return

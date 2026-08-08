@@ -244,6 +244,19 @@ func SetTaskTags(ctx context.Context, tx *graph.WriteTx, id string, tags []strin
 	return updateNode(ctx, tx, *t, author)
 }
 
+// SetTaskProject moves a task to another project, or unassigns it when
+// projectID is empty. This only mirrors the attr used for cheap filtering; the
+// canonical task -[part_of]-> project edge is the caller's to move, and a caller
+// that changes one without the other leaves the two disagreeing.
+func SetTaskProject(ctx context.Context, tx *graph.WriteTx, id, projectID string, author Author) error {
+	t, err := loadTaskForWrite(tx, id)
+	if err != nil {
+		return err
+	}
+	t.ProjectID = projectID
+	return updateNode(ctx, tx, *t, author)
+}
+
 // SetTaskDueDate sets or clears a task's due date, leaving its other fields
 // alone. A nil due removes it. Like SetTaskTags this goes through the shared
 // chokepoint, so the FTS index and the revision history stay consistent.

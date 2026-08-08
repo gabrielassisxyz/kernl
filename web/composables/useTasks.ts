@@ -7,6 +7,7 @@ export interface Task {
   description: string
   status: TaskStatus
   projectId: string
+  tags: string[]
   /** Calendar day "YYYY-MM-DD", empty when the task has no deadline. */
   dueDate: string
   createdAt: string
@@ -26,6 +27,7 @@ export interface NewTask {
   description?: string
   status?: TaskStatus
   projectId?: string
+  tags?: string[]
   dueDate?: string
 }
 
@@ -87,8 +89,12 @@ export function useTasks() {
   }
 
   // An omitted key leaves the field alone; `description: ""` clears it, which
-  // the PATCH handler distinguishes with a pointer field.
-  async function update(id: string, patch: { title?: string; description?: string }): Promise<void> {
+  // the PATCH handler distinguishes with a pointer field. Same for projectId:
+  // "" unassigns the task, and an id that names no project is refused with 400.
+  async function update(
+    id: string,
+    patch: { title?: string; description?: string; projectId?: string; tags?: string[] },
+  ): Promise<void> {
     const res = await fetch(`/api/tasks/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
