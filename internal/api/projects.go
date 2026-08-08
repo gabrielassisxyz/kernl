@@ -20,6 +20,7 @@ type projectDTO struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Status      string    `json:"status"`
+	Pinned      bool      `json:"pinned"`
 	Tags        []string  `json:"tags"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -87,6 +88,7 @@ func listProjectsHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				Title:       p.Title,
 				Description: p.Description,
 				Status:      p.Status,
+				Pinned:      p.Pinned,
 				Tags:        tagList(p.Tags),
 				CreatedAt:   p.CreatedAt,
 				UpdatedAt:   p.UpdatedAt,
@@ -110,6 +112,7 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		Title       string   `json:"title"`
 		Description string   `json:"description"`
 		Status      string   `json:"status"`
+		Pinned      bool     `json:"pinned"`
 		Tags        []string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -131,6 +134,7 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			Title:       title,
 			Description: req.Description,
 			Status:      req.Status,
+			Pinned:      req.Pinned,
 			Tags:        req.Tags,
 		}, nodes.Author{Name: "api"})
 		if err != nil {
@@ -165,14 +169,15 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		Title       *string   `json:"title"`
 		Description *string   `json:"description"`
 		Status      *string   `json:"status"`
+		Pinned      *bool     `json:"pinned"`
 		Tags        *[]string `json:"tags"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid patch body: "+err.Error())
 		return
 	}
-	if req.Title == nil && req.Description == nil && req.Status == nil && req.Tags == nil {
-		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, status, or tags")
+	if req.Title == nil && req.Description == nil && req.Status == nil && req.Pinned == nil && req.Tags == nil {
+		writeError(w, http.StatusBadRequest, "nothing to update: provide title, description, status, pinned, or tags")
 		return
 	}
 	if req.Title != nil && strings.TrimSpace(*req.Title) == "" {
@@ -229,6 +234,11 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		}
 		if req.Status != nil {
 			if err := nodes.SetProjectStatus(ctx, tx, id, *req.Status, nodes.Author{Name: "api"}); err != nil {
+				return err
+			}
+		}
+		if req.Pinned != nil {
+			if err := nodes.SetProjectPinned(ctx, tx, id, *req.Pinned, nodes.Author{Name: "api"}); err != nil {
 				return err
 			}
 		}

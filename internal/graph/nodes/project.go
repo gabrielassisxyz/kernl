@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +23,10 @@ type Project struct {
 	Description string
 	Status      string // active | paused | done | archived
 	Tags        []string
+	// Pinned lifts a project above the lifecycle sections in the UI. It is
+	// deliberately not a status: a pinned project is still active or paused,
+	// and folding the two would lose that.
+	Pinned bool
 }
 
 // DefaultProjectStatus is applied when a project is created without one.
@@ -33,6 +38,7 @@ func (p Project) NodeAttrs() []byte {
 	data, _ := json.Marshal(map[string]any{
 		"description": p.Description,
 		"status":      p.Status,
+		"pinned":      p.Pinned,
 	})
 	return data
 }
@@ -135,6 +141,32 @@ func SetProjectStatus(ctx context.Context, tx *graph.WriteTx, id, status string,
 	return nil
 }
 
+// SetProjectPinned pins or unpins a project in place. A json_set like
+// SetProjectStatus rather than a read-modify-write: pinning is not indexed and
+// does not touch the FTS body, so there is nothing for the chokepoint to
+// reconcile. Returns ErrNotFound when the project does not exist.
+func SetProjectPinned(ctx context.Context, tx *graph.WriteTx, id string, pinned bool, author Author) error {
+	if !author.Valid() {
+		return graph.ErrAuthorRequired
+	}
+	res, err := tx.Exec(
+		`UPDATE nodes SET attrs = json_set(attrs, '$.pinned', json(?)), updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+		 WHERE id = ? AND type = 'project' AND deleted_at IS NULL`,
+		strconv.FormatBool(pinned), id,
+	)
+	if err != nil {
+		return fmt.Errorf("SetProjectPinned: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("SetProjectPinned: rows affected: %w", err)
+	}
+	if n == 0 {
+		return graph.ErrNotFound
+	}
+	return nil
+}
+
 // UpdateProjectMeta updates a project's title and description in place.
 // Returns ErrNotFound when the project does not exist.
 func UpdateProjectMeta(ctx context.Context, tx *graph.WriteTx, id, title, description string, author Author) error {
@@ -207,6 +239,7 @@ func scanProject(id string, title, attrsRaw, createdAt, updatedAt sql.NullString
 	var attrs struct {
 		Description string `json:"description"`
 		Status      string `json:"status"`
+		Pinned      bool   `json:"pinned"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -223,5 +256,6 @@ func scanProject(id string, title, attrsRaw, createdAt, updatedAt sql.NullString
 		Title:       title.String,
 		Description: attrs.Description,
 		Status:      attrs.Status,
+		Pinned:      attrs.Pinned,
 	}, nil
 }

@@ -6,6 +6,9 @@ export interface Project {
   title: string
   description: string
   status: ProjectStatus
+  /** Lifts the project above the lifecycle sections; not a status of its own. */
+  pinned: boolean
+  tags: string[]
   createdAt: string
   updatedAt: string
   taskCount: number
@@ -25,6 +28,8 @@ export interface NewProject {
   title: string
   description?: string
   status?: ProjectStatus
+  pinned?: boolean
+  tags?: string[]
 }
 
 /**
@@ -74,7 +79,7 @@ export function useProjects() {
 
   async function update(
     id: string,
-    patch: { title?: string; description?: string; status?: ProjectStatus }
+    patch: { title?: string; description?: string; status?: ProjectStatus; pinned?: boolean; tags?: string[] }
   ): Promise<void> {
     const res = await fetch(`/api/projects/${encodeURIComponent(id)}`, {
       method: 'PATCH',
