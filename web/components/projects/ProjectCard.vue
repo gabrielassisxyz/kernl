@@ -1,101 +1,152 @@
 <template>
-  <button
-    type="button"
-    :aria-label="`Open project ${project.title}`"
-    class="group flex flex-col text-left w-full min-h-[180px] p-component rounded-lg border border-border-hairline bg-surface hover:bg-surface-hover hover:border-border-default transition-colors duration-150 cursor-pointer focus:outline-none focus-visible:border-primary/50"
-    @click="$emit('open')"
+  <!-- A div, not a button. The card carries its own pin, edit and delete
+       controls, and a button cannot legally contain them. -->
+  <div
+    class="group flex flex-col min-h-[108px] p-3 rounded-xl border bg-surface text-body transition-colors duration-150"
+    :class="hovered ? 'border-border-default bg-surface-hover' : 'border-border-hairline'"
+    @mouseenter="hovered = true"
+    @mouseleave="hovered = false"
   >
-    <!-- Top row: status dot + title -->
-    <div class="flex items-start gap-base">
-      <span
-        class="mt-[9px] w-1.5 h-1.5 rounded-full shrink-0"
-        :class="dotClass"
-        :title="statusLabel"
-      ></span>
-      <h3 class="flex-1 min-w-0 font-headline text-headline text-text-primary font-medium leading-snug line-clamp-2">
-        {{ project.title }}
-      </h3>
+    <div class="flex items-center justify-between gap-2">
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="w-1.5 h-1.5 shrink-0 rounded-full" :class="STATUS_DOT[project.status]"></span>
+        <span v-if="project.tags?.length" class="min-w-0 truncate font-mono-data text-mono-data text-text-muted">
+          {{ project.tags[0] }}
+        </span>
+      </div>
+      <!-- A pinned card keeps its cluster visible: a card has no column for a
+           state marker, so the lit pin is the only way to tell. -->
+      <div
+        class="flex gap-px transition-opacity duration-150"
+        :class="hovered || project.pinned ? 'opacity-100' : 'opacity-0'"
+      >
+        <button
+          type="button"
+          class="card-action"
+          :class="project.pinned ? 'text-primary' : ''"
+          :title="project.pinned ? 'Unpin' : 'Pin'"
+          :aria-label="`${project.pinned ? 'Unpin' : 'Pin'} ${project.title}`"
+          :aria-pressed="project.pinned"
+          @click="$emit('toggle-pin', project)"
+        >
+          <span class="material-symbols-outlined card-action-icon" aria-hidden="true">keep</span>
+        </button>
+        <button
+          type="button"
+          class="card-action"
+          title="Edit"
+          :aria-label="`Edit ${project.title}`"
+          @click="$emit('open', project)"
+        >
+          <span class="material-symbols-outlined card-action-icon" aria-hidden="true">edit</span>
+        </button>
+        <button
+          type="button"
+          class="card-action card-action--danger"
+          title="Delete"
+          :aria-label="`Delete ${project.title}`"
+          @click="$emit('ask-delete', project)"
+        >
+          <span class="material-symbols-outlined card-action-icon" aria-hidden="true">delete</span>
+        </button>
+      </div>
     </div>
 
-    <!-- Description -->
-    <p
-      v-if="project.description"
-      class="mt-base font-body text-body text-text-muted line-clamp-2"
+    <NuxtLink
+      :to="`/tasks?project=${encodeURIComponent(project.id)}`"
+      class="block mt-2.5 font-medium leading-snug text-text-primary hover:underline outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded line-clamp-2"
     >
-      {{ project.description }}
-    </p>
-    <p v-else class="mt-base font-body text-body text-text-faint italic">
-      No description
-    </p>
+      {{ project.title }}
+    </NuxtLink>
 
-    <div class="flex-1"></div>
+    <div class="flex-1 min-h-2.5"></div>
 
-    <!-- Task progress meter -->
-    <div class="mt-component">
-      <div class="flex items-center justify-between mb-tight">
-        <span class="font-mono-data text-mono-data text-text-faint tracking-tight">
-          {{ project.doneCount }}/{{ project.taskCount }} tasks
-        </span>
-        <span class="font-mono-data text-mono-data tracking-tight" :class="percentTone">
-          {{ project.taskCount > 0 ? pct + '%' : ' - ' }}
-        </span>
-      </div>
-      <div class="h-[3px] w-full rounded-full bg-surface-container-high overflow-hidden">
-        <div
-          class="h-full rounded-full transition-all duration-300"
-          :class="barTone"
-          :style="{ width: (project.taskCount > 0 ? pct : 0) + '%' }"
-        ></div>
-      </div>
+    <div v-if="confirming" class="flex items-center gap-2 mt-2">
+      <span class="text-text-secondary">Delete?</span>
+      <button
+        type="button"
+        class="font-medium text-status-failed-text hover:underline outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer"
+        @click="$emit('confirm-delete', project)"
+      >
+        Yes
+      </button>
+      <button
+        type="button"
+        class="text-text-muted hover:text-text-primary outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer"
+        @click="$emit('cancel-delete')"
+      >
+        No
+      </button>
     </div>
-
-    <!-- Footer: status + updatedAt -->
-    <div class="mt-component flex items-center justify-between border-t border-border-hairline pt-base">
-      <span class="font-mono-data text-mono-data uppercase tracking-widest text-text-faint">
-        {{ statusLabel }}
-      </span>
-      <span class="font-mono-data text-mono-data text-text-faint">
-        {{ updated }}
-      </span>
-    </div>
-  </button>
+    <template v-else>
+      <div class="flex items-center justify-between gap-2 mt-2.5 font-mono-data text-mono-data text-text-muted tabular-nums">
+        <span>{{ project.doneCount }}/{{ project.taskCount }}</span>
+        <span>{{ formatRelativeTime(project.updatedAt) }}</span>
+      </div>
+      <div
+        class="mt-[7px] h-0.5 rounded-xs bg-surface-control-hover overflow-hidden"
+        role="progressbar"
+        :aria-valuenow="percent"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-label="`${project.title} progress`"
+      >
+        <div class="h-full rounded-xs bg-primary transition-[width] duration-300" :style="{ width: `${percent}%` }"></div>
+      </div>
+    </template>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { Project, ProjectStatus } from '~/composables/useProjects'
-import { PROJECT_STATUSES } from '~/composables/useProjects'
 import { formatRelativeTime } from '~/utils/time'
 
-const props = defineProps<{ project: Project }>()
-defineEmits<{ (e: 'open'): void }>()
+const props = defineProps<{ project: Project; confirming?: boolean }>()
+
+defineEmits<{
+  (e: 'open', project: Project): void
+  (e: 'toggle-pin', project: Project): void
+  (e: 'ask-delete', project: Project): void
+  (e: 'confirm-delete', project: Project): void
+  (e: 'cancel-delete'): void
+}>()
+
+const hovered = ref(false)
 
 const STATUS_DOT: Record<ProjectStatus, string> = {
   active: 'bg-status-active',
   paused: 'bg-status-gate',
-  done: 'bg-status-passed',
-  archived: 'bg-text-faint',
+  done: 'bg-status-done',
+  archived: 'bg-status-archived',
 }
 
-const dotClass = computed(() => STATUS_DOT[props.project.status] ?? 'bg-text-dim')
-const statusLabel = computed(
-  () => PROJECT_STATUSES.find((s) => s.id === props.project.status)?.label ?? props.project.status
-)
-
-const pct = computed(() =>
+// A project with no tasks has no progress to report; 0/0 is not 0%.
+const percent = computed(() =>
   props.project.taskCount > 0
     ? Math.round((props.project.doneCount / props.project.taskCount) * 100)
-    : 0
+    : 0,
 )
-const barTone = computed(() => {
-  if (props.project.taskCount === 0) return 'bg-text-dim'
-  if (props.project.doneCount >= props.project.taskCount) return 'bg-status-passed'
-  return 'bg-status-running'
-})
-const percentTone = computed(() =>
-  props.project.taskCount > 0 && props.project.doneCount >= props.project.taskCount
-    ? 'text-status-passed'
-    : 'text-text-faint'
-)
-const updated = computed(() => formatRelativeTime(props.project.updatedAt))
 </script>
+
+<style scoped>
+.card-action {
+  display: flex;
+  padding: 3px;
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
+}
+.card-action:hover {
+  background-color: var(--color-surface-control-hover);
+  color: var(--color-text-primary);
+}
+.card-action--danger:hover {
+  color: var(--color-status-failed-text);
+}
+.card-action-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+</style>
