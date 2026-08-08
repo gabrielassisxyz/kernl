@@ -183,6 +183,66 @@ func TestSaveSuggestionDemotesUpdateInsideFanOut(t *testing.T) {
 	}
 }
 
+// A second classification pass must not overwrite a suggestion that is already
+// stored. The capture handed to saveSuggestion was read before the LLM call, so
+// it is stale by definition: two passes that both start while the capture is
+// unclassified each hold a copy with no actions, and the later writer used to
+// win. That is how a fan-out of three nodes silently collapsed into one.
+func TestSaveSuggestionKeepsTheStoredSuggestion(t *testing.T) {
+	ctx := context.Background()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer g.Close()
+
+	var capID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		capID, err = nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "a project and two steps", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewClassifier(g, &mockLLM{}, ClassifierOptions{})
+	readCapture := func() *nodes.Capture {
+		var capture *nodes.Capture
+		if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+			var err error
+			capture, err = nodes.GetCapture(ctx, tx, capID)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return capture
+	}
+
+	// Both passes read the capture while it is still unclassified.
+	firstPass, secondPass := readCapture(), readCapture()
+
+	if err := c.saveSuggestion(ctx, firstPass, []nodes.CaptureAction{
+		{Target: "project", Title: "Ship the thing"},
+		{Target: "task", Title: "First step"},
+		{Target: "task", Title: "Second step"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.saveSuggestion(ctx, secondPass, []nodes.CaptureAction{
+		{Target: "task", Title: "Ship the thing"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := readCapture()
+	if len(saved.SuggestedActions) != 3 {
+		t.Fatalf("the stored suggestion was overwritten by the second pass: %#v", saved.SuggestedActions)
+	}
+	if saved.SuggestedActions[0].Target != "project" {
+		t.Errorf("expected the first pass's project action, got %q", saved.SuggestedActions[0].Target)
+	}
+}
+
 // A capture whose only tie to a project is a term buried in that project's note
 // must inherit the project. This proves the classifier reads the graph, not
 // just the project titles (UAT I2 regression).

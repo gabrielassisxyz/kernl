@@ -171,6 +171,15 @@ func (c *Classifier) classifyGroup(ctx context.Context, group []*nodes.Capture, 
 // resolves to no existing note is demoted to a plain note, so a suggestion the
 // user accepts can never lose the capture. An update is exclusive (ProcessCapture
 // rejects it alongside other actions), so a fan-out that contains one drops it.
+//
+// The first suggestion stored wins. cap was read before the LLM call and
+// processPending only ever hands over captures with no actions, so cap's own
+// copy is empty by construction and cannot answer "is this already classified?"
+// - the row has to be read again inside the write transaction. Two passes can
+// overlap for real: the on-demand POST /api/inbox/classify runs alongside the
+// background loop, and two servers pointed at one vault each run a loop of their
+// own. Without this, the later writer replaced a fan-out of three nodes with
+// whatever its own call to the LLM happened to return.
 func (c *Classifier) saveSuggestion(ctx context.Context, cap *nodes.Capture, actions []nodes.CaptureAction) error {
 	for i := range actions {
 		if actions[i].Target != "update" {
@@ -185,7 +194,11 @@ func (c *Classifier) saveSuggestion(ctx context.Context, cap *nodes.Capture, act
 		}
 	}
 	return c.graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		if len(cap.SuggestedActions) > 0 {
+		stored, err := nodes.GetCapture(ctx, tx.AsReadTx(), cap.ID)
+		if err != nil {
+			return fmt.Errorf("re-read capture %s: %w", cap.ID, err)
+		}
+		if len(stored.SuggestedActions) > 0 {
 			return nil
 		}
 		cap.SuggestedActions = actions
