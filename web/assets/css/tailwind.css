@@ -1,5 +1,12 @@
 @import "tailwindcss";
-@plugin "daisyui";
+/* Themes off: daisyUI's theme blocks redefine `--color-primary` (and a dozen
+   other `--color-*` names kernl also uses) AFTER @theme, so they win the
+   cascade and `bg-primary` renders daisyUI's indigo instead of kernl's token.
+   That was invisible while kernl's accent was also blue. No daisyUI component
+   class is used in the app, so only the variables were ever reaching us. */
+@plugin "daisyui" {
+  themes: false;
+}
 
 @theme {
   --color-on-surface-variant: #c5c6d0;
