@@ -212,6 +212,23 @@ func graphDBFilePath(cfg *config.Config) (string, error) {
 	return filepath.Join(dir, graphDBFileName), nil
 }
 
+// GraphDBPath exports that single derivation for callers outside this
+// package, so a CLI verb that opens the graph without building an App still
+// lands on the same file the server does.
+//
+// It exists because spelling the path by hand is not a style question here:
+// `kernl capture` used to build cfg.Vault.Root + "/.kernl-graph.db", which
+// agrees with this function whenever a vault is configured and points at
+// /.kernl-graph.db when one is not, while the server reads
+// ~/.kernl/.kernl-graph.db. A capture written to one file and looked for in
+// another looks exactly like a capture that was never saved.
+//
+//	path, err := app.GraphDBPath(cfg)
+//	g, err := graph.Open(ctx, graph.Config{Path: path})
+func GraphDBPath(cfg *config.Config) (string, error) {
+	return graphDBFilePath(cfg)
+}
+
 func execSpawnFunc(ctx context.Context, cmd string, args []string, cwd string, env []string) (Process, io.Reader, io.Reader, error) {
 	c := exec.CommandContext(ctx, cmd, args...)
 	if cwd != "" {

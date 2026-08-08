@@ -46,6 +46,37 @@ orchestrator:
 	return cfg
 }
 
+func TestGraphDBPathFallsBackToTheHomeDirectory(t *testing.T) {
+	// The case a hand-built "cfg.Vault.Root + \"/.kernl-graph.db\"" got wrong:
+	// with no vault configured it produced /.kernl-graph.db while the server
+	// read ~/.kernl/.kernl-graph.db, so a capture written by the CLI was
+	// invisible to the UI and looked like it had never been saved.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := GraphDBPath(&config.Config{})
+	if err != nil {
+		t.Fatalf("GraphDBPath with no vault configured: %v", err)
+	}
+	want := filepath.Join(home, ".kernl", graphDBFileName)
+	if path != want {
+		t.Errorf("GraphDBPath = %q, want %q", path, want)
+	}
+}
+
+func TestGraphDBPathUsesTheVaultRootWhenConfigured(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Vault.Root = t.TempDir()
+
+	path, err := GraphDBPath(cfg)
+	if err != nil {
+		t.Fatalf("GraphDBPath: %v", err)
+	}
+	if want := filepath.Join(cfg.Vault.Root, graphDBFileName); path != want {
+		t.Errorf("GraphDBPath = %q, want %q", path, want)
+	}
+}
+
 func TestNewAppWiresEngineFromConfig(t *testing.T) {
 	cfg := testConfig(t)
 	a, err := NewApp(cfg)

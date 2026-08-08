@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/vault"
@@ -54,7 +55,11 @@ func runCapture(configPath string, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	g, err := graph.Open(ctx, graph.Config{Path: cfg.Vault.Root + "/.kernl-graph.db"})
+	dbPath, err := app.GraphDBPath(cfg)
+	if err != nil {
+		return err
+	}
+	g, err := graph.Open(ctx, graph.Config{Path: dbPath})
 	if err != nil {
 		return fmt.Errorf("open graph: %w", err)
 	}
