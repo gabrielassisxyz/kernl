@@ -175,6 +175,25 @@ func bannerConfigPath(configPath string) string {
 	return abs
 }
 
+// printGraphLockHint writes the multi-line way out of a refused lock to
+// stderr, following the precedent the busy-port failure below already sets:
+// the error value stays one line, because that is what a log line wants,
+// while a human staring at a dead process needs the next command to type.
+//
+// The pid is presented as what the lock file recorded, never as a claim about
+// who holds the lock right now - the owner can exit and a third process can
+// take over between the flock that failed and the read of that file.
+func printGraphLockHint(locked app.GraphLockedError) {
+	fmt.Fprintf(os.Stderr, "\nAnother kernl serve owns %s.\n", locked.Path)
+	if locked.PID > 0 {
+		fmt.Fprintf(os.Stderr, "The lock file last recorded pid %d:\n    ps -p %d -o pid,lstart,cmd\n",
+			locked.PID, locked.PID)
+	}
+	fmt.Fprintf(os.Stderr,
+		"Stop that process, or run this instance against its own copy of the vault -\n"+
+			"see AGENTS.md section 10, \"running a second instance\".\n\n")
+}
+
 func runServe(configPath string, port int, noOrchestrator bool) error {
 	if noOrchestrator {
 		slog.Info("starting in GUI-only mode (orchestrator disabled): bd is not required")
@@ -196,6 +215,26 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 	if err != nil {
 		return err
 	}
+
+	// Before NewApp, which opens and migrates the graph database: a server
+	// that is going to be refused must not have touched the database first.
+	// The lock lives here rather than in NewApp because bookmark, plan, repo
+	// select and epic run all build an App too, and none of them may be
+	// refused while a server is up - one process DRIVES the database, it is
+	// not the only one allowed to touch it.
+	releaseGraphLock, err := app.AcquireGraphLock(cfg)
+	if err != nil {
+		var locked app.GraphLockedError
+		if errors.As(err, &locked) {
+			printGraphLockHint(locked)
+		}
+		return err
+	}
+	// Deferred immediately, so the early returns below (a busy port, a vault
+	// service that fails to start) cannot leak the lock. The two os.Exit(1)
+	// calls further down skip this, which is fine and deliberate: the kernel
+	// drops the flock when the process dies.
+	defer func() { _ = releaseGraphLock() }()
 
 	srvPort := cfg.Server.Port
 	if port > 0 {
