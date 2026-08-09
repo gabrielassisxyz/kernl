@@ -221,10 +221,9 @@ The palette is near-black and cool-neutral, with a single blue-violet assistant/
 - **Accent Teal** (`primary`, `primary-container`, `on-primary`): The strongest interactive color. Use sparingly for primary buttons, focus affordances, current selection, progress fills, and graph/node emphasis.
 - **DA Blue-Violet** (`da-accent`): The assistant accent. Use for DA chips, DA-authored editor marks, and assistant affordances.
 
-The two are not interchangeable, and the line between them is what the token means,
-not how it looks. `da-accent` says "the assistant is involved here": its chat
-surface, its briefings, its proposed memory writes, its authored regions in the
-editor. Everything else that simply needs the interface's accent takes `primary`,
+What separates them is meaning rather than appearance. `da-accent` says "the
+assistant is involved here": its chat surface, its briefings, its proposed memory
+writes, its authored regions in the editor. Everything else that simply needs the interface's accent takes `primary`,
 focus rings and switch states included. `da-accent` had drifted into being a second
 generic accent, which was invisible while the primary was itself blue; reach for
 `primary` unless the surface is genuinely about the assistant.
@@ -373,10 +372,10 @@ Panel; the shell around them is the sidebar described under Navigation.
 
 Every other screen still carries its previous structure on the new tokens: Home,
 Notes, Inbox, Bookmarks, Memory, Graph, Ingest, Audit, Settings, Orchestrator, and
-the two redirects into Home. They are not wrong, and they are not the pattern.
-Read this section before treating one of them as a precedent: a screen that predates
-the pattern is evidence of what the product used to do, not of what it should do
-next. Porting each one is tracked as its own task in the graph rather than here.
+the two redirects into Home. Those screens work; they simply predate the pattern.
+Read this section before treating one of them as a precedent, because a screen
+older than the pattern records what the product used to do. Porting each one is
+tracked as its own task in the graph rather than here.
 
 ## Do's and Don'ts
 

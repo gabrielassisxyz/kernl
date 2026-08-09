@@ -85,7 +85,7 @@
 
   /* Each step has one owner, so a value can be judged against what carries it:
      xs progress bars, sm tag chips, default buttons and list rows, lg fields,
-     panels and nav rows, xl cards. `full` is a real pill again - at 6px a 48px
+     panels and nav rows, xl cards. `full` is a real pill again: at 6px a 48px
      circle rendered as a rounded square. */
   --radius-xs: 2px;
   --radius-sm: 3px;
@@ -132,15 +132,15 @@
   --text-display--font-weight: 600;
 
   /* Roles the previous scale had no name for. Each one earned its place by
-     appearing on both redesigned screens with a distinct job; near-duplicates
+     appearing on both Tasks and Projects with a distinct job; near-duplicates
      were folded into the token above them rather than given a name of their own. */
-  --color-text-heading: #f0f2f4;      /* page title only - one step above body text */
+  --color-text-heading: #f0f2f4;      /* page title only, one step above body text */
   --color-text-secondary: #b6bcc3;    /* nav labels, description bodies */
   --color-text-label: #868d95;        /* uppercase section captions */
   --color-surface-nav-hover: #1c2026; /* row hover on the sidebar surface */
   --color-surface-control-hover: #262b31; /* icon-button hover; also a progress track */
   --color-surface-chip: #1d2126;      /* the ground under a mono tag chip */
-  --color-border-row: #1c2025;        /* divider between list rows - fainter than a hairline */
+  --color-border-row: #1c2025;        /* divider between list rows, fainter than a hairline */
   --color-status-done: #6b7a8c;
   --color-status-archived: #565d65;
 

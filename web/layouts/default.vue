@@ -84,8 +84,8 @@
       </button>
     </div>
 
-    <!-- Shell footer: only state that is real - where the vault is, and the time.
-         The system/sync indicators it replaces reported neither. -->
+    <!-- Shell footer: only state that is real, which is where the vault is and
+         the time. The system/sync indicators it replaces reported neither. -->
     <footer class="h-7 shrink-0 border-t border-border-hairline flex items-center justify-between px-4 font-mono-data text-mono-data text-text-faint">
       <span>{{ vaultLabel }}</span>
       <span>{{ currentTime }}</span>
@@ -150,7 +150,7 @@ function isActive(item) {
 }
 
 // The collapsed icon rail is not built. The control ships anyway because the
-// expanded default has to be reversible to be judged - and it says what it is
+// expanded default has to be reversible to be judged, and it says what it is
 // rather than silently doing nothing.
 function collapse() {
   window.alert('The collapsed icon rail is not built yet.')

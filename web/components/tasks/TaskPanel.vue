@@ -208,7 +208,7 @@ function commit(field: keyof Draft) {
   switch (field) {
     case 'title': {
       const next = d.title.trim()
-      // Mirrors the API guard - a blank title is refused there, so restore the
+      // Mirrors the API guard: a blank title is refused there, so restore the
       // last good one rather than send a patch that will fail.
       if (!next) { d.title = task.title; return }
       if (next !== task.title) emit('patch', task.id, { title: next })
@@ -247,8 +247,8 @@ function submitCreate() {
   })
 }
 
-// The keyboard path the prototype has no equivalent of: its panel can only be
-// saved by clicking. Ctrl/Cmd+Enter finishes from any field, Escape leaves.
+// A panel that autosaves still needs a way out that does not require finding
+// the button. Ctrl/Cmd+Enter finishes from any field, Escape leaves.
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.stopPropagation()

@@ -160,8 +160,8 @@ func Delete(ctx context.Context, tx *graph.WriteTx, id string, author nodes.Auth
 // DeleteBySource removes every edge of one type leaving a node, and reports how
 // many went. It exists because reassigning a single-valued relationship means
 // "replace whatever is there", and the caller doing that inside a write
-// transaction has no way to learn the old edge's ID - Outgoing only takes a
-// ReadTx. Returns no error when there was nothing to remove: replacing an
+// transaction has no way to learn the old edge's ID, because Outgoing only
+// takes a ReadTx. Returns no error when there was nothing to remove: replacing an
 // absent link is a successful replacement.
 func DeleteBySource(ctx context.Context, tx *graph.WriteTx, src string, t EdgeType, author nodes.Author) (int64, error) {
 	if !author.Valid() {

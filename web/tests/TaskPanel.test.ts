@@ -79,8 +79,8 @@ describe('TaskPanel autosave', () => {
 })
 
 describe('TaskPanel keyboard', () => {
-  // The prototype this ports has no keyboard path to save at all - the only way
-  // out of its panel is a click. These two are the replacement.
+  // Autosave covers the fields; these two cover leaving, so finishing an edit
+  // never depends on locating a button with the mouse.
   it('closes on Ctrl+Enter when editing', async () => {
     const w = mountPanel()
     await descField(w).trigger('keydown', { key: 'Enter', ctrlKey: true })

@@ -40,8 +40,8 @@ describe.each([
     const w = mountIt()
     expect(w.text()).toContain('0/0')
     expect(w.html()).toContain('width: 0%')
-    // 0/0 is not 0% done, and stating a percentage over an absent denominator
-    // is the invented completion figure the brief rules out.
+    // 0/0 is not 0% done: a percentage over an absent denominator is a
+    // completion figure nobody measured.
     expect(w.text()).not.toContain('%')
   })
 

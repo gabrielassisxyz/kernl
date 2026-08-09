@@ -87,7 +87,7 @@ export function useTasks() {
   // One PATCH for every field, because the endpoint takes them together and a
   // per-field wrapper only multiplied the ways to spell the same request. An
   // omitted key leaves the field alone; an empty string is a real value the
-  // handler distinguishes with a pointer field - `description: ""` clears the
+  // handler distinguishes with a pointer field: `description: ""` clears the
   // text, `dueDate: ""` removes the deadline, `projectId: ""` unassigns the
   // task. A projectId naming no project is refused with 400.
   async function update(id: string, patch: TaskPatch): Promise<void> {

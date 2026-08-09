@@ -215,9 +215,9 @@ const panelRef = ref<HTMLElement | null>(null)
 // the panel's project-scoped list cannot disturb whatever else is loaded.
 const { tasks, loading: tasksLoading, load: loadTasks } = useTasks()
 
-// In progress leads, to do follows, done is last and closed - the same order
-// and the same default as the Tasks index, so the two do not disagree about
-// what a backlog looks like.
+// In progress leads, to do follows, then done and closed. Same order and same
+// default as the Tasks index, so the two do not disagree about what a backlog
+// looks like.
 const GROUPS: { id: TaskStatus; label: string }[] = [
   { id: 'in_progress', label: 'In progress' },
   { id: 'todo', label: 'To do' },
@@ -258,7 +258,7 @@ function commit(field: keyof Draft) {
   switch (field) {
     case 'title': {
       const next = d.title.trim()
-      // Mirrors the API guard - a blank title is refused there, so restore the
+      // Mirrors the API guard: a blank title is refused there, so restore the
       // last good one rather than send a patch that will fail.
       if (!next) { d.title = p.title; return }
       if (next !== p.title) emit('patch', p.id, { title: next })

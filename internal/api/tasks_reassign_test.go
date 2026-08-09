@@ -30,9 +30,9 @@ func createTaskInProject(t *testing.T, r http.Handler, title, projectID string) 
 	return created.ID
 }
 
-// partOfTargets reads the canonical side of the relationship - the edges - as
-// opposed to the projectId attr the DTO reports. The whole risk in reassignment
-// is that the two stop agreeing.
+// partOfTargets reads the edges, which are the canonical side of the
+// relationship, rather than the projectId attr the DTO reports. The whole risk
+// in reassignment is that the two stop agreeing.
 func partOfTargets(t *testing.T, a *app.App, taskID string) []string {
 	t.Helper()
 	var out []string
@@ -145,7 +145,7 @@ func TestTaskReassignRejectsAnUnknownProject(t *testing.T) {
 }
 
 // Reassignment goes through the node chokepoint, which reconciles the tag set
-// against the struct it is handed - a task loaded without its tags is a task
+// against the struct it is handed: a task loaded without its tags is a task
 // about to lose them.
 func TestTaskReassignKeepsTagsAndDueDate(t *testing.T) {
 	a, _ := newCompanionTestApp(t)
