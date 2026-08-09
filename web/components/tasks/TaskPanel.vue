@@ -82,10 +82,14 @@
       </div>
 
       <div class="flex items-center justify-between gap-4">
-        <span class="text-text-secondary">Project</span>
+        <span class="shrink-0 text-text-secondary">Project</span>
+        <!-- A select is as wide as its widest option, and a project title has
+             no length limit, so an uncapped one pushes the whole panel sideways
+             into a horizontal scrollbar. Capped, it ellipsises instead and
+             lines up on the right with the due date below it. -->
         <select
           v-model="draft.projectId"
-          class="h-7 px-2 rounded-lg bg-bg-elevated border border-border-default outline-none cursor-pointer font-mono-data text-mono-data text-text-secondary focus:border-primary/70"
+          class="project-select h-7 min-w-0 max-w-[190px] pl-2 pr-1 rounded-lg bg-bg-elevated border border-border-default outline-none cursor-pointer font-mono-data text-mono-data text-text-secondary focus:border-primary/70"
           @change="commit('projectId')"
         >
           <option value="">unassigned</option>
@@ -308,5 +312,11 @@ watch(
 .da-icon {
   font-size: 14px;
   line-height: 1;
+}
+
+/* Capped, a long project title has to end somewhere; ending it in an ellipsis
+   is what keeps the control the same size as the due date beside it. */
+.project-select {
+  text-overflow: ellipsis;
 }
 </style>
