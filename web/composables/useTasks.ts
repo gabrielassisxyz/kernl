@@ -14,13 +14,19 @@ export interface Task {
   updatedAt: string
 }
 
-export type TaskStatus = 'todo' | 'in_progress' | 'done'
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'closed'
 
 export const TASK_STATUSES: { id: TaskStatus; label: string }[] = [
   { id: 'todo', label: 'To do' },
   { id: 'in_progress', label: 'In progress' },
   { id: 'done', label: 'Done' },
+  { id: 'closed', label: 'Closed' },
 ]
+
+/** Terminal states: work that is off the board, finished or called off. What
+ *  separates them is why, which is the whole reason closed exists, so nothing
+ *  here collapses the two into one status. */
+export const isFinished = (status: TaskStatus) => status === 'done' || status === 'closed'
 
 export interface TaskPatch {
   title?: string

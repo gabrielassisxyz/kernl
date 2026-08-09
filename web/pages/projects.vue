@@ -99,7 +99,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useProjects, type NewProject, type Project, type ProjectStatus } from '~/composables/useProjects'
-import { useTasks, type Task } from '~/composables/useTasks'
+import { isFinished, useTasks, type Task } from '~/composables/useTasks'
 import ProjectList from '~/components/projects/ProjectList.vue'
 import ProjectPanel from '~/components/projects/ProjectPanel.vue'
 import UiButton from '~/components/ui/UiButton.vue'
@@ -190,7 +190,7 @@ async function removeProject(project: Project) {
 // A nested task's status changes the project's done count, so both the panel's
 // list and the project rows behind it have to be refetched.
 async function toggleTask(task: Task) {
-  await updateTask(task.id, { status: task.status === 'done' ? 'todo' : 'done' })
+  await updateTask(task.id, { status: isFinished(task.status) ? 'todo' : 'done' })
   panelRef.value?.reloadTasks()
   await load()
   if (editing.value) editing.value = projects.value.find((p) => p.id === editing.value!.id) ?? null

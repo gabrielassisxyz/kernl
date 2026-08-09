@@ -138,3 +138,51 @@ describe('TaskList', () => {
     expect(withPanel.get('.task-row').classes()).toContain('task-row--compact')
   })
 })
+
+// Work that was called off is off the board like finished work, but it is not
+// the same answer to "what happened to this", so the list keeps the two apart.
+describe('called-off work', () => {
+  const projectTitles = {}
+  const mixed = [task('open', 'todo'), task('finished', 'done'), task('abandoned', 'closed')]
+  const header = (w: ReturnType<typeof mount>, label: string) =>
+    w.findAll('button').find((b) => b.text().includes(label))!
+
+  it('gives it a section of its own rather than folding it into Done', () => {
+    const w = mount(TaskList, { props: { tasks: mixed, projectTitles } })
+    const labels = w.findAll('.font-label-caps').map((s) => s.text())
+    expect(labels).toEqual(['To do', 'Done', 'Closed'])
+  })
+
+  it('starts collapsed, like the finished pile', () => {
+    const w = mount(TaskList, { props: { tasks: mixed, projectTitles } })
+    expect(rows(w)).toHaveLength(1)
+    expect(w.text()).not.toContain('abandoned')
+  })
+
+  it('collapses independently of the finished pile', async () => {
+    const w = mount(TaskList, { props: { tasks: mixed, projectTitles } })
+    await header(w, 'Closed').trigger('click')
+    expect(w.text()).toContain('abandoned')
+    // Opening one archive is not a request to see the other.
+    expect(w.text()).not.toContain('finished')
+
+    await header(w, 'Done').trigger('click')
+    expect(w.text()).toContain('finished')
+    expect(w.text()).toContain('abandoned')
+  })
+
+  it('reads as terminal in the row, leaving the section to say which', async () => {
+    const w = mount(TaskList, { props: { tasks: [task('abandoned', 'closed')], projectTitles } })
+    await header(w, 'Closed').trigger('click')
+    expect(w.get('.task-row').html()).toContain('line-through')
+  })
+
+  // A backlog whose remainder was called off has nothing open in it, and
+  // rendering only collapsed headers over blank space reads as a failed load.
+  it('says so when everything left was finished or called off', () => {
+    const w = mount(TaskList, {
+      props: { tasks: [task('finished', 'done'), task('abandoned', 'closed')], projectTitles },
+    })
+    expect(w.text()).toContain('Nothing open.')
+  })
+})

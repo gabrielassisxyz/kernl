@@ -146,7 +146,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import type { Task, TaskStatus, NewTask, TaskPatch } from '~/composables/useTasks'
-import { TASK_STATUSES } from '~/composables/useTasks'
+import { TASK_STATUSES, isFinished } from '~/composables/useTasks'
 import type { Project } from '~/composables/useProjects'
 import { formatTimestamp, isOverdue } from '~/utils/time'
 import UiButton from '~/components/ui/UiButton.vue'
@@ -187,7 +187,8 @@ const titleRef = ref<HTMLTextAreaElement | null>(null)
 const descRef = ref<HTMLTextAreaElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
 
-const late = computed(() => draft.value.status !== 'done' && isOverdue(draft.value.dueDate))
+// A task nobody is doing is not late, whether it was finished or called off.
+const late = computed(() => !isFinished(draft.value.status) && isOverdue(draft.value.dueDate))
 
 function autosize(el: HTMLTextAreaElement | null) {
   if (!el) return

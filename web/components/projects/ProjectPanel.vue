@@ -107,13 +107,13 @@
           :type="group.collapsible ? 'button' : undefined"
           class="w-full flex items-center gap-[7px] -mx-2 px-2 py-1.5 rounded text-text-muted select-none"
           :class="group.collapsible ? 'cursor-pointer hover:bg-surface-nav-hover' : 'cursor-default'"
-          :aria-expanded="group.collapsible ? showDone : undefined"
-          @click="group.collapsible && (showDone = !showDone)"
+          :aria-expanded="group.collapsible ? group.open : undefined"
+          @click="group.collapsible && toggle(group.id)"
         >
           <span
             v-if="group.collapsible"
             class="material-symbols-outlined group-chevron transition-transform duration-150"
-            :class="showDone ? 'rotate-0' : '-rotate-90'"
+            :class="group.open ? 'rotate-0' : '-rotate-90'"
             aria-hidden="true"
             >expand_more</span
           >
@@ -128,11 +128,11 @@
         >
           <span
             class="mt-1.5 w-[5px] h-[5px] shrink-0 rounded-full"
-            :class="t.status === 'done' ? 'bg-text-dim' : 'bg-primary'"
+            :class="isFinished(t.status) ? 'bg-text-dim' : 'bg-primary'"
           ></span>
           <span
             class="flex-1 min-w-0 text-nested"
-            :class="t.status === 'done' ? 'text-text-muted line-through' : 'text-text-secondary'"
+            :class="isFinished(t.status) ? 'text-text-muted line-through' : 'text-text-secondary'"
           >
             {{ t.title }}
           </span>
@@ -140,9 +140,9 @@
             <button
               type="button"
               class="task-action"
-              :class="t.status === 'done' ? 'text-primary' : ''"
-              :title="t.status === 'done' ? 'Reopen task' : 'Mark as done'"
-              :aria-label="`${t.status === 'done' ? 'Reopen' : 'Complete'} ${t.title}`"
+              :class="isFinished(t.status) ? 'text-primary' : ''"
+              :title="isFinished(t.status) ? 'Reopen task' : 'Mark as done'"
+              :aria-label="`${isFinished(t.status) ? 'Reopen' : 'Complete'} ${t.title}`"
               @click="$emit('toggle-task', t)"
             >
               <span class="material-symbols-outlined task-action-icon" aria-hidden="true">check</span>
@@ -177,7 +177,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import type { NewProject, Project, ProjectStatus } from '~/composables/useProjects'
 import { PROJECT_STATUSES } from '~/composables/useProjects'
-import { useTasks, type Task, type TaskStatus } from '~/composables/useTasks'
+import { isFinished, useTasks, type Task, type TaskStatus } from '~/composables/useTasks'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiIconButton from '~/components/ui/UiIconButton.vue'
 
@@ -203,7 +203,10 @@ const blank = (): Draft => ({ title: '', description: '', status: 'active', pinn
 
 const draft = ref<Draft>(blank())
 const tagsText = ref('')
-const showDone = ref(false)
+// Each terminal group remembers its own state: opening the finished pile is not
+// a request to see the abandoned one as well.
+const expanded = ref<Record<string, boolean>>({})
+const toggle = (id: string) => (expanded.value = { ...expanded.value, [id]: !expanded.value[id] })
 const titleRef = ref<HTMLTextAreaElement | null>(null)
 const descRef = ref<HTMLTextAreaElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
@@ -219,21 +222,22 @@ const GROUPS: { id: TaskStatus; label: string }[] = [
   { id: 'in_progress', label: 'In progress' },
   { id: 'todo', label: 'To do' },
   { id: 'done', label: 'Done' },
+  { id: 'closed', label: 'Closed' },
 ]
 
 const taskGroups = computed(() =>
   GROUPS.map((g) => ({
     id: g.id,
     label: g.label,
-    collapsible: g.id === 'done',
-    open: g.id === 'done' ? showDone.value : true,
+    collapsible: isFinished(g.id),
+    open: isFinished(g.id) ? !!expanded.value[g.id] : true,
     tasks: tasks.value.filter((t) => t.status === g.id),
   })).filter((g) => g.tasks.length > 0),
 )
 
 const taskSummary = computed(() => {
   if (!tasks.value.length) return ''
-  const open = tasks.value.filter((t) => t.status !== 'done').length
+  const open = tasks.value.filter((t) => !isFinished(t.status)).length
   return `${open} open · ${tasks.value.length} total`
 })
 
@@ -317,7 +321,7 @@ watch(
       ? { title: p.title, description: p.description, status: p.status, pinned: p.pinned, tags: p.tags ?? [] }
       : blank()
     tagsText.value = (p?.tags ?? []).join(', ')
-    showDone.value = false
+    expanded.value = {}
     if (id) loadTasks(id)
     await nextTick()
     autosize(titleRef.value)

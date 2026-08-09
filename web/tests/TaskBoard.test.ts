@@ -30,20 +30,20 @@ describe('TaskBoard', () => {
     expect(w.findAllComponents(TaskCard)).toHaveLength(4)
   })
 
-  it('buckets tasks into the three status columns', () => {
-    const w = mount(TaskBoard, { props: { tasks, projectTitles } })
+  it('buckets tasks into the status columns', () => {
+    const w = mount(TaskBoard, { props: { tasks: [...tasks, task('e', 'closed')], projectTitles } })
     const sections = w.findAll('section')
-    expect(sections).toHaveLength(3)
-    // Columns render in TASK_STATUSES order: To do, In progress, Done.
+    expect(sections).toHaveLength(4)
+    // Columns render in TASK_STATUSES order: To do, In progress, Done, Closed.
     const counts = sections.map((s) => s.get('.font-mono-data').text())
-    expect(counts).toEqual(['2', '1', '1'])
+    expect(counts).toEqual(['2', '1', '1', '1'])
   })
 
   it('shows an em dash placeholder for an empty column', () => {
     const w = mount(TaskBoard, { props: { tasks: [task('only', 'todo')], projectTitles } })
     const emDash = String.fromCharCode(0x2014)
     const dashes = w.findAll('section').filter((s) => s.text().includes(emDash))
-    expect(dashes.length).toBe(2)
+    expect(dashes.length).toBe(3)
   })
 
   it('emits open with the task when a card is clicked', async () => {

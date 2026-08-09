@@ -46,7 +46,7 @@ const props = defineProps<{ tasks: Task[]; projectTitles: Record<string, string>
 defineEmits<{ (e: 'open', task: Task): void; (e: 'advance', task: Task): void }>()
 
 const grouped = computed<Record<TaskStatus, Task[]>>(() => {
-  const buckets: Record<TaskStatus, Task[]> = { todo: [], in_progress: [], done: [] }
+  const buckets: Record<TaskStatus, Task[]> = { todo: [], in_progress: [], done: [], closed: [] }
   for (const task of props.tasks) {
     ;(buckets[task.status] ?? buckets.todo).push(task)
   }

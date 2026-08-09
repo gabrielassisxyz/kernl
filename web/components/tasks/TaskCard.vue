@@ -47,19 +47,21 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Task } from '~/composables/useTasks'
+import { isFinished, type Task } from '~/composables/useTasks'
 import { formatDueDate, isOverdue } from '~/utils/time'
 
 const props = defineProps<{ task: Task; projectTitle?: string }>()
 defineEmits<{ (e: 'open', task: Task): void; (e: 'advance', task: Task): void }>()
 
 const hovered = ref(false)
-const done = computed(() => props.task.status === 'done')
+// Both terminal states read the same on a card; the column it sits in is what
+// says which one it is.
+const done = computed(() => isFinished(props.task.status))
 
 // A finished task is never late, however old its deadline.
 const late = computed(() => !done.value && isOverdue(props.task.dueDate))
 
-const ADVANCE_TITLE = { todo: 'Start', in_progress: 'Complete', done: 'Reopen' } as const
+const ADVANCE_TITLE = { todo: 'Start', in_progress: 'Complete', done: 'Reopen', closed: 'Reopen' } as const
 const advanceTitle = computed(() => ADVANCE_TITLE[props.task.status] ?? 'Advance')
 </script>
 

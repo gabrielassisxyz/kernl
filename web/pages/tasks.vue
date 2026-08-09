@@ -120,7 +120,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useTasks, type NewTask, type Task, type TaskPatch, type TaskStatus } from '~/composables/useTasks'
+import { isFinished, useTasks, type NewTask, type Task, type TaskPatch, type TaskStatus } from '~/composables/useTasks'
 import { useProjects } from '~/composables/useProjects'
 import TaskBoard from '~/components/tasks/TaskBoard.vue'
 import TaskList from '~/components/tasks/TaskList.vue'
@@ -166,12 +166,13 @@ const visible = computed(() => {
 })
 
 const summary = computed(() => {
-  const counts: Record<TaskStatus, number> = { todo: 0, in_progress: 0, done: 0 }
+  const counts: Record<TaskStatus, number> = { todo: 0, in_progress: 0, done: 0, closed: 0 }
   for (const t of tasks.value) counts[t.status]++
   const parts: string[] = []
   if (counts.todo) parts.push(`${counts.todo} to do`)
   if (counts.in_progress) parts.push(`${counts.in_progress} in progress`)
   if (counts.done) parts.push(`${counts.done} done`)
+  if (counts.closed) parts.push(`${counts.closed} closed`)
   return parts.length ? parts.join(' · ') : 'Nothing here yet.'
 })
 
@@ -236,14 +237,20 @@ async function createTask(t: NewTask) {
   reload()
 }
 
+// Closed is not on the cycle: work is called off deliberately, from the panel,
+// never by pressing the same button one more time. Advancing out of it reopens
+// it, which is the only move that makes sense from a task nobody is doing.
 const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
   todo: 'in_progress',
   in_progress: 'done',
   done: 'todo',
+  closed: 'todo',
 }
 
 const advance = (t: Task) => applyPatch(t.id, { status: NEXT_STATUS[t.status] })
-const toggleDone = (t: Task) => applyPatch(t.id, { status: t.status === 'done' ? 'todo' : 'done' })
+// The bullet finishes an open task and reopens a finished or called-off one.
+// Sending a closed task to done would quietly rewrite why it ended.
+const toggleDone = (t: Task) => applyPatch(t.id, { status: isFinished(t.status) ? 'todo' : 'done' })
 
 async function removeTask(task: Task) {
   confirmId.value = null

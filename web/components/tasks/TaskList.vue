@@ -11,13 +11,13 @@
         :type="section.collapsible ? 'button' : undefined"
         class="w-full flex items-baseline gap-2 pb-[7px] border-b border-border-hairline select-none"
         :class="section.collapsible ? 'cursor-pointer' : 'cursor-default'"
-        :aria-expanded="section.collapsible ? showDone : undefined"
-        @click="section.collapsible && (showDone = !showDone)"
+        :aria-expanded="section.collapsible ? section.open : undefined"
+        @click="section.collapsible && toggle(section.id)"
       >
         <span
           v-if="section.collapsible"
           class="material-symbols-outlined self-center section-chevron transition-transform duration-150"
-          :class="showDone ? 'rotate-0' : '-rotate-90'"
+          :class="section.open ? 'rotate-0' : '-rotate-90'"
           aria-hidden="true"
           >expand_more</span
         >
@@ -45,7 +45,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { Task, TaskStatus } from '~/composables/useTasks'
+import { isFinished, type Task, type TaskStatus } from '~/composables/useTasks'
 import TaskRow from '~/components/tasks/TaskRow.vue'
 
 const props = defineProps<{
@@ -65,29 +65,36 @@ defineEmits<{
 }>()
 
 // In progress leads: it is the shortest section and the one being worked on.
+// The two terminal states come last and keep themselves apart, because the
+// difference between finishing something and calling it off is the reason
+// closed exists at all.
 const ORDER: { id: TaskStatus; label: string }[] = [
   { id: 'in_progress', label: 'In progress' },
   { id: 'todo', label: 'To do' },
   { id: 'done', label: 'Done' },
+  { id: 'closed', label: 'Closed' },
 ]
 
 // Collapsed on arrival. A backlog with history is mostly history - the import
 // this was sized for is 258 finished entries against 55 open ones - so an
-// expanded done section buries the open work under its own archive.
-const showDone = ref(false)
+// expanded archive buries the open work underneath it. Each one remembers its
+// own state: opening the finished pile is not a request to see the abandoned
+// one as well.
+const expanded = ref<Record<string, boolean>>({})
+const toggle = (id: string) => (expanded.value = { ...expanded.value, [id]: !expanded.value[id] })
 
 // An empty section is dropped rather than rendered as a heading with nothing
 // under it, which reads as something failing to load.
 const nothingOpen = computed(
-  () => props.tasks.length > 0 && props.tasks.every((t) => t.status === 'done'),
+  () => props.tasks.length > 0 && props.tasks.every((t) => isFinished(t.status)),
 )
 
 const sections = computed(() =>
   ORDER.map((s) => ({
     id: s.id,
     label: s.label,
-    collapsible: s.id === 'done',
-    open: s.id === 'done' ? showDone.value : true,
+    collapsible: isFinished(s.id),
+    open: isFinished(s.id) ? !!expanded.value[s.id] : true,
     tasks: props.tasks.filter((t) => t.status === s.id),
   })).filter((s) => s.tasks.length > 0),
 )

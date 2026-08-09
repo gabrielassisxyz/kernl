@@ -9,15 +9,15 @@
     <button
       type="button"
       class="w-3.5 h-3.5 shrink-0 flex items-center justify-center rounded-full border-[1.3px] outline-none focus-visible:ring-1 focus-visible:ring-primary/30 cursor-pointer"
-      :class="done ? 'border-text-dim text-text-muted' : 'border-status-running text-transparent'"
-      :title="done ? 'Reopen' : 'Mark as done'"
-      :aria-label="done ? `Reopen ${task.title}` : `Mark ${task.title} as done`"
+      :class="finished ? 'border-text-dim text-text-muted' : 'border-status-running text-transparent'"
+      :title="finished ? 'Reopen' : 'Mark as done'"
+      :aria-label="finished ? `Reopen ${task.title}` : `Mark ${task.title} as done`"
       @click.stop="$emit('toggle-done', task)"
     >
       <span class="material-symbols-outlined row-check" aria-hidden="true">check</span>
     </button>
 
-    <span class="min-w-0 truncate" :class="done ? 'text-text-muted line-through' : 'text-text-primary'">
+    <span class="min-w-0 truncate" :class="finished ? 'text-text-muted line-through' : 'text-text-primary'">
       {{ task.title }}
     </span>
 
@@ -102,7 +102,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Task } from '~/composables/useTasks'
+import { isFinished, type Task } from '~/composables/useTasks'
 import { formatDueDate, formatTimestamp, isOverdue } from '~/utils/time'
 
 const props = defineProps<{
@@ -126,12 +126,14 @@ defineEmits<{
 // lines for the literal character.
 const NO_VALUE = '\u2014'
 
-const done = computed(() => props.task.status === 'done')
+// Struck through and muted covers both terminal states: which one it is comes
+// from the section it sits under, not from the row repeating it.
+const finished = computed(() => isFinished(props.task.status))
 
-// A finished task is never late, however old its deadline.
-const late = computed(() => !done.value && isOverdue(props.task.dueDate))
+// A task nobody is doing is never late, however old its deadline.
+const late = computed(() => !finished.value && isOverdue(props.task.dueDate))
 
-const ADVANCE_TITLE = { todo: 'Start', in_progress: 'Complete', done: 'Reopen' } as const
+const ADVANCE_TITLE = { todo: 'Start', in_progress: 'Complete', done: 'Reopen', closed: 'Reopen' } as const
 const advanceTitle = computed(() => ADVANCE_TITLE[props.task.status] ?? 'Advance')
 </script>
 
