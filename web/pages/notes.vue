@@ -406,7 +406,7 @@ const confirmNewNote = async () => {
 
 .vault-tab:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
 .vault__tabs-grow {
@@ -432,7 +432,7 @@ const confirmNewNote = async () => {
 
 .vault__new:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
 .vault__search {
@@ -450,7 +450,7 @@ const confirmNewNote = async () => {
 }
 
 .vault__search:focus-within {
-  border-color: color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
 .vault__search-input {

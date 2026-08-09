@@ -109,8 +109,8 @@
 }
 
 .settings-tab--active {
-  border-bottom-color: var(--color-da-accent);
-  color: var(--color-da-accent-text);
+  border-bottom-color: var(--color-primary);
+  color: var(--color-primary);
 }
 
 .settings-content,
@@ -309,7 +309,7 @@
 
 .switch-control:focus-visible,
 .step-button:focus-visible {
-  border-color: color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  border-color: color-mix(in srgb, var(--color-primary) 70%, transparent);
   outline: none;
 }
 
@@ -325,12 +325,12 @@
 }
 
 .switch-control--on {
-  border-color: color-mix(in srgb, var(--color-da-accent) 55%, var(--color-border-default));
-  background: color-mix(in srgb, var(--color-da-accent) 18%, var(--color-surface-container-low));
+  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border-default));
+  background: color-mix(in srgb, var(--color-primary) 18%, var(--color-surface-container-low));
 }
 
 .switch-control--on .switch-thumb {
-  background: var(--color-da-accent-text);
+  background: var(--color-primary);
   transform: translateX(16px);
 }
 

@@ -23,7 +23,7 @@
               @keydown.esc="query = ''"
               aria-label="Find a node"
               placeholder="find a node…"
-              class="w-52 bg-surface border border-border-hairline rounded pl-8 pr-3 py-1.5 text-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-da-accent transition-colors"
+              class="w-52 bg-surface border border-border-hairline rounded pl-8 pr-3 py-1.5 text-body text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary transition-colors"
             />
           </div>
           <button @click="fitView" title="Fit to view" aria-label="Fit to view" class="ctrl-btn"><span class="material-symbols-outlined text-[18px]">fit_screen</span></button>
@@ -639,7 +639,7 @@ onUnmounted(() => {
 .conn-row:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 1px; }
 
 .legend-btn:focus-visible { outline: 1px solid var(--color-primary); outline-offset: 2px; }
-.conn-label { font-family: var(--font-mono-data); font-size: var(--text-mono-data); color: var(--color-da-accent-text); white-space: nowrap; }
+.conn-label { font-family: var(--font-mono-data); font-size: var(--text-mono-data); color: var(--color-text-muted); white-space: nowrap; }
 .conn-title { font-size: var(--text-body); color: var(--color-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 
 .panel-enter-active, .panel-leave-active { transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms; }

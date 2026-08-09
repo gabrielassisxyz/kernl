@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'accent'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success' | 'accent' | 'da'
 type ButtonSize = 'xs' | 'sm' | 'md'
 
 const props = withDefaults(defineProps<{
@@ -64,7 +64,8 @@ const variants: Record<ButtonVariant, string> = {
   ghost: 'border-transparent bg-transparent text-text-muted hover:bg-surface-hover hover:text-text-primary',
   danger: 'border-status-failed/40 bg-status-failed/10 text-status-failed-text hover:bg-status-failed/15',
   success: 'border-status-passed/40 bg-status-passed/10 text-status-passed hover:bg-status-passed/15',
-  accent: 'border-da-accent/40 bg-da-accent/10 text-da-accent-text hover:bg-da-accent/15',
+  accent: 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15',
+  da: 'border-da-accent/40 bg-da-accent/10 text-da-accent-text hover:bg-da-accent/15',
 }
 
 const classes = computed(() => [

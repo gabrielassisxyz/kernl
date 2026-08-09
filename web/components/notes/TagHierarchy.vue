@@ -113,7 +113,7 @@ onMounted(async () => {
 
 .tag-group__head:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
 .tag-group__chevron {
@@ -179,7 +179,7 @@ onMounted(async () => {
 
 .tag-file:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-da-accent) 70%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
 .tag-file--active {

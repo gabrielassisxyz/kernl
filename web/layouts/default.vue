@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-bg-base text-text-primary h-screen flex flex-col overflow-hidden font-body selection:bg-da-accent selection:text-white">
+  <div class="bg-bg-base text-text-primary h-screen flex flex-col overflow-hidden font-body selection:bg-primary selection:text-on-primary">
     <!-- Top Layout Wrapper -->
     <div class="flex flex-1 overflow-hidden">
       <!-- Left sidebar: labelled destinations, grouped -->

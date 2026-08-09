@@ -27,12 +27,12 @@
 
     <div class="mt-[8px] flex justify-end gap-[4px]">
       <template v-if="!isEditing">
-        <UiButton variant="accent" size="xs" icon="check" :icon-size="12" @click="$emit('keep', statement, subject)">Keep</UiButton>
+        <UiButton variant="da" size="xs" icon="check" :icon-size="12" @click="$emit('keep', statement, subject)">Keep</UiButton>
         <UiButton variant="secondary" size="xs" icon="edit" :icon-size="12" @click="startEdit">Edit</UiButton>
         <UiButton variant="ghost" size="xs" icon="close" :icon-size="12" @click="$emit('discard')">Discard</UiButton>
       </template>
       <template v-else>
-        <UiButton variant="accent" size="xs" icon="check" :icon-size="12" :disabled="!draft.trim() || !draftSubject.trim()" @click="saveEdit">Keep</UiButton>
+        <UiButton variant="da" size="xs" icon="check" :icon-size="12" :disabled="!draft.trim() || !draftSubject.trim()" @click="saveEdit">Keep</UiButton>
         <UiButton variant="ghost" size="xs" @click="cancelEdit">Cancel</UiButton>
       </template>
     </div>

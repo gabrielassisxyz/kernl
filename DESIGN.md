@@ -221,11 +221,13 @@ The palette is near-black and cool-neutral, with a single blue-violet assistant/
 - **Accent Teal** (`primary`, `primary-container`, `on-primary`): The strongest interactive color. Use sparingly for primary buttons, focus affordances, current selection, progress fills, and graph/node emphasis.
 - **DA Blue-Violet** (`da-accent`): The assistant accent. Use for DA chips, DA-authored editor marks, and assistant affordances.
 
-The two are not interchangeable, and `da-accent` currently carries more than the
-assistant: it also tints the settings tab, selection rings, text selection, and one
-button variant. That was invisible while the primary was itself blue and reads as a
-second brand color beside teal. Those non-assistant uses are debt, not a rule to
-follow: reach for `primary` unless the surface is genuinely about the assistant.
+The two are not interchangeable, and the line between them is what the token means,
+not how it looks. `da-accent` says "the assistant is involved here": its chat
+surface, its briefings, its proposed memory writes, its authored regions in the
+editor. Everything else that simply needs the interface's accent takes `primary`,
+focus rings and switch states included. `da-accent` had drifted into being a second
+generic accent, which was invisible while the primary was itself blue; reach for
+`primary` unless the surface is genuinely about the assistant.
 
 **Derived accents.** `accent-tint`, `accent-tint-strong`, and `accent-edge` are
 `color-mix()` expressions over `primary`, never literals, so they follow the accent
@@ -301,7 +303,7 @@ Kernl is flat by default. Depth is conveyed through tonal surface changes, 1px b
 - **Primary:** `UiButton variant="primary"` uses `primary` background, `on-primary` text, a 1px `primary/40` border, 36px default height, and 16px horizontal padding.
 - **Secondary:** `surface-container-low` background, hairline border, muted text, and hover transition to `surface-hover` + `text-primary`.
 - **Ghost:** Transparent at rest, surface-hover on hover. Use for low-commitment actions and modal cancel actions.
-- **Danger / Success / Accent:** Tinted semantic backgrounds with full borders. Use for actual semantic actions only.
+- **Danger / Success / Accent / DA:** Tinted backgrounds with full borders. `accent` is the affirmative action tint over `primary`; `da` is the same shape over `da-accent` and belongs only to assistant actions. Use for actual semantic actions only.
 - **Hover / Focus:** 150ms color transitions. Focus uses a visible primary border/ring. Loading uses an inline Material Symbols spinner inside the button.
 
 ### Chips
@@ -360,7 +362,7 @@ should follow before inventing another.
 - **Graph Canvas:** Full-bleed SVG graph surface whose SVG presentation attributes and node-type colors reference design-token CSS variables.
 - **CodeMirror Notes Editor:** Tokenized dark editor shell; editor theme uses CSS variables and `color-mix()` for DA-authored regions and wikilink pills.
 - **Agent Log Pane:** Dense monospace event stream with semantic success/failure coloring and expandable tool results.
-- **DA Learned Card:** The human-in-the-loop memory write surface inside the DA panel. A quiet bordered callout (`border-default`, `surface-overlay`, 4px corners) led by a `DA · learned` mono kicker (`9.5px`, `0.08em` tracking, `text-faint`, no decorative icon); the proposed memory sits in 12px body. Three right-aligned `UiButton` actions carry their function icons: `Keep` (`accent` + `check`), `Edit` (`secondary` + `edit`), `Discard` (`ghost` + `close`). Only `Keep` takes the `da-accent` tint, honoring the Accent Scarcity Rule.
+- **DA Learned Card:** The human-in-the-loop memory write surface inside the DA panel. A quiet bordered callout (`border-default`, `surface-overlay`, 4px corners) led by a `DA · learned` mono kicker (`9.5px`, `0.08em` tracking, `text-faint`, no decorative icon); the proposed memory sits in 12px body. Three right-aligned `UiButton` actions carry their function icons: `Keep` (`da` + `check`), `Edit` (`secondary` + `edit`), `Discard` (`ghost` + `close`). Only `Keep` takes the `da-accent` tint, honoring the Accent Scarcity Rule. The `da` variant exists for exactly this: `accent` is the interface's own tinted affirmative, used by Save and Approve, and the assistant needs one that still says whose action it is.
 
 ## Coverage
 
