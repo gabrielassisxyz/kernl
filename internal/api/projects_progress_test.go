@@ -51,3 +51,29 @@ func TestAProjectWhoseRestWasCalledOffReadsAsComplete(t *testing.T) {
 		t.Fatalf("want 1/1, got %d/%d", p.DoneCount, p.TaskCount)
 	}
 }
+
+// Creating with a project id that names nothing left the task pointing at a
+// project no screen can resolve. PATCH refused that from the moment it could
+// move a task between projects; create accepted it, so the same bad value was
+// rejected or stored depending only on which verb reached the server.
+func TestCreatingATaskRefusesAProjectIdThatNamesNothing(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+
+	createTaskViaAPI(t, r, `{"title":"Rent a router","projectId":"019f0000-0000-7000-8000-000000000000"}`,
+		http.StatusBadRequest)
+
+	if tasks := listTasksViaAPI(t, r); len(tasks) != 0 {
+		t.Fatalf("the refused task was stored anyway: %d task(s) exist", len(tasks))
+	}
+}
+
+func TestCreatingATaskStillAcceptsNoProjectAtAll(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	r := NewRouter(a)
+
+	createTaskViaAPI(t, r, `{"title":"Rent a router"}`, http.StatusCreated)
+	if tasks := listTasksViaAPI(t, r); len(tasks) != 1 {
+		t.Fatalf("an unassigned task must still be creatable, got %d", len(tasks))
+	}
+}

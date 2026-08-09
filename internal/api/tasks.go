@@ -109,7 +109,26 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 	title := strings.TrimSpace(req.Title)
 	var id string
 	var companionFile companion.File
+	// Same guard PATCH carries, for the same reason: a project id that names
+	// nothing leaves the task pointing at a project the UI cannot resolve.
+	// Without it the request still failed, but as a 500 carrying the edge
+	// layer's own error, which reads as a server fault rather than as a bad
+	// value the caller can fix.
+	var unknownProject bool
 	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		if req.ProjectID != "" {
+			var one int
+			switch err := tx.QueryRow(
+				`SELECT 1 FROM nodes WHERE id = ? AND type = 'project' AND deleted_at IS NULL`,
+				req.ProjectID,
+			).Scan(&one); {
+			case err == sql.ErrNoRows:
+				unknownProject = true
+				return graph.ErrNotFound
+			case err != nil:
+				return err
+			}
+		}
 		var err error
 		id, err = nodes.CreateTask(ctx, tx, nodes.Task{
 			Title:       title,
@@ -135,6 +154,10 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.TasksFolder, title, req.Description, "task")
 		return err
 	})
+	if unknownProject {
+		writeError(w, http.StatusBadRequest, "projectId does not name an existing project")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create task: "+err.Error())
 		return
