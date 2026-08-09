@@ -51,4 +51,23 @@ describe('TaskBoard', () => {
     await w.findComponent(TaskCard).trigger('click')
     expect(w.emitted('open')).toBeTruthy()
   })
+
+  // Columns share the width rather than holding a fixed one. A board that
+  // scrolls sideways hides a whole column behind an edge, which is the one
+  // thing a board exists to prevent.
+  it('splits the width between the columns instead of scrolling sideways', () => {
+    const w = mount(TaskBoard, { props: { tasks, projectTitles } })
+    for (const section of w.findAll('section')) {
+      expect(section.classes()).toContain('flex-1')
+      expect(section.classes()).not.toContain('shrink-0')
+    }
+    expect(w.html()).not.toContain('overflow-x-auto')
+  })
+
+  // The column already names the status, and the card already carries the
+  // strikethrough; a dot on top of both is a third telling of the same fact.
+  it('states the status through the column, not through a dot', () => {
+    const w = mount(TaskBoard, { props: { tasks, projectTitles } })
+    expect(w.html()).not.toContain('rounded-full')
+  })
 })

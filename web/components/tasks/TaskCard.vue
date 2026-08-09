@@ -7,7 +7,6 @@
     @click="$emit('open', task)"
   >
     <div class="flex items-start gap-2">
-      <span class="mt-[5px] w-[7px] h-[7px] shrink-0 rounded-full" :class="dotClass"></span>
       <span
         class="flex-1 min-w-0 leading-snug"
         :class="done ? 'text-text-muted line-through' : 'text-text-primary'"
@@ -16,7 +15,7 @@
       </span>
     </div>
 
-    <div class="flex items-center gap-2 mt-2 pl-[15px]">
+    <div class="flex items-center gap-2 mt-2">
       <span
         v-if="projectTitle"
         class="min-w-0 truncate font-mono-data text-mono-data text-text-muted bg-surface-chip rounded-sm px-[5px] py-px"
@@ -56,11 +55,6 @@ defineEmits<{ (e: 'open', task: Task): void; (e: 'advance', task: Task): void }>
 
 const hovered = ref(false)
 const done = computed(() => props.task.status === 'done')
-
-const dotClass = computed(() => {
-  if (done.value) return 'bg-text-dim'
-  return props.task.status === 'in_progress' ? 'bg-primary' : 'bg-status-running'
-})
 
 // A finished task is never late, however old its deadline.
 const late = computed(() => !done.value && isOverdue(props.task.dueDate))
