@@ -299,7 +299,7 @@ func TestTaskUsageErrorsExitTwoWithoutTouchingTheServer(t *testing.T) {
 		{"delete without id", []string{"delete", "--yes"}, "requires a task ID"},
 		{"unknown flag", []string{"list", "--projects", "prj-1"}, "unknown flag"},
 		{"positional on list", []string{"list", "tsk-1"}, "no positional arguments"},
-		{"list with an unknown status", []string{"list", "--status", "closed"}, "unknown --status"},
+		{"list with an unknown status", []string{"list", "--status", "blocked"}, "unknown --status"},
 		{"list with --all and --status", []string{"list", "--all", "--status", "done"}, "contradict"},
 	}
 	for _, tc := range cases {

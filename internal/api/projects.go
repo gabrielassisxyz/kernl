@@ -72,6 +72,13 @@ func listProjectsHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			if pid == nil || *pid == "" {
 				continue
 			}
+			// A called-off task leaves the fraction entirely rather than
+			// landing on one side of it: counted as done it credits work
+			// nobody did, counted as outstanding it holds a project that has
+			// nothing left to do permanently short of complete.
+			if st != nil && *st == nodes.TaskStatusClosed {
+				continue
+			}
 			total[*pid]++
 			if st != nil && *st == nodes.TaskStatusDone {
 				done[*pid]++

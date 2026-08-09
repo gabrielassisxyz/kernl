@@ -75,7 +75,7 @@ func TestTaskListLeavesDoneOutAtImportScale(t *testing.T) {
 	}
 	// The count line has to admit the omission, or the listing reads as the
 	// whole truth about how much work is left.
-	wantFooter := fmt.Sprintf("%d task(s), %d done hidden", openTaskCount, doneTaskCount)
+	wantFooter := fmt.Sprintf("%d task(s), %d done or closed hidden", openTaskCount, doneTaskCount)
 	if !strings.Contains(out, wantFooter) {
 		t.Errorf("footer must report what was hidden, want %q, got:\n%s", wantFooter, lastLines(out, 3))
 	}
@@ -118,7 +118,7 @@ func TestTaskListAllKeepsEveryStatus(t *testing.T) {
 	if got := countTaskLines(out); got != openTaskCount+doneTaskCount {
 		t.Errorf("--all printed %d rows, want %d", got, openTaskCount+doneTaskCount)
 	}
-	if strings.Contains(out, "done hidden") {
+	if strings.Contains(out, "hidden") {
 		t.Error("--all hides nothing, so it must not claim to")
 	}
 }

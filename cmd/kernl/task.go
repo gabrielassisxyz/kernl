@@ -30,19 +30,24 @@ Run 'kernl task <subcommand> --help' for details on each.`,
 			Name:    "list",
 			Summary: "List the open tasks, optionally scoped to one project",
 			Usage:   "kernl task list [--project <project-id>] [--status <status>] [--all] [--json]",
-			Details: `Done tasks are left out of the default listing, on --json as well as on
-the human one: a finished task outnumbers an open one several times over
-once a backlog has any history, and a list that shows both is a list
-nobody reads. The omission is never silent: the count line reports it,
-and under --json it goes to stderr so stdout stays a plain array.
+			Details: `Tasks that are done or closed are left out of the default listing, on
+--json as well as on the human one: finished work outnumbers open work
+several times over once a backlog has any history, and a list that shows
+both is a list nobody reads. The omission is never silent: the count line
+reports it, and under --json it goes to stderr so stdout stays a plain array.
 
---all brings them back; --status done lists only those.
+closed is work that was called off rather than finished. Nothing moves into
+it on its own, and it is left out of a project's progress entirely: counted
+as done it would credit work nobody did, counted as outstanding it would
+hold a finished project short of complete.
+
+--all brings them back; --status done or --status closed lists only those.
 
 {{flags}}`,
 			Flags: []commandFlag{
 				{Name: "--project", Value: "<id>", Description: "Only tasks belonging to that project"},
-				{Name: "--status", Value: "<status>", Description: "Only tasks with that status: todo, in_progress or done"},
-				{Name: "--all", Description: "Keep every status, done included"},
+				{Name: "--status", Value: "<status>", Description: "Only tasks with that status: todo, in_progress, done or closed"},
+				{Name: "--all", Description: "Keep every status, done and closed included"},
 				{Name: "--json", Description: "Emit the API's task objects verbatim (camelCase), minus the ones the status filter dropped"},
 			},
 		},
@@ -177,7 +182,7 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 		// The note goes to stderr, not into the document: stdout stays the
 		// server's own array, and a machine reading it still gets told that
 		// entries were dropped instead of having to re-run with --all to find out.
-		if note := selection.hiddenDoneNote(); note != "" {
+		if note := selection.hiddenFinishedNote(); note != "" {
 			fmt.Fprintln(v.stderr(), note)
 		}
 		return emitTaskRows(v.stdout(), selection.kept)
@@ -188,7 +193,7 @@ func runTaskList(v verbContext, asJSON bool, args []string) error {
 // taskListStatuses is the vocabulary --status accepts, in board order. It reads
 // the node package's constants instead of restating them, so a status cannot be
 // legal in the graph and unknown to the filter at the same time.
-var taskListStatuses = []string{nodes.TaskStatusTodo, nodes.TaskStatusInProgress, nodes.TaskStatusDone}
+var taskListStatuses = []string{nodes.TaskStatusTodo, nodes.TaskStatusInProgress, nodes.TaskStatusDone, nodes.TaskStatusClosed}
 
 func knownTaskStatus(status string) bool {
 	for _, s := range taskListStatuses {
@@ -231,8 +236,8 @@ func decodeTaskRows(raw json.RawMessage) ([]taskRow, error) {
 // matched" - which is how a listing ends up telling someone their vault is empty
 // while it holds three hundred tasks.
 type taskSelection struct {
-	kept       []taskRow
-	hiddenDone int
+	kept           []taskRow
+	hiddenFinished int
 	// status is the --status value, empty when the flag was absent.
 	status string
 	// total is how many the server returned, before any filtering.
@@ -256,8 +261,8 @@ func selectTasks(rows []taskRow, all bool, status string, hasStatus bool) taskSe
 			}
 		case all:
 			sel.kept = append(sel.kept, row)
-		case row.view.Status == nodes.TaskStatusDone:
-			sel.hiddenDone++
+		case row.view.Status == nodes.TaskStatusDone, row.view.Status == nodes.TaskStatusClosed:
+			sel.hiddenFinished++
 		default:
 			sel.kept = append(sel.kept, row)
 		}
@@ -526,7 +531,7 @@ func printTaskList(w io.Writer, sel taskSelection) error {
 		t := row.view
 		fmt.Fprintf(w, "%-24s [%-11s] %s%s\n", t.ID, t.Status, t.Title, taskAnnotations(t))
 	}
-	if note := sel.hiddenDoneNote(); note != "" {
+	if note := sel.hiddenFinishedNote(); note != "" {
 		fmt.Fprintf(w, "\n%d task(s), %s\n", len(sel.kept), note)
 		return nil
 	}
@@ -542,19 +547,22 @@ func (s taskSelection) emptyLine() string {
 	switch {
 	case s.status != "" && s.total > 0:
 		return fmt.Sprintf("No tasks with status %q, out of %d in this listing. Widen it with: kernl task list --all", s.status, s.total)
-	case s.hiddenDone > 0:
-		return fmt.Sprintf("No open tasks, and %d done one(s) hidden. See them with: kernl task list --all", s.hiddenDone)
+	case s.hiddenFinished > 0:
+		return fmt.Sprintf("No open tasks, and %d finished or called-off one(s) hidden. See them with: kernl task list --all", s.hiddenFinished)
 	}
 	return "No tasks. Create one with: kernl task create \"<title>\""
 }
 
-// hiddenDoneNote is the honesty half of the default filter: a listing that drops
-// rows without saying so reads as the whole truth about how much work exists.
-func (s taskSelection) hiddenDoneNote() string {
-	if s.hiddenDone == 0 {
+// hiddenFinishedNote is the honesty half of the default filter: a listing that
+// drops rows without saying so reads as the whole truth about how much work
+// exists. It names both terminal states rather than one, because a count
+// labelled "done" over a pile of abandoned work is a number nobody can
+// reconcile against the board.
+func (s taskSelection) hiddenFinishedNote() string {
+	if s.hiddenFinished == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d done hidden (--all keeps them, --status done lists only those)", s.hiddenDone)
+	return fmt.Sprintf("%d done or closed hidden (--all keeps them, --status done|closed lists only those)", s.hiddenFinished)
 }
 
 func taskAnnotations(t taskView) string {

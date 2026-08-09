@@ -35,7 +35,12 @@ const (
 	TaskStatusTodo       = "todo"
 	TaskStatusInProgress = "in_progress"
 	TaskStatusDone       = "done"
-	DefaultTaskStatus    = TaskStatusTodo
+	// TaskStatusClosed is work that was called off. It is terminal like done
+	// and reached only on purpose: nothing advances into it, because the
+	// difference between finishing something and abandoning it is exactly what
+	// it exists to record.
+	TaskStatusClosed  = "closed"
+	DefaultTaskStatus = TaskStatusTodo
 )
 
 // DueDateLayout is the one form a due date takes outside the Task struct: in the

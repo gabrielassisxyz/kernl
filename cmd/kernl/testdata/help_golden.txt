@@ -589,18 +589,23 @@ kernl task list - List the open tasks, optionally scoped to one project
 Usage:
   kernl task list [--project <project-id>] [--status <status>] [--all] [--json]
 
-Done tasks are left out of the default listing, on --json as well as on
-the human one: a finished task outnumbers an open one several times over
-once a backlog has any history, and a list that shows both is a list
-nobody reads. The omission is never silent: the count line reports it,
-and under --json it goes to stderr so stdout stays a plain array.
+Tasks that are done or closed are left out of the default listing, on
+--json as well as on the human one: finished work outnumbers open work
+several times over once a backlog has any history, and a list that shows
+both is a list nobody reads. The omission is never silent: the count line
+reports it, and under --json it goes to stderr so stdout stays a plain array.
 
---all brings them back; --status done lists only those.
+closed is work that was called off rather than finished. Nothing moves into
+it on its own, and it is left out of a project's progress entirely: counted
+as done it would credit work nobody did, counted as outstanding it would
+hold a finished project short of complete.
+
+--all brings them back; --status done or --status closed lists only those.
 
 Flags:
   --project <id>     Only tasks belonging to that project
-  --status <status>  Only tasks with that status: todo, in_progress or done
-  --all              Keep every status, done included
+  --status <status>  Only tasks with that status: todo, in_progress, done or closed
+  --all              Keep every status, done and closed included
   --json             Emit the API's task objects verbatim (camelCase), minus the ones the status filter dropped
 
 ### kernl task create
