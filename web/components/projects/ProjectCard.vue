@@ -2,10 +2,11 @@
   <!-- A div, not a button. The card carries its own pin, edit and delete
        controls, and a button cannot legally contain them. -->
   <div
-    class="group flex flex-col min-h-[108px] p-3 rounded-xl border bg-surface text-body transition-colors duration-150"
+    class="group flex flex-col min-h-[108px] p-3 rounded-xl border bg-surface text-body cursor-pointer transition-colors duration-150"
     :class="hovered ? 'border-border-default bg-surface-hover' : 'border-border-hairline'"
     @mouseenter="hovered = true"
     @mouseleave="hovered = false"
+    @click="$emit('open', project)"
   >
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-1.5 min-w-0">
@@ -14,16 +15,17 @@
           {{ project.tags[0] }}
         </span>
       </div>
-      <!-- A pinned card keeps its cluster visible: a card has no column for a
-           state marker, so the lit pin is the only way to tell. -->
-      <div
-        class="flex gap-px transition-opacity duration-150"
-        :class="hovered || project.pinned ? 'opacity-100' : 'opacity-0'"
-      >
+      <div class="flex gap-px" @click.stop>
+        <!-- The pin is the exception: on a pinned card it stays lit rather than
+             waiting for a hover, because a card has no column for a state
+             marker and the lit pin is the only way to tell. Edit and delete
+             are ordinary hover actions, pinned or not. -->
         <button
           type="button"
-          class="card-action"
-          :class="project.pinned ? 'text-primary' : ''"
+          class="card-action transition-opacity duration-150"
+          :class="[
+            project.pinned ? 'text-primary opacity-100' : hovered ? 'opacity-100' : 'opacity-0',
+          ]"
           :title="project.pinned ? 'Unpin' : 'Pin'"
           :aria-label="`${project.pinned ? 'Unpin' : 'Pin'} ${project.title}`"
           :aria-pressed="project.pinned"
@@ -33,7 +35,8 @@
         </button>
         <button
           type="button"
-          class="card-action"
+          class="card-action transition-opacity duration-150"
+          :class="hovered ? 'opacity-100' : 'opacity-0'"
           title="Edit"
           :aria-label="`Edit ${project.title}`"
           @click="$emit('open', project)"
@@ -42,7 +45,8 @@
         </button>
         <button
           type="button"
-          class="card-action card-action--danger"
+          class="card-action card-action--danger transition-opacity duration-150"
+          :class="hovered ? 'opacity-100' : 'opacity-0'"
           title="Delete"
           :aria-label="`Delete ${project.title}`"
           @click="$emit('ask-delete', project)"
@@ -52,16 +56,20 @@
       </div>
     </div>
 
+    <!-- The title keeps its own destination: the card opens the panel, the
+         title goes to the project's tasks. Without the stop, the link would
+         navigate and open a panel that is about to be unmounted. -->
     <NuxtLink
       :to="`/tasks?project=${encodeURIComponent(project.id)}`"
       class="block mt-2.5 font-medium leading-snug text-text-primary hover:underline outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded line-clamp-2"
+      @click.stop
     >
       {{ project.title }}
     </NuxtLink>
 
     <div class="flex-1 min-h-2.5"></div>
 
-    <div v-if="confirming" class="flex items-center gap-2 mt-2">
+    <div v-if="confirming" class="flex items-center gap-2 mt-2" @click.stop>
       <span class="text-text-secondary">Delete?</span>
       <button
         type="button"

@@ -1,14 +1,19 @@
 <template>
   <div
-    class="project-row group grid items-center gap-3 px-2.5 py-[9px] rounded border-b border-border-row text-body hover:bg-surface-hover transition-colors duration-150"
+    class="project-row group grid items-center gap-3 px-2.5 py-[9px] rounded border-b border-border-row text-body cursor-pointer hover:bg-surface-hover transition-colors duration-150"
     :class="compact ? 'project-row--compact' : 'project-row--full'"
+    @click="$emit('open', project)"
   >
     <span class="w-1.5 h-1.5 mt-0.5 shrink-0 rounded-full" :class="STATUS_DOT[project.status]"></span>
 
     <div class="min-w-0">
+      <!-- The title keeps its own destination: the row opens the panel, the
+           title goes to the project's tasks. Without the stop, the link would
+           navigate and open a panel that is about to be unmounted. -->
       <NuxtLink
         :to="`/tasks?project=${encodeURIComponent(project.id)}`"
-        class="row-title block truncate font-medium text-text-primary hover:underline outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded"
+        class="row-title inline-block max-w-full truncate font-medium text-text-primary hover:underline outline-none focus-visible:ring-1 focus-visible:ring-primary/30 rounded"
+        @click.stop
       >
         {{ project.title }}
       </NuxtLink>
@@ -24,14 +29,6 @@
       >
         {{ project.tags[0] }}
       </span>
-      <!-- A state marker, not a control: the control is in the hover cluster,
-           which this gives way to the moment the row is pointed at. -->
-      <span
-        v-if="project.pinned"
-        class="material-symbols-outlined pin-mark text-primary shrink-0 group-hover:hidden group-focus-within:hidden"
-        :title="`${project.title} is pinned`"
-        >keep</span
-      >
     </div>
 
     <div v-if="!compact" class="flex items-center gap-[9px] justify-self-end">
@@ -54,7 +51,7 @@
       {{ formatRelativeTime(project.updatedAt) }}
     </span>
 
-    <div class="justify-self-end">
+    <div class="justify-self-end" @click.stop>
       <div v-if="confirming" class="flex items-center gap-2 whitespace-nowrap">
         <span class="text-text-secondary">Delete?</span>
         <button
@@ -72,14 +69,16 @@
           No
         </button>
       </div>
-      <div
-        v-else
-        class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150"
-      >
+      <div v-else class="flex items-center gap-0.5">
+        <!-- The pin is both the state marker and the control: on a pinned row
+             it stays lit instead of waiting for a hover, and clicking it
+             unpins. Edit and delete stay hover-only, pinned or not. -->
         <button
           type="button"
-          class="row-action"
-          :class="project.pinned ? 'text-primary' : ''"
+          class="row-action transition-opacity duration-150"
+          :class="project.pinned
+            ? 'text-primary opacity-100'
+            : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'"
           :title="project.pinned ? 'Unpin' : 'Pin'"
           :aria-label="`${project.pinned ? 'Unpin' : 'Pin'} ${project.title}`"
           :aria-pressed="project.pinned"
@@ -89,7 +88,7 @@
         </button>
         <button
           type="button"
-          class="row-action"
+          class="row-action opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150"
           title="Edit"
           :aria-label="`Edit ${project.title}`"
           @click="$emit('open', project)"
@@ -98,7 +97,7 @@
         </button>
         <button
           type="button"
-          class="row-action row-action--danger"
+          class="row-action row-action--danger opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150"
           title="Delete"
           :aria-label="`Delete ${project.title}`"
           @click="$emit('ask-delete', project)"
@@ -162,11 +161,6 @@ const percent = computed(() =>
 }
 .project-row--compact {
   grid-template-columns: 10px minmax(0, 1fr) 96px;
-}
-
-.pin-mark {
-  font-size: 12px;
-  line-height: 1;
 }
 
 .row-action {

@@ -114,3 +114,69 @@ describe('ProjectRow', () => {
     expect(w.text()).not.toContain('design')
   })
 })
+
+// Two destinations live in one container: the title goes to the project's
+// tasks, everything else around it opens the panel. Both surfaces answer the
+// same way, or clicking the same-looking thing means two different things.
+describe.each([
+  ['card', mountCard] as const,
+  ['row', mountRow] as const,
+])('Project %s as a target', (_name, mountIt) => {
+  it('opens the panel when the container is clicked', async () => {
+    const w = mountIt()
+    await w.get(':first-child').trigger('click')
+    expect(w.emitted('open')?.[0][0]).toMatchObject({ id: 'p1' })
+  })
+
+  it('leaves the title to its own link instead of opening the panel', async () => {
+    const w = mountIt()
+    await w.get('a').trigger('click')
+    expect(w.emitted('open')).toBeUndefined()
+  })
+
+  it('does not open the panel from the action cluster', async () => {
+    const w = mountIt()
+    const pin = w.findAll('button').find((b) => b.attributes('title') === 'Pin')!
+    await pin.trigger('click')
+    expect(w.emitted('toggle-pin')).toHaveLength(1)
+    expect(w.emitted('open')).toBeUndefined()
+  })
+
+  it('does not open the panel from the delete confirmation', async () => {
+    const w = mountIt(project(), { confirming: true })
+    const no = w.findAll('button').find((b) => b.text() === 'No')!
+    await no.trigger('click')
+    expect(w.emitted('cancel-delete')).toHaveLength(1)
+    expect(w.emitted('open')).toBeUndefined()
+  })
+})
+
+// A pinned project shows its state through the lit pin, which is also the
+// control that undoes it. Edit and delete stay hover-only either way: a pinned
+// project is not a project that wants two extra buttons parked on it.
+describe.each([
+  ['card', mountCard] as const,
+  ['row', mountRow] as const,
+])('pinned %s', (_name, mountIt) => {
+  const actionClass = (w: ReturnType<typeof mountIt>, title: string) =>
+    w.findAll('button').find((b) => b.attributes('title') === title)!.classes().join(' ')
+
+  it('keeps the pin visible and accented', () => {
+    const w = mountIt(project({ pinned: true }))
+    const pin = actionClass(w, 'Unpin')
+    expect(pin).toContain('opacity-100')
+    expect(pin).toContain('text-primary')
+  })
+
+  it('hides edit and delete until the row is pointed at', () => {
+    const w = mountIt(project({ pinned: true }))
+    expect(actionClass(w, 'Edit')).toContain('opacity-0')
+    expect(actionClass(w, 'Delete')).toContain('opacity-0')
+  })
+
+  it('unpins from that same control', async () => {
+    const w = mountIt(project({ pinned: true }))
+    await w.findAll('button').find((b) => b.attributes('title') === 'Unpin')!.trigger('click')
+    expect(w.emitted('toggle-pin')?.[0][0]).toMatchObject({ id: 'p1', pinned: true })
+  })
+})
