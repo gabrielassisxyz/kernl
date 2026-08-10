@@ -86,70 +86,10 @@ func TestWatcherNonMdFileIgnored(t *testing.T) {
 	}
 }
 
-func TestWatcherCoalescing(t *testing.T) {
-	dir := t.TempDir()
-
-	// Create file first so we can Write to it.
-	mdPath := filepath.Join(dir, "coalesce.md")
-	if err := os.WriteFile(mdPath, []byte("initial"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := Config{CoalesceWindow: 50 * time.Millisecond}
-	w, err := New(dir, cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if err := w.Start(ctx); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
-	defer w.Stop()
-
-	time.Sleep(50 * time.Millisecond)
-
-	// Drain the create event from the initial file.
-	select {
-	case <-w.Events():
-	case <-time.After(1 * time.Second):
-		// Might not get create since file existed before watcher started.
-	}
-
-	// Burst of 5 writes within the coalesce window.
-	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_ = os.WriteFile(mdPath, []byte("burst"), 0o644)
-		}(i)
-	}
-	wg.Wait()
-
-	// We should get exactly one event for this path.
-	select {
-	case ev := <-w.Events():
-		if ev.Kind != KindChange {
-			t.Errorf("expected KindChange, got %s", ev.Kind)
-		}
-		if ev.CoalescedCount < 1 {
-			t.Errorf("expected coalesced_count >= 1, got %d", ev.CoalescedCount)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for coalesced event")
-	}
-
-	// Ensure no additional events for this path.
-	select {
-	case ev := <-w.Events():
-		t.Errorf("unexpected extra event: %+v", ev)
-	case <-time.After(300 * time.Millisecond):
-		// Expected - no extra events.
-	}
-}
+// TestWatcherCoalescing lived here and was replaced by the deterministic
+// coalescing tests in watcher_deterministic_test.go. It created five files,
+// slept, and asserted CoalescedCount >= 1 - a bound any single event meets -
+// while relying on inotify choosing to collapse the writes. See AGENTS.md 4.
 
 func TestWatcherRecursiveWatch(t *testing.T) {
 	dir := t.TempDir()
