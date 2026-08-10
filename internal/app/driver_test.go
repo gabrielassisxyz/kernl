@@ -452,3 +452,62 @@ func TestDriverRunBeadAdvancesViaTakeLoop(t *testing.T) {
 		t.Error("driver must spawn the agent process")
 	}
 }
+
+// RunBeadResult.Turns is what BuildStageAttemptRecord persists into the
+// ledger's Turns column for dialects that count live turn boundaries -
+// opencode's step_finish here, pi's turn_end below. Tool/message volume
+// between the boundaries must not inflate what reaches the result.
+func TestDriverRunBeadExposesCountedTurnsForOpenCode(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "ready_for_implementation"}}
+	spawn := &fakeSpawner{
+		script: strings.Repeat(`{"type":"step_finish","reason":"stop"}`+"\n", 4) +
+			`{"type":"session_idle"}` + "\n",
+		onExit: func() { be.state["kb-1"] = "done" },
+	}
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), LogDir: t.TempDir()})
+	res, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), Command: "opencode", AgentName: "opencode"})
+	if err != nil {
+		t.Fatalf("RunBead: %v", err)
+	}
+	if res.Turns == nil || *res.Turns != 4 {
+		t.Errorf("Turns = %v, want 4", res.Turns)
+	}
+}
+
+func TestDriverRunBeadExposesCountedTurnsForPi(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	spawn := &fakeSpawner{
+		script: strings.Repeat(`{"type":"turn_end"}`+"\n", 2) +
+			`{"type":"agent_settled"}` + "\n",
+	}
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), LogDir: t.TempDir()})
+	res, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), Command: "pi", AgentName: "pi-kimi"})
+	if err != nil {
+		t.Fatalf("RunBead: %v", err)
+	}
+	if res.Turns == nil || *res.Turns != 2 {
+		t.Errorf("Turns = %v, want 2", res.Turns)
+	}
+}
+
+// claude's "result" and codex's "turn.completed" are the end of the run, not
+// a mid-run boundary (see session.MaxTurnsPerDispatch), so RunBead must
+// leave Turns nil for them rather than reporting an always-1 or always-0
+// count that looks measured but isn't.
+func TestDriverRunBeadLeavesTurnsNilForClaudeAndCodex(t *testing.T) {
+	for _, tc := range []struct{ dialect, script string }{
+		{"claude", `{"type":"result","is_error":false,"result":"done"}` + "\n"},
+		{"codex", `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}` + "\n"},
+	} {
+		be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+		spawn := &fakeSpawner{script: tc.script}
+		d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn.Spawn, SCM: newTestSCM(), LogDir: t.TempDir()})
+		res, err := d.RunBead(context.Background(), RunBeadInput{BeadID: "kb-1", RepoPath: t.TempDir(), Command: tc.dialect, AgentName: tc.dialect})
+		if err != nil {
+			t.Fatalf("%s: RunBead: %v", tc.dialect, err)
+		}
+		if res.Turns != nil {
+			t.Errorf("%s: Turns = %v, want nil - this dialect's boundary is the end of the run", tc.dialect, *res.Turns)
+		}
+	}
+}

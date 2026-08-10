@@ -142,6 +142,24 @@ func (r *SessionRuntime) TurnCeilingExceeded() (bool, int) {
 	return r.turnCeilingHit, r.turnCount
 }
 
+// CountedTurns reports the turn boundaries this run has crossed toward
+// MaxTurnsPerDispatch, and whether this dialect counts any at all. Only
+// pi's "turn_end" and opencode's "step_finish" ever call countTurn(); every
+// other dialect's turnCount field stays at its zero value forever, which is
+// not the same fact as a run that measured zero boundaries - counted is
+// what a caller (the stage-attempt ledger) needs to tell the two apart
+// instead of persisting a fabricated zero for a dialect that reports none.
+func (r *SessionRuntime) CountedTurns() (turns int64, counted bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	switch r.dialect {
+	case "pi", "opencode":
+		return int64(r.turnCount), true
+	default:
+		return 0, false
+	}
+}
+
 func NewSessionRuntime(beadID, repoPath string) *SessionRuntime {
 	return &SessionRuntime{
 		beadID:       beadID,
