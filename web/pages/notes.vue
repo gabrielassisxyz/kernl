@@ -326,7 +326,13 @@ const confirmNewNote = async () => {
   position: relative;
   display: grid;
   grid-template-columns: 272px minmax(0, 1fr);
+  /* An explicit row track, not the implicit `auto` one: with `auto` the row grows
+     to the open note's full length, so the editor's `height: 100%` resolves
+     against nothing, the shell outgrows the viewport and the page scrolls as a
+     whole - taking the vault sidebar with it. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
   background-color: var(--color-bg-base);
   font-family: var(--font-body);
   /* Collapse animates the grid track, not the panel's own width/margin, so the
@@ -495,6 +501,8 @@ const confirmNewNote = async () => {
   flex-direction: column;
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background-color: var(--color-bg-base);
 }
 
