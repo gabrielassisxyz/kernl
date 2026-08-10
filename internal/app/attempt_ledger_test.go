@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/session"
 )
 
@@ -1076,5 +1077,80 @@ func TestAppendStageAttempt_InferenceStillRunsWhenNothingWasDeclared(t *testing.
 	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
 	if lines[2].CausedBy == nil || *lines[2].CausedBy != artifact {
 		t.Errorf("CausedBy = %v, want the inferred %q - a retake in another process is still rework", lines[2].CausedBy, artifact)
+	}
+}
+
+// TestAppendStageAttempt_GateEvidenceRoundTrips proves the evidence a
+// failed commit_marker gate collected survives the ledger write/read round
+// trip - the whole point of wiring it through: a row that used to say only
+// "commit_marker_missing: implementation" now also carries what the gate
+// saw when it made that call.
+func TestAppendStageAttempt_GateEvidenceRoundTrips(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: false, GateFailureReason: "commit_marker_missing: implementation", DiffStats: fakeDiffStatter{},
+		GateEvidence: backend.GateEvidence{
+			GateType:     "commit_marker",
+			BaseSHA:      "base-sha",
+			HeadSHA:      "head-sha",
+			WorktreePath: worktree,
+		},
+	})))
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl"))
+	got := lines[0].GateEvidence
+	if got == nil {
+		t.Fatal("GateEvidence is nil, want the evidence the gate collected")
+	}
+	if got.GateType != "commit_marker" || got.BaseSHA != "base-sha" || got.HeadSHA != "head-sha" || got.WorktreePath != worktree {
+		t.Errorf("GateEvidence = %+v, want gateType=commit_marker baseSHA=base-sha headSHA=head-sha worktreePath=%s", got, worktree)
+	}
+}
+
+// TestAppendStageAttempt_NoGateEvidenceStaysNil proves a normal attempt -
+// one that never populated GateEvidence, exactly what every attempt looked
+// like before this bead - leaves the field nil rather than writing an
+// empty struct, so the line carries no "gateEvidence" key at all.
+func TestAppendStageAttempt_NoGateEvidenceStaysNil(t *testing.T) {
+	stateDir := t.TempDir()
+	worktree := t.TempDir()
+
+	must(t, AppendStageAttempt(stateDir, "epic-1", BuildStageAttemptRecord(StageAttemptInput{
+		AgentID: "claude", Dialect: "claude", BeadID: "bead-1", Stage: "implementation",
+		StartedAt: time.Now(), Duration: time.Second, Worktree: worktree,
+		GatePassed: true, DiffStats: fakeDiffStatter{},
+	})))
+
+	path := filepath.Join(stateDir, "run", "epic-1", "attempts.jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading ledger: %v", err)
+	}
+	if strings.Contains(string(data), "gateEvidence") {
+		t.Errorf("line carries a gateEvidence key with no evidence collected: %s", data)
+	}
+
+	lines := readLedgerLines(t, path)
+	if lines[0].GateEvidence != nil {
+		t.Errorf("GateEvidence = %+v, want nil", lines[0].GateEvidence)
+	}
+}
+
+// TestStageAttemptRecord_OldLedgerLineWithoutGateEvidenceDecodes proves a
+// ledger line written before this bead - no "gateEvidence" key at all -
+// still decodes cleanly, with GateEvidence left nil rather than failing to
+// unmarshal.
+func TestStageAttemptRecord_OldLedgerLineWithoutGateEvidenceDecodes(t *testing.T) {
+	oldLine := `{"agentId":"claude","dialect":"claude","beadId":"bead-1","stage":"implementation","gatePassed":false}`
+	var rec StageAttemptRecord
+	if err := json.Unmarshal([]byte(oldLine), &rec); err != nil {
+		t.Fatalf("unmarshal pre-existing ledger line: %v", err)
+	}
+	if rec.GateEvidence != nil {
+		t.Errorf("GateEvidence = %+v, want nil for a line that never had the field", rec.GateEvidence)
 	}
 }
