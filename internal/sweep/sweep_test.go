@@ -2,6 +2,7 @@ package sweep_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,16 @@ type fakeBackend struct {
 	epics   []epicRow
 	closed  []string
 	failIDs map[string]error
+	// blockedBy simulates br's own ordering guard: Close(id) refuses with a
+	// typed backend.CloseRefusedError until blockedBy[id] shows up closed -
+	// either pre-existing (via failIDs[blocker] = backend.ErrAlreadyClosed)
+	// or closed earlier in this same run. It is what lets a fake stand in
+	// for a real dependency chain across closeAll's internal passes.
+	blockedBy map[string]string
+	// closeCalls counts Close attempts per id, so a test can assert a call
+	// was skipped entirely (the epic while a child is unresolved) or was not
+	// retried past the pass that already gave up on it (zero progress).
+	closeCalls map[string]int
 }
 
 func (f *fakeBackend) ListEpicsAwaitingPRReview() ([]sweep.Epic, error) {
@@ -37,11 +48,33 @@ func (f *fakeBackend) ListEpicsAwaitingPRReview() ([]sweep.Epic, error) {
 func (f *fakeBackend) Close(id, reason string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.closeCalls == nil {
+		f.closeCalls = map[string]int{}
+	}
+	f.closeCalls[id]++
 	if err, ok := f.failIDs[id]; ok && err != nil {
 		return err
 	}
+	if blocker, ok := f.blockedBy[id]; ok && !f.resolvedLocked(blocker) {
+		return &backend.CloseRefusedError{ID: id, Kind: backend.CloseRefusalOpenDependents, Reason: fmt.Sprintf("blocked by %s", blocker)}
+	}
 	f.closed = append(f.closed, id)
 	return nil
+}
+
+// resolvedLocked reports whether id has reached the closed state this run
+// can observe - already closed before this run started, or closed by an
+// earlier pass of it. Callers must hold f.mu.
+func (f *fakeBackend) resolvedLocked(id string) bool {
+	if err, ok := f.failIDs[id]; ok && errors.Is(err, backend.ErrAlreadyClosed) {
+		return true
+	}
+	for _, c := range f.closed {
+		if c == id {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeGH struct {
@@ -170,7 +203,7 @@ func TestSweep_HappyMerged_ReportsWhatClosed(t *testing.T) {
 	}
 }
 
-func TestSweep_PartialCloseFailure_ReportsActualCount(t *testing.T) {
+func TestSweep_PartialCloseFailure_SkipsEpicAndReportsActualCount(t *testing.T) {
 	b := &fakeBackend{
 		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1", "c2"}}},
 		failIDs: map[string]error{"c1": errors.New("tracker unavailable")},
@@ -184,10 +217,12 @@ func TestSweep_PartialCloseFailure_ReportsActualCount(t *testing.T) {
 	if err := s.Tick(); err != nil {
 		t.Fatal(err)
 	}
-	// c1 failed to close, but c2 and the epic itself must still be attempted
-	// and closed - one failing child does not block the rest.
-	if len(b.closed) != 2 {
-		t.Fatalf("expected c2 and epic e1 closed despite c1 failing, got %v", b.closed)
+	// c1 fails permanently but must not block c2 - one failing child does
+	// not stop the rest. The epic itself, though, must stay open: closing it
+	// while c1 remains unresolved would guarantee a failing close (and
+	// br's --force hint) on every later sweep tick.
+	if len(b.closed) != 1 || b.closed[0] != "c2" {
+		t.Fatalf("expected only c2 closed (c1 failed, epic skipped while unresolved), got %v", b.closed)
 	}
 	if len(reports) != 1 {
 		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
@@ -203,6 +238,9 @@ func TestSweep_PartialCloseFailure_ReportsActualCount(t *testing.T) {
 	}
 	if strings.Contains(reports[0], "WARN above") || strings.Contains(reports[0], "see WARN") {
 		t.Fatalf("receipt should not refer to a WARN on another stream, got %q", reports[0])
+	}
+	if strings.Contains(reports[0], "closed epic e1") {
+		t.Fatalf("epic close must be skipped while a child is unresolved, got %q", reports[0])
 	}
 }
 
@@ -391,5 +429,189 @@ func TestSweep_EpicAlreadyClosed_ReceiptSaysSo(t *testing.T) {
 	}
 	if strings.Contains(msg, "NOT closed") {
 		t.Fatalf("an already-closed epic is not a failure, got %q", msg)
+	}
+}
+
+// The bug this fixes: a three-deep chain used to take one sweep TICK per
+// level, because closeAll made exactly one pass and never revisited a child
+// that refused because its own blocker was still open. Given in reverse
+// dependency order - the worst case, since c3's blocker (c2) has not been
+// touched yet when c3 is attempted, and neither has c2's (c1) - convergence
+// needs three internal passes, exactly what the pass cap (len(e.Children))
+// allows, and it all happens inside this one run instead of three ticks.
+func TestSweep_ThreeDeepChainReversedOrder_ConvergesInOneRun(t *testing.T) {
+	b := &fakeBackend{
+		epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c3", "c2", "c1"}}},
+		blockedBy: map[string]string{
+			"c3": "c2",
+			"c2": "c1",
+		},
+	}
+	mergedAt := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: mergedAt}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(b.closed) != 4 {
+		t.Fatalf("expected all 3 children and the epic closed in one run, got %v", b.closed)
+	}
+	want := "sweep: closed epic e1 and 3 children - reason: merged via PR https://x/pr/1 at 2026-08-10T12:00:00Z"
+	if len(reports) != 1 || reports[0] != want {
+		t.Fatalf("receipt mismatch:\n got:  %v\n want: [%q]", reports, want)
+	}
+}
+
+// A pass that closes nothing must not spend the rest of the pass budget
+// re-asking the same question: none of these children's blockers is ever
+// satisfiable within this run, so a second or third attempt cannot succeed
+// either.
+func TestSweep_ZeroProgressFirstPass_StopsRetryingImmediately(t *testing.T) {
+	b := &fakeBackend{
+		epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1", "c2", "c3"}}},
+		blockedBy: map[string]string{
+			"c1": "never-closes",
+			"c2": "never-closes",
+			"c3": "never-closes",
+		},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	s := sweep.New(b, g, sweep.Config{})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"c1", "c2", "c3"} {
+		if b.closeCalls[id] != 1 {
+			t.Errorf("expected exactly 1 attempt for %s (zero progress on pass 1 must stop the loop), got %d", id, b.closeCalls[id])
+		}
+	}
+}
+
+// A chain and an unrelated permanent failure inside the same epic must not
+// interfere with each other: the chain still converges, and the permanent
+// failure still fails, without either changing the other's outcome.
+func TestSweep_ChainedAndIndependentChildrenMixed_PartialConvergence(t *testing.T) {
+	b := &fakeBackend{
+		epics:     []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c2", "c1", "c3", "c4"}}},
+		blockedBy: map[string]string{"c2": "c1"},
+		failIDs:   map[string]error{"c4": errors.New("tracker unavailable")},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	closedSet := map[string]bool{}
+	for _, c := range b.closed {
+		closedSet[c] = true
+	}
+	for _, want := range []string{"c1", "c2", "c3"} {
+		if !closedSet[want] {
+			t.Errorf("expected %s closed, got %v", want, b.closed)
+		}
+	}
+	if closedSet["e1"] {
+		t.Errorf("epic must stay open while c4 is unresolved, got %v", b.closed)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	if !strings.Contains(reports[0], "3/4 children closed") {
+		t.Fatalf("expected 3/4 children closed, got %q", reports[0])
+	}
+	if !strings.Contains(reports[0], "failed: c4") {
+		t.Fatalf("expected c4 named as the failure, got %q", reports[0])
+	}
+}
+
+// closeAll must not attempt the epic's own close at all while a child
+// remains unresolved - not merely fail to report it as closed. Attempting it
+// anyway would guarantee a failing close, and with it br's own --force hint,
+// on every tick that does not fully converge.
+func TestSweep_EpicCloseSkipped_WhileChildUnresolved(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}},
+		failIDs: map[string]error{"c1": errors.New("tracker unavailable")},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	s := sweep.New(b, g, sweep.Config{})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if b.closeCalls["e1"] != 0 {
+		t.Fatalf("epic close must not be attempted while a child is unresolved, got %d attempts", b.closeCalls["e1"])
+	}
+}
+
+// A typed close refusal (BrCliBackend's real return for an ordering
+// constraint - see internal/backend/close_refusal.go) is redacted at its
+// source: its Reason never carries br's own "--force" suggestion. Sweep does
+// not need to know the refusal is typed to keep that redaction intact - it
+// only has to embed the error's own text, which is exactly what the receipt
+// already does for every failure.
+func TestSweep_TypedOrderingRefusal_ReceiptOmitsForceHint(t *testing.T) {
+	b := &fakeBackend{
+		epics: []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}},
+		// c1 is blocked by a bead outside this epic's own children, so this
+		// run has no way to close it - the refusal never resolves.
+		blockedBy: map[string]string{"c1": "blocker-not-in-epic"},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	var reports []string
+	s := sweep.New(b, g, sweep.Config{ReportHook: func(msg string) { reports = append(reports, msg) }})
+	if err := s.Tick(); err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected exactly 1 report, got %d: %v", len(reports), reports)
+	}
+	msg := reports[0]
+	if !strings.Contains(msg, "blocked by blocker-not-in-epic") {
+		t.Fatalf("receipt should name the real ordering cause, got %q", msg)
+	}
+	if strings.Contains(msg, "--force") {
+		t.Fatalf("a typed ordering refusal must never surface br's --force suggestion, got %q", msg)
+	}
+}
+
+// A permanently unresolved epic must not regenerate the same close attempts
+// (and WARN logs) on every sweep tick forever. This exercises the cached
+// "PR already merged" path specifically, because that path used to call
+// closeAll on every tick with no breaker gate at all - the mergedCache hit
+// returned before the breaker check ever ran.
+func TestSweep_PermanentCloseFailure_BreakerStopsRetryingCachedEpic(t *testing.T) {
+	b := &fakeBackend{
+		epics:   []epicRow{{ID: "e1", PRURL: "https://x/pr/1", Children: []string{"c1"}}},
+		failIDs: map[string]error{"c1": errors.New("tracker down")},
+	}
+	g := &fakeGH{
+		responses: map[string]sweep.PRState{"https://x/pr/1": {State: "MERGED", MergedAt: time.Now()}},
+		calls:     map[string]int{},
+	}
+	s := sweep.New(b, g, sweep.Config{FailureThreshold: 3, BackoffMinutes: []int{5, 15, 60}})
+	for i := 0; i < 4; i++ {
+		if err := s.Tick(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if b.closeCalls["c1"] != 3 {
+		t.Fatalf("expected exactly 3 close attempts (the breaker opens on the 3rd failure and must skip the 4th tick), got %d", b.closeCalls["c1"])
 	}
 }
