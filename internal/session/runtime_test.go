@@ -1351,6 +1351,89 @@ func TestSessionRuntime_TerminalDialectsNeverTripTheCeiling(t *testing.T) {
 	}
 }
 
+// CountedTurns is what persists the live count into the stage-attempt
+// ledger (see internal/app.RunBeadResult.Turns). Tool calls and plain
+// messages vastly outnumber turn boundaries in a real stream, so the count
+// must track boundaries crossed, not lines seen.
+func TestSessionRuntime_CountedTurnsIgnoresToolAndMessageVolume(t *testing.T) {
+	r := newTestRuntime("pi", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var stream strings.Builder
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 5; j++ {
+			stream.WriteString(`{"type":"tool_use","name":"Read"}` + "\n")
+			stream.WriteString(`{"type":"message","role":"assistant"}` + "\n")
+		}
+		stream.WriteString(`{"type":"turn_end"}` + "\n")
+	}
+	stream.WriteString(`{"type":"agent_settled"}` + "\n")
+
+	go func() {
+		for evt := range r.Events() {
+			_ = evt
+		}
+	}()
+
+	r.Start(ctx, strings.NewReader(stream.String()), strings.NewReader(""))
+	time.Sleep(200 * time.Millisecond)
+
+	turns, counted := r.CountedTurns()
+	if !counted {
+		t.Fatal("pi should count turn boundaries")
+	}
+	if turns != 3 {
+		t.Errorf("CountedTurns() turns = %d, want 3 - 30 tool/message lines must not inflate the count", turns)
+	}
+}
+
+// A dialect whose per-turn boundary IS the end of the run (claude, codex,
+// copilot, gemini) or which emits no event stream at all (agy) reports no
+// turn count - counted must be false, never a fabricated number.
+func TestSessionRuntime_CountedTurnsUnsupportedDialectStaysUncounted(t *testing.T) {
+	for _, dialect := range []string{"claude", "codex", "copilot", "gemini", "agy"} {
+		r := newTestRuntime(dialect, false)
+		if _, counted := r.CountedTurns(); counted {
+			t.Errorf("%s: CountedTurns() counted = true, want false - this dialect's turn boundary is the end of the run", dialect)
+		}
+	}
+}
+
+// A run that genuinely crossed zero counted boundaries must report turns=0,
+// counted=true - distinct from an unsupported dialect's turns=0,
+// counted=false. Collapsing the two would persist a fabricated 0 for a
+// dialect that never measured anything, or drop a real zero as if it were
+// unmeasured.
+func TestSessionRuntime_CountedTurnsMeasuredZeroIsNotUncounted(t *testing.T) {
+	for _, tc := range []struct{ dialect, line string }{
+		{"pi", `{"type":"agent_settled"}`},
+		{"opencode", `{"type":"session_idle"}`},
+	} {
+		r := newTestRuntime(tc.dialect, false)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		go func() {
+			for evt := range r.Events() {
+				_ = evt
+			}
+		}()
+
+		r.Start(ctx, strings.NewReader(tc.line+"\n"), strings.NewReader(""))
+		time.Sleep(100 * time.Millisecond)
+
+		turns, counted := r.CountedTurns()
+		if !counted {
+			t.Errorf("%s: counted = false, want true even with zero boundaries crossed", tc.dialect)
+		}
+		if turns != 0 {
+			t.Errorf("%s: turns = %d, want 0", tc.dialect, turns)
+		}
+		cancel()
+	}
+}
+
 func TestSessionRuntime_PiErrorSetsIsErrorAndLastError(t *testing.T) {
 	r := newTestRuntime("pi", false)
 

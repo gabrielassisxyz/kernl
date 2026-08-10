@@ -118,6 +118,12 @@ type RunBeadResult struct {
 	// subprocess flow's own "subprocess_<cause>" when the block was not a
 	// gate evaluation at all. Empty whenever BlockedAtState is.
 	GateFailureReason string
+	// Turns is the runtime's own live count of counted turn boundaries
+	// (session.SessionRuntime.CountedTurns: pi's turn_end, opencode's
+	// step_finish), or nil when this dialect counts none at all - distinct
+	// from Usage's dialect-reported num_turns (claude only). The
+	// stage-attempt ledger falls back to this when Usage reports none.
+	Turns *int64
 }
 
 type SessionDriver struct {
@@ -282,6 +288,14 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	// gate and advancing the bead on a stage nobody actually finished.
 	followUpCount, nudged := w.followUpStats()
 
+	// resultTurns is CountedTurns exposed on the result for the ledger
+	// writer (internal/app/attempt_ledger.go) - nil for a dialect that
+	// counts no turn boundary at all, never a fabricated number.
+	var resultTurns *int64
+	if countedTurns, counted := r.CountedTurns(); counted {
+		resultTurns = &countedTurns
+	}
+
 	// Checked before the follow-up refusal below because it is the more
 	// specific cause: a dispatch stopped for looping did not merely end
 	// badly, it was ended BY kernl, and the exit code it leaves behind
@@ -298,6 +312,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 			Usage:         usage,
 			FollowUpCount: followUpCount,
 			Nudged:        nudged,
+			Turns:         resultTurns,
 		}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s crossed %d turns in one dispatch, over the %d turn limit, and was stopped - an agent this far past the limit is repeating itself rather than progressing - Fix: read the stage's log for the repeated action, and if the work genuinely needs this many turns, split the bead", input.BeadID, turns, session.MaxTurnsPerDispatch)
 	}
 
@@ -310,6 +325,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 			Usage:         usage,
 			FollowUpCount: followUpCount,
 			Nudged:        nudged,
+			Turns:         resultTurns,
 		}, followUpErr
 	}
 
@@ -322,6 +338,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		FollowUpCount:     followUpCount,
 		Nudged:            nudged,
 		GateFailureReason: gateFailureReason,
+		Turns:             resultTurns,
 	}, nil
 }
 
