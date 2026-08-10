@@ -44,20 +44,52 @@ type Config struct {
 // DefaultCoalesceWindow is the default debounce window.
 const DefaultCoalesceWindow = 300 * time.Millisecond
 
+// stoppableTimer is the part of *time.Timer this package uses. Stop reports
+// whether it prevented the callback from running, which is load-bearing here:
+// it is how Stop knows whether a scheduled coalescer will ever decrement the
+// WaitGroup, or whether it must do so on its behalf.
+type stoppableTimer interface {
+	Stop() bool
+}
+
+// timerScheduler is the clock boundary. Production schedules on real time;
+// tests inject a fake they advance by hand, because a coalesce window proven
+// by sleeping is a test that passes on an idle laptop and fails on a loaded
+// CI runner - and an injected Now() alone would not help, since what has to
+// be controlled is when the callback FIRES, not what time it reports.
+type timerScheduler interface {
+	AfterFunc(d time.Duration, f func()) stoppableTimer
+}
+
+type realScheduler struct{}
+
+func (realScheduler) AfterFunc(d time.Duration, f func()) stoppableTimer {
+	return time.AfterFunc(d, f)
+}
+
 // Watcher watches a root directory recursively for .md file changes
 // and emits coalesced ChangeEvents on a channel.
 type Watcher struct {
-	root    string
-	events  chan ChangeEvent
-	cfg     Config
-	fsw     *fsnotify.Watcher
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup
-	mu      sync.Mutex
-	closed  bool
-	dirs    map[string]struct{} // tracked directories
-	timers  map[string]*time.Timer
-	pending map[string][]EventKind // pending events per path (latest kind wins)
+	root   string
+	events chan ChangeEvent
+	cfg    Config
+	// fsw is nil when the raw event source was injected, which is how the
+	// coalescing tests run without touching the filesystem's notify API.
+	fsw       *fsnotify.Watcher
+	sched     timerScheduler
+	rawEvents <-chan fsnotify.Event
+	rawErrors <-chan error
+	cancel    context.CancelFunc
+	// shuttingDown is closed by Stop before it waits, so a coalescer already
+	// past its Stop() check abandons its send instead of blocking forever on a
+	// full buffer nobody is draining any more.
+	shuttingDown chan struct{}
+	wg           sync.WaitGroup
+	mu           sync.Mutex
+	closed       bool
+	dirs         map[string]struct{} // tracked directories
+	timers       map[string]stoppableTimer
+	pending      map[string][]EventKind // pending events per path (latest kind wins)
 }
 
 // New creates a new Watcher for the given root directory.
@@ -78,16 +110,43 @@ func New(root string, cfg Config) (*Watcher, error) {
 	}
 
 	w := &Watcher{
-		root:    absRoot,
-		events:  make(chan ChangeEvent, 256),
-		cfg:     cfg,
-		fsw:     fsw,
-		dirs:    make(map[string]struct{}),
-		timers:  make(map[string]*time.Timer),
-		pending: make(map[string][]EventKind),
+		root:         absRoot,
+		events:       make(chan ChangeEvent, 256),
+		cfg:          cfg,
+		fsw:          fsw,
+		sched:        realScheduler{},
+		rawEvents:    fsw.Events,
+		rawErrors:    fsw.Errors,
+		shuttingDown: make(chan struct{}),
+		dirs:         make(map[string]struct{}),
+		timers:       make(map[string]stoppableTimer),
+		pending:      make(map[string][]EventKind),
 	}
 
 	return w, nil
+}
+
+// newWithSources builds a Watcher whose clock and raw event source are supplied
+// by the caller and whose fsnotify watcher is absent. Only tests use it: the
+// coalescing and shutdown invariants are about this package's own bookkeeping,
+// and driving them through real inotify delivery is what made the original test
+// assert a timing window by sleeping.
+func newWithSources(root string, cfg Config, sched timerScheduler, raw <-chan fsnotify.Event, rawErrs <-chan error) *Watcher {
+	if cfg.CoalesceWindow <= 0 {
+		cfg.CoalesceWindow = DefaultCoalesceWindow
+	}
+	return &Watcher{
+		root:         root,
+		events:       make(chan ChangeEvent, 256),
+		cfg:          cfg,
+		sched:        sched,
+		rawEvents:    raw,
+		rawErrors:    rawErrs,
+		shuttingDown: make(chan struct{}),
+		dirs:         make(map[string]struct{}),
+		timers:       make(map[string]stoppableTimer),
+		pending:      make(map[string][]EventKind),
+	}
 }
 
 // Events returns the channel on which ChangeEvents are emitted.
@@ -98,10 +157,13 @@ func (w *Watcher) Events() <-chan ChangeEvent {
 // Start begins watching the root directory recursively.
 // It returns after the initial recursive walk to add watches.
 func (w *Watcher) Start(ctx context.Context) error {
-	// Add watches for all existing directories recursively.
-	if err := w.addDirRecursive(w.root); err != nil {
-		w.fsw.Close()
-		return fmt.Errorf("add watches recursively: %w", err)
+	// Add watches for all existing directories recursively. Skipped when the
+	// raw source was injected: there is no fsnotify watcher to add them to.
+	if w.fsw != nil {
+		if err := w.addDirRecursive(w.root); err != nil {
+			w.fsw.Close()
+			return fmt.Errorf("add watches recursively: %w", err)
+		}
 	}
 
 	ctx, w.cancel = context.WithCancel(ctx)
@@ -112,8 +174,16 @@ func (w *Watcher) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop shuts down the watcher and drains all pending timers.
-// The events channel is closed after all goroutines have exited.
+// Stop shuts down the watcher and closes the events channel. It is idempotent,
+// and it does not return until every scheduled coalescer has finished, so a
+// consumer that sees the channel close knows no further event can arrive.
+//
+// Every scheduled coalescer holds a WaitGroup token from the moment it is
+// scheduled, which is what makes that guarantee available: an unfired timer's
+// token is released here (Stop() reporting true means its callback will never
+// run), and a fired one releases its own. Waiting on a WaitGroup that only
+// covered the read loop - as this used to - left the callbacks unaccounted for,
+// which is why closing the channel looked unsafe and was skipped.
 func (w *Watcher) Stop() {
 	w.mu.Lock()
 	if w.closed {
@@ -121,27 +191,30 @@ func (w *Watcher) Stop() {
 		return
 	}
 	w.closed = true
+	pending := w.timers
+	w.timers = make(map[string]stoppableTimer)
 	w.mu.Unlock()
 
 	if w.cancel != nil {
 		w.cancel()
 	}
 
-	// Drain all pending timers so they don't fire after close.
-	w.mu.Lock()
-	for path, timer := range w.timers {
-		timer.Stop()
-		delete(w.timers, path)
+	// Before the wait, so a coalescer that already passed its own closed check
+	// abandons its send rather than blocking on a buffer nobody drains.
+	close(w.shuttingDown)
+
+	for _, timer := range pending {
+		if timer.Stop() {
+			w.wg.Done()
+		}
 	}
-	w.mu.Unlock()
 
 	w.wg.Wait()
 
-	w.fsw.Close()
-	// NOTE: we do NOT close w.events here because timer goroutines
-	// may still be running when Stop returns and a send on a closed
-	// channel panics. The channel will be garbage-collected with the
-	// Watcher.
+	if w.fsw != nil {
+		w.fsw.Close()
+	}
+	close(w.events)
 }
 
 // addDirRecursive adds a watch for the given directory and all subdirectories.
@@ -179,12 +252,12 @@ func (w *Watcher) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case event, ok := <-w.fsw.Events:
+		case event, ok := <-w.rawEvents:
 			if !ok {
 				return
 			}
 			w.handleEvent(event)
-		case err, ok := <-w.fsw.Errors:
+		case err, ok := <-w.rawErrors:
 			if !ok {
 				return
 			}
@@ -231,16 +304,29 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	// Coalesce: reset the debounce timer for this path.
 	w.mu.Lock()
 
+	// A timer scheduled after Stop has taken the pending set would never be
+	// waited for, and its send would race the channel close.
+	if w.closed {
+		w.mu.Unlock()
+		return
+	}
+
 	w.pending[path] = append(w.pending[path], kind)
 	// Keep only the most recent kind; but for move_candidate, also keep it.
 	// Strategy: coalesce all events for this path, emit the "most important" kind.
 	// delete/move_candidate > change > create
 
-	// Cancel existing timer
+	// Cancel the existing timer, releasing its token when the cancellation
+	// beat its callback - otherwise that callback releases its own.
 	if t, ok := w.timers[path]; ok {
-		t.Stop()
+		if t.Stop() {
+			w.wg.Done()
+		}
 	}
-	w.timers[path] = time.AfterFunc(w.cfg.CoalesceWindow, func() {
+	w.wg.Add(1)
+	w.timers[path] = w.sched.AfterFunc(w.cfg.CoalesceWindow, func() {
+		defer w.wg.Done()
+
 		w.mu.Lock()
 		kinds := w.pending[path]
 		delete(w.pending, path)
@@ -267,7 +353,12 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 			"ts", ev.Timestamp.Format(time.RFC3339Nano),
 		)
 
-		w.events <- ev
+		select {
+		case w.events <- ev:
+		case <-w.shuttingDown:
+			// Dropping a coalesced event during shutdown is the correct
+			// trade: the alternative is Stop hanging on a full buffer.
+		}
 	})
 	w.mu.Unlock()
 }
