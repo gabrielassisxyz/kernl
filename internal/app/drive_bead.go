@@ -496,7 +496,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				BeadDescription: gateDesc,
 				BaseSHA:         baseSHA,
 			}
-			gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
+			gatePassed, gateReason, gateEvidence := backend.EvaluateExitGateWithEvidence(wf, gateCtx)
 			if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 				AgentID:           agentID,
 				Dialect:           "subprocess",
@@ -510,6 +510,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				Worktree:          deps.Worktree,
 				GatePassed:        gatePassed,
 				GateFailureReason: gateReason,
+				GateEvidence:      gateEvidence,
 				ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
 				CausedBy:          takeRework(),
 			})); err != nil {
@@ -834,7 +835,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			BeadDescription: gateDesc,
 			BaseSHA:         baseSHA,
 		}
-		gatePassed, gateReason := backend.EvaluateExitGate(wf, gateCtx)
+		gatePassed, gateReason, gateEvidence := backend.EvaluateExitGateWithEvidence(wf, gateCtx)
 		if err := AppendStageAttempt(deps.StateDir, epicID, BuildStageAttemptRecord(StageAttemptInput{
 			AgentID:           agentInput.AgentName,
 			Dialect:           attemptDialect,
@@ -851,6 +852,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			Worktree:          deps.Worktree,
 			GatePassed:        gatePassed,
 			GateFailureReason: gateReason,
+			GateEvidence:      gateEvidence,
 			ReviewVerdict:     reviewVerdictForGate(wf, gateCtx),
 			CausedBy:          takeRework(),
 			FollowUpCount:     res.FollowUpCount,

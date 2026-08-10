@@ -647,6 +647,27 @@ type ExitGateContext struct {
 	BaseSHA string
 }
 
+// GateEvidence is what evaluateSingleExitGate actually observed while
+// judging one gate - added because a bare "commit_marker_missing:
+// implementation" gave no way to tell a stage that truly committed nothing
+// apart from one the gate reproved by mistake (three of ten investigated
+// failures were the latter, and the worktrees were long gone by the time
+// anyone looked). Only commit_marker populates the git-specific fields
+// today; every other gate type still sets GateType but leaves the rest
+// zero, so a reader can tell "this gate collects no evidence" (GateType
+// set, rest zero) apart from "no gate ran at all" (the zero value).
+type GateEvidence struct {
+	GateType     string `json:"gateType,omitempty"`
+	BaseSHA      string `json:"baseSHA,omitempty"`
+	HeadSHA      string `json:"headSHA,omitempty"`
+	WorktreePath string `json:"worktreePath,omitempty"`
+	// RangeOutput is the raw `git log --format=%H BaseSHA..HEAD` output the
+	// gate read. Empty IS the finding for commit_marker_missing, not an
+	// unset field.
+	RangeOutput   string `json:"rangeOutput,omitempty"`
+	TreesDiffered bool   `json:"treesDiffered,omitempty"`
+}
+
 // ResolveArtifactPath expands the <bead_id> and <artifact_dir> placeholders
 // used in a stage contract's or exit gate's Path/Inputs strings. It is pure
 // text substitution - a string with neither placeholder (e.g. "bead.title",
@@ -695,18 +716,40 @@ func FindExitGateByType(wf WorkflowDescriptor, state, gateType string) (gate Wor
 // more than one gate, ALL of them must pass; every failure is evaluated and
 // reported, not just the first one hit, so a run that fixes one failure does
 // not have to wait a full stage round trip to discover the next.
+//
+// It is a thin wrapper over EvaluateExitGateWithEvidence, discarding the
+// evidence. Kept this way - rather than a second implementation - so the
+// two can never drift apart: this signature has ~40 existing callers, most
+// of them tests, none of which need the evidence.
 func EvaluateExitGate(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, reason string) {
+	passed, reason, _ = EvaluateExitGateWithEvidence(wf, ctx)
+	return passed, reason
+}
+
+// EvaluateExitGateWithEvidence is EvaluateExitGate's one real
+// implementation, additionally returning what the failing (or passing)
+// gate actually observed. When a state declares several gates, the
+// returned evidence favors a commit_marker gate over any other on the same
+// state: it is the only gate type that collects evidence today, and
+// worker's "implementation" state carries it alongside decision_record -
+// picking "whichever gate ran last" would silently drop it whenever
+// decision_record happens to be declared after it.
+func EvaluateExitGateWithEvidence(wf WorkflowDescriptor, ctx ExitGateContext) (passed bool, reason string, ev GateEvidence) {
 	gates := wf.ExitGates[ctx.FromState]
 	var failures []string
 	for _, gate := range gates {
-		if ok, gateReason := evaluateSingleExitGate(gate, ctx); !ok {
+		ok, gateReason, gateEv := evaluateSingleExitGate(gate, ctx)
+		if !ok {
 			failures = append(failures, gateReason)
+		}
+		if ev.GateType == "" || gateEv.GateType == "commit_marker" {
+			ev = gateEv
 		}
 	}
 	if len(failures) > 0 {
-		return false, joinExitGateFailures(failures)
+		return false, joinExitGateFailures(failures), ev
 	}
-	return true, ""
+	return true, "", ev
 }
 
 // exitGateFailureEscaper escapes a single failure's own text before it is
@@ -767,9 +810,10 @@ func IsRejectableVerdictState(state string) bool {
 	return rejectableVerdictStates[state]
 }
 
-func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed bool, reason string) {
+func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed bool, reason string, ev GateEvidence) {
+	ev = GateEvidence{GateType: gate.Type}
 	if gate.Type == "" || gate.Type == "agent_exit_zero" {
-		return true, ""
+		return true, "", ev
 	}
 	switch gate.Type {
 	case "artifact_exists":
@@ -777,21 +821,21 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		// empty string and resolve against the filesystem root - looking
 		// like a real (missing) path instead of the unresolvable one it is.
 		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
-			return false, "artifact_dir_unset: " + gate.Path
+			return false, "artifact_dir_unset: " + gate.Path, ev
 		}
 		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		if _, err := os.Stat(abs); os.IsNotExist(err) {
-			return false, "artifact_missing: " + abs
+			return false, "artifact_missing: " + abs, ev
 		}
-		return true, ""
+		return true, "", ev
 	case "artifact_verdict":
 		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
-			return false, "artifact_dir_unset: " + gate.Path
+			return false, "artifact_dir_unset: " + gate.Path, ev
 		}
 		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		data, err := os.ReadFile(abs)
 		if err != nil {
-			return false, "artifact_missing: " + abs
+			return false, "artifact_missing: " + abs, ev
 		}
 		// The document must END WITH the literal line "VERDICT: PASS" (or,
 		// for integration_review, "VERDICT: REJECT") - not merely contain
@@ -806,7 +850,7 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 			lastLine = strings.TrimSpace(trimmed[idx+1:])
 		}
 		if lastLine == "VERDICT: PASS" {
-			return true, ""
+			return true, "", ev
 		}
 		// Two stages have somewhere to send a rejection, and only those two:
 		// integration_review hands one to the §7 fix-up mechanism, and
@@ -823,9 +867,9 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		// REJECT stays unrecognised for them: a non-PASS verdict there means
 		// only "this did not pass."
 		if rejectableVerdictStates[ctx.FromState] && lastLine == "VERDICT: REJECT" {
-			return false, "verdict_reject: " + abs
+			return false, "verdict_reject: " + abs, ev
 		}
-		return false, "verdict_not_pass: " + abs
+		return false, "verdict_not_pass: " + abs, ev
 	case "commit_marker":
 		// This gate used to also require gate.Path - a literal string like
 		// "stage: implementation" - to appear in a commit message: proof the
@@ -835,8 +879,16 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		// here still expecting that check; what is left is the part that
 		// actually answers this gate's purpose - did the stage leave any new
 		// commit at all.
+		ev.BaseSHA = ctx.BaseSHA
+		ev.WorktreePath = ctx.WorktreePath
+		// Best-effort: a worktree gone by the time this runs still leaves
+		// evidence naming the base and worktree it was asked about, rather
+		// than nothing at all.
+		if headOut, headErr := exec.Command("git", "-C", ctx.WorktreePath, "rev-parse", "HEAD").CombinedOutput(); headErr == nil {
+			ev.HeadSHA = strings.TrimSpace(string(headOut))
+		}
 		if ctx.BaseSHA == "" {
-			return false, "commit_marker_unscoped: " + ctx.FromState
+			return false, "commit_marker_unscoped: " + ctx.FromState, ev
 		}
 		// `git log <base>..HEAD` means "reachable from HEAD, not reachable
 		// from base" - it does NOT require base to be an ancestor of HEAD.
@@ -853,18 +905,19 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 				// Exit code 1 from --is-ancestor is a clean negative answer,
 				// not a broken command: base resolved fine, it just is not
 				// reachable from HEAD anymore.
-				return false, "commit_marker_history_rewritten: base " + ctx.BaseSHA + " is not an ancestor of HEAD"
+				return false, "commit_marker_history_rewritten: base " + ctx.BaseSHA + " is not an ancestor of HEAD", ev
 			}
-			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(ancestorOut))
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(ancestorOut)), ev
 		}
 		// Only the commit hashes are needed - the range's emptiness is the
 		// entire question now, not what any commit in it says.
 		out, err := exec.Command("git", "-C", ctx.WorktreePath, "log", "--format=%H", ctx.BaseSHA+"..HEAD").CombinedOutput()
 		if err != nil {
-			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(out))
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(out)), ev
 		}
-		if strings.TrimSpace(string(out)) == "" {
-			return false, "commit_marker_missing: " + ctx.FromState
+		ev.RangeOutput = strings.TrimSpace(string(out))
+		if ev.RangeOutput == "" {
+			return false, "commit_marker_missing: " + ctx.FromState, ev
 		}
 		// A non-empty range is not proof of work by itself: `git commit
 		// --allow-empty` leaves the tree byte-for-byte identical to base
@@ -877,31 +930,32 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		// gives ("the stage left nothing"), not a new outcome.
 		diffOut, err := exec.Command("git", "-C", ctx.WorktreePath, "diff", "--quiet", ctx.BaseSHA, "HEAD").CombinedOutput()
 		if err == nil {
-			return false, "commit_marker_missing: " + ctx.FromState
+			return false, "commit_marker_missing: " + ctx.FromState, ev
 		}
 		var diffExitErr *exec.ExitError
 		if !errors.As(err, &diffExitErr) || diffExitErr.ExitCode() != 1 {
-			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(diffOut))
+			return false, "commit_marker_unreadable: " + strings.TrimSpace(string(diffOut)), ev
 		}
 		// Exit 1 is `git diff --quiet`'s clean "yes, they differ" answer.
-		return true, ""
+		ev.TreesDiffered = true
+		return true, "", ev
 	case "description_contains":
 		if !strings.Contains(ctx.BeadDescription, gate.Path) {
-			return false, "description_missing: " + gate.Path
+			return false, "description_missing: " + gate.Path, ev
 		}
-		return true, ""
+		return true, "", ev
 	case "decision_record":
 		// Unlike artifact_exists/artifact_verdict, this gate reads the
 		// file's structure, not just its existence or its last line - an
 		// empty file satisfies artifact_exists but must not satisfy this
 		// one (that gap is why this gate type exists at all).
 		if strings.Contains(gate.Path, "<artifact_dir>") && ctx.ArtifactDir == "" {
-			return false, "artifact_dir_unset: " + gate.Path
+			return false, "artifact_dir_unset: " + gate.Path, ev
 		}
 		abs := ResolveArtifactFSPath(gate.Path, ctx.BeadID, ctx.WorktreePath, ctx.ArtifactDir)
 		data, err := os.ReadFile(abs)
 		if err != nil {
-			return false, "artifact_missing: " + abs
+			return false, "artifact_missing: " + abs, ev
 		}
 		// ParseDecisionRecordDocument's own error text already IS the gate
 		// reason: a "decision_record_invalid_json"/"decision_record_empty"/
@@ -910,11 +964,11 @@ func evaluateSingleExitGate(gate WorkflowExitGate, ctx ExitGateContext) (passed 
 		// "missing_sections" reason followed - an agent told "invalid"
 		// cannot fix it, one told which field at which index is missing can.
 		if _, err := ParseDecisionRecordDocument(string(data)); err != nil {
-			return false, err.Error()
+			return false, err.Error(), ev
 		}
-		return true, ""
+		return true, "", ev
 	default:
-		return true, ""
+		return true, "", ev
 	}
 }
 

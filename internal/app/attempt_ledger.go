@@ -95,8 +95,14 @@ type StageAttemptRecord struct {
 	DiffLinesRemoved  *int    `json:"diffLinesRemoved"`
 	GatePassed        bool    `json:"gatePassed"`
 	GateFailureReason *string `json:"gateFailureReason"`
-	ReviewVerdict     *string `json:"reviewVerdict"`
-	FirstPassApproved *bool   `json:"firstPassApproved"`
+	// GateEvidence is what the exit gate actually observed when it made its
+	// call - nil whenever the gate type collects none (see
+	// backend.GateEvidence), never a zero-value struct, so a ledger line
+	// written before this field existed still decodes the same way one
+	// written after it, with no evidence, does.
+	GateEvidence      *backend.GateEvidence `json:"gateEvidence,omitempty"`
+	ReviewVerdict     *string               `json:"reviewVerdict"`
+	FirstPassApproved *bool                 `json:"firstPassApproved"`
 	// CausedBy points at the review artifact whose deliberate rejection sent
 	// this bead back, when this attempt is the retry that rejection caused.
 	// Non-nil is the ledger's definition of rework: this attempt is redoing
@@ -211,7 +217,12 @@ type StageAttemptInput struct {
 	Worktree          string
 	GatePassed        bool
 	GateFailureReason string
-	ReviewVerdict     *string
+	// GateEvidence is backend.EvaluateExitGateWithEvidence's third return
+	// value. Zero value (GateType == "") means "collect nothing" and
+	// BuildStageAttemptRecord leaves the record's own field nil rather than
+	// writing an empty struct.
+	GateEvidence  backend.GateEvidence
+	ReviewVerdict *string
 	// CausedBy is the review artifact whose rejection this dispatch is
 	// answering, set by the driver when this dispatch is the retake of a
 	// rewind that same call performed. Empty means "not declared", which is
@@ -262,6 +273,12 @@ func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 		causedBy = &declared
 	}
 
+	var gateEvidence *backend.GateEvidence
+	if in.GateEvidence.GateType != "" {
+		evidence := in.GateEvidence
+		gateEvidence = &evidence
+	}
+
 	rec := StageAttemptRecord{
 		AgentID:           in.AgentID,
 		Dialect:           in.Dialect,
@@ -279,6 +296,7 @@ func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 		DiffLinesRemoved:  removed,
 		GatePassed:        in.GatePassed,
 		GateFailureReason: gateFailureReason,
+		GateEvidence:      gateEvidence,
 		CausedBy:          causedBy,
 		ReviewVerdict:     in.ReviewVerdict,
 		FollowUpCount:     in.FollowUpCount,
