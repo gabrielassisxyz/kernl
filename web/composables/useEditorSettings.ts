@@ -9,6 +9,13 @@ import { reactive, computed, watch } from 'vue'
 export type ViewMode = 'source' | 'live' | 'reading'
 export type EditorFont = 'sans' | 'serif' | 'mono'
 
+/**
+ * How a note's frontmatter sits above the body. `inline` is a slim metadata
+ * line - tags, category, dates - that opens into the editable panel on demand;
+ * `panel` keeps the panel itself on the page, collapsible to a one-line summary.
+ */
+export type FrontmatterMode = 'inline' | 'panel'
+
 export interface EditorSettings {
   viewMode: ViewMode
   lineNumbers: boolean
@@ -17,6 +24,7 @@ export interface EditorSettings {
   font: EditorFont
   fontSize: number
   headingScale: number
+  frontmatter: FrontmatterMode
 }
 
 const STORAGE_KEY = 'kernl.notes.editor-settings'
@@ -29,6 +37,7 @@ const DEFAULTS: EditorSettings = {
   font: 'sans',
   fontSize: 15,
   headingScale: 1,
+  frontmatter: 'inline',
 }
 
 export const FONT_SIZE_MIN = 13
@@ -62,6 +71,7 @@ function load(): EditorSettings {
       font: parsed.font ?? DEFAULTS.font,
       fontSize: clamp(Number(parsed.fontSize) || DEFAULTS.fontSize, FONT_SIZE_MIN, FONT_SIZE_MAX),
       headingScale: clamp(Number(parsed.headingScale) || DEFAULTS.headingScale, HEADING_SCALE_MIN, HEADING_SCALE_MAX),
+      frontmatter: parsed.frontmatter ?? DEFAULTS.frontmatter,
     }
   } catch {
     return { ...DEFAULTS }
@@ -111,9 +121,15 @@ export function useEditorSettings() {
   function setHeadingScale(scale: number) {
     settings.headingScale = clamp(Number(scale.toFixed(2)), HEADING_SCALE_MIN, HEADING_SCALE_MAX)
   }
+  function setFrontmatterMode(mode: FrontmatterMode) {
+    settings.frontmatter = mode
+  }
   function reset() {
     Object.assign(settings, DEFAULTS)
   }
 
-  return { settings, styleVars, setViewMode, setFont, setFontSize, setHeadingScale, reset }
+  return {
+    settings, styleVars,
+    setViewMode, setFont, setFontSize, setHeadingScale, setFrontmatterMode, reset,
+  }
 }

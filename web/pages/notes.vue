@@ -94,6 +94,7 @@
         v-if="selectedFile"
         :path="selectedFile"
         :key="selectedFile"
+        :note="selectedNote"
         :sidebar-collapsed="sidebarCollapsed"
         @open-wikilink="openWikilink"
         @toggle-sidebar="toggleSidebar"
@@ -193,6 +194,13 @@ const {
 
 const searchPlaceholder = computed(() =>
   isTags.value ? 'Search notes inside tags' : 'Search notes'
+)
+
+// The open note's index entry, so the editor's frontmatter block can show the
+// category and the graph timestamps. Null until the index loads, and for a file
+// the index does not carry - the block simply omits what it does not have.
+const selectedNote = computed(() =>
+  notes.value.find((n) => n.path === selectedFile.value) || null
 )
 
 // The shell footer reports what the open screen is showing; Notes is the first

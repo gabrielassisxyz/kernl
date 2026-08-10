@@ -14,12 +14,13 @@
       :class="{ 'notes-editor-scroll--typewriter': settings.typewriter }"
     >
       <div class="notes-editor-measure" :class="{ 'is-reading': settings.viewMode === 'reading' }">
-        <NoteProperties
+        <NoteFrontmatter
           v-if="settings.viewMode !== 'source'"
           :data="frontmatterData"
           :parse-error="frontmatterError"
           :readonly="settings.viewMode === 'reading'"
           :show-id="settings.showId"
+          :note="note"
           @update:data="applyFrontmatterUpdate"
         />
         <div ref="editorContainer" class="notes-editor-cm"></div>
@@ -68,7 +69,7 @@ import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
 import { typewriterExtension } from '~/utils/typewriterMode'
 import { replaceFrontmatter, splitFrontmatter } from '~/utils/frontmatter'
 import { useEditorSettings } from '~/composables/useEditorSettings'
-import NoteProperties from './NoteProperties.vue'
+import NoteFrontmatter from './NoteFrontmatter.vue'
 import NoteEditorToolbar from './NoteEditorToolbar.vue'
 import DiffSuggest from './DiffSuggest.vue'
 import UiButton from '~/components/ui/UiButton.vue'
@@ -98,6 +99,9 @@ const props = defineProps({
   path: String,
   initialContent: String,
   sidebarCollapsed: Boolean,
+  // The vault-index entry for this note. Category and dates are graph facts,
+  // not frontmatter, so the frontmatter block cannot derive them from the file.
+  note: { type: Object, default: null },
 })
 
 // open-wikilink: emitted when a wikilink pill is clicked.
@@ -412,11 +416,14 @@ const rejectHunk = (hunk) => {
   overflow-x: hidden;
 }
 
+/* The bottom padding is deliberately not the prototype's fixed 96px: it lets
+   the closing lines of a note scroll up to a comfortable reading height
+   instead of stopping at the bottom edge. */
 .notes-editor-measure {
   width: 100%;
-  max-width: 760px;
+  max-width: 740px;
   margin: 0 auto;
-  padding: 28px 40px 25vh;
+  padding: 26px 32px 25vh;
 }
 
 .notes-editor-measure.is-reading {
