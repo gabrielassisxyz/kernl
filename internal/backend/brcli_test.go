@@ -1022,6 +1022,67 @@ func TestBrCliCloseTrustsTheBeadsStateOverBrsWording(t *testing.T) {
 	}
 }
 
+// step 1 of the orchestrator bug batch: sweep's convergence loop needs to
+// tell an ordering refusal (retryable once the blocker itself closes) apart
+// from a tracker failure, and must not repeat br's own "--force" suggestion -
+// disabling the guard that produced this refusal is never the right advice
+// for code driving a close automatically. errors.As is how a caller like
+// sweep recovers this, rather than matching text.
+func TestBrCliCloseRefusedForOpenChildren_IsTypedAndRedactsForceHint(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"close ep-1": `{"closed":[],"skipped":[{"id":"ep-1","reason":"epic has 1/1 open children (use --force to close anyway)"}]}
+{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped \u2014 ep-1: epic has 1/1 open children (use --force to close anyway)","hint":"Skipped issue(s) have open children. Close the children first, or re-run with --force to close anyway."}}`,
+		"show ep-1": `[{"id":"ep-1","status":"open"}]`,
+	})
+
+	_, err := NewBrCliBackend(repo).Close("ep-1", "merged", repo)
+
+	var refusal *CloseRefusedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("expected a *CloseRefusedError, got %T: %v", err, err)
+	}
+	if refusal.Kind != CloseRefusalOpenChildren {
+		t.Errorf("expected CloseRefusalOpenChildren, got %v", refusal.Kind)
+	}
+	if strings.Contains(err.Error(), "--force") {
+		t.Errorf("the --force suggestion must be redacted for an ordering refusal, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "open children") {
+		t.Errorf("the real cause must still be readable, got: %v", err)
+	}
+}
+
+// The same NOTHING_TO_DO code also covers a bead refused because its own
+// dependency (not a child) is still open - the refusal a dependency chain
+// hits at every level but the last. Captured against a live br 0.2.19
+// install: closing a bead with an open "blocks" dependency gives this exact
+// skip reason and hint, distinct from the epic/open-children wording above.
+func TestBrCliCloseRefusedForOpenDependency_IsTypedAndRedactsForceHint(t *testing.T) {
+	repo := brRepo(t)
+	newFakeBr(t, map[string]string{
+		"close kb-2": `{"closed":[],"skipped":[{"id":"kb-2","reason":"blocked by: kb-1 \u2014 close the open blocker(s) first, or use --force to close anyway"}]}
+{"error":{"code":"NOTHING_TO_DO","message":"Nothing to do: all 1 issue(s) skipped \u2014 kb-2: blocked by: kb-1 \u2014 close the open blocker(s) first, or use --force to close anyway","hint":"Skipped issue(s) have open blocking dependencies. Close the blockers first, or re-run with --force to close anyway."}}`,
+		"show kb-2": `[{"id":"kb-2","status":"open"}]`,
+	})
+
+	_, err := NewBrCliBackend(repo).Close("kb-2", "merged", repo)
+
+	var refusal *CloseRefusedError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("expected a *CloseRefusedError, got %T: %v", err, err)
+	}
+	if refusal.Kind != CloseRefusalOpenDependents {
+		t.Errorf("expected CloseRefusalOpenDependents, got %v", refusal.Kind)
+	}
+	if strings.Contains(err.Error(), "--force") {
+		t.Errorf("the --force suggestion must be redacted for an ordering refusal, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "blocked by: kb-1") {
+		t.Errorf("the real cause must still be readable, got: %v", err)
+	}
+}
+
 // A result that merely mentions an error is not a failure; only a document
 // whose top level is {"error": {...}} is.
 func TestBrCliDoesNotMistakeAnErrorFieldForAFailure(t *testing.T) {

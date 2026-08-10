@@ -100,6 +100,11 @@ type brErrorBody struct {
 type brCommandError struct {
 	code    string
 	message string
+	// hint is the envelope's own advisory field - a fixed, two-sentence
+	// shape (see classifyCloseRefusal) - kept apart from message and
+	// payload because it is what recoverNoOpClose reads to classify a close
+	// refusal without pattern-matching the free-form per-issue reason.
+	hint    string
 	payload []byte
 	text    string
 }
@@ -146,15 +151,16 @@ func (b *BrCliBackend) run(ctx context.Context, repoPath string, args ...string)
 	// br's own reason is more precise than the exit status, so it wins whenever
 	// there is one.
 	if envelope != nil {
-		hint := ""
+		hintSuffix := ""
 		if envelope.Hint != "" {
-			hint = " - Hint: " + envelope.Hint
+			hintSuffix = " - Hint: " + envelope.Hint
 		}
 		return nil, &brCommandError{
 			code:    envelope.Code,
 			message: envelope.Message,
+			hint:    envelope.Hint,
 			payload: payload,
-			text:    fmt.Sprintf("KERNL DISPATCH FAILURE: br %s: %s: %s%s", strings.Join(args, " "), envelope.Code, envelope.Message, hint),
+			text:    fmt.Sprintf("KERNL DISPATCH FAILURE: br %s: %s: %s%s", strings.Join(args, " "), envelope.Code, envelope.Message, hintSuffix),
 		}
 	}
 	if runErr != nil {
@@ -586,6 +592,14 @@ func (b *BrCliBackend) recoverNoOpClose(id, repoPath string, closeErr error) (*T
 	}
 	if bead.ClosedAt != "" {
 		return nil, fmt.Errorf("%s: %w", id, ErrAlreadyClosed)
+	}
+	// Telling an ordering refusal apart from a genuine tracker failure is a
+	// lower-stakes read of br's wording than the closed-vs-failure decision
+	// above: a caller (sweep) that recovers this with errors.As and finds
+	// none still has the same generic failure text it always had, so a
+	// wording change degrades to "unrecognised", never to a wrong verdict.
+	if kind, ok := classifyCloseRefusal(brErr.hint); ok {
+		return nil, &CloseRefusedError{ID: id, Kind: kind, Reason: redactForceHint(kind, skipReason)}
 	}
 	return nil, fmt.Errorf("KERNL DISPATCH FAILURE: br close %s refused: %s", id, skipReason)
 }

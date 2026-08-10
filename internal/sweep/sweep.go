@@ -101,18 +101,24 @@ func (s *Sweeper) processEpic(e Epic) {
 		s.report(fmt.Sprintf("sweep: epic %s has no pr_url yet - skipping until the shipment stage writes one", e.ID))
 		return
 	}
+	// The breaker is checked once, ahead of both paths below: a cached
+	// "merged" epic used to skip straight to closeAll, bypassing the
+	// breaker entirely, so an epic whose children never converge kept
+	// regenerating the same close attempts (and WARN logs) on every tick
+	// forever instead of backing off like a GH failure does.
 	s.mu.Lock()
-	if s.mergedCache[e.PRURL] {
-		s.mu.Unlock()
+	br := s.breakers[e.ID]
+	breakerOpen := br != nil && time.Now().Before(br.openUntil)
+	merged := s.mergedCache[e.PRURL]
+	s.mu.Unlock()
+
+	if breakerOpen {
+		return
+	}
+	if merged {
 		s.closeAll(e, "merged via PR (cached)")
 		return
 	}
-	br := s.breakers[e.ID]
-	if br != nil && time.Now().Before(br.openUntil) {
-		s.mu.Unlock()
-		return
-	}
-	s.mu.Unlock()
 
 	state, err := s.gh.View(e.PRURL)
 	if err != nil {
@@ -156,45 +162,87 @@ func (s *Sweeper) closeAll(e Epic, reason string) {
 		return
 	}
 
-	// Track what actually closed, not what was attempted: a receipt that
-	// counts a failed child as closed is worse than no receipt at all. The
-	// failing ids are collected (not just counted) so the receipt names
-	// them directly instead of pointing at a WARN on a different stream -
-	// the receipt goes through ReportHook (stdout in the CLI), the WARN
-	// stays on log (stderr), and "see above" is not true across streams.
-	//
-	// A close that reports backend.ErrAlreadyClosed reached the desired end
-	// state before this run touched it - a re-run after a partial failure
-	// hits this on every bead the previous run did manage to close. That is
-	// not a failure, but it is also not something this run gets credit for,
-	// so it is tracked apart from both the ordinary closes and the failures.
-	var failedChildren []failedChild
-	var alreadyClosedChildren []string
-	for _, c := range e.Children {
-		err := s.b.Close(c, reason)
-		switch {
-		case err == nil:
-		case errors.Is(err, backend.ErrAlreadyClosed):
-			alreadyClosedChildren = append(alreadyClosedChildren, c)
-		default:
-			log.Printf("WARN sweep: failed to close child %s: %v", c, err)
-			failedChildren = append(failedChildren, failedChild{ID: c, Cause: err})
-		}
-	}
+	closedThisRun, alreadyClosedChildren, failedChildren := s.closeChildrenUntilConverged(reason, e.Children)
 
 	var epicErr error
-	epicAlreadyClosed := false
-	if err := s.b.Close(e.ID, reason); err != nil {
-		if errors.Is(err, backend.ErrAlreadyClosed) {
-			epicAlreadyClosed = true
+	epicAlreadyClosed, epicClosedThisRun := false, false
+	// The epic's own close is attempted only once every child either closed
+	// this run or was already closed. Attempting it while any child remains
+	// unresolved would guarantee a failing close - and with it br's own
+	// "--force" hint - on every tick that does not fully converge.
+	if len(failedChildren) == 0 {
+		if err := s.b.Close(e.ID, reason); err != nil {
+			if errors.Is(err, backend.ErrAlreadyClosed) {
+				epicAlreadyClosed = true
+			} else {
+				log.Printf("WARN sweep: failed to close epic %s: %v", e.ID, err)
+				epicErr = err
+			}
 		} else {
-			log.Printf("WARN sweep: failed to close epic %s: %v", e.ID, err)
-			epicErr = err
+			epicClosedThisRun = true
 		}
 	}
 
-	closedChildren := len(e.Children) - len(failedChildren)
-	s.report(closeReceipt(e.ID, closedChildren, len(e.Children), failedChildren, alreadyClosedChildren, epicErr, epicAlreadyClosed, reason))
+	closedChildren := len(closedThisRun) + len(alreadyClosedChildren)
+	epicSkipped := len(failedChildren) > 0
+	s.report(closeReceipt(e.ID, closedChildren, len(e.Children), failedChildren, alreadyClosedChildren, epicErr, epicAlreadyClosed, epicSkipped, reason))
+
+	// Feed the outcome into the same breaker/backoff a GH failure already
+	// uses: an epic that made no progress at all (every failure this run
+	// repeats the exact one from last time) must not regenerate the same
+	// close attempts on every tick forever. Any real progress - a child or
+	// the epic itself closing that had not before - resets the breaker,
+	// because that is the dependency state changing, not the epic being
+	// stuck.
+	progressed := len(closedThisRun) > 0 || epicClosedThisRun
+	resolved := len(failedChildren) == 0 && (epicClosedThisRun || epicAlreadyClosed)
+	if resolved || progressed {
+		s.recordSuccess(e.ID)
+	} else {
+		s.recordFailure(e.ID)
+	}
+}
+
+// closeChildrenUntilConverged repeats a pass over e.Children until a pass
+// closes nothing new, so a dependency chain converges within this one run
+// instead of needing one sweep tick per level: a child that refuses because
+// its own blocker is still open is retried once that blocker resolves,
+// possibly in a later pass of the same run. backend.ErrAlreadyClosed is
+// still per-child "no progress from this call", but it removes the child
+// from the retry set exactly like a real close does - it reached the
+// desired end state, just not by this run's doing.
+//
+// Passes are capped at len(children): that is the deepest chain this many
+// children can form, and it also bounds the case where every pass makes
+// some progress but never fully empties the retry set.
+func (s *Sweeper) closeChildrenUntilConverged(reason string, children []string) (closedThisRun, alreadyClosedChildren []string, failedChildren []failedChild) {
+	remaining := children
+	for pass := 0; len(remaining) > 0 && pass < len(children); pass++ {
+		var stillOpen []string
+		var passFailures []failedChild
+		for _, c := range remaining {
+			err := s.b.Close(c, reason)
+			switch {
+			case err == nil:
+				closedThisRun = append(closedThisRun, c)
+			case errors.Is(err, backend.ErrAlreadyClosed):
+				alreadyClosedChildren = append(alreadyClosedChildren, c)
+			default:
+				log.Printf("WARN sweep: failed to close child %s: %v", c, err)
+				stillOpen = append(stillOpen, c)
+				passFailures = append(passFailures, failedChild{ID: c, Cause: err})
+			}
+		}
+		failedChildren = passFailures
+		if len(stillOpen) == len(remaining) {
+			// Zero progress this pass: no later pass can do better, so
+			// there is no reason to spend the rest of the cap re-asking the
+			// same question.
+			return
+		}
+		remaining = stillOpen
+	}
+	return
 }
 
 // failedChild pairs a child that genuinely refused to close with the reason
@@ -233,7 +281,7 @@ func describeFailedChildren(failures []failedChild) []string {
 // streams (stdout vs stderr) with no guaranteed ordering between them, so a
 // cross-stream position reference can point at a line the reader never
 // sees.
-func closeReceipt(epicID string, closedChildren, totalChildren int, failedChildren []failedChild, alreadyClosedChildren []string, epicErr error, epicAlreadyClosed bool, reason string) string {
+func closeReceipt(epicID string, closedChildren, totalChildren int, failedChildren []failedChild, alreadyClosedChildren []string, epicErr error, epicAlreadyClosed, epicSkipped bool, reason string) string {
 	childDetail := fmt.Sprintf("%d/%d children closed", closedChildren, totalChildren)
 	if len(alreadyClosedChildren) > 0 {
 		childDetail += fmt.Sprintf(" (already closed: %s)", strings.Join(alreadyClosedChildren, ", "))
@@ -245,13 +293,20 @@ func closeReceipt(epicID string, closedChildren, totalChildren int, failedChildr
 	if epicErr != nil {
 		return fmt.Sprintf("sweep: epic %s NOT closed (%v), %s - reason: %s", epicID, epicErr, childDetail, reason)
 	}
+	// epicSkipped means closeAll never attempted the epic's own close at
+	// all, because a child was still unresolved after every pass - distinct
+	// from epicErr above, where the close was attempted and the tracker
+	// itself refused it.
+	if epicSkipped {
+		return fmt.Sprintf("sweep: epic %s not closed - children unresolved, %s - reason: %s", epicID, childDetail, reason)
+	}
 	// An epic already closed before this run reached it (a re-run after a
 	// partial failure, most often) did not get closed BY this run, so the
 	// receipt says so instead of claiming a close that did not happen here.
 	if epicAlreadyClosed {
 		return fmt.Sprintf("sweep: epic %s already closed, %s - reason: %s", epicID, childDetail, reason)
 	}
-	if len(failedChildren) > 0 || len(alreadyClosedChildren) > 0 {
+	if len(alreadyClosedChildren) > 0 {
 		return fmt.Sprintf("sweep: closed epic %s, %s - reason: %s", epicID, childDetail, reason)
 	}
 	return fmt.Sprintf("sweep: closed epic %s and %d children - reason: %s", epicID, totalChildren, reason)
