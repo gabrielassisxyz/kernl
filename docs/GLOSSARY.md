@@ -69,3 +69,20 @@ That boundary is one-way while sync is: **the file loses, the node wins.** A tas
 ## kernl/ namespace
 
 The one vault folder Kernl writes generated notes into (`kernl/tasks/`, `kernl/projects/`, `kernl/bookmarks/`, `kernl/DA/`). It exists so a regeneration can never overwrite something a person wrote, and so the rest of the vault stays organized however its owner wants, by tag rather than by folder. The folder is tidiness, never identity: no code infers "this note describes a task" from a path, and `kernl doctor` reports notes living there that no entity claims instead of moving or refusing them. Distinct from `.kernl/`, which holds machine blobs nobody opens by hand (archived pages, ingest staging) and is hidden for that reason. See `internal/vault/layout`.
+
+## `author:` (note frontmatter)
+
+Who a note's mutations are attributed to in the graph. It is a single frontmatter key on the note file, and `author: da` is how a note is declared to be the DA's rather than the user's. The DA maintains such a note; the user still owns what it says.
+
+The mapping is in `resolveAuthor` (`internal/vault/reconcile/reconcile.go`), and there are only four cases:
+
+| frontmatter | recorded author |
+| --- | --- |
+| absent or empty | `human` |
+| `da` | `agent:da` |
+| already prefixed `agent:*` | preserved as written |
+| anything else | that value, taken as a human identifier |
+
+Two consequences are worth knowing before writing the key. **The default is `human`, not "unknown"**: a note the DA wrote but did not stamp is indistinguishable from one the user typed, which is why the stamp is added when the note is created rather than remembered later. And **only `da` gets the `agent:` prefix added for you**: any other agent has to spell `agent:<name>` itself, because a bare name is read as a person.
+
+The file is where the value lives. Writing a note through the API writes the file and nothing else (`internal/api/notes.go`); the author is resolved from the frontmatter when the vault is reconciled, so there is no second place to set it and no way for an API call to claim an authorship the file contradicts. Nothing about it is inferred either: a note living under `kernl/` is not the DA's by virtue of its path, and a note the DA edited is not the DA's until the key says so.
