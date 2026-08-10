@@ -356,6 +356,18 @@ should follow before inventing another.
 - **Compact rows.** While the panel is open the rows give up their metadata columns rather than truncating every title to nothing.
 - **Destructive actions are two-step and inline.** The row asks in place of its action cluster instead of opening a dialog over the list.
 
+### The Vault Panel and the Frontmatter Block
+
+Notes is not an index beside a panel, so it does not follow the pattern above.
+It is a browsing surface beside a document, and it established two patterns of
+its own that a second document-shaped screen should reuse.
+
+- **The vault panel is a permanent 320px column, not an `aside` that opens.** The list is how the document is chosen, so it has no closed state to return to; the shell collapses the grid track instead, and the panel keeps its fixed inner width so the content slides behind `overflow: hidden` rather than reflowing on the way out.
+- **Filter chips own their menus.** A chip reads as active whenever its filter is doing something, not only while its menu is open, because a filter that silently narrows a list is how a screen ends up accused of losing data. A chip whose filter only applies to one tab exists only on that tab.
+- **Pinned is a group, never a sort key.** Pinning moves a row into its own section above the rest; it does not reorder the section it came from. A pin is curation of the vault, so it lives in the database rather than in a browser, and the pin control stays visible while it is lit.
+- **Category is one muted grey wherever it renders.** The node-type colors serve the Graph; a per-row pill repeating them turns a list into a legend. The pill reads the same in the list, in the properties panel and in the frontmatter line.
+- **The frontmatter block has two modes and the choice lives in editor settings.** `inline` is a metadata line under the title (tags, category, timestamps) that opens into the editable panel; `panel` keeps the panel on the page, collapsible to a one-line summary. It is a preference set once, so it belongs in the settings popover rather than in a second segmented control next to the view-mode one. Invalid YAML forces the panel open in either mode: the notice that explains the breakage lives inside it.
+
 ### Signature Components
 
 - **Graph Canvas:** Full-bleed SVG graph surface whose SVG presentation attributes and node-type colors reference design-token CSS variables.
@@ -368,14 +380,15 @@ should follow before inventing another.
 The token layer is applied everywhere: every screen already renders on the palette,
 type scale, and radius scale above. The structural half is not. Tasks and Projects
 are the two screens built to the pattern described under Lists, Rows and the Inline
-Panel; the shell around them is the sidebar described under Navigation.
+Panel; Notes is built to the one described under The Vault Panel and the Frontmatter
+Block; the shell around all three is the sidebar described under Navigation.
 
 Every other screen still carries its previous structure on the new tokens: Home,
-Notes, Inbox, Bookmarks, Memory, Graph, Ingest, Audit, Settings, Orchestrator, and
-the two redirects into Home. Those screens work; they simply predate the pattern.
-Read this section before treating one of them as a precedent, because a screen
-older than the pattern records what the product used to do. Porting each one is
-tracked as its own task in the graph rather than here.
+Inbox, Bookmarks, Memory, Graph, Ingest, Audit, Settings, Orchestrator, and the two
+redirects into Home. Those screens work; they simply predate the patterns. Read this
+section before treating one of them as a precedent, because a screen older than the
+pattern records what the product used to do. Porting each one is tracked as its own
+task in the graph rather than here.
 
 ## Do's and Don'ts
 
