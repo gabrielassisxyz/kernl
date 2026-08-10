@@ -130,6 +130,35 @@ func forgetInTx(tx *graph.WriteTx, path string) error {
 	return nil
 }
 
+// SetPinned pins or unpins a note in the vault index. Returns graph.ErrNotFound
+// when no note_paths row carries that UUID.
+//
+// The pin lives here rather than on the node's attrs because a note's attrs are
+// rebuilt from the file on every reconcile - Note.NodeAttrs() returns a fresh
+// map and updateNode writes it over the previous one - so a pin kept there
+// would survive until the next edit of the note and then disappear silently.
+// Upsert touches only path, content_hash and updated_at, so this column is
+// invisible to indexing; and a note deleted from disk loses its row, taking the
+// pin with it, which is what deleting a note should do.
+func SetPinned(ctx context.Context, tx *graph.WriteTx, uuid string, pinned bool) error {
+	value := 0
+	if pinned {
+		value = 1
+	}
+	res, err := tx.Exec(`UPDATE note_paths SET pinned = ? WHERE uuid = ?`, value, uuid)
+	if err != nil {
+		return fmt.Errorf("reconcile: set pinned uuid=%q: %w", uuid, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reconcile: set pinned uuid=%q: rows affected: %w", uuid, err)
+	}
+	if n == 0 {
+		return graph.ErrNotFound
+	}
+	return nil
+}
+
 // FindByContentHash returns the UUID of the note_paths row whose content_hash
 // matches hash. Returns found=false (no error) when no row matches.
 //
@@ -423,7 +452,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 		return fmt.Errorf("reconcile OnCreate %q: frontmatter: %w", absPath, err)
 	}
 
-	author := resolveAuthor(fm.Author)
+	author := ResolveAuthor(fm.Author)
 	title := resolveTitle(fm, absPath)
 	body := extractBody(raw)
 	relPath := r.relPath(absPath)
@@ -719,7 +748,7 @@ func (r *Reconciler) OnChange(ctx context.Context, absPath string) error {
 		return r.OnCreate(ctx, absPath)
 	}
 
-	author := resolveAuthor(fm.Author)
+	author := ResolveAuthor(fm.Author)
 	title := resolveTitle(fm, absPath)
 	body := extractBody(raw)
 	relPath := r.relPath(absPath)
@@ -790,12 +819,17 @@ func parseAndInject(absPath string, raw []byte) (*frontmatter.Frontmatter, []byt
 	return fm, raw, nil
 }
 
-// resolveAuthor maps frontmatter author to a nodes.Author following R15/AE6:
+// ResolveAuthor maps frontmatter author to a nodes.Author following R15/AE6:
 //   - absent / empty → Author{Name: "human"}
 //   - already prefixed "agent:*" → preserved
 //   - "da" → agent:da
 //   - any other value → Author{Name: value} (treated as human identifier)
-func resolveAuthor(fmAuthor string) nodes.Author {
+//
+// Exported because it is the single definition of that mapping, and the notes
+// list endpoint has to answer "whose note is this?" from the same rule the
+// reconciler wrote the node with. A second copy in the API would drift the day
+// one of them learns about a new agent.
+func ResolveAuthor(fmAuthor string) nodes.Author {
 	if fmAuthor == "" {
 		return nodes.Author{Name: "human"}
 	}

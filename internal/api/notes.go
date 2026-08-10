@@ -16,6 +16,8 @@ import (
 )
 
 func RegisterNotesRoutes(mux *http.ServeMux, a *app.App) {
+	registerNotesIndexRoutes(mux, a)
+
 	// Tag hierarchy sourced from the graph (one request, vs the editor's old
 	// N+1 fetch-every-file-and-parse-frontmatter approach).
 	mux.HandleFunc("GET /api/notes/tags", func(w http.ResponseWriter, r *http.Request) {

@@ -353,15 +353,19 @@ func TestMigration004BatchLogsRoundTrip(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := r.Up(ctx); err != nil {
-		t.Fatalf("Up: %v", err)
+	// UpTo(4), not Up(): this test is about migration 4's own round trip, and
+	// migrating to whatever the head happens to be made it assert the head's
+	// number, so every later migration broke a test that has nothing to do
+	// with it.
+	if err := r.UpTo(ctx, 4); err != nil {
+		t.Fatalf("UpTo(4): %v", err)
 	}
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
 	if dirty {
-		t.Fatal("schema_migrations is dirty after Up")
+		t.Fatal("schema_migrations is dirty after UpTo(4)")
 	}
 	if ver != 4 {
 		t.Fatalf("expected version 4, got %d", ver)
@@ -395,6 +399,96 @@ func TestMigration004BatchLogsRoundTrip(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("batch_logs table should be gone after down")
+	}
+}
+
+// hasColumn reports whether table carries a column by that name.
+func hasColumn(t *testing.T, db *sql.DB, table, column string) bool {
+	t.Helper()
+	rows, err := db.Query(`SELECT name FROM pragma_table_info(?)`, table)
+	if err != nil {
+		t.Fatalf("pragma_table_info(%s): %v", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatalf("scan column name: %v", err)
+		}
+		if name == column {
+			return true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("pragma_table_info(%s): %v", table, err)
+	}
+	return false
+}
+
+func TestMigration005VaultPinsRoundTrip(t *testing.T) {
+	db := schemaOpenTemp(t)
+
+	r, err := migrate.New(db, schema.FS)
+	if err != nil {
+		t.Fatalf("migrate.New: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := r.UpTo(ctx, 5); err != nil {
+		t.Fatalf("UpTo(5): %v", err)
+	}
+	ver, dirty, err := r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if dirty {
+		t.Fatal("schema_migrations is dirty after UpTo(5)")
+	}
+	if ver != 5 {
+		t.Fatalf("expected version 5, got %d", ver)
+	}
+
+	for _, table := range []string{"note_paths", "tags"} {
+		if !hasColumn(t, db, table, "pinned") {
+			t.Errorf("%s.pinned should exist after 0005", table)
+		}
+	}
+
+	// The default matters: every row that predates the migration has to come
+	// out unpinned rather than NULL, because the index reads the column
+	// directly into a bool.
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO note_paths(uuid, path) VALUES (?, ?)`, "u1", "notes/a.md"); err != nil {
+		t.Fatalf("insert note_paths: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO tags(id, name) VALUES (?, ?)`, "t1", "kernl"); err != nil {
+		t.Fatalf("insert tag: %v", err)
+	}
+	var notePinned, tagPinned int
+	if err := db.QueryRow(`SELECT pinned FROM note_paths WHERE uuid = 'u1'`).Scan(&notePinned); err != nil {
+		t.Fatalf("read note_paths.pinned: %v", err)
+	}
+	if err := db.QueryRow(`SELECT pinned FROM tags WHERE id = 't1'`).Scan(&tagPinned); err != nil {
+		t.Fatalf("read tags.pinned: %v", err)
+	}
+	if notePinned != 0 || tagPinned != 0 {
+		t.Errorf("pinned defaults = note %d, tag %d; want 0 and 0", notePinned, tagPinned)
+	}
+
+	if err := r.Down(ctx); err != nil {
+		t.Fatalf("Down from v5: %v", err)
+	}
+	ver, _, err = r.Current(ctx)
+	if err != nil {
+		t.Fatalf("Current after Down: %v", err)
+	}
+	if ver != 4 {
+		t.Fatalf("expected version 4 after Down, got %d", ver)
+	}
+	for _, table := range []string{"note_paths", "tags"} {
+		if hasColumn(t, db, table, "pinned") {
+			t.Errorf("%s.pinned should be gone after down", table)
+		}
 	}
 }
 
