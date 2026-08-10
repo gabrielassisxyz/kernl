@@ -206,8 +206,12 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	})
 	defer d.nudges.SetRunning(sessionID, false)
 
-	r.Start(ctx, stdout, stderr)
-
+	// Registration BEFORE the readers, and the order is the contract: a
+	// reader that consumes the terminal event while onTurnEnded is still nil
+	// drops the only signal that fires a follow-up, and no later barrier can
+	// replay it - WaitDrained waits for the readers to finish, not for a
+	// callback that was never called. The pump is safe to start first
+	// because r.events is created by the constructor, not by Start.
 	w := &sessionPump{
 		scm:       d.scm,
 		runtime:   r,
@@ -217,6 +221,10 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		backend:   d.backend,
 	}
 	w.start()
+	reportRunBeadPhase(phasePumpRegistered)
+
+	r.Start(ctx, stdout, stderr)
+	reportRunBeadPhase(phaseReadersStarted)
 
 	// Drain stdout/stderr to EOF before reaping the process. exec.Cmd's
 	// StdoutPipe/StderrPipe are closed by Wait() as soon as it sees the
@@ -315,6 +323,34 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		Nudged:            nudged,
 		GateFailureReason: gateFailureReason,
 	}, nil
+}
+
+// The two RunBead phases whose ORDER is a correctness invariant rather than
+// an implementation detail. They exist because the invariant is otherwise
+// untestable: "a reader saw a nil callback" only reproduces when the reader
+// goroutine happens to win, so a passing `-count=N` loop is evidence of
+// scheduling luck and never of the ordering. Recording the order instead is
+// deterministic - the buggy arrangement reports readers first, every run.
+const (
+	phasePumpRegistered = "pump_registered"
+	phaseReadersStarted = "readers_started"
+)
+
+// runBeadPhaseHook is nil in production; a test sets it to capture the order
+// above. Guarded by runBeadPhaseMu so -race stays quiet when a test that sets
+// it runs beside one that does not.
+var (
+	runBeadPhaseHook func(phase string)
+	runBeadPhaseMu   sync.RWMutex
+)
+
+func reportRunBeadPhase(phase string) {
+	runBeadPhaseMu.RLock()
+	hook := runBeadPhaseHook
+	runBeadPhaseMu.RUnlock()
+	if hook != nil {
+		hook(phase)
+	}
 }
 
 type sessionPump struct {
