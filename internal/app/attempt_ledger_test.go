@@ -317,6 +317,154 @@ func TestAppendStageAttempt_CodexRow_CarriesEveryReportedField(t *testing.T) {
 	}
 }
 
+// pi and opencode report no num_turns field of their own (Usage.Turns is
+// always nil for them - see session.ExtractTokenUsageFromEvent), so the
+// ledger's live turn count has to reach StageAttemptRecord.Turns through
+// StageAttemptInput.Turns instead, populated from
+// session.SessionRuntime.CountedTurns via RunBeadResult.Turns.
+func TestAppendStageAttempt_PiRow_PersistsLiveTurnsWhenUsageReportsNone(t *testing.T) {
+	stateDir := t.TempDir()
+	turns := int64(5)
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID:    "pi-kimi",
+		Dialect:    "pi",
+		Pool:       "implementation",
+		BeadID:     "bead-pi",
+		Stage:      "implementation",
+		SessionID:  "sess-pi",
+		StartedAt:  time.Now(),
+		Duration:   time.Second,
+		ExitCode:   intPtr(0),
+		GatePassed: true,
+		DiffStats:  fakeDiffStatter{},
+		Usage: &session.TokenUsageCounts{
+			InputTokens:  10,
+			OutputTokens: 2,
+			TotalTokens:  12,
+			// Turns intentionally nil: pi's own usage event carries none.
+		},
+		Turns: &turns,
+	})
+	if err := AppendStageAttempt(stateDir, "epic-pi", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-pi", "attempts.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	if got := lines[0].Turns; got == nil || *got != 5 {
+		t.Errorf("Turns = %v, want 5", got)
+	}
+}
+
+// A dialect that counts no turn boundaries at all (StageAttemptInput.Turns
+// left nil, e.g. codex or subprocess) must persist a null Turns column,
+// never a fabricated number.
+func TestAppendStageAttempt_UnsupportedDialectTurnsStaysNull(t *testing.T) {
+	stateDir := t.TempDir()
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID:    "codex-primary",
+		Dialect:    "codex",
+		BeadID:     "bead-codex-null",
+		Stage:      "implementation",
+		StartedAt:  time.Now(),
+		Duration:   time.Second,
+		GatePassed: true,
+		DiffStats:  fakeDiffStatter{},
+		// Turns left unset: codex has no counted turn boundary.
+	})
+	if err := AppendStageAttempt(stateDir, "epic-codex-null", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-codex-null", "attempts.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	if got := lines[0].Turns; got != nil {
+		t.Errorf("Turns = %v, want nil", *got)
+	}
+}
+
+// A run that genuinely crossed zero counted boundaries (StageAttemptInput.Turns
+// pointing at 0, not left nil) must round-trip through the ledger as the
+// number 0, not as null - collapsing the two would make "kernl never
+// measured this" indistinguishable from "kernl measured zero".
+func TestAppendStageAttempt_MeasuredZeroTurnsPersistsAsZeroNotNull(t *testing.T) {
+	stateDir := t.TempDir()
+	zero := int64(0)
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID:    "opencode-primary",
+		Dialect:    "opencode",
+		BeadID:     "bead-opencode-zero",
+		Stage:      "implementation",
+		StartedAt:  time.Now(),
+		Duration:   time.Second,
+		GatePassed: true,
+		DiffStats:  fakeDiffStatter{},
+		Turns:      &zero,
+	})
+	if err := AppendStageAttempt(stateDir, "epic-opencode-zero", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-opencode-zero", "attempts.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	got := lines[0].Turns
+	if got == nil {
+		t.Fatal("Turns = nil, want a measured 0 - not null")
+	}
+	if *got != 0 {
+		t.Errorf("Turns = %d, want 0", *got)
+	}
+}
+
+// Claude's own num_turns (carried through Usage.Turns) must keep taking
+// precedence over StageAttemptInput.Turns's live count - in production the
+// two are mutually exclusive (only pi/opencode ever populate Turns, only
+// claude ever populates Usage.Turns), but this pins that a live count can
+// never silently overwrite a dialect-reported one.
+func TestAppendStageAttempt_ClaudeNumTurnsTakesPrecedenceOverLiveTurns(t *testing.T) {
+	stateDir := t.TempDir()
+	reported := int64(3)
+	live := int64(99)
+
+	rec := BuildStageAttemptRecord(StageAttemptInput{
+		AgentID:    "claude-primary",
+		Dialect:    "claude",
+		BeadID:     "bead-claude-precedence",
+		Stage:      "implementation",
+		StartedAt:  time.Now(),
+		Duration:   time.Second,
+		GatePassed: true,
+		DiffStats:  fakeDiffStatter{},
+		Usage: &session.TokenUsageCounts{
+			InputTokens:  10,
+			OutputTokens: 2,
+			TotalTokens:  12,
+			Turns:        &reported,
+		},
+		Turns: &live,
+	})
+	if err := AppendStageAttempt(stateDir, "epic-claude-precedence", rec); err != nil {
+		t.Fatalf("AppendStageAttempt: %v", err)
+	}
+
+	lines := readLedgerLines(t, filepath.Join(stateDir, "run", "epic-claude-precedence", "attempts.jsonl"))
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+	if got := lines[0].Turns; got == nil || *got != 3 {
+		t.Errorf("Turns = %v, want 3 (claude's own num_turns, not the live count)", got)
+	}
+}
+
 // TestAppendStageAttempt_CodexRow_NoConfiguredModelYieldsNilNotEmpty proves
 // finding 5's fix: a codex agent with no configured model (settings.agents.<id>.model
 // is optional) must not record model:"" - an empty string identifies

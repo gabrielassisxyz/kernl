@@ -733,6 +733,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				FollowUpCount:     res.FollowUpCount,
 				Nudged:            res.Nudged,
 				Usage:             res.Usage,
+				Turns:             res.Turns,
 			})); ledgerErr != nil {
 				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 			}
@@ -764,6 +765,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				FollowUpCount:     res.FollowUpCount,
 				Nudged:            res.Nudged,
 				Usage:             res.Usage,
+				Turns:             res.Turns,
 			})); ledgerErr != nil {
 				slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", ledgerErr)
 			}
@@ -812,6 +814,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 				FollowUpCount:   res.FollowUpCount,
 				Nudged:          res.Nudged,
 				Usage:           res.Usage,
+				Turns:           res.Turns,
 			},
 		})
 		if forkErr != nil {
@@ -856,6 +859,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			FollowUpCount:     res.FollowUpCount,
 			Nudged:            res.Nudged,
 			Usage:             res.Usage,
+			Turns:             res.Turns,
 		})); err != nil {
 			slog.Error("DRIVE_TRACE attempt ledger write failed", "bead", deps.BeadID, "err", err)
 		}

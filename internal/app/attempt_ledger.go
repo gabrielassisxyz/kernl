@@ -225,6 +225,11 @@ type StageAttemptInput struct {
 	// (the real git-shelling implementation) - production call sites never
 	// need to set this; only tests inject a fake.
 	DiffStats DiffStatter
+	// Turns is RunBeadResult.Turns: the runtime's own live count of counted
+	// turn boundaries (pi's turn_end, opencode's step_finish), for the
+	// dialects that report no num_turns of their own via Usage. Nil for a
+	// dialect that counts none at all.
+	Turns *int64
 }
 
 // BuildStageAttemptRecord turns one dispatch's facts into the ledger row
@@ -294,6 +299,14 @@ func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 		rec.ReasoningTokens = in.Usage.ReasoningTokens
 		rec.CostUSD = in.Usage.CostUSD
 		rec.Turns = in.Usage.Turns
+	}
+	// Usage.Turns (claude's self-reported num_turns) wins when the dialect
+	// reported one. Every other dialect that reports none there falls back
+	// to the live count RunBead measured directly - the two are always
+	// disjoint in practice (only claude ever populates Usage.Turns, only
+	// pi/opencode ever populate this), so no data is lost either way.
+	if rec.Turns == nil && in.Turns != nil {
+		rec.Turns = in.Turns
 	}
 	return rec
 }
