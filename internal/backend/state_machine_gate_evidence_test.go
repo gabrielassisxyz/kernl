@@ -159,3 +159,51 @@ func TestEvaluateExitGate_WrapperMatchesWithEvidenceOutcome(t *testing.T) {
 		t.Errorf("EvaluateExitGate = (%v, %q), want (%v, %q)", gotOK, gotReason, wantOK, wantReason)
 	}
 }
+
+// TestEvaluateExitGateWithEvidence_CommitMarkerWinsAmongSeveralGates covers the
+// preference the aggregator applies when a state declares more than one gate
+// (worker's `implementation` carries both commit_marker and decision_record):
+// only one GateEvidence comes back, and it must be the commit_marker's, because
+// that is the only gate whose evidence anyone reads. Both declaration orders are
+// exercised - a "first wins" or "last wins" rule would each satisfy one of them
+// and lose the evidence in the other.
+func TestEvaluateExitGateWithEvidence_CommitMarkerWinsAmongSeveralGates(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git required")
+	}
+
+	for _, tc := range []struct {
+		name  string
+		gates []WorkflowExitGate
+	}{
+		{"commit_marker declared first", []WorkflowExitGate{
+			{Type: "commit_marker"},
+			{Type: "artifact_exists", Path: "<artifact_dir>/absent.md"},
+		}},
+		{"commit_marker declared last", []WorkflowExitGate{
+			{Type: "artifact_exists", Path: "<artifact_dir>/absent.md"},
+			{Type: "commit_marker"},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			initGitRepo(t, dir)
+			baseSHA := gitCommit(t, dir, "base: captured before dispatch")
+
+			wf := WorkflowDescriptor{ExitGates: map[string][]WorkflowExitGate{"implementation": tc.gates}}
+			_, _, ev := EvaluateExitGateWithEvidence(wf, ExitGateContext{
+				FromState: "implementation", WorktreePath: dir, ArtifactDir: t.TempDir(), BeadID: "kb-1", BaseSHA: baseSHA,
+			})
+
+			if ev.GateType != "commit_marker" {
+				t.Fatalf("GateType = %q, want commit_marker: the other gate's evidence overwrote it", ev.GateType)
+			}
+			if ev.BaseSHA != baseSHA {
+				t.Errorf("BaseSHA = %q, want %q - the commit_marker evidence was lost", ev.BaseSHA, baseSHA)
+			}
+			if ev.WorktreePath != dir {
+				t.Errorf("WorktreePath = %q, want %q", ev.WorktreePath, dir)
+			}
+		})
+	}
+}
