@@ -16,12 +16,12 @@ import { dirname, resolve } from 'node:path'
 // Sorted alphabetically (API requirement). Each name is a Material Symbol used
 // somewhere in the app; grep the codebase before removing one.
 const ICONS = [
-  'account_circle', 'account_tree', 'add', 'analytics', 'arrow_forward',
+  'account_circle', 'account_tree', 'add', 'analytics', 'arrow_downward', 'arrow_forward',
   'arrow_upward', 'auto_awesome', 'bookmark', 'center_focus_strong', 'check', 'check_circle',
   'checklist', 'chrome_reader_mode', 'close', 'cloud_off', 'code', 'dashboard',
   'delete', 'description', 'edit', 'edit_note', 'event', 'expand_more', 'explore', 'filter_list',
-  'fit_screen', 'folder_open', 'format_list_numbered', 'help', 'history',
-  'hourglass_empty', 'hub', 'inbox', 'input', 'keep', 'keyboard', 'left_panel_close',
+  'fit_screen', 'folder_open', 'format_list_numbered', 'grid_view', 'help', 'history',
+  'hourglass_empty', 'hub', 'inbox', 'input', 'join_inner', 'keep', 'keyboard', 'left_panel_close',
   'left_panel_open', 'link_off', 'lock', 'memory', 'neurology', 'open_in_new',
   'play_arrow', 'policy', 'progress_activity', 'queue', 'refresh', 'save', 'search',
   'settings', 'smart_toy', 'source', 'swap_vert', 'sync', 'tag', 'task_alt',

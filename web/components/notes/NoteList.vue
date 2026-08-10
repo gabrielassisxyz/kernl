@@ -1,199 +1,126 @@
 <template>
   <div class="note-list">
     <div v-if="loading" class="note-list__status">Loading…</div>
-    <p v-else-if="files.length === 0" class="note-list__empty">
-      No notes yet. Create your first note with the <span class="material-symbols-outlined !text-[14px] align-text-bottom">add</span> above.
+
+    <p v-else-if="!hasAnyNote" class="note-list__status">
+      No notes yet. Create your first note with the
+      <span class="material-symbols-outlined !text-[14px] align-text-bottom">add</span> above.
     </p>
-    <div v-else-if="filtered.length === 0" class="note-list__status">No notes match “{{ query }}”.</div>
-    <div v-else class="note-list__items">
+
+    <div v-else-if="groups.length === 0" class="note-list__status">
+      No note matches “{{ query }}”.
+    </div>
+
+    <div v-for="group in groups" v-else :key="group.key" class="note-group">
       <button
-        v-for="file in filtered"
-        :key="file"
         type="button"
-        class="note-row"
-        :class="{ 'note-row--active': file === selected }"
-        :title="file"
-        @click="$emit('select', file)"
+        class="note-group__head"
+        :aria-expanded="isGroupOpen(group.key)"
+        @click="$emit('toggle-group', group.key)"
       >
-        <span class="note-row__dot" aria-hidden="true"></span>
-        <span class="note-row__name">{{ displayName(file) }}</span>
         <span
-          v-if="badgeFor(file)"
-          class="note-row__dir"
-        >{{ badgeFor(file) }}</span>
+          class="material-symbols-outlined note-group__chevron !text-[16px]"
+          :class="{ 'is-open': isGroupOpen(group.key) }"
+          aria-hidden="true"
+        >expand_more</span>
+        <span class="note-group__label">{{ group.label }}</span>
+        <span class="note-group__count">{{ group.count }}</span>
       </button>
+
+      <VaultNoteRow
+        v-for="note in group.notes"
+        :key="note.id"
+        :note="note"
+        :active="note.path === selected"
+        variant="file"
+        @open="$emit('select', $event.path)"
+        @toggle-pin="$emit('toggle-pin', $event)"
+      />
     </div>
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted } from 'vue'
-import { labelForType } from '~/utils/nodeTypes'
+<script setup lang="ts">
+import VaultNoteRow from '~/components/notes/VaultNoteRow.vue'
+import type { VaultNote } from '~/composables/useVaultIndex'
+import type { NoteGroup } from '~/composables/useVaultFilters'
 
-const props = defineProps({
-  selected: { type: String, default: null },
-  query: { type: String, default: '' },
-})
+defineProps<{
+  groups: NoteGroup[]
+  selected: string | null
+  query: string
+  loading: boolean
+  hasAnyNote: boolean
+  isGroupOpen: (key: string) => boolean
+}>()
 
-defineEmits(['select'])
-
-const files = ref([])
-const loading = ref(true)
-// path → node type, from the graph. The badge shows what a note IS (note,
-// project, …), not where it happens to live - UI-created notes land at the
-// vault root and used to show no badge at all.
-const nodeByPath = ref({})
-
-const filtered = computed(() => {
-  const q = props.query.trim().toLowerCase()
-  if (!q) return files.value
-  return files.value.filter((f) => {
-    if (f.toLowerCase().includes(q)) return true
-    const node = nodeByPath.value[f]
-    if (node && node.title && node.title.toLowerCase().includes(q)) return true
-    return false
-  })
-})
-
-const displayName = (file) => {
-  const node = nodeByPath.value[file]
-  if (node && node.title) return node.title
-  const base = file.split('/').pop() || file
-  return base.replace(/\.md$/, '')
-}
-
-const folderOf = (file) => {
-  const idx = file.lastIndexOf('/')
-  return idx === -1 ? '' : file.slice(0, idx)
-}
-
-const typeOf = (file) => nodeByPath.value[file]?.type || ''
-
-// Node type when the graph knows the file; folder as fallback while the
-// reconciler hasn't caught up with a brand-new note yet.
-const badgeFor = (file) => {
-  const t = typeOf(file)
-  return t ? labelForType(t) : folderOf(file)
-}
-
-const refresh = async () => {
-  loading.value = true
-  try {
-    // Flat disk-truth list so brand-new untagged notes have somewhere to appear;
-    // the graph join enriches rows with their node type for the badge.
-    const [listRes, notesRes] = await Promise.all([
-      fetch('/api/vault/list'),
-      fetch('/api/vault/notes'),
-    ])
-    if (listRes.ok) {
-      const data = await listRes.json()
-      files.value = data.files || []
-    }
-    if (notesRes.ok) {
-      const notes = await notesRes.json()
-      const map = {}
-      for (const n of notes || []) {
-        if (n.path) map[n.path] = n
-      }
-      nodeByPath.value = map
-    }
-  } catch (e) {
-    console.error('Error fetching vault list', e)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(refresh)
-
-defineExpose({ refresh })
+defineEmits<{ select: [string]; 'toggle-pin': [VaultNote]; 'toggle-group': [string] }>()
 </script>
 
 <style scoped>
 .note-list {
-  padding: var(--spacing-base);
+  padding: 0 8px 24px 8px;
 }
 
 .note-list__status {
-  padding: var(--spacing-base) var(--spacing-component);
+  padding: 28px 10px;
   font-family: var(--font-body);
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.6;
   color: var(--color-text-muted);
 }
 
-.note-list__empty {
-  padding: var(--spacing-component);
-  font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--color-text-muted);
-}
-
-.note-list__items {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.note-row {
+.note-group__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 6px 10px;
-  border-radius: var(--radius-lg);
+  padding: 12px 6px 6px 6px;
   text-align: left;
-  color: var(--color-text-muted);
   cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
+  user-select: none;
 }
 
-.note-row:hover {
-  background-color: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
-  color: var(--color-text-primary);
+.note-group__chevron {
+  flex: 0 0 auto;
+  color: var(--color-text-faint);
+  transform: rotate(-90deg);
+  transition: transform 140ms ease-out;
 }
 
-.note-row:focus-visible {
-  outline: none;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
+.note-group__chevron.is-open {
+  transform: rotate(0deg);
 }
 
-.note-row--active {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-
-.note-row__dot {
-  width: 5px;
-  height: 5px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background-color: var(--color-text-dim);
-  transition: background-color 120ms ease;
-}
-
-.note-row:hover .note-row__dot,
-.note-row--active .note-row__dot {
-  background-color: var(--color-node-note);
-}
-
-.note-row__name {
-  flex: 0 1 auto;
+.note-group__label {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
 }
 
-.note-row__dir {
+.note-group__count {
   flex: 0 0 auto;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-family: var(--font-mono-data);
   font-size: 10px;
-  color: var(--color-text-dim);
+  color: var(--color-text-faint);
+}
+
+.note-group__head:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
+  border-radius: var(--radius-lg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note-group__chevron {
+    transition: none;
+  }
 }
 </style>

@@ -1,6 +1,14 @@
 -- Pinning in the vault index: a pinned note or tag is lifted into its own
 -- section above the rest of the list.
 --
+-- Numbered 0006 with no 0005 in the tree, and the gap is deliberate. An
+-- abandoned branch once shipped a 0005 that renamed machine tags under sys/;
+-- it ran against a live database before the commit was dropped, so that
+-- database records version 5 as applied and will skip anything numbered 5
+-- forever - silently, since a skipped migration is indistinguishable from an
+-- applied one. Reusing the number would have made this migration a no-op on
+-- exactly the installation that has data.
+--
 -- Both pins live on the vault-index tables rather than on `nodes.attrs`, and
 -- that is not a style choice. A note's attrs are REGENERATED from the file on
 -- every reconcile - `Note.NodeAttrs()` returns a fresh map and `updateNode`

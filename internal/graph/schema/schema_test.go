@@ -425,7 +425,7 @@ func hasColumn(t *testing.T, db *sql.DB, table, column string) bool {
 	return false
 }
 
-func TestMigration005VaultPinsRoundTrip(t *testing.T) {
+func TestMigration006VaultPinsRoundTrip(t *testing.T) {
 	db := schemaOpenTemp(t)
 
 	r, err := migrate.New(db, schema.FS)
@@ -434,23 +434,23 @@ func TestMigration005VaultPinsRoundTrip(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	if err := r.UpTo(ctx, 5); err != nil {
-		t.Fatalf("UpTo(5): %v", err)
+	if err := r.UpTo(ctx, 6); err != nil {
+		t.Fatalf("UpTo(6): %v", err)
 	}
 	ver, dirty, err := r.Current(ctx)
 	if err != nil {
 		t.Fatalf("Current: %v", err)
 	}
 	if dirty {
-		t.Fatal("schema_migrations is dirty after UpTo(5)")
+		t.Fatal("schema_migrations is dirty after UpTo(6)")
 	}
-	if ver != 5 {
-		t.Fatalf("expected version 5, got %d", ver)
+	if ver != 6 {
+		t.Fatalf("expected version 6, got %d", ver)
 	}
 
 	for _, table := range []string{"note_paths", "tags"} {
 		if !hasColumn(t, db, table, "pinned") {
-			t.Errorf("%s.pinned should exist after 0005", table)
+			t.Errorf("%s.pinned should exist after 0006", table)
 		}
 	}
 
@@ -476,7 +476,7 @@ func TestMigration005VaultPinsRoundTrip(t *testing.T) {
 	}
 
 	if err := r.Down(ctx); err != nil {
-		t.Fatalf("Down from v5: %v", err)
+		t.Fatalf("Down from v6: %v", err)
 	}
 	ver, _, err = r.Current(ctx)
 	if err != nil {
