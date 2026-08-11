@@ -118,6 +118,13 @@ type RunBeadResult struct {
 	// subprocess flow's own "subprocess_<cause>" when the block was not a
 	// gate evaluation at all. Empty whenever BlockedAtState is.
 	GateFailureReason string
+	// Failure is how the turn failed, as the dialect's own parser saw it
+	// (session.TurnFailure), or nil when this dispatch recorded no failure.
+	// It travels beside GateFailureReason rather than inside it: that field
+	// carries the exit gate's vocabulary, and a provider fault is not a gate
+	// verdict. The raw message is kept on the failure itself, so nothing
+	// that reads either one loses what happened.
+	Failure *session.TurnFailure
 	// Turns is the runtime's own live count of counted turn boundaries
 	// (session.SessionRuntime.CountedTurns: pi's turn_end, opencode's
 	// step_finish), or nil when this dialect counts none at all - distinct
@@ -252,11 +259,23 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	success := exitCode != nil && *exitCode == 0 && !r.IsError()
 
 	gateFailureReason := ""
+	// Read on the same condition as the reason below, and the pairing is
+	// deliberate: pi clears a recorded failure when a later turn ends
+	// cleanly, while the dialects that never report a clean boundary keep
+	// theirs - and for those, IsError also stays set, so success is already
+	// false. Either layer alone would do here; both are cheap, and a
+	// dispatch reporting a turn it recovered from as its outcome is the
+	// thing neither may allow.
+	var failure *session.TurnFailure
 	if !success {
+		failure = r.LastFailure()
 		if r.IsError() && r.LastError() != "" {
 			gateFailureReason = r.LastError()
 		} else if exitCode != nil && *exitCode != 0 {
 			gateFailureReason = fmt.Sprintf("agent exited non-zero (exit code %s)", formatExitCode(exitCode))
+			if failure == nil {
+				failure = session.UnclassifiedTurnFailure(gateFailureReason)
+			}
 		}
 	}
 
@@ -312,6 +331,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 			Usage:         usage,
 			FollowUpCount: followUpCount,
 			Nudged:        nudged,
+			Failure:       failure,
 			Turns:         resultTurns,
 		}, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s crossed %d turns in one dispatch, over the %d turn limit, and was stopped - an agent this far past the limit is repeating itself rather than progressing - Fix: read the stage's log for the repeated action, and if the work genuinely needs this many turns, split the bead", input.BeadID, turns, session.MaxTurnsPerDispatch)
 	}
@@ -325,6 +345,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 			Usage:         usage,
 			FollowUpCount: followUpCount,
 			Nudged:        nudged,
+			Failure:       failure,
 			Turns:         resultTurns,
 		}, followUpErr
 	}
@@ -338,6 +359,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		FollowUpCount:     followUpCount,
 		Nudged:            nudged,
 		GateFailureReason: gateFailureReason,
+		Failure:           failure,
 		Turns:             resultTurns,
 	}, nil
 }

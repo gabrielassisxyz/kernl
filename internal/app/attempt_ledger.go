@@ -100,9 +100,16 @@ type StageAttemptRecord struct {
 	// backend.GateEvidence), never a zero-value struct, so a ledger line
 	// written before this field existed still decodes the same way one
 	// written after it, with no evidence, does.
-	GateEvidence      *backend.GateEvidence `json:"gateEvidence,omitempty"`
-	ReviewVerdict     *string               `json:"reviewVerdict"`
-	FirstPassApproved *bool                 `json:"firstPassApproved"`
+	GateEvidence *backend.GateEvidence `json:"gateEvidence,omitempty"`
+	// Failure is how the agent's turn failed, typed by the dialect parser
+	// that saw the provider's own envelope (session.TurnFailure) - nil for
+	// an attempt whose turn did not fail, and for every row written before
+	// this field existed. It sits beside GateFailureReason rather than
+	// inside it because the two answer different questions: that field says
+	// what kernl refused, this one says what the provider did.
+	Failure           *session.TurnFailure `json:"failure,omitempty"`
+	ReviewVerdict     *string              `json:"reviewVerdict"`
+	FirstPassApproved *bool                `json:"firstPassApproved"`
 	// CausedBy points at the review artifact whose deliberate rejection sent
 	// this bead back, when this attempt is the retry that rejection caused.
 	// Non-nil is the ledger's definition of rework: this attempt is redoing
@@ -221,7 +228,10 @@ type StageAttemptInput struct {
 	// value. Zero value (GateType == "") means "collect nothing" and
 	// BuildStageAttemptRecord leaves the record's own field nil rather than
 	// writing an empty struct.
-	GateEvidence  backend.GateEvidence
+	GateEvidence backend.GateEvidence
+	// Failure is RunBeadResult.Failure, passed straight through. Nil for a
+	// stage that failed a gate rather than a turn.
+	Failure       *session.TurnFailure
 	ReviewVerdict *string
 	// CausedBy is the review artifact whose rejection this dispatch is
 	// answering, set by the driver when this dispatch is the retake of a
@@ -302,6 +312,7 @@ func BuildStageAttemptRecord(in StageAttemptInput) StageAttemptRecord {
 		GatePassed:        in.GatePassed,
 		GateFailureReason: gateFailureReason,
 		GateEvidence:      gateEvidence,
+		Failure:           in.Failure,
 		CausedBy:          causedBy,
 		ReviewVerdict:     in.ReviewVerdict,
 		FollowUpCount:     in.FollowUpCount,
