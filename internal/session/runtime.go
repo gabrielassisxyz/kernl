@@ -59,6 +59,7 @@ type SessionRuntime struct {
 	promptHooks        PromptDeliveryHook
 	inputCloseTimer    *time.Timer
 	lastTurnError      string
+	lastTurnFailure    *TurnFailure
 	piLastStopReason   string
 	piLastErrorMessage string
 	tokenLogger        TokenUsageLogger
@@ -108,6 +109,7 @@ func (r *SessionRuntime) countTurn() bool {
 	r.turnCeilingHit = true
 	r.isError = true
 	r.lastTurnError = fmt.Sprintf("turn ceiling exceeded: %d turns, over the %d turn limit", r.turnCount, MaxTurnsPerDispatch)
+	r.lastTurnFailure = UnclassifiedTurnFailure(r.lastTurnError)
 	r.mu.Unlock()
 	return true
 }
@@ -250,6 +252,7 @@ func (r *SessionRuntime) Start(ctx context.Context, stdout, stderr io.Reader) co
 	r.isError = false
 	r.lastEventType = ""
 	r.lastTurnError = ""
+	r.lastTurnFailure = nil
 	now := time.Now()
 	r.lastStdoutAt = &now
 	r.mu.Unlock()
@@ -457,6 +460,19 @@ func (r *SessionRuntime) LastError() string {
 	return r.lastTurnError
 }
 
+// LastFailure is how the last failed turn failed, or nil when this dispatch
+// has not recorded a failure. Every site that sets lastTurnError sets this
+// too, so a caller never has to decide which of the two to believe.
+func (r *SessionRuntime) LastFailure() *TurnFailure {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.lastTurnFailure == nil {
+		return nil
+	}
+	failure := *r.lastTurnFailure
+	return &failure
+}
+
 func CaptureChildCloseDiagnostics(runtime *SessionRuntime, exitCode int, signal string) CloseDiagnostics {
 	runtime.mu.Lock()
 	defer runtime.mu.Unlock()
@@ -642,6 +658,7 @@ func (r *SessionRuntime) processCodexEvent(evtType string, obj map[string]any, r
 			r.mu.Lock()
 			r.lastEventType = "turn.failed"
 			r.lastTurnError = fmt.Sprintf("codex turn.failed: %v", obj["error"])
+			r.lastTurnFailure = UnclassifiedTurnFailure(r.lastTurnError)
 			r.mu.Unlock()
 			r.emit("stdout", rawLine)
 			r.handleTurnEnd("turn_ended")
@@ -669,6 +686,10 @@ func (r *SessionRuntime) processCodexEvent(evtType string, obj map[string]any, r
 		} else {
 			r.lastTurnError = "codex turn.failed"
 		}
+		// codex is not classified: no rollout on disk has ever shown a
+		// provider fault in this envelope, so there is nothing measured to
+		// key on and a guess would read exactly like an observation.
+		r.lastTurnFailure = UnclassifiedTurnFailure(r.lastTurnError)
 		r.mu.Unlock()
 		r.emit("stdout", rawLine)
 		r.handleTurnEnd("turn_ended")
@@ -809,6 +830,7 @@ func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawL
 		case "stop":
 			r.isError = false
 			r.lastTurnError = ""
+			r.lastTurnFailure = nil
 		case "error":
 			if errMsg == "" {
 				errMsg = "pi stopReason=error"
@@ -816,15 +838,22 @@ func (r *SessionRuntime) processPiEvent(evtType string, obj map[string]any, rawL
 			r.piLastErrorMessage = errMsg
 			r.isError = true
 			r.lastTurnError = "pi agent_error: " + r.piLastErrorMessage
+			// The only site with a provider envelope to read. Classified
+			// from the raw message rather than from lastTurnError, so the
+			// payload is not behind kernl's own prefix.
+			r.lastTurnFailure = ClassifyPiTurnFailure(errMsg)
 		case "aborted":
 			r.isError = true
 			r.lastTurnError = "pi agent_aborted: session ended with stopReason=aborted"
+			r.lastTurnFailure = UnclassifiedTurnFailure(r.lastTurnError)
 		case "toolUse":
 			r.isError = true
 			r.lastTurnError = "pi agent_incomplete: session ended unexpectedly mid-tool call (stopReason=toolUse)"
+			r.lastTurnFailure = UnclassifiedTurnFailure(r.lastTurnError)
 		default:
 			r.isError = true
 			r.lastTurnError = fmt.Sprintf("pi agent_unknown: session ended with unrecognized stopReason=%q", sr)
+			r.lastTurnFailure = UnclassifiedTurnFailure(r.lastTurnError)
 		}
 		r.mu.Unlock()
 	}
