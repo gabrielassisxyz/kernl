@@ -269,6 +269,11 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 		runtime := backend.DeriveWorkflowRuntimeState(wf, bead.State)
 		activeState := bead.State
+		// Whether this iteration is entering a genuinely new stage, as
+		// opposed to re-entering one the bead is already sitting in (a
+		// mechanical-block resume, a fork handover coming back). It scopes
+		// the exit gate's base commit - see resolveStageEpochBase.
+		claimedFreshStage := false
 		if runtime.IsAgentClaimable {
 			nextState, ok := backend.ForwardTransitionTarget(bead.State, wf)
 			// Stop before claiming, not after: claiming would leave the bead
@@ -295,6 +300,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 						fmt.Errorf("KERNL DISPATCH FAILURE: advancing bead %s from %s to %s: %w", deps.BeadID, bead.State, nextState, err)
 				}
 				activeState = nextState
+				claimedFreshStage = true
 				slog.Info("DRIVE_TRACE claimed", "bead", deps.BeadID, "iter", i, "from", bead.State, "to", nextState)
 			}
 		}
@@ -361,8 +367,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 			// Captured before dispatch so commit_marker gates can scope their
 			// scan to what this stage produced, not the branch's prior
-			// history (see resolveArtifactDir and backend.ExitGateContext).
-			baseSHA := headSHA.HeadSHA(deps.Worktree)
+			// history (see resolveArtifactDir and backend.ExitGateContext) -
+			// and captured once per stage ENTRY rather than per dispatch, so
+			// re-entering a stage does not measure it against its own commit
+			// (see resolveStageEpochBase).
+			baseSHA, err := resolveStageEpochBase(artifactDir, activeState, deps.Worktree, claimedFreshStage, headSHA)
+			if err != nil {
+				return RunBeadResult{FinalState: activeState, Success: false}, err
+			}
 			startTime := time.Now()
 			subprocessAgentID := "subprocess"
 			if len(activeStage.Subprocess.Command) > 0 {
@@ -708,8 +720,14 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 
 		// Captured before dispatch so commit_marker gates can scope their
 		// scan to what this stage produced, not the branch's prior history
-		// (see resolveArtifactDir and backend.ExitGateContext).
-		baseSHA := headSHA.HeadSHA(deps.Worktree)
+		// (see resolveArtifactDir and backend.ExitGateContext) - and captured
+		// once per stage ENTRY rather than per dispatch, so re-entering a
+		// stage does not measure it against its own commit (see
+		// resolveStageEpochBase).
+		baseSHA, err := resolveStageEpochBase(artifactDir, activeState, deps.Worktree, claimedFreshStage, headSHA)
+		if err != nil {
+			return RunBeadResult{FinalState: activeState, Success: false}, err
+		}
 		startTime := time.Now()
 		slog.Info("DRIVE_TRACE spawn", "bead", deps.BeadID, "iter", i, "activeState", activeState, "agent", agentInput.AgentName)
 		res, err := deps.Driver.RunBead(ctx, agentInput)
