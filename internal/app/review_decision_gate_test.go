@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -26,9 +27,15 @@ func writeImplementationReviewArtifact(t *testing.T, dir, beadID, content string
 // today's behavior, unchanged, and the DA must never be touched for any of
 // them. ---
 
-func TestHandleGateFailure_NonDeliberateRejectionJustBlocks(t *testing.T) {
+func TestHandleGateFailure_NonDeliberateRejectionBlocksWhenTheRetryBudgetIsSpent(t *testing.T) {
 	be := newPersistingBackend()
-	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation", Labels: []string{"wf:state:implementation"}}
+	// The budget is already spent, so this failure is the one that reaches a
+	// person - the outcome every ordinary gate failure had before a spent
+	// budget was the condition for it.
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation", Labels: []string{
+		"wf:state:implementation",
+		blockedRetryLabelPrefix + strconv.Itoa(mechanicalBlockRetryLimit),
+	}}
 	da := decidingDA("x")
 
 	got, err := handleGateFailure(context.Background(), gateFailureContext{
@@ -58,6 +65,44 @@ func TestHandleGateFailure_NonDeliberateRejectionJustBlocks(t *testing.T) {
 	}
 	if !HasLabel(bd.Labels, "wf:state:implementation") {
 		t.Errorf("labels = %v, want the pre-existing wf:state:implementation label left untouched", bd.Labels)
+	}
+}
+
+// TestHandleGateFailure_NonDeliberateRejectionRetriesInRunWhileBudgetRemains
+// is the decision this step changed. The same failure that blocks above is
+// kept inside the run while the mechanical-retry budget has room, so the
+// stage is re-attempted without a person typing `kernl epic run` again -
+// which is what a gate failure used to cost, including every bead the epic
+// had not started, since one unsuccessful bead fails the run fast.
+//
+// The bead is still written to the tracker as blocked with its cause: the
+// loop's entry branch is what resumes it, and it reads exactly those labels.
+func TestHandleGateFailure_NonDeliberateRejectionRetriesInRunWhileBudgetRemains(t *testing.T) {
+	be := newPersistingBackend()
+	be.beads["kb-1"] = &backend.Bead{ID: "kb-1", State: "implementation", Labels: []string{"wf:state:implementation"}}
+	da := decidingDA("x")
+
+	got, err := handleGateFailure(context.Background(), gateFailureContext{
+		Deps:        DriveBeadDeps{Backend: be, RepoPath: "/repo", BeadID: "kb-1", DA: da},
+		WF:          workerWorkflow(),
+		ActiveState: "implementation",
+		GateReason:  "artifact_missing: /tmp/plan.md",
+	})
+	if err != nil {
+		t.Fatalf("handleGateFailure: %v", err)
+	}
+	if !got.Reenter {
+		t.Fatalf("a mechanical gate failure with budget left must be retried in the run, got %+v", got)
+	}
+	if da.calls != 0 {
+		t.Errorf("the DA must never be asked about a non-rejection gate failure, got %d calls", da.calls)
+	}
+	bd, _ := be.Get("kb-1", "/repo")
+	if bd.State != "blocked" || BlockedCauseFromLabels(bd.Labels) != BlockedCauseGate {
+		t.Errorf("bead = %+v, want it blocked with a wf:blocked:gate label for the entry branch to resume", bd)
+	}
+	if !HasLabel(bd.Labels, "wf:state:implementation") {
+		t.Errorf("labels = %v, want the stage recoverable from the stale wf:state label", bd.Labels)
 	}
 }
 
@@ -796,11 +841,13 @@ func TestDriveBeadToTerminal_ReviewRaisedDecision_ReachesTheDAOnceAndCarriesTheA
 		t.Fatalf("DriveBeadToTerminal: %v", err)
 	}
 
-	// The mechanism proof: exactly three invocations (implementation,
-	// implementation_review, implementation again), and the DA consulted
-	// exactly once.
-	if driver.calls != 3 {
-		t.Fatalf("expected exactly 3 agent invocations, got %d; res=%+v", driver.calls, res)
+	// The mechanism proof: three real invocations (implementation,
+	// implementation_review, implementation again) plus the mechanical
+	// retries of the decision_record failure the third ends on, and the DA
+	// consulted exactly once across all of them.
+	if want := 3 + mechanicalBlockRetryLimit; driver.calls != want {
+		t.Fatalf("expected exactly %d agent invocations (3 real attempts, %d gate retries), got %d; res=%+v",
+			want, mechanicalBlockRetryLimit, driver.calls, res)
 	}
 	if da.calls != 1 {
 		t.Errorf("expected the DA to be consulted exactly once, got %d calls", da.calls)

@@ -265,12 +265,21 @@ func TestDriveWorker_BlocksWhenImplementationSkipsCommit(t *testing.T) {
 // workerArtifactDriver cannot be reused for that because it always writes
 // both together.
 type markerOnlyDriver struct {
-	worktree string
+	worktree   string
+	dispatches int
 }
 
 func (d *markerOnlyDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult, error) {
-	if err := commitRealChange(d.worktree, "work.txt", "did the work\n", "stage: implementation: did the work"); err != nil {
-		return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %w", err)
+	d.dispatches++
+	// Only the first dispatch commits. A gate failure is now retried inside
+	// the run, so this driver is asked again, and an agent asked to redo work
+	// it already committed has nothing to add - git refuses an empty commit,
+	// which would fail this run for a reason that is about the fake rather
+	// than about the gate.
+	if d.dispatches == 1 {
+		if err := commitRealChange(d.worktree, "work.txt", "did the work\n", "stage: implementation: did the work"); err != nil {
+			return RunBeadResult{Success: false}, fmt.Errorf("implementation commit: %w", err)
+		}
 	}
 	return RunBeadResult{FinalState: "ok", Success: true, SessionID: "ses"}, nil
 }
@@ -303,12 +312,13 @@ func TestDriveWorker_BlocksWhenImplementationSkipsDecisionRecord(t *testing.T) {
 		ProfileID: "worker",
 	})
 
+	driver := &markerOnlyDriver{worktree: worktree}
 	res, _ := DriveBeadToTerminal(context.Background(), DriveBeadDeps{
 		TrackerCommand: "bd",
 		StateDir:       t.TempDir(),
 		VerifyCommand:  "bin/ci",
 		Backend:        be,
-		Driver:         &markerOnlyDriver{worktree: worktree},
+		Driver:         driver,
 		Config:         newDriveTestConfig(),
 		BeadID:         "kernl-c3",
 		RepoPath:       t.TempDir(),
@@ -316,6 +326,12 @@ func TestDriveWorker_BlocksWhenImplementationSkipsDecisionRecord(t *testing.T) {
 	})
 	if res.Success || res.FinalState != "blocked" {
 		t.Fatalf("worker should block when implementation writes a marker commit but no decision record; got %+v", res)
+	}
+	// The block is now reached through the retry budget rather than on the
+	// first failure, and spending it is bounded: one dispatch plus its
+	// retries, never a loop.
+	if want := 1 + mechanicalBlockRetryLimit; driver.dispatches != want {
+		t.Fatalf("a stage that keeps failing its gate must be dispatched %d times, not %d", want, driver.dispatches)
 	}
 }
 

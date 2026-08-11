@@ -131,9 +131,15 @@ func TestDriveBeadToTerminal_ForkHandover_ReentersSameStageWithDAAnswerInPrompt(
 		t.Fatalf("DriveBeadToTerminal: %v", err)
 	}
 
-	// The mechanism proof: exactly two invocations of the SAME stage.
-	if driver.calls != 2 {
-		t.Fatalf("expected exactly 2 agent invocations (proves the stage re-ran), got %d; res=%+v", driver.calls, res)
+	// The mechanism proof: two invocations of the SAME stage for the fork
+	// re-entry, then the mechanical retries of the decision_record failure
+	// this fixture ends on - a gate failure is now re-attempted inside the
+	// run rather than handed straight back to a person. da.calls below is
+	// what isolates the fork mechanism from those retries: the handover is
+	// consumed once and never re-decided, however many dispatches follow.
+	if want := 2 + mechanicalBlockRetryLimit; driver.calls != want {
+		t.Fatalf("expected exactly %d agent invocations (2 for the fork re-entry, %d gate retries), got %d; res=%+v",
+			want, mechanicalBlockRetryLimit, driver.calls, res)
 	}
 	if da.calls != 1 {
 		t.Errorf("expected the DA to be consulted exactly once, got %d calls", da.calls)
@@ -294,9 +300,12 @@ func TestDriveBeadToTerminal_TwoForksInOneCall_BothAnswersSurviveIntoTheNextProm
 	}
 
 	// Three invocations: the first fork, the second fork, and a real third
-	// attempt at the same stage.
-	if driver.calls != 3 {
-		t.Fatalf("expected exactly 3 agent invocations, got %d; res=%+v", driver.calls, res)
+	// attempt at the same stage - then the mechanical retries of the
+	// decision_record failure that third attempt ends on. da.calls below is
+	// what proves no further fork was decided.
+	if want := 3 + mechanicalBlockRetryLimit; driver.calls != want {
+		t.Fatalf("expected exactly %d agent invocations (3 real attempts, %d gate retries), got %d; res=%+v",
+			want, mechanicalBlockRetryLimit, driver.calls, res)
 	}
 	if da.calls != 2 {
 		t.Errorf("expected the DA to be consulted exactly twice (once per genuine fork), got %d calls", da.calls)

@@ -75,10 +75,13 @@ func (d *reentryDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResul
 //
 // This is the "committed anyway" defect the ledger recorded three times -
 // two codex integration rows at the same SHA on 2026-07-31, one claude row
-// on 2026-08-02 - reproduced without an agent. The production sequence was two `epic run`
-// invocations into a surviving worktree; the two DriveBeadToTerminal calls
-// below are that sequence, and the mechanical-block resume
-// (BlockedCauseGate.IsMechanical) is what re-enters the stage on the second.
+// on 2026-08-02 - reproduced without an agent. The production sequence was two
+// `epic run` invocations into a surviving worktree, and the mechanical-block
+// resume (BlockedCauseGate.IsMechanical) is what re-entered the stage on the
+// second. That resume now happens inside one call, so the sequence this test
+// drives is one DriveBeadToTerminal rather than two; what it proves is
+// unchanged, because the epoch is what the re-entered dispatch reads either
+// way, and the store's own tests cover it surviving a process boundary.
 //
 // The fix this test is red against is the stage epoch: capture BaseSHA when
 // the bead first ENTERS a state, persist it outside the worktree, reuse it
@@ -88,33 +91,27 @@ func (d *reentryDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResul
 // would let an empty commit pass, which is the outcome the gate exists to
 // refuse.
 func TestDriveWorker_ReentryReprovesWorkAlreadyCommitted(t *testing.T) {
-	be, deps, worktree, stateDir := newStageEpochFixture(t, "kernl-re1")
+	be, deps, worktree, stateDir := newWorkerDriveFixture(t, "kernl-re1")
 	driver := &reentryDriver{be: be, beadID: deps.BeadID, worktree: worktree, stateDir: stateDir}
 	deps.Driver = driver
 
-	// First invocation: the work lands, decision_record does not, and the
-	// bead blocks at implementation. This half already behaves correctly and
-	// is the precondition, not the assertion.
-	first, _ := DriveBeadToTerminal(context.Background(), deps)
-	if first.FinalState != "blocked" || first.BlockedAtState != "implementation" {
-		t.Fatalf("precondition: first run should block at implementation; got %+v", first)
+	// The first dispatch's work lands and decision_record does not, so the
+	// stage blocks and is retried; the retry writes the missing artifact and
+	// commits nothing, because the code it was asked to write is already
+	// there.
+	res, err := DriveBeadToTerminal(context.Background(), deps)
+	if err != nil {
+		t.Fatalf("DriveBeadToTerminal: %v\n%s", err, describeGateEvidence(t, stateDir, deps.BeadID))
 	}
 	if _, err := os.Stat(filepath.Join(worktree, "work.txt")); err != nil {
 		t.Fatalf("precondition: the first dispatch must leave its commit in the worktree: %v", err)
 	}
-
-	// Second invocation: the mechanical-block resume re-enters implementation,
-	// the missing artifact is written, and nothing else needs doing.
-	second, err := DriveBeadToTerminal(context.Background(), deps)
-	if err != nil {
-		t.Fatalf("second DriveBeadToTerminal: %v\n%s", err, describeGateEvidence(t, stateDir, deps.BeadID))
-	}
 	if driver.implDispatches < 2 {
 		t.Fatalf("precondition: implementation should have been dispatched twice, got %d", driver.implDispatches)
 	}
-	if !second.Success || second.FinalState != "awaiting_integration" {
+	if !res.Success || res.FinalState != "awaiting_integration" {
 		t.Fatalf("a re-entered stage must pass its commit_marker on the work already committed;\n"+
-			"got %+v\n%s", second, describeGateEvidence(t, stateDir, deps.BeadID))
+			"got %+v\n%s", res, describeGateEvidence(t, stateDir, deps.BeadID))
 	}
 }
 
@@ -193,7 +190,7 @@ func (d *rewindDriver) RunBead(_ context.Context, _ RunBeadInput) (RunBeadResult
 // the pair exists for, while resolveStageEpochBase's unit tests pin each rule
 // separately.
 func TestDriveWorker_RewindStartsANewEpoch(t *testing.T) {
-	be, deps, worktree, stateDir := newStageEpochFixture(t, "kernl-re2")
+	be, deps, worktree, stateDir := newWorkerDriveFixture(t, "kernl-re2")
 	driver := &rewindDriver{be: be, beadID: deps.BeadID, worktree: worktree, stateDir: stateDir}
 	deps.Driver = driver
 	deps.Backend = rewindingBackend{be}
@@ -223,48 +220,64 @@ func TestDriveWorker_RewindStartsANewEpoch(t *testing.T) {
 // generic "the stage left nothing" it would report if the base were quietly
 // recaptured at the new HEAD.
 func TestDriveWorker_EpochBaseOutlivedByAHistoryRewriteFailsLoud(t *testing.T) {
-	be, deps, worktree, stateDir := newStageEpochFixture(t, "kernl-re3")
-	driver := &reentryDriver{be: be, beadID: deps.BeadID, worktree: worktree, stateDir: stateDir}
+	be, deps, worktree, stateDir := newWorkerDriveFixture(t, "kernl-re3")
+	driver := &historyRewriteDriver{
+		reentryDriver: reentryDriver{be: be, beadID: deps.BeadID, worktree: worktree, stateDir: stateDir},
+		t:             t,
+	}
 	deps.Driver = driver
 
-	first, _ := DriveBeadToTerminal(context.Background(), deps)
-	if first.FinalState != "blocked" || first.BlockedAtState != "implementation" {
-		t.Fatalf("precondition: first run should block at implementation; got %+v", first)
-	}
-
-	// An agent that resets or rebases onto an unrelated line of history
-	// leaves the epoch's base unreachable from HEAD.
-	for _, args := range [][]string{
-		{"checkout", "--orphan", "rewritten"},
-		{"reset", "--hard"},
-		{"commit", "--allow-empty", "-m", "rewritten history"},
-	} {
-		if out, err := exec.Command("git", append([]string{"-C", worktree}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-
-	second, err := DriveBeadToTerminal(context.Background(), deps)
+	res, err := DriveBeadToTerminal(context.Background(), deps)
 	if err != nil {
-		t.Fatalf("second DriveBeadToTerminal: %v\n%s", err, describeGateEvidence(t, stateDir, deps.BeadID))
+		t.Fatalf("DriveBeadToTerminal: %v\n%s", err, describeGateEvidence(t, stateDir, deps.BeadID))
 	}
-	if second.Success {
+	if driver.implDispatches < 2 {
+		t.Fatalf("precondition: the rewrite happens on the retry, which never ran (%d dispatches)", driver.implDispatches)
+	}
+	if res.Success {
 		t.Fatalf("a rewritten history must not pass the gate; got %+v\n%s",
-			second, describeGateEvidence(t, stateDir, deps.BeadID))
+			res, describeGateEvidence(t, stateDir, deps.BeadID))
 	}
-	if !strings.HasPrefix(second.GateFailureReason, "commit_marker_history_rewritten") {
+	if !strings.HasPrefix(res.GateFailureReason, "commit_marker_history_rewritten") {
 		t.Fatalf("the failure must name the rewrite rather than read as an idle stage; got %+v\n%s",
-			second, describeGateEvidence(t, stateDir, deps.BeadID))
+			res, describeGateEvidence(t, stateDir, deps.BeadID))
 	}
 }
 
-// newStageEpochFixture builds the one-bead worker run every test in this file
+// historyRewriteDriver is reentryDriver with one addition: its retry resets
+// the worktree onto an unrelated line of history before writing the missing
+// artifact, the way an agent that rebases or resets under the run does. The
+// epoch's base survives that; HEAD's ancestry does not.
+type historyRewriteDriver struct {
+	reentryDriver
+	t *testing.T
+}
+
+func (d *historyRewriteDriver) RunBead(ctx context.Context, in RunBeadInput) (RunBeadResult, error) {
+	// Exactly once, on the first retry: the later retries this failure earns
+	// must find the history already rewritten, not rewrite it again.
+	if d.implDispatches == 1 {
+		d.t.Helper()
+		for _, args := range [][]string{
+			{"checkout", "--orphan", "rewritten"},
+			{"reset", "--hard"},
+			{"commit", "--allow-empty", "-m", "rewritten history"},
+		} {
+			if out, err := exec.Command("git", append([]string{"-C", d.worktree}, args...)...).CombinedOutput(); err != nil {
+				d.t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+	}
+	return d.reentryDriver.RunBead(ctx, in)
+}
+
+// newWorkerDriveFixture builds the one-bead worker run every test in this file
 // drives: a real git worktree with a single base commit, a fake tracker
 // holding the bead at ready_for_implementation, and the graph run the
 // implementation stage's decision_record gate writes its Decision node into.
 // The caller supplies the driver, which is the only thing these tests differ
 // in.
-func newStageEpochFixture(t *testing.T, beadID string) (*epicFakeBackend, DriveBeadDeps, string, string) {
+func newWorkerDriveFixture(t *testing.T, beadID string) (*epicFakeBackend, DriveBeadDeps, string, string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git required")
