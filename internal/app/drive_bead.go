@@ -190,6 +190,15 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 	// (StageAttemptRecord.CausedBy). Empty except between a rewind and the
 	// one attempt that follows it.
 	pendingRework := ""
+	// retryIterations is how many of this call's iterations exist only because
+	// a mechanical block was retried, rather than because the workflow moved
+	// forward. They are added to the ceiling instead of being charged against
+	// it: maxStages exists to catch a workflow that cycles, and its error text
+	// says so, so a run that spent its iterations on legitimate retries must
+	// not be reported as a cycle. The total stays bounded - the retry budget
+	// is per stage entry (mechanicalBlockRetryLimit, reset only by a fresh
+	// claim), so this can add at most that many per stage.
+	retryIterations := 0
 	// takeRework hands that artifact to the attempt being recorded and
 	// forgets it. Every ledger write in this loop takes it, so a rewind can
 	// only ever mark the FIRST attempt after it - including an attempt that
@@ -201,7 +210,7 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		return claimed
 	}
 
-	for i := 0; i < maxStages; i++ {
+	for i := 0; i < maxStages+retryIterations; i++ {
 		bead, err := deps.Backend.Get(deps.BeadID, deps.RepoPath)
 		if err != nil || bead == nil {
 			return lastResult, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", deps.BeadID, deps.RepoPath, err)
@@ -233,25 +242,35 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			// one with no recorded cause at all, e.g. blocked by hand) is
 			// never resumed silently; only that decision is the one this
 			// bead is asking for.
-			blockedAt := stateFromStaleLabel(bead.Labels)
+			blockedAt, resumable := mechanicalResumeAllowed(bead.Labels)
 			cause := BlockedCauseFromLabels(bead.Labels)
-			if cause.IsMechanical() && blockedAt != "" {
-				retries := blockedRetryCountFromLabels(bead.Labels)
-				if retries < mechanicalBlockRetryLimit {
-					newLabels := filterOutLabelPrefix(bead.Labels, blockedCauseLabelPrefix)
-					newLabels = filterOutLabelPrefix(newLabels, blockedRetryLabelPrefix)
-					newLabels = append(newLabels, blockedRetryLabelPrefix+strconv.Itoa(retries+1))
-					if err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{
-						State:     blockedAt,
-						SetLabels: newLabels,
-					}, deps.RepoPath); err != nil {
-						return RunBeadResult{FinalState: bead.State, Success: false},
-							fmt.Errorf("KERNL DISPATCH FAILURE: resuming bead %s from a %s block back to %s: %w", deps.BeadID, cause, blockedAt, err)
-					}
-					slog.Info("DRIVE_TRACE resume mechanical block", "bead", deps.BeadID, "iter", i, "cause", cause, "retry", retries+1, "limit", mechanicalBlockRetryLimit, "resumeState", blockedAt)
-					prevState = bead.State
-					continue
+			retries := blockedRetryCountFromLabels(bead.Labels)
+			if resumable {
+				newLabels := filterOutLabelPrefix(bead.Labels, blockedCauseLabelPrefix)
+				newLabels = filterOutLabelPrefix(newLabels, blockedRetryLabelPrefix)
+				newLabels = append(newLabels, blockedRetryLabelPrefix+strconv.Itoa(retries+1))
+				if err := deps.Backend.Update(deps.BeadID, backend.UpdateBeadInput{
+					State:     blockedAt,
+					SetLabels: newLabels,
+				}, deps.RepoPath); err != nil {
+					return RunBeadResult{FinalState: bead.State, Success: false},
+						fmt.Errorf("KERNL DISPATCH FAILURE: resuming bead %s from a %s block back to %s: %w", deps.BeadID, cause, blockedAt, err)
 				}
+				slog.Info("DRIVE_TRACE resume mechanical block", "bead", deps.BeadID, "iter", i, "cause", cause, "retry", retries+1, "limit", mechanicalBlockRetryLimit, "resumeState", blockedAt)
+				// Neither this iteration nor the dispatch it leads to is a
+				// stage this workflow advanced through, so neither may be
+				// charged to maxStages - see retryIterations. The clamp is a
+				// backstop, not the bound: the budget label is what stops
+				// this, and it lives in the tracker, so a tracker that
+				// silently dropped the label would otherwise raise the
+				// ceiling on every pass and spawn agents forever. Reaching
+				// the clamp ends the run as an exceeded ceiling, which is
+				// what a bead resuming without ever spending its budget is.
+				retryIterations = min(retryIterations+2, maxStages*mechanicalBlockRetryLimit)
+				prevState = bead.State
+				continue
+			}
+			if cause.IsMechanical() && blockedAt != "" {
 				slog.Info("DRIVE_TRACE mechanical block retries exhausted", "bead", deps.BeadID, "iter", i, "cause", cause, "retries", retries, "limit", mechanicalBlockRetryLimit)
 			}
 			slog.Info("DRIVE_TRACE return blocked", "bead", deps.BeadID, "iter", i, "blockedAtState", blockedAt, "cause", cause)

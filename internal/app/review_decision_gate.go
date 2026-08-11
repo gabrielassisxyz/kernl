@@ -195,6 +195,33 @@ type gateFailureContext struct {
 	ForkGateCalls int
 }
 
+// mechanicalGateRetryAvailable reports whether the bead just blocked by
+// blockBeadForGateFailure still has room in its mechanical-retry budget, in
+// which case this call keeps driving instead of handing the run back.
+//
+// Why this is worth a second read of the bead. The block was written moments
+// ago and the labels that carry the budget were rewritten with it, so the
+// caller's copy is stale by construction; asking the tracker is what makes
+// the answer agree with the entry branch that will act on it. A read that
+// fails answers "no": a gate failure kept for a person is the outcome this
+// step is trying to reduce, but it is also the safe one, and a bead driven on
+// a guess about a budget nobody could read is not.
+//
+// A gate failure that a stage keeps producing therefore costs at most
+// mechanicalBlockRetryLimit dispatches before it reaches a person anyway -
+// the same ceiling a hand-typed re-run has always spent, now spent without
+// the person.
+func mechanicalGateRetryAvailable(deps DriveBeadDeps) bool {
+	bead, err := deps.Backend.Get(deps.BeadID, deps.RepoPath)
+	if err != nil || bead == nil {
+		slog.Warn("DRIVE_TRACE gate failure not retried: bead unreadable after the block",
+			"bead", deps.BeadID, "err", err)
+		return false
+	}
+	_, allowed := mechanicalResumeAllowed(bead.Labels)
+	return allowed
+}
+
 // gateFailureHandled is what handleGateFailure decided.
 type gateFailureHandled struct {
 	// Reenter is true when the bead must be re-dispatched: an ordinary
@@ -227,7 +254,17 @@ type gateFailureHandled struct {
 // budget bounds, and two separate budgets would not.
 func handleGateFailure(ctx context.Context, in gateFailureContext) (gateFailureHandled, error) {
 	if !isDeliberateRejection(in.ActiveState, in.GateReason) {
-		return gateFailureHandled{Result: blockBeadForGateFailure(in.Deps, in.ActiveState, in.GateReason)}, nil
+		blocked := blockBeadForGateFailure(in.Deps, in.ActiveState, in.GateReason)
+		if mechanicalGateRetryAvailable(in.Deps) {
+			slog.Info("DRIVE_TRACE gate failure retried in run",
+				"bead", in.Deps.BeadID, "state", in.ActiveState, "reason", in.GateReason)
+			return gateFailureHandled{
+				Reenter:       true,
+				ReviewRewinds: in.ReviewRewinds,
+				ForkGateCalls: in.ForkGateCalls,
+			}, nil
+		}
+		return gateFailureHandled{Result: blocked}, nil
 	}
 
 	reviewPath := backend.ResolveArtifactPath("<artifact_dir>/implementation-review.md", in.Deps.BeadID, in.ArtifactDir)

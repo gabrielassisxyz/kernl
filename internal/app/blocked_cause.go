@@ -120,6 +120,30 @@ func BlockBeadWithCause(be backend.BackendPort, beadID, repoPath string, cause B
 	return be.Update(beadID, backend.UpdateBeadInput{State: "blocked", SetLabels: labels}, repoPath)
 }
 
+// mechanicalResumeAllowed reads a blocked bead's labels and reports the stage
+// it blocked at, plus whether DriveBeadToTerminal may clear that block and
+// re-attempt the stage on its own.
+//
+// It is one predicate with two readers on purpose. The loop's entry branch
+// asks it about a bead that arrived blocked; the gate-failure path asks it
+// about a bead it has just blocked, to decide whether to keep driving instead
+// of handing the run back to a person. Two copies of "is this resumable"
+// would be two copies that can disagree, and the one that says yes while the
+// other says no produces a loop that blocks and re-reads forever.
+//
+// Spending the budget stays with the entry branch, which is the only place
+// that writes the incremented label.
+func mechanicalResumeAllowed(labels []string) (blockedAt string, allowed bool) {
+	blockedAt = stateFromStaleLabel(labels)
+	if blockedAt == "" {
+		return "", false
+	}
+	if !BlockedCauseFromLabels(labels).IsMechanical() {
+		return blockedAt, false
+	}
+	return blockedAt, blockedRetryCountFromLabels(labels) < mechanicalBlockRetryLimit
+}
+
 // BlockedCauseFromLabels recovers which of the three causes blocked a bead,
 // or "" when no wf:blocked:* label is present - a bead blocked some other
 // way, e.g. by hand. DriveBeadToTerminal's entry branch and the CLI's own
