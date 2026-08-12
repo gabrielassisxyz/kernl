@@ -197,7 +197,14 @@ const previewExtFor = (mode) => {
 }
 const concealExtFor = (mode) => (mode === 'source' ? [] : frontmatterConcealExtension())
 const lineNumbersExtFor = (mode, on) => (on && mode !== 'reading' ? lineNumbers() : [])
-const editableExtFor = (mode) => EditorView.editable.of(mode !== 'reading')
+// EditorView.editable only sets contenteditable - it does NOT stop commands from
+// changing the document, and the keymap is full of commands. EditorState.readOnly
+// is the facet those commands actually check, so without it a Backspace in
+// reading mode would edit the note and the autosave would write it to disk.
+const editableExtFor = (mode) => [
+  EditorView.editable.of(mode !== 'reading'),
+  EditorState.readOnly.of(mode === 'reading'),
+]
 const typewriterExtFor = (on) => (on ? typewriterExtension() : [])
 
 const reconfigure = () => {
