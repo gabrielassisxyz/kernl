@@ -65,6 +65,21 @@ export interface TagGroup {
 const capitalize = (s: string): string => (s ? s[0].toUpperCase() + s.slice(1) : s)
 
 /**
+ * Categories the vault holds by the hundred: grouped by category they bury
+ * everything else under a wall of rows, so they start folded. It is a seed, run
+ * once when the panel is set up and never re-applied, so a group the user opens
+ * stays open while they search, filter or re-sort.
+ */
+const FOLDED_CATEGORIES = ['bookmark', 'project', 'task']
+
+// Split mode encodes the author into the group key, so the same category
+// arrives under a second name and needs the same seed.
+const seedFoldedGroups = (): Record<string, boolean> =>
+  Object.fromEntries(
+    FOLDED_CATEGORIES.flatMap((c) => [[c, true], [`${c}:me`, true], [`${c}:da`, true]]),
+  )
+
+/**
  * Everything the vault panel derives from the index: the search, the three
  * filter chips, and the grouping each tab shows. It lives beside the panel
  * rather than inside it because both tabs read the same filtered pool, and a
@@ -79,7 +94,7 @@ export function useVaultFilters(notes: Ref<VaultNote[]>, pinnedTags: Ref<string[
   const categoryFilter = ref('all')
   const groupByCategory = ref(false)
   const expandedTags = ref<Record<string, boolean>>({})
-  const collapsedGroups = ref<Record<string, boolean>>({})
+  const collapsedGroups = ref<Record<string, boolean>>(seedFoldedGroups())
 
   const isTags = computed(() => tab.value === 'tags')
   const isSplit = computed(() => sourceMode.value === 'split')
