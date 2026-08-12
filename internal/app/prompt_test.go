@@ -704,3 +704,42 @@ func TestBuildBeadStagePrompt_RejectedReviewAndGateFailureCoexist(t *testing.T) 
 		t.Error("the gate refusal must still be rendered")
 	}
 }
+
+// The absent-input fallback used to tell every stage to "review against the committed
+// changes in your worktree (git log -p, git diff)". On an implementation stage whose
+// planning was skipped - which is every worker bead in an epic run - there are no
+// committed changes to review, so the instruction sends the implementer into git
+// archaeology at the exact moment it has nothing to orient on. A review stage is the
+// one place that sentence is correct, and it keeps it.
+func TestBuildBeadStagePrompt_AbsentInputFallbackIsNotReviewLanguageForAProducer(t *testing.T) {
+	producer := StagePromptInput{
+		Bead:  &backend.Bead{ID: "kb-1", Title: "a bead"},
+		State: "implementation",
+		Stages: map[string]backend.StageContract{
+			"implementation": {
+				Inputs:         []string{"<artifact_dir>/plan.md"},
+				OutputArtifact: backend.StageArtifact{Kind: "commits"},
+			},
+		},
+		ArtifactDir: "/tmp/art",
+	}
+	got := BuildBeadStagePrompt(producer)
+	if strings.Contains(got, "review against the committed changes") {
+		t.Error("an implementation stage is told to review committed changes that cannot exist when planning was skipped")
+	}
+	if !strings.Contains(got, "proceed WITHOUT it") {
+		t.Error("the fallback lost its point: a missing input must still say to carry on without it")
+	}
+
+	reviewer := producer
+	reviewer.State = "implementation_review"
+	reviewer.Stages = map[string]backend.StageContract{
+		"implementation_review": {
+			Inputs:         []string{"<artifact_dir>/plan.md"},
+			OutputArtifact: backend.StageArtifact{Path: "<artifact_dir>/implementation-review.md"},
+		},
+	}
+	if got := BuildBeadStagePrompt(reviewer); !strings.Contains(got, "review against the committed changes") {
+		t.Error("a review stage lost the one instruction that is correct for it")
+	}
+}

@@ -163,7 +163,17 @@ func renderInputs(b *strings.Builder, hasContract bool, contract backend.StageCo
 		resolved := backend.ResolveArtifactPath(inp, beadID, artifactDir)
 		fmt.Fprintf(b, "- %s\n", resolved)
 	}
-	b.WriteString("\nSome inputs may not exist this run - e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. An input path outside your worktree is kernl's own artifact directory for this bead, named above as an absolute path - it is allowed. NEVER search for a missing input anywhere else outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
+	b.WriteString("\nSome inputs may not exist this run - e.g. planning was skipped, so there is no `plan.md`. If a listed file is absent, proceed WITHOUT it: ")
+	// What to fall back ON differs by what the stage owes. A reviewer judges work that
+	// already exists, so the git history is exactly the right substitute for a missing
+	// artifact. A producer has nothing committed yet - telling it to read `git log -p`
+	// on an empty range sends it into archaeology at the moment it has least to go on.
+	if contract.OutputArtifact.Kind == "commits" {
+		b.WriteString("work from the acceptance criteria and the bead's own description below. ")
+	} else {
+		b.WriteString("review against the committed changes in your worktree (`git log -p`, `git diff`) and the acceptance criteria below. ")
+	}
+	b.WriteString("An input path outside your worktree is kernl's own artifact directory for this bead, named above as an absolute path - it is allowed. NEVER search for a missing input anywhere else outside your worktree (the canonical repo, other beads); it is not there and the access will be auto-rejected.\n\n")
 }
 
 func renderOutput(b *strings.Builder, hasContract bool, contract backend.StageContract, state, beadID, artifactDir string) {
