@@ -13,6 +13,25 @@
       </span>
     </button>
 
+    <!-- The counterpart of saving: an edit made outside this screen - by the DA,
+         the CLI, another session - is invisible until the file is read again.
+         It leads the save state rather than trailing it: the icon is the control,
+         the chip beside it is the status that control acts on. -->
+    <button
+      type="button"
+      class="tbtn"
+      :disabled="reloading"
+      title="Reload from disk"
+      aria-label="Reload from disk"
+      @click="$emit('reload-note')"
+    >
+      <span
+        class="material-symbols-outlined !text-[18px]"
+        :class="{ 'tbtn__icon--spinning': reloading }"
+        aria-hidden="true"
+      >refresh</span>
+    </button>
+
     <!-- Autosave status: the editor has no Save button by design, so this chip
          is the user's only confirmation that edits reached disk (Ctrl+S flushes). -->
     <span
@@ -34,23 +53,6 @@
       @click="$emit('save-manual')"
     >
       <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">save</span>
-    </button>
-
-    <!-- The counterpart of saving: an edit made outside this screen - by the DA,
-         the CLI, another session - is invisible until the file is read again. -->
-    <button
-      type="button"
-      class="tbtn"
-      :disabled="reloading"
-      title="Reload from disk"
-      aria-label="Reload from disk"
-      @click="$emit('reload-note')"
-    >
-      <span
-        class="material-symbols-outlined !text-[18px]"
-        :class="{ 'tbtn__icon--spinning': reloading }"
-        aria-hidden="true"
-      >refresh</span>
     </button>
 
     <div class="grow"></div>
