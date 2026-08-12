@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
@@ -22,10 +23,63 @@ type WorktreeManager struct {
 	baseBranch string
 	gitRun     func(dir string, args ...string) (string, error)
 	updateDesc func(beadID string, fn func(oldDesc string) string) error
+
+	// cutBase caches what resolveCutBase worked out, so one run fetches once
+	// rather than once per bead worktree.
+	cutBase     string
+	cutBaseOnce sync.Once
 }
 
 func NewWorktreeManager(root string, repoPath string, baseBranch string, gitRun func(dir string, args ...string) (string, error), updateDesc func(beadID string, fn func(oldDesc string) string) error) *WorktreeManager {
 	return &WorktreeManager{root: root, repoPath: repoPath, baseBranch: baseBranch, gitRun: gitRun, updateDesc: updateDesc}
+}
+
+// resolveCutBase returns the ref new branches are cut from. The configured base branch
+// is a LOCAL branch, and a local branch is only as current as the last time someone
+// pulled it: on 2026-08-11 two beads ran against a main two commits behind origin and
+// re-did a fix that had merged the day before, because nothing here ever fetched.
+//
+// So the published tip wins when it can be reached, and every way of not reaching it
+// degrades to the local branch rather than failing. A repository with no remote is a
+// local repository, not an error, and a fetch that fails because the network is gone
+// must not cost the run - working from a stale base is worse than working from the tip
+// and better than not working at all. Both cases say so in the log, because a silently
+// stale base is exactly the failure this exists to end.
+func (m *WorktreeManager) resolveCutBase() string {
+	m.cutBaseOnce.Do(func() {
+		m.cutBase = m.baseBranch
+		if m.gitRun == nil || m.baseBranch == "" {
+			return
+		}
+		remotes, err := m.gitRun(m.repoPath, "remote")
+		if err != nil || !hasRemote(remotes, "origin") {
+			slog.Warn("no origin remote - cutting branches from the local base branch, which is only as current as the last manual pull",
+				"repo", m.repoPath, "base", m.baseBranch)
+			return
+		}
+		if _, err := m.gitRun(m.repoPath, "fetch", "origin", m.baseBranch); err != nil {
+			slog.Warn("fetch failed - cutting branches from the local base branch, which may be behind the remote",
+				"repo", m.repoPath, "base", m.baseBranch, "err", err)
+			return
+		}
+		remoteRef := "origin/" + m.baseBranch
+		if _, err := m.gitRun(m.repoPath, "rev-parse", "--verify", remoteRef); err != nil {
+			slog.Warn("fetched but the remote-tracking ref is missing - cutting branches from the local base branch",
+				"repo", m.repoPath, "ref", remoteRef, "err", err)
+			return
+		}
+		m.cutBase = remoteRef
+	})
+	return m.cutBase
+}
+
+func hasRemote(remoteOutput string, want string) bool {
+	for _, line := range strings.Split(remoteOutput, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
@@ -45,8 +99,9 @@ func (m *WorktreeManager) EnsureEpicBranch(epicID string) (string, error) {
 	branchExists := strings.TrimSpace(output) != ""
 
 	if !branchExists {
-		if _, err := m.gitRun(m.repoPath, "branch", branchName, m.baseBranch); err != nil {
-			return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating epic branch %s from %s - %w - Fix: verify %s exists in the repo at %s", branchName, m.baseBranch, err, m.baseBranch, m.repoPath)
+		cutFrom := m.resolveCutBase()
+		if _, err := m.gitRun(m.repoPath, "branch", branchName, cutFrom); err != nil {
+			return "", fmt.Errorf("KERNL DISPATCH FAILURE: creating epic branch %s from %s - %w - Fix: verify %s exists in the repo at %s", branchName, cutFrom, err, cutFrom, m.repoPath)
 		}
 	}
 
@@ -230,7 +285,10 @@ func (m *WorktreeManager) Add(epicID, beadID string, depBeadIDs []string) (strin
 		return "", fmt.Errorf("KERNL DISPATCH FAILURE: no base branch for %s - bead branch kernl/%s has nothing to be cut from - Fix: pass the branch resolved by ResolveBaseBranch to NewWorktreeManager", m.repoPath, beadID)
 	}
 
-	baseBranch := m.baseBranch
+	// A bead inside an epic is cut from the epic branch, which was itself cut from
+	// the resolved base; only a bead with no epic branch reaches back to the base,
+	// and it needs the same freshness the epic got.
+	baseBranch := m.resolveCutBase()
 	epicBranch := "feat/" + epicID
 	output, err := m.gitRun(m.repoPath, "branch", "--list", epicBranch)
 	if err == nil && strings.TrimSpace(output) != "" {

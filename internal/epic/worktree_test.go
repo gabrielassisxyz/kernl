@@ -9,9 +9,12 @@ import (
 )
 
 type fakeGitRunner struct {
-	calls    [][]string
-	branch   map[string]bool
-	unmerged map[string]int
+	calls      [][]string
+	branch     map[string]bool
+	unmerged   map[string]int
+	remotes    string
+	remoteRefs map[string]bool
+	fetchErr   error
 }
 
 func newFakeGitRunner() *fakeGitRunner {
@@ -58,8 +61,39 @@ func (f *fakeGitRunner) run(dir string, args ...string) (string, error) {
 		return "0\n", nil
 	case "worktree":
 		return "", nil
+	case "remote":
+		return f.remotes, nil
+	case "fetch":
+		return "", f.fetchErr
+	case "rev-parse":
+		if len(args) >= 3 && args[1] == "--verify" {
+			if f.remoteRefs[args[2]] {
+				return args[2] + "\n", nil
+			}
+			return "", fmt.Errorf("unknown revision %s", args[2])
+		}
+		return "", nil
 	}
 	return "", nil
+}
+
+// epicBaseOf reports the ref the epic branch was actually cut from.
+func (f *fakeGitRunner) epicBaseOf(branch string) string {
+	for _, c := range f.calls {
+		if c[0] == "branch" && len(c) == 3 && c[1] == branch {
+			return c[2]
+		}
+	}
+	return ""
+}
+
+func (f *fakeGitRunner) fetched() bool {
+	for _, c := range f.calls {
+		if c[0] == "fetch" {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeDescUpdater struct {
@@ -567,5 +601,59 @@ func TestCleanupEpic_FailsWithoutBaseBranch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Errorf("expected error to contain KERNL DISPATCH FAILURE, got: %v", err)
+	}
+}
+
+// The configured base branch is a LOCAL branch, and a local branch is only as current
+// as the last time someone pulled it. Measured 2026-08-11: two beads ran against a main
+// two commits behind origin and redid a fix that had merged the day before. An epic must
+// be cut from the published tip.
+func TestEnsureEpicBranchCutsFromTheFetchedRemoteTip(t *testing.T) {
+	fr := newFakeGitRunner()
+	fr.remotes = "origin\n"
+	fr.remoteRefs = map[string]bool{"origin/main": true}
+	m := NewWorktreeManager(t.TempDir(), "/repo", "main", fr.run, nil)
+
+	if _, err := m.EnsureEpicBranch("e1"); err != nil {
+		t.Fatalf("EnsureEpicBranch: %v", err)
+	}
+	if !fr.fetched() {
+		t.Error("no fetch before cutting the epic branch, so the base is whatever the local checkout happened to be")
+	}
+	if got := fr.epicBaseOf("feat/e1"); got != "origin/main" {
+		t.Errorf("epic branch cut from %q, want origin/main", got)
+	}
+}
+
+// A repository with no remote is not an error, it is a local repository. The run must
+// proceed from the local branch rather than refusing.
+func TestEnsureEpicBranchFallsBackToTheLocalBaseWithoutARemote(t *testing.T) {
+	fr := newFakeGitRunner()
+	fr.remotes = ""
+	m := NewWorktreeManager(t.TempDir(), "/repo", "main", fr.run, nil)
+
+	if _, err := m.EnsureEpicBranch("e1"); err != nil {
+		t.Fatalf("EnsureEpicBranch: %v", err)
+	}
+	if fr.fetched() {
+		t.Error("fetched despite there being no remote to fetch from")
+	}
+	if got := fr.epicBaseOf("feat/e1"); got != "main" {
+		t.Errorf("epic branch cut from %q, want the local main", got)
+	}
+}
+
+// Offline is not a reason to lose the run. A failed fetch degrades to the local branch.
+func TestEnsureEpicBranchFallsBackWhenTheFetchFails(t *testing.T) {
+	fr := newFakeGitRunner()
+	fr.remotes = "origin\n"
+	fr.fetchErr = fmt.Errorf("could not resolve host github.com")
+	m := NewWorktreeManager(t.TempDir(), "/repo", "main", fr.run, nil)
+
+	if _, err := m.EnsureEpicBranch("e1"); err != nil {
+		t.Fatalf("EnsureEpicBranch must not fail when the fetch does: %v", err)
+	}
+	if got := fr.epicBaseOf("feat/e1"); got != "main" {
+		t.Errorf("epic branch cut from %q, want the local main after a failed fetch", got)
 	}
 }
