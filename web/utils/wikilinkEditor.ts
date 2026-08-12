@@ -199,13 +199,17 @@ export const wikilinkTheme = EditorView.theme({
   '.cm-wl-pill:hover': {
     cursor: 'pointer',
   },
-  // The visible link text, coloured with the note-node accent.
+  // The visible link text. Every link in a note reads in the interface accent,
+  // whether it leads into the vault or out of it - the note-type hues belong to
+  // the Graph, and repeating them here would make a paragraph into a legend.
+  // Resting state is the lighter text variant and hover settles onto the base
+  // token, so hovering presses the colour down rather than lighting it up.
   '.cm-wl-alias': {
-    color: 'var(--color-node-note)',
+    color: 'var(--color-primary-text)',
     transition: 'color 120ms ease',
   },
   '.cm-wl-pill:hover .cm-wl-alias': {
-    filter: 'brightness(1.2) saturate(1.2)',
+    color: 'var(--color-primary)',
   },
   // "[[", trailing "]]", and any "uuid|" - concealed until hover OR until the
   // keyboard selection touches the link (cm-wl-pill--active).
@@ -216,14 +220,15 @@ export const wikilinkTheme = EditorView.theme({
   '.cm-wl-pill:hover .cm-wl-bracket, .cm-wl-pill--active .cm-wl-bracket': {
     display: 'inline',
   },
-  // Unresolved target: same hue, visibly desaturated, so a dangling link is
-  // distinguishable at a glance without shouting.
+  // Unresolved target: same hue, visibly washed out, so a dangling link is
+  // distinguishable at a glance without shouting. Hover brings it up to the
+  // resolved colour rather than down, because the question it answers is
+  // "is this real?" and not "where does this go?".
   '.cm-wl-unresolved .cm-wl-alias': {
-    color: 'color-mix(in srgb, var(--color-node-note) 45%, var(--color-text-muted))',
+    color: 'color-mix(in srgb, var(--color-primary-text) 45%, var(--color-text-muted))',
   },
   '.cm-wl-unresolved:hover .cm-wl-alias': {
-    color: 'var(--color-node-note)',
-    filter: 'none',
+    color: 'var(--color-primary-text)',
   },
 
   // --- Completion popup, themed to the dark IBM-Plex editor ---

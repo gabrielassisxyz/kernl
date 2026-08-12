@@ -82,6 +82,10 @@
      for fills/tints/borders (which fail WCAG AA only when used as small text). */
   --color-da-accent-text: #8E9ED2;
   --color-status-failed-text: #D98279;
+  /* Links in a note, wikilinks included: the lighter variant carries the resting
+     state and the base token takes over on hover, so hovering reads as pressing
+     the colour down rather than lighting it up. */
+  --color-primary-text: #6BC7BC;
 
   /* Each step has one owner, so a value can be judged against what carries it:
      xs progress bars, sm tag chips, default buttons and list rows, lg fields,
