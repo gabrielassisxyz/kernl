@@ -66,6 +66,7 @@ import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/s
 import { EditorView, lineNumbers, Decoration, keymap } from '@codemirror/view'
 import { noteMarkdown } from '~/utils/noteLanguage'
 import { noteHighlighting } from '~/utils/noteHighlight'
+import { noteEditingExtensions } from '~/utils/noteEditing'
 import { wikilinkExtensions, wikilinkResolverUpdated } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
 import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
@@ -243,6 +244,7 @@ const loadFile = async (path, { preserveScroll = false } = {}) => {
         lineNumbersComp.of(lineNumbersExtFor(mode, settings.lineNumbers)),
         noteMarkdown(),
         noteHighlighting(),
+        noteEditingExtensions(),
         daRegionField,
         previewComp.of(previewExtFor(mode)),
         concealComp.of(concealExtFor(mode)),
