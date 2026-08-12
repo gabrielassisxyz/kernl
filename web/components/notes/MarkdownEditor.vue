@@ -3,8 +3,10 @@
     <NoteEditorToolbar
       :sidebar-collapsed="sidebarCollapsed"
       :save-state="saveState"
+      :reloading="reloading"
       @toggle-sidebar="$emit('toggle-sidebar')"
       @save-manual="flushPendingSave"
+      @reload-note="reloadNote"
       @delete-note="$emit('delete-note')"
     />
 
@@ -58,7 +60,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state'
 import { EditorView, lineNumbers, Decoration, keymap } from '@codemirror/view'
@@ -107,7 +109,9 @@ const props = defineProps({
 // open-wikilink: emitted when a wikilink pill is clicked.
 // toggle-sidebar: forwarded from the toolbar to the parent shell.
 // delete-note: forwarded from the toolbar; the page owns the confirm + call.
-const emit = defineEmits(['open-wikilink', 'toggle-sidebar', 'delete-note'])
+// reloaded: the file was re-read from disk, so the vault index the page holds
+// (category, timestamps, ordering) describes a note that has since moved on.
+const emit = defineEmits(['open-wikilink', 'toggle-sidebar', 'delete-note', 'reloaded'])
 
 const { settings, styleVars } = useEditorSettings()
 
@@ -132,6 +136,7 @@ const conflict = ref(false)
 const lastModified = ref('')
 const activeHunks = ref([])
 const saveError = ref(false)
+const reloading = ref(false)
 let saveTimer = null
 // The path the current editor doc was loaded from. saveFile targets this, not
 // props.path: during a note switch props.path already points at the NEW note
@@ -209,11 +214,15 @@ const reconfigure = () => {
   })
 }
 
-const loadFile = async (path) => {
+// preserveScroll keeps the reader where they were: rebuilding the editor resets
+// the scroll surface to the top, which on a long note costs more than the
+// reload is worth. A note SWITCH must not preserve it - that is a new document.
+const loadFile = async (path, { preserveScroll = false } = {}) => {
   if (!path) return
   const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, { cache: 'no-cache' })
   if (res.ok) {
     const text = await res.text()
+    const scrollTop = preserveScroll ? (scrollEl.value?.scrollTop ?? 0) : 0
     rawContent.value = text
     syncFrontmatter(text)
 
@@ -250,6 +259,31 @@ const loadFile = async (path) => {
     isDirty.value = false
     saveError.value = false
     conflict.value = false // a conflict belongs to the previously loaded path
+
+    if (preserveScroll && scrollTop > 0) {
+      // After the new view has laid out: the scroll surface has no height to
+      // scroll within until CodeMirror has painted the fresh document.
+      await nextTick()
+      if (scrollEl.value) scrollEl.value.scrollTop = scrollTop
+    }
+  }
+}
+
+// Read the file again, for an edit that arrived from outside this screen.
+// A pending edit of our own is written FIRST, so the reload can never silently
+// discard it - and if that write finds the file changed underneath, the save
+// conflict owns the decision and the reload stands down rather than adding a
+// second, competing way to lose work.
+const reloadNote = async () => {
+  if (reloading.value || !props.path) return
+  reloading.value = true
+  try {
+    await flushPendingSave()
+    if (conflict.value) return
+    await loadFile(props.path, { preserveScroll: true })
+    emit('reloaded')
+  } finally {
+    reloading.value = false
   }
 }
 

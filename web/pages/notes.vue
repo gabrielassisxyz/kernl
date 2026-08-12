@@ -98,6 +98,7 @@
         :sidebar-collapsed="sidebarCollapsed"
         @open-wikilink="openWikilink"
         @toggle-sidebar="toggleSidebar"
+        @reloaded="load"
         @delete-note="showDeleteNote = true"
       />
       <div v-else class="workspace__empty">
