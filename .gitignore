@@ -126,9 +126,10 @@ result
 result-*
 
 scripts/
-update_binary.sh
 generate-env.sh
 run.sh
+# run.sh's marker for the last successful web build, used to skip the generate
+.web-generate.stamp
 
 # Beads compliance audit dir (managed by /beads-compliance-and-completion-verification skill)
 /beads_compliance_audit/
