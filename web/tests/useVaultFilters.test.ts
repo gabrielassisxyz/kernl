@@ -192,6 +192,50 @@ describe('collapsing', () => {
     expect(f.fileGroups.value[0].count).toBe(2)
   })
 
+  const grouped = () => {
+    const f = setup([
+      note({ title: 'a note' }),
+      note({ title: 'a bookmark', category: 'bookmark' }),
+      note({ title: 'a project', category: 'project' }),
+      note({ title: 'a task', category: 'task' }),
+    ])
+    f.tab.value = 'files'
+    f.groupByCategory.value = true
+    return f
+  }
+
+  it('starts the bulk categories folded and every other one open', () => {
+    const f = grouped()
+    expect(f.isGroupOpen('bookmark')).toBe(false)
+    expect(f.isGroupOpen('project')).toBe(false)
+    expect(f.isGroupOpen('task')).toBe(false)
+    expect(f.isGroupOpen('note')).toBe(true)
+
+    const folded = f.fileGroups.value.find((g) => g.key === 'task')
+    expect(folded?.notes).toEqual([])
+    expect(folded?.count).toBe(1)
+    expect(titlesOf(f.fileGroups.value.find((g) => g.key === 'note')!.notes)).toEqual(['a note'])
+  })
+
+  it('keeps a folded category open once the user opens it, through search and sort', () => {
+    const f = grouped()
+    f.toggleGroup('task')
+    expect(f.isGroupOpen('task')).toBe(true)
+
+    f.query.value = 'a'
+    f.sortField.value = 'name'
+    f.sortDir.value = 'asc'
+    expect(f.isGroupOpen('task')).toBe(true)
+    expect(titlesOf(f.fileGroups.value.find((g) => g.key === 'task')!.notes)).toEqual(['a task'])
+  })
+
+  it('folds a bulk category under split mode too, where the key carries the author', () => {
+    const f = grouped()
+    f.sourceMode.value = 'split'
+    expect(f.isGroupOpen('task:me')).toBe(false)
+    expect(f.isGroupOpen('note:me')).toBe(true)
+  })
+
   it('materialises a tag\'s children only once it is open', () => {
     const f = setup([note({ title: 'a', tags: ['ops'] })])
     expect(f.tagGroups.value[0].tags[0].notes).toEqual([])
