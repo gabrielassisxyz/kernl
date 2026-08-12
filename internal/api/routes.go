@@ -20,7 +20,7 @@ func NewRouter(a *app.App) http.Handler {
 	mux.HandleFunc("GET /api/health", healthHandler(a))
 
 	RegisterBeadRoutes(mux, a)
-	RegisterApprovalRoutes(mux)
+	RegisterApprovalRoutes(mux, a)
 	RegisterAuditRoutes(mux, a)
 	RegisterStreamRoutes(mux, a)
 	RegisterEpicRoutes(mux, a)
