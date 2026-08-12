@@ -64,7 +64,7 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state'
 import { EditorView, lineNumbers, Decoration, keymap } from '@codemirror/view'
-import { markdown } from '@codemirror/lang-markdown'
+import { noteMarkdown } from '~/utils/noteLanguage'
 import { wikilinkExtensions, wikilinkResolverUpdated } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
 import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
@@ -240,7 +240,7 @@ const loadFile = async (path, { preserveScroll = false } = {}) => {
       doc: text,
       extensions: [
         lineNumbersComp.of(lineNumbersExtFor(mode, settings.lineNumbers)),
-        markdown(),
+        noteMarkdown(),
         daRegionField,
         previewComp.of(previewExtFor(mode)),
         concealComp.of(concealExtFor(mode)),

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { EditorState } from '@codemirror/state'
-import { markdown } from '@codemirror/lang-markdown'
+import { syntaxTree } from '@codemirror/language'
+import { noteMarkdown } from '../utils/noteLanguage'
 import {
   collectPreviewSpecs,
   computeActiveLines,
@@ -13,7 +14,7 @@ function stateFor(doc: string, cursor = doc.length): EditorState {
   return EditorState.create({
     doc,
     selection: { anchor: cursor },
-    extensions: [markdown()],
+    extensions: [noteMarkdown()],
   })
 }
 
@@ -89,5 +90,43 @@ describe('collectPreviewSpecs - non-destructive', () => {
     const state = stateFor(doc)
     collectPreviewSpecs(state, computeActiveLines(state))
     expect(state.doc.toString()).toBe(doc)
+  })
+})
+
+// The dialect is a load-bearing choice, not a default: under lang-markdown's
+// CommonMark base these constructs produce no nodes at all, so every decoration
+// built for them would silently do nothing.
+describe('noteMarkdown dialect', () => {
+  const nodeNames = (doc: string): Set<string> => {
+    const state = EditorState.create({ doc, extensions: [noteMarkdown()] })
+    const names = new Set<string>()
+    syntaxTree(state).iterate({ enter: (node) => { names.add(node.name) } })
+    return names
+  }
+
+  it('parses the GFM constructs the live preview has to reach', () => {
+    const names = nodeNames([
+      '~~struck~~',
+      '',
+      '| a | b |',
+      '| --- | --- |',
+      '| 1 | 2 |',
+      '',
+      '- [x] task',
+      '',
+    ].join('\n'))
+
+    expect(names.has('Strikethrough')).toBe(true)
+    expect(names.has('Table')).toBe(true)
+    expect(names.has('TableCell')).toBe(true)
+    expect(names.has('TaskMarker')).toBe(true)
+  })
+
+  it('keeps parsing the CommonMark constructs the preview already styles', () => {
+    const names = nodeNames('# H\n\n**b** *i* `c` [x](https://e.com)\n\n> q\n\n---\n')
+
+    for (const expected of ['ATXHeading1', 'StrongEmphasis', 'Emphasis', 'InlineCode', 'Link', 'Blockquote', 'HorizontalRule']) {
+      expect(names.has(expected)).toBe(true)
+    }
   })
 })
