@@ -61,7 +61,7 @@ go build -o ./kernl ./cmd/kernl
 ./kernl version
 ```
 
-For local development, `run.sh` builds the web and binary together.
+The order matters: `//go:embed` resolves at compile time, so a build that runs before `npm run generate` fails outright.
 
 ### Docker
 
