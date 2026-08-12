@@ -28,7 +28,14 @@ settings:
       model: claude-sonnet-4-6
       # Human-readable label used in pool selection and logs.
       label: sonnet
-      # Approval mode: auto (default) or manual.
+      # Approval mode: auto (default) or prompt.
+      #
+      # auto dispatches the agent with its own permission checks bypassed: it
+      # runs every tool unattended. prompt puts each tool call behind a
+      # judgment gate - the agent blocks, the request shows up in
+      # `kernl approval list` and in the GUI, and it resumes when a human
+      # answers. Only claude and pi can be gated; any other CLI configured
+      # with prompt is refused at dispatch rather than run unasked.
       approvalMode: auto
       # Optional: provider override (defaults to vendor).
       # provider: anthropic
@@ -155,6 +162,12 @@ orchestrator:
   # that repairs itself all day while nobody finds out. Raise it for a
   # repository whose reviews converge slowly; lower it to be interrupted sooner.
   # fixupBudget: 3
+  # How long a judgment gate waits for you before it is denied with a reason
+  # (default: 30m). This is kernl's own policy: a gated agent waits
+  # indefinitely on its side, so nothing else bounds the wait - and while it
+  # waits it holds both its own process and one of maxConcurrentBeads' slots.
+  # Only agents with approvalMode: prompt ever raise one.
+  # approvalTimeout: 30m
   # The permission allowlist handed to a dispatched opencode agent. Unset,
   # kernl writes and uses ~/.kernl/opencode-config.json, which you can then
   # edit. Set it and the file must exist: a path that was named and is missing

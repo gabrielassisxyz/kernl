@@ -200,11 +200,7 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 		"bead", input.BeadID, "agent", input.AgentName,
 		"stdout", stdoutLogPath.path, "stderr", stderrLogPath.path)
 
-	agentLabel := input.AgentName
-	if agentLabel == "" {
-		agentLabel = input.Command
-	}
-	sessionID := fmt.Sprintf("%s-%s", input.BeadID, agentLabel)
+	sessionID := StageSessionID(input.BeadID, input.AgentName, input.Command)
 	d.scm.Connect(sessionID)
 
 	// Register spawn context so manual /nudge requests can later re-resolve
@@ -603,6 +599,18 @@ func openStageLogs(baseLogDir, beadID, agentName string) (stageLog, stageLog, fu
 		return stageLog{path: p, w: f}
 	}
 	return mkLog("stdout"), mkLog("stderr"), closeAll
+}
+
+// StageSessionID is how a dispatched stage's session is named. It is a
+// function because the approval gate has to park a request under the same name
+// the run reports, and two independent spellings would list every gate against
+// a session the operator cannot find.
+func StageSessionID(beadID, agentName, command string) string {
+	label := agentName
+	if label == "" {
+		label = command
+	}
+	return fmt.Sprintf("%s-%s", beadID, label)
 }
 
 // envMapToSlice converts a map[KEY]VALUE to ["KEY=VALUE", ...] for exec.Cmd.

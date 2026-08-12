@@ -717,12 +717,28 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return RunBeadResult{FinalState: bead.State, Success: false},
 				fmt.Errorf("KERNL DISPATCH FAILURE: empty prompt for bead %s at state %s - Fix: the stage prompt builder returned nothing; check the preceding error for why it declined", deps.BeadID, activeState)
 		}
-		agentInput.Command, agentInput.Args = BuildStageArgs(
-			adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
-			agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		if agentInput.Env == nil {
 			agentInput.Env = make(map[string]string)
 		}
+		// Armed before the argv is built: claude carries the bridge inside its
+		// own command line, so the target has to know about it first.
+		target := adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode}
+		approvalTimeout, err := ApprovalTimeout(deps.Config)
+		if err != nil {
+			return RunBeadResult{FinalState: bead.State, Success: false}, err
+		}
+		if gateErr := applyApprovalBridge(&target, agentInput.Env, ApprovalBridgeInput{
+			StateDir:  deps.StateDir,
+			SessionID: StageSessionID(deps.BeadID, agentInput.AgentName, agentInput.Command),
+			BeadID:    deps.BeadID,
+			RepoPath:  deps.RepoPath,
+			AgentName: agentInput.AgentName,
+			Timeout:   approvalTimeout,
+		}); gateErr != nil {
+			return RunBeadResult{FinalState: bead.State, Success: false}, gateErr
+		}
+		agentInput.Command, agentInput.Args = BuildStageArgs(
+			target, agentInput.Args, deps.BeadID, deps.Worktree, deps.SessionID, prompt)
 		if adapter.ResolveDialect(agentInput.Command) == adapter.DialectOpenCode {
 			if cfgErr := applyOpencodePermissions(agentInput.Env, deps.Config, deps.StateDir, deps.BeadID, activeState, artifactDir, wf.Stages); cfgErr != nil {
 				return RunBeadResult{FinalState: bead.State, Success: false}, cfgErr

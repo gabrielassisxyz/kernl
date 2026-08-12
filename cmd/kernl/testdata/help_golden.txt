@@ -1409,6 +1409,7 @@ Usage:
 Subcommands:
   list           Show what is waiting, for what, and since when
   resolve        Answer one approval (approve/reject, or an in-session prompt)
+  bridge         Raise a gate on behalf of a dispatched agent (agents call this, you do not)
 
 Approvals are the points where the orchestrator stops and waits for a
 person. These verbs call the same REST API the web GUI calls, so a server
@@ -1458,6 +1459,30 @@ Example:
   kernl approval list
   kernl approval resolve apr-7 --action approve --yes
   kernl approval resolve apr-7 --action decline --session sess-2
+
+### kernl approval bridge
+kernl approval bridge - Raise a gate on behalf of a dispatched agent (agents call this, you do not)
+
+Usage:
+  kernl approval bridge --adapter <claude|pi> [--mcp]
+
+The process a dispatched agent talks to when it wants permission to use a
+tool. kernl wires it into the agent's own command line, so there is no
+reason to run it by hand; it is documented because it appears in process
+listings and in an agent's configuration.
+
+It reads from stdin and blocks until the request is answered, refused, or
+expires. --mcp serves the permission-prompt protocol claude speaks; without
+it, one JSON payload is read from stdin and one verdict written to stdout,
+which is what pi's extension calls.
+
+The request is parked in a directory rather than posted to a server, so a
+gate raised by any verb - including 'kernl bead run', which starts no HTTP
+listener - is visible to 'kernl approval list' and to the GUI.
+
+Flags:
+  --adapter <name>  Required. Which agent's payload layout to read: claude or pi
+  --mcp             Serve the MCP permission-prompt protocol instead of a single payload
 
 ### kernl session
 kernl session - Poke a running agent session

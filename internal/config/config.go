@@ -154,6 +154,12 @@ type OrchestratorConfig struct {
 	// means kernl writes and uses its own file, while a path that is set and
 	// missing is an operator mistake that must fail loud rather than fall back.
 	OpencodeConfigPath string `yaml:"opencodeConfigPath,omitempty"`
+	// ApprovalTimeout is how long a judgment gate waits for a human before it
+	// is denied with a reason. It is kernl's policy alone: a measured agent
+	// waits indefinitely on a permission call, so nothing else bounds a gate,
+	// and an unanswered one holds both the agent process and one of
+	// MaxConcurrentBeads' slots. Unset defaults to approvals.DefaultTimeout.
+	ApprovalTimeout string `yaml:"approvalTimeout,omitempty"`
 }
 
 type SweepConfig struct {
