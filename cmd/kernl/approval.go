@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-var approvalSubcommands = []string{"list", "resolve"}
+var approvalSubcommands = []string{"list", "resolve", "bridge"}
 
 // The two routes speak different action vocabularies because they resolve
 // different registries: /api/approvals drives the orchestrator's approval
@@ -80,6 +80,30 @@ Example:
 				{Name: "--json", Description: `Emit {"id","resolved":true} (or the server's body)`},
 			},
 		},
+		{
+			Name:    "bridge",
+			Summary: "Raise a gate on behalf of a dispatched agent (agents call this, you do not)",
+			Usage:   "kernl approval bridge --adapter <claude|pi> [--mcp]",
+			Details: `The process a dispatched agent talks to when it wants permission to use a
+tool. kernl wires it into the agent's own command line, so there is no
+reason to run it by hand; it is documented because it appears in process
+listings and in an agent's configuration.
+
+It reads from stdin and blocks until the request is answered, refused, or
+expires. --mcp serves the permission-prompt protocol claude speaks; without
+it, one JSON payload is read from stdin and one verdict written to stdout,
+which is what pi's extension calls.
+
+The request is parked in a directory rather than posted to a server, so a
+gate raised by any verb - including 'kernl bead run', which starts no HTTP
+listener - is visible to 'kernl approval list' and to the GUI.
+
+{{flags}}`,
+			Flags: []commandFlag{
+				{Name: "--adapter", Value: "<name>", Description: "Required. Which agent's payload layout to read: claude or pi"},
+				{Name: "--mcp", Description: "Serve the MCP permission-prompt protocol instead of a single payload"},
+			},
+		},
 	},
 }
 
@@ -103,6 +127,11 @@ func runApproval(v verbContext, args []string) error {
 	sub, rest, err := requireSub("approval", args, approvalSubcommands)
 	if err != nil {
 		return err
+	}
+	// Routed before --json is consumed: the bridge speaks a protocol on stdout
+	// rather than printing a document, so it has no --json to parse.
+	if sub == "bridge" {
+		return runApprovalBridge(v, rest)
 	}
 	asJSON, rest := parseBoolFlag(rest, "--json")
 	if sub == "list" {

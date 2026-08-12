@@ -112,6 +112,17 @@ type verbContext struct {
 	// not have to parse around: notes about a result rather than the result. Kept
 	// separate so `--json` stdout stays a document another tool can read whole.
 	errOut io.Writer
+	// in is the verb's input stream. Only the approval bridge reads it - it
+	// speaks a protocol over stdin - and it is injected for the same reason out
+	// is: so the protocol can be driven by a test instead of by an agent.
+	in io.Reader
+}
+
+func (v verbContext) stdin() io.Reader {
+	if v.in == nil {
+		return os.Stdin
+	}
+	return v.in
 }
 
 func (v verbContext) stdout() io.Writer {
