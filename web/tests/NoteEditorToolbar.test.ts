@@ -32,4 +32,14 @@ describe('NoteEditorToolbar reload', () => {
     await reloadButton(wrapper).trigger('click')
     expect(wrapper.emitted('reload-note')).toHaveLength(1)
   })
+
+  it('leads the save state rather than trailing it', () => {
+    const wrapper = mount(NoteEditorToolbar, { props: { saveState: 'saved' } })
+    const toolbar = wrapper.get('.editor-toolbar').element
+
+    const position = reloadButton(wrapper).element.compareDocumentPosition(wrapper.get('.save-chip').element)
+
+    expect(toolbar.contains(reloadButton(wrapper).element)).toBe(true)
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
 })
