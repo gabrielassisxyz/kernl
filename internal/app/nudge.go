@@ -97,12 +97,29 @@ func (a *App) Nudge(sessionID string, opts NudgeOptions) error {
 	if err != nil {
 		return fmt.Errorf("nudge: resolve agent for %s: %w", rec.BeadID, err)
 	}
-	agentInput.Command, agentInput.Args = BuildStageArgs(
-		adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode},
-		agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
 	if agentInput.Env == nil {
 		agentInput.Env = map[string]string{}
 	}
+	// A follow-up is a second dispatch of the same stage, so it runs under the
+	// same gate. Skipping it here would make "nudge" the way to get an agent
+	// past a permission it was never granted.
+	target := adapter.AgentTarget{Command: agentInput.Command, Model: agentInput.Model, ApprovalMode: agentInput.ApprovalMode}
+	approvalTimeout, err := ApprovalTimeout(a.Config)
+	if err != nil {
+		return err
+	}
+	if gateErr := applyApprovalBridge(&target, agentInput.Env, ApprovalBridgeInput{
+		StateDir:  a.StateDir,
+		SessionID: sessionID,
+		BeadID:    rec.BeadID,
+		RepoPath:  rec.RepoPath,
+		AgentName: agentInput.AgentName,
+		Timeout:   approvalTimeout,
+	}); gateErr != nil {
+		return gateErr
+	}
+	agentInput.Command, agentInput.Args = BuildStageArgs(
+		target, agentInput.Args, rec.BeadID, rec.Cwd, rec.OpencodeSessionID, prompt)
 	if adapter.ResolveDialect(agentInput.Command) == adapter.DialectOpenCode {
 		// The follow-up resumes the same session under the same policy, so it
 		// reuses the recorded allowlist rather than deriving one. Deriving it

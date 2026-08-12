@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/gabrielassisxyz/kernl/internal/approvals"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
 	"github.com/gabrielassisxyz/kernl/internal/epic"
@@ -29,6 +30,12 @@ type App struct {
 	EpicEvents    *epic.EpicEventHub
 	NudgeRegistry *session.NudgeRegistry
 	Graph         *graph.Graph
+
+	// Approvals is the file-backed store of judgment gates a dispatched agent
+	// is blocked on. It lives under StateDir rather than in memory because the
+	// process that raises a gate (an agent's bridge) is never the process that
+	// answers it, and `kernl bead run` stands up no server for them to share.
+	Approvals *approvals.Store
 
 	// StateDir is where kernl writes files that belong to a run rather than to
 	// the repository being worked on - the opencode allowlist a dispatched
@@ -129,6 +136,11 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 		LogDir:        filepath.Join(stateDir, "logs"),
 	})
 
+	approvalStore, err := approvals.NewStore(filepath.Join(stateDir, "approvals"))
+	if err != nil {
+		return nil, err
+	}
+
 	graphPath, err := graphDBFilePath(cfg)
 	if err != nil {
 		return nil, err
@@ -153,6 +165,7 @@ func NewAppForRepo(cfg *config.Config, repoPath string) (*App, error) {
 		EpicEvents:    epic.NewEpicEventHub(),
 		NudgeRegistry: nudges,
 		Graph:         g,
+		Approvals:     approvalStore,
 		RepoPath:      repoPath,
 		autoClassify:  cfg.Inbox.AutoClassifyEnabled(),
 	}, nil

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestResolveDialect(t *testing.T) {
@@ -571,11 +572,11 @@ func TestBuildInteractiveArgs_Gemini(t *testing.T) {
 	}
 }
 
-func TestShouldBypassClaudePermissions(t *testing.T) {
-	if !ShouldBypassClaudePermissions(AgentTarget{ApprovalMode: "bypass"}) {
+func TestShouldBypassPermissions(t *testing.T) {
+	if !ShouldBypassPermissions(AgentTarget{ApprovalMode: "bypass"}) {
 		t.Error("expected bypass for non-prompt mode")
 	}
-	if ShouldBypassClaudePermissions(AgentTarget{ApprovalMode: "prompt"}) {
+	if ShouldBypassPermissions(AgentTarget{ApprovalMode: "prompt"}) {
 		t.Error("expected no bypass for prompt mode")
 	}
 }
@@ -632,7 +633,7 @@ func TestClaudeInteractiveArgs_BypassByDefault(t *testing.T) {
 
 func TestClaudeInteractiveArgs_PromptMode(t *testing.T) {
 	agent := AgentTarget{Command: "claude", Model: "sonnet", ApprovalMode: "prompt"}
-	args := BuildClaudeInteractiveArgsWithBridge(agent, "/path/to/bridge.mjs")
+	args := BuildClaudeInteractiveArgs(agent)
 	for _, a := range args.Args {
 		if a == "--dangerously-skip-permissions" {
 			t.Error("should not have --dangerously-skip-permissions in prompt mode")
@@ -662,7 +663,7 @@ func TestClaudeInteractiveArgs_PromptMode(t *testing.T) {
 
 func TestClaudePromptModeArgs_PromptMode(t *testing.T) {
 	agent := AgentTarget{Command: "claude", ApprovalMode: "prompt"}
-	args := BuildClaudePromptModeArgsWithBridge(agent, "do something", "/path/to/bridge.mjs")
+	args := BuildClaudePromptModeArgs(agent, "do something")
 	for _, a := range args.Args {
 		if a == "--dangerously-skip-permissions" {
 			t.Error("should not have --dangerously-skip-permissions in prompt mode")
@@ -674,7 +675,7 @@ func TestClaudePromptModeArgs_PromptMode(t *testing.T) {
 }
 
 func TestClaudeApprovalBridgeMCPConfig(t *testing.T) {
-	cfg := ClaudeApprovalBridgeMCPConfig("/path/to/bridge.mjs")
+	cfg := ClaudeApprovalBridgeMCPConfig("/usr/local/bin/kernl")
 	var parsed map[string]any
 	if err := json.Unmarshal([]byte(cfg), &parsed); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
@@ -688,25 +689,48 @@ func TestClaudeApprovalBridgeMCPConfig(t *testing.T) {
 		t.Fatal("expected kernl_approval server config")
 	}
 	cmd, _ := server["command"].(string)
-	if cmd != "/path/to/bridge.mjs" {
+	if cmd != "/usr/local/bin/kernl" {
 		t.Errorf("expected command=/path/to/bridge.mjs, got %s", cmd)
 	}
 }
 
 func TestApprovalBridgeEnvVars(t *testing.T) {
-	env := ApprovalBridgeEnvVars("session-123", "http://localhost:3000", "token-abc")
-	if env[EnvTerminalSessionID] != "session-123" {
-		t.Errorf("expected session-123, got %s", env[EnvTerminalSessionID])
+	env := ApprovalBridgeEnvVars(ApprovalBridgeContext{
+		SessionID: "session-123",
+		StoreDir:  "/state/approvals",
+		BeadID:    "kernl-1",
+		RepoPath:  "/repo",
+		AgentName: "claude",
+		Timeout:   30 * time.Minute,
+	})
+
+	for name, want := range map[string]string{
+		EnvTerminalSessionID: "session-123",
+		EnvApprovalDir:       "/state/approvals",
+		EnvApprovalBeadID:    "kernl-1",
+		EnvApprovalRepoPath:  "/repo",
+		EnvApprovalAgentName: "claude",
+		EnvApprovalTimeout:   "30m0s",
+	} {
+		if env[name] != want {
+			t.Errorf("%s: expected %q, got %q", name, want, env[name])
+		}
 	}
-	if env[EnvApprovalBridgeBaseURL] != "http://localhost:3000" {
-		t.Errorf("expected http://localhost:3000, got %s", env[EnvApprovalBridgeBaseURL])
+}
+
+// An empty field must be absent rather than exported blank: the bridge falls
+// back to its own default for a variable that is not set, and an empty string
+// would override that default with nothing.
+func TestApprovalBridgeEnvVarsOmitsEmptyFields(t *testing.T) {
+	env := ApprovalBridgeEnvVars(ApprovalBridgeContext{SessionID: "s1"})
+
+	for _, name := range []string{EnvApprovalDir, EnvApprovalBeadID, EnvApprovalRepoPath, EnvApprovalAgentName, EnvApprovalTimeout} {
+		if _, present := env[name]; present {
+			t.Errorf("%s must be omitted when unset, got %q", name, env[name])
+		}
 	}
-	if env[EnvApprovalBridgeToken] != "token-abc" {
-		t.Errorf("expected token-abc, got %s", env[EnvApprovalBridgeToken])
-	}
-	envNoToken := ApprovalBridgeEnvVars("s1", "http://localhost:3000", "")
-	if _, ok := envNoToken[EnvApprovalBridgeToken]; ok {
-		t.Error("token should not be set when empty")
+	if env[EnvTerminalSessionID] != "s1" {
+		t.Errorf("the session id must survive, got %q", env[EnvTerminalSessionID])
 	}
 }
 
