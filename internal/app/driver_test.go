@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
@@ -509,5 +510,67 @@ func TestDriverRunBeadLeavesTurnsNilForClaudeAndCodex(t *testing.T) {
 		if res.Turns != nil {
 			t.Errorf("%s: Turns = %v, want nil - this dialect's boundary is the end of the run", tc.dialect, *res.Turns)
 		}
+	}
+}
+
+// killOnlyProcess exits when it is killed and never before, which is what a
+// real agent CLI does: nothing kernl does to its own readers can make the
+// child return. Measured on 2026-08-12, three pi dispatches of one epic run
+// crossed the turn ceiling, were "stopped", and stayed alive - 35, 40 and 44
+// minutes each - holding their bead in Process.Wait() with no ledger row and
+// no state transition until they were killed by hand.
+type killOnlyProcess struct {
+	killed   chan struct{}
+	killOnce sync.Once
+}
+
+func (p *killOnlyProcess) Wait() error {
+	<-p.killed
+	return nil
+}
+
+func (p *killOnlyProcess) Kill() error {
+	p.killOnce.Do(func() { close(p.killed) })
+	return nil
+}
+
+// A dispatch stopped for crossing the turn ceiling must terminate the agent,
+// not merely stop reading it. SessionRuntime.Stop cancels the context Start
+// derives for its readers, which is a CHILD of the context the process was
+// spawned with, so cancelling it cannot reach the process by itself.
+func TestDriverRunBeadKillsTheAgentWhenTheTurnCeilingStopsIt(t *testing.T) {
+	be := &fakeBackend{state: map[string]string{"kb-1": "implementation"}}
+	proc := &killOnlyProcess{killed: make(chan struct{})}
+	script := strings.Repeat(`{"type":"turn_end"}`+"\n", session.MaxTurnsPerDispatch+1)
+	spawn := func(ctx context.Context, cmd string, args []string, cwd string, env []string) (Process, io.Reader, io.Reader, error) {
+		return proc, strings.NewReader(script), strings.NewReader(""), nil
+	}
+	d := NewSessionDriver(DriverDeps{Backend: be, Spawn: spawn, SCM: newTestSCM(), LogDir: t.TempDir()})
+	repoPath := t.TempDir()
+
+	type outcome struct {
+		res RunBeadResult
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := d.RunBead(context.Background(), RunBeadInput{
+			BeadID: "kb-1", RepoPath: repoPath, Command: "pi", AgentName: "pi-kimi",
+		})
+		done <- outcome{res, err}
+	}()
+
+	select {
+	case got := <-done:
+		// The ceiling reports itself as an error rather than a result; what
+		// this test pins is that it reports at all instead of hanging.
+		if got.err == nil || !strings.Contains(got.err.Error(), "turn limit") {
+			t.Errorf("err = %v, want it to name the turn ceiling", got.err)
+		}
+		if got.res.Success {
+			t.Error("a dispatch stopped at the turn ceiling must not report success")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("RunBead never returned: the turn ceiling stopped the runtime but left the agent alive, so Process.Wait() blocks and the whole epic run hangs behind one bead")
 	}
 }

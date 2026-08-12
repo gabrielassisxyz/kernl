@@ -39,20 +39,27 @@ type PromptDeliveryHook struct {
 type OnTurnEndedFunc func(exitReason string) bool
 
 type SessionRuntime struct {
-	beadID             string
-	repoPath           string
-	capabilities       DialectCapabilities
-	dialect            string
-	events             chan TerminalEvent
-	resultObserved     bool
-	exitReason         string
-	isError            bool
-	lastEventType      string
-	lastStdoutAt       *time.Time
-	stdinClosed        bool
-	autoAnswered       map[string]bool
-	mu                 sync.Mutex
-	cancel             context.CancelFunc
+	beadID         string
+	repoPath       string
+	capabilities   DialectCapabilities
+	dialect        string
+	events         chan TerminalEvent
+	resultObserved bool
+	exitReason     string
+	isError        bool
+	lastEventType  string
+	lastStdoutAt   *time.Time
+	stdinClosed    bool
+	autoAnswered   map[string]bool
+	mu             sync.Mutex
+	cancel         context.CancelFunc
+	// killProcess terminates the child this runtime reads from. Start's
+	// context is derived FROM the one the caller spawned that child with, so
+	// cancelling it stops the readers and can never reach the process itself;
+	// without this hook a stopped dispatch leaves its agent running and the
+	// caller blocks in Process.Wait() forever. Nil for runtimes driven from
+	// plain readers with no process behind them.
+	killProcess        func() error
 	stdin              io.Writer
 	stdinMu            sync.Mutex
 	onTurnEnded        OnTurnEndedFunc
@@ -114,10 +121,12 @@ func (r *SessionRuntime) countTurn() bool {
 	return true
 }
 
-// stopForTurnCeiling ends a dispatch that has crossed too many turns. It
-// cancels the run's context, which is what kills the child process
-// (execSpawnFunc builds it with exec.CommandContext), rather than signalling
-// a pid this type does not hold.
+// stopForTurnCeiling ends a dispatch that has crossed too many turns, through
+// Stop: the readers are cancelled and the agent process is killed through the
+// hook the caller registered. Cancelling the context Start derives does NOT
+// reach that process - it is a child of the one the process was spawned with -
+// and a dispatch that stops reading an agent still running blocks its caller
+// in Process.Wait() with no ledger row and no state transition.
 //
 // The agent is given no chance to finish the turn it is in. That is the
 // point: an agent that has crossed this many boundaries is repeating itself,
@@ -282,10 +291,30 @@ func (r *SessionRuntime) WaitDrained() {
 	r.drainWG.Wait()
 }
 
+// Stop ends this dispatch: it cancels the readers and terminates the agent
+// process. Both halves are load-bearing. Cancelling alone returns the reader
+// goroutines but leaves the child running, and the caller then blocks in
+// Process.Wait() with nothing left to wake it.
 func (r *SessionRuntime) Stop() {
 	if r.cancel != nil {
 		r.cancel()
 	}
+	r.mu.Lock()
+	kill := r.killProcess
+	r.mu.Unlock()
+	if kill != nil {
+		// A process that already exited reports an error here, which is the
+		// ordinary case on the Dispose path after Wait() returned.
+		_ = kill()
+	}
+}
+
+// SetProcessKiller registers how to terminate the agent process this runtime
+// reads from. Call it before Start.
+func (r *SessionRuntime) SetProcessKiller(kill func() error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.killProcess = kill
 }
 
 func (r *SessionRuntime) Events() <-chan TerminalEvent {

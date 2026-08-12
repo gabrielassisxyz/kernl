@@ -187,6 +187,10 @@ func (d *SessionDriver) RunBead(ctx context.Context, input RunBeadInput) (RunBea
 	if err != nil {
 		return RunBeadResult{}, fmt.Errorf("KERNL DISPATCH FAILURE: spawn agent %s (%s): %w", input.AgentName, input.Command, err)
 	}
+	// The runtime decides when a dispatch must end (the turn ceiling), but only
+	// this scope holds the process. Without the handle it can cancel its own
+	// readers and nothing else, and proc.Wait() below never returns.
+	r.SetProcessKiller(proc.Kill)
 
 	// Tee stdout+stderr to per-bead log files so stuck-state failures
 	// always leave forensic breadcrumbs. Best-effort: if the log dir
