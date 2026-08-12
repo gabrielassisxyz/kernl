@@ -161,7 +161,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onBeforeUnmount, watchEffect, defineAsyncComponent } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch, watchEffect, defineAsyncComponent } from 'vue'
 import TagHierarchy from '~/components/notes/TagHierarchy.vue'
 import NoteList from '~/components/notes/NoteList.vue'
 import VaultFilters from '~/components/notes/VaultFilters.vue'
@@ -174,9 +174,10 @@ import UiModal from '~/components/ui/UiModal.vue'
 // note is actually opened, keeping the vault index paint light.
 const MarkdownEditor = defineAsyncComponent(() => import('~/components/notes/MarkdownEditor.vue'))
 
-// Tags first, and the default: the vault is browsed by subject far more often
-// than by filename, and the file list is the fallback for a note whose tag you
-// cannot remember.
+// Tags first, and the default on a first visit: the vault is browsed by subject
+// far more often than by filename, and the file list is the fallback for a note
+// whose tag you cannot remember. After that the screen reopens on whichever tab
+// was last used.
 const TABS = [
   { id: 'tags', label: 'Tags', icon: 'tag' },
   { id: 'files', label: 'Files', icon: 'description' },
@@ -225,6 +226,11 @@ const route = useRoute()
 const router = useRouter()
 
 const { remember, recall, forget } = useLastOpenNote()
+const { remember: rememberTab, recall: recallTab } = useLastNotesTab()
+
+// Every route into the tab goes through the ref - the tab strip, the deep link,
+// creating a note - so watching it is the one place that catches them all.
+watch(tab, (chosen) => rememberTab(chosen))
 
 // A deep link is spent once the user makes a choice of their own: it named a
 // note somebody else picked, and it would otherwise outlive that and win the
@@ -242,9 +248,15 @@ const clearDeepLink = () => {
 onMounted(async () => {
   const deepLink = typeof route.query.path === 'string' ? route.query.path : ''
   const tag = typeof route.query.new === 'string' ? route.query.new : ''
-  // The tab moves for a deep link, where the note came from another screen and
-  // has to be findable in the list, and stays put for the remembered note,
-  // which is the user resuming their own screen with their own default.
+
+  // The remembered tab is restored first so the deep link below can still
+  // override it: a note arriving from another screen has to be findable in the
+  // list, whichever tab the user left the screen on. Restoring here rather than
+  // where the ref is created keeps the first paint identical to the prerendered
+  // markup, which the store is in no position to know about.
+  const rememberedTab = recallTab()
+  if (rememberedTab) tab.value = rememberedTab
+
   if (deepLink) {
     tab.value = 'files'
     openNote(deepLink)
