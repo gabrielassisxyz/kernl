@@ -36,6 +36,23 @@
       <span class="material-symbols-outlined !text-[18px]" aria-hidden="true">save</span>
     </button>
 
+    <!-- The counterpart of saving: an edit made outside this screen - by the DA,
+         the CLI, another session - is invisible until the file is read again. -->
+    <button
+      type="button"
+      class="tbtn"
+      :disabled="reloading"
+      title="Reload from disk"
+      aria-label="Reload from disk"
+      @click="$emit('reload-note')"
+    >
+      <span
+        class="material-symbols-outlined !text-[18px]"
+        :class="{ 'tbtn__icon--spinning': reloading }"
+        aria-hidden="true"
+      >refresh</span>
+    </button>
+
     <div class="grow"></div>
 
     <!-- View mode: source / live preview / reading. -->
@@ -217,8 +234,17 @@ import {
   type ViewMode,
 } from '~/composables/useEditorSettings'
 
-defineProps<{ sidebarCollapsed?: boolean; saveState?: 'saved' | 'saving' | 'dirty' | 'conflict' }>()
-defineEmits<{ (e: 'toggle-sidebar'): void; (e: 'delete-note'): void; (e: 'save-manual'): void }>()
+defineProps<{
+  sidebarCollapsed?: boolean
+  saveState?: 'saved' | 'saving' | 'dirty' | 'conflict'
+  reloading?: boolean
+}>()
+defineEmits<{
+  (e: 'toggle-sidebar'): void
+  (e: 'delete-note'): void
+  (e: 'save-manual'): void
+  (e: 'reload-note'): void
+}>()
 
 const SAVE_LABELS: Record<string, string> = {
   saved: 'Saved',
@@ -351,6 +377,24 @@ onBeforeUnmount(() => {
 
 .tbtn--danger:hover {
   color: var(--color-status-failed-text);
+}
+
+.tbtn:disabled {
+  cursor: default;
+  color: var(--color-text-faint);
+}
+
+.tbtn:disabled:hover {
+  background-color: transparent;
+  color: var(--color-text-faint);
+}
+
+@keyframes tbtn-spin {
+  to { transform: rotate(360deg); }
+}
+
+.tbtn__icon--spinning {
+  animation: tbtn-spin 700ms linear infinite;
 }
 
 .tbtn:focus-visible {
@@ -559,6 +603,11 @@ onBeforeUnmount(() => {
 @media (prefers-reduced-motion: reduce) {
   .switch-thumb {
     transition: none;
+  }
+
+  /* The dimmed disabled state still reports the reload is in flight. */
+  .tbtn__icon--spinning {
+    animation: none;
   }
 }
 
