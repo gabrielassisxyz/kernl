@@ -243,7 +243,7 @@ onMounted(() => {
   const path = typeof route.query.path === 'string' ? route.query.path : ''
   if (path) {
     tab.value = 'files'
-    selectFile(path)
+    selectFile(path, { writeUrl: false })
     return
   }
   const tag = typeof route.query.new === 'string' ? route.query.new : ''
@@ -254,9 +254,15 @@ const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
-const selectFile = (path) => {
+// writeUrl is off for the note restored FROM the url on mount. This page is
+// prerendered at /notes, so during hydration Nuxt parks the browser there and
+// puts the real location back - query and all - only once the page resolves.
+// Writing the url from inside that window cancels the restore, and the address
+// bar ends up with neither: the note opens, and the next reload finds nothing.
+// Reading the url is enough there; it already says which note is open.
+const selectFile = (path, { writeUrl = true } = {}) => {
   selectedFile.value = path
-  syncUrl(path)
+  if (writeUrl) syncUrl(path)
   // On narrow screens the sidebar overlays the editor; get out of the way once
   // a note is chosen.
   if (typeof window !== 'undefined' && window.innerWidth < 768) {
