@@ -224,44 +224,64 @@ const creating = ref(false)
 const route = useRoute()
 const router = useRouter()
 
-// Which note is open belongs in the URL, so a browser reload comes back to it
-// instead of to an empty vault - the note was open for a reason, and having to
-// find it again is most of what makes a reload expensive. Replace, not push:
-// picking notes is browsing one screen, not a trail of history entries.
-const syncUrl = (path) => {
+const { remember, recall, forget } = useLastOpenNote()
+
+// A deep link is spent once the user makes a choice of their own: it named a
+// note somebody else picked, and it would otherwise outlive that and win the
+// next reload. Clearing it is also the only url write left on this screen, and
+// it happens on a click - the one moment it is safe. Writing during mount
+// collides with Nuxt's restore of this prerendered route, and both writes lose.
+const clearDeepLink = () => {
+  if (!route.query.path && !route.query.new) return
   const query = { ...route.query }
-  // ?new= is consumed the moment the dialog opens; leaving it behind means a
-  // reload greets you with a create dialog you already answered.
+  delete query.path
   delete query.new
-  if (path) query.path = path
-  else delete query.path
   router.replace({ query })
 }
 
-onMounted(() => {
-  load()
-  const path = typeof route.query.path === 'string' ? route.query.path : ''
-  if (path) {
-    tab.value = 'files'
-    selectFile(path)
-    return
-  }
+onMounted(async () => {
+  const deepLink = typeof route.query.path === 'string' ? route.query.path : ''
   const tag = typeof route.query.new === 'string' ? route.query.new : ''
-  if (tag) openNewNote(tag)
+  // The tab moves for a deep link, where the note came from another screen and
+  // has to be findable in the list, and stays put for the remembered note,
+  // which is the user resuming their own screen with their own default.
+  if (deepLink) {
+    tab.value = 'files'
+    openNote(deepLink)
+  } else if (tag) {
+    openNewNote(tag)
+  }
+
+  await load()
+
+  // Only once the index is in: recall needs it to tell a note that still exists
+  // from one deleted or renamed behind the app's back.
+  if (!deepLink && !tag && !selectedFile.value) {
+    const remembered = recall(notes.value)
+    if (remembered) openNote(remembered)
+  }
 })
 
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
 
-const selectFile = (path) => {
+// Open a note and remember it, without touching the url. Both restores come
+// through here, and neither may write during hydration.
+const openNote = (path) => {
   selectedFile.value = path
-  syncUrl(path)
+  remember(path)
   // On narrow screens the sidebar overlays the editor; get out of the way once
   // a note is chosen.
   if (typeof window !== 'undefined' && window.innerWidth < 768) {
     sidebarCollapsed.value = true
   }
+}
+
+// A note the user picked themselves.
+const selectFile = (path) => {
+  openNote(path)
+  clearDeepLink()
 }
 
 // Resolve a clicked wikilink target to an actual vault file and select it the
@@ -335,7 +355,7 @@ const confirmDeleteNote = async () => {
     if (res.ok || res.status === 404) {
       showDeleteNote.value = false
       selectedFile.value = null
-      syncUrl(null)
+      forget()
       await load()
     }
   } finally {
@@ -357,7 +377,7 @@ const openNewNote = async (tag = '') => {
 const closeNewNote = () => {
   if (creating.value) return
   showNewNote.value = false
-  syncUrl(selectedFile.value)
+  clearDeepLink()
 }
 
 const confirmNewNote = async () => {
