@@ -64,7 +64,9 @@ import { ref, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { EditorState, StateField, StateEffect, Compartment } from '@codemirror/state'
 import { EditorView, lineNumbers, Decoration, keymap } from '@codemirror/view'
-import { markdown } from '@codemirror/lang-markdown'
+import { noteMarkdown } from '~/utils/noteLanguage'
+import { noteHighlighting } from '~/utils/noteHighlight'
+import { noteEditingExtensions } from '~/utils/noteEditing'
 import { wikilinkExtensions, wikilinkResolverUpdated } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
 import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
@@ -197,7 +199,14 @@ const previewExtFor = (mode) => {
 }
 const concealExtFor = (mode) => (mode === 'source' ? [] : frontmatterConcealExtension())
 const lineNumbersExtFor = (mode, on) => (on && mode !== 'reading' ? lineNumbers() : [])
-const editableExtFor = (mode) => EditorView.editable.of(mode !== 'reading')
+// EditorView.editable only sets contenteditable - it does NOT stop commands from
+// changing the document, and the keymap is full of commands. EditorState.readOnly
+// is the facet those commands actually check, so without it a Backspace in
+// reading mode would edit the note and the autosave would write it to disk.
+const editableExtFor = (mode) => [
+  EditorView.editable.of(mode !== 'reading'),
+  EditorState.readOnly.of(mode === 'reading'),
+]
 const typewriterExtFor = (on) => (on ? typewriterExtension() : [])
 
 const reconfigure = () => {
@@ -233,7 +242,9 @@ const loadFile = async (path, { preserveScroll = false } = {}) => {
       doc: text,
       extensions: [
         lineNumbersComp.of(lineNumbersExtFor(mode, settings.lineNumbers)),
-        markdown(),
+        noteMarkdown(),
+        noteHighlighting(),
+        noteEditingExtensions(),
         daRegionField,
         previewComp.of(previewExtFor(mode)),
         concealComp.of(concealExtFor(mode)),
