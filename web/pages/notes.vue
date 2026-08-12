@@ -221,6 +221,22 @@ const creating = ref(false)
 // Deep links from other surfaces: ?path= opens an existing note (e.g. Memory's
 // "Edit" on a Telos note); ?new=<tag> opens the create dialog pre-tagged.
 const route = useRoute()
+const router = useRouter()
+
+// Which note is open belongs in the URL, so a browser reload comes back to it
+// instead of to an empty vault - the note was open for a reason, and having to
+// find it again is most of what makes a reload expensive. Replace, not push:
+// picking notes is browsing one screen, not a trail of history entries.
+const syncUrl = (path) => {
+  const query = { ...route.query }
+  // ?new= is consumed the moment the dialog opens; leaving it behind means a
+  // reload greets you with a create dialog you already answered.
+  delete query.new
+  if (path) query.path = path
+  else delete query.path
+  router.replace({ query })
+}
+
 onMounted(() => {
   load()
   const path = typeof route.query.path === 'string' ? route.query.path : ''
@@ -239,6 +255,7 @@ const toggleSidebar = () => {
 
 const selectFile = (path) => {
   selectedFile.value = path
+  syncUrl(path)
   // On narrow screens the sidebar overlays the editor; get out of the way once
   // a note is chosen.
   if (typeof window !== 'undefined' && window.innerWidth < 768) {
@@ -317,6 +334,7 @@ const confirmDeleteNote = async () => {
     if (res.ok || res.status === 404) {
       showDeleteNote.value = false
       selectedFile.value = null
+      syncUrl(null)
       await load()
     }
   } finally {
@@ -338,6 +356,7 @@ const openNewNote = async (tag = '') => {
 const closeNewNote = () => {
   if (creating.value) return
   showNewNote.value = false
+  syncUrl(selectedFile.value)
 }
 
 const confirmNewNote = async () => {
