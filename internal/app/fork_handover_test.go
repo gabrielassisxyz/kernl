@@ -265,3 +265,32 @@ func TestDecideForkAction_RecordedPreferenceIsVisibleInThePromptTheDAReceives(t 
 		t.Errorf("the DA's own question = %q, want the recorded preference visible in it", da.asked)
 	}
 }
+
+// A fork document wraps its prose, so an option's own sentence carries line
+// breaks that the DA's single-line CHOSEN answer does not. Measured on
+// 2026-08-12: the DA quoted option A of a real fork verbatim, the containment
+// check compared the two raw strings, and the answer was refused as an option
+// nobody had weighed - blocking the bead on a human for a line wrap.
+func TestParseForkAnswer_ChosenOptionMatchesAcrossTheProsesOwnLineWrapping(t *testing.T) {
+	h := &ForkHandover{
+		Fork: "how the raw robots.txt text is recovered",
+		OptionsConsidered: "**A. Fetch `robots.txt` a second time**, on the same client `website.setup_base()` already\n" +
+			"returns, read its raw bytes before any decode, and build this project's own comparison\n" +
+			"patterns from that.\n\n" +
+			"**B. Stop asking the engine to read `robots.txt` at all**, and read the file exactly\n" +
+			"once, on this project's own client.",
+		WhatWouldHaveToAgree: "every site this tool ever crawls",
+	}
+	chosen := "**A. Fetch `robots.txt` a second time**, on the same client `website.setup_base()` already returns, read its raw bytes before any decode, and build this project's own comparison patterns from that."
+
+	got, err := ParseForkAnswer("FORK: DECIDE\nCHOSEN: "+chosen+"\nit is the only option the acceptance criteria can be met under.\n", h)
+	if err != nil {
+		t.Fatalf("ParseForkAnswer: %v", err)
+	}
+	if got.Action != ForkActionDecided {
+		t.Errorf("Action = %v, want the fork decided", got.Action)
+	}
+	if got.ChosenOption != chosen {
+		t.Errorf("ChosenOption = %q, want the DA's own text preserved verbatim", got.ChosenOption)
+	}
+}

@@ -287,8 +287,8 @@ func parseForkDecideAnswer(afterVerdict string, handover *ForkHandover) (ForkDec
 }
 
 // chosenOptionWasOffered reports whether chosen appears, case- and
-// whitespace-insensitively, somewhere inside handover's own
-// OptionsConsidered prose.
+// whitespace-insensitively (including the line wrapping inside either side),
+// somewhere within handover's own OptionsConsidered prose.
 //
 // Deliberately CONTAINMENT, not equality. OptionsConsidered is free prose
 // under one heading ("bm25 or embeddings, whichever ranks better"), not an
@@ -304,7 +304,17 @@ func chosenOptionWasOffered(chosen string, handover *ForkHandover) bool {
 	if handover == nil {
 		return false
 	}
-	needle := strings.ToLower(strings.TrimSpace(chosen))
-	haystack := strings.ToLower(strings.TrimSpace(handover.OptionsConsidered))
+	needle := collapseForComparison(chosen)
+	haystack := collapseForComparison(handover.OptionsConsidered)
 	return needle != "" && strings.Contains(haystack, needle)
+}
+
+// collapseForComparison lowercases and reduces every run of whitespace to a
+// single space. Collapsing the INTERIOR is what makes the containment above
+// work at all: the handover is wrapped prose, so an option's own sentence
+// carries line breaks, while the CHOSEN line quoting it back is one line. A
+// comparison of the raw strings refuses every option longer than one line -
+// which is nearly all of them - and reports it as an option nobody weighed.
+func collapseForComparison(s string) string {
+	return strings.Join(strings.Fields(strings.ToLower(s)), " ")
 }
