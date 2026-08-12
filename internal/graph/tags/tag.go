@@ -143,6 +143,62 @@ func Nodes(ctx context.Context, tx *graph.ReadTx, tag string) ([]string, error) 
 	return nodeIDs, rows.Err()
 }
 
+// SetPinned pins or unpins a tag, lifting it into the vault index's Pinned
+// section. Returns graph.ErrNotFound when no tag carries that name: a tag row
+// exists only while some node references it, so an unknown name means nothing
+// in the vault is tagged that way.
+//
+// A pin therefore dies with its tag. Remove garbage-collects a tag once its
+// last node_tags row goes, so untagging the final note drops the pin too -
+// correct, because there is no longer a tag to pin, but it means a pin is not
+// a place to keep anything the tag itself does not already carry.
+func SetPinned(ctx context.Context, tx *graph.WriteTx, name string, pinned bool, author Author) error {
+	if !author.Valid() {
+		return graph.ErrAuthorRequired
+	}
+	if name == "" {
+		return graph.ErrEmptyTag
+	}
+	res, err := tx.Exec(`UPDATE tags SET pinned = ? WHERE name = ?`, boolToInt(pinned), name)
+	if err != nil {
+		return fmt.Errorf("tags.SetPinned: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("tags.SetPinned: rows affected: %w", err)
+	}
+	if n == 0 {
+		return graph.ErrNotFound
+	}
+	return nil
+}
+
+// PinnedNames returns the pinned tag names, ordered by name ASC.
+func PinnedNames(ctx context.Context, tx *graph.ReadTx) ([]string, error) {
+	rows, err := tx.Query(`SELECT name FROM tags WHERE pinned = 1 ORDER BY name ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("tags.PinnedNames: query: %w", err)
+	}
+	defer rows.Close()
+
+	names := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("tags.PinnedNames: scan: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // isForeignKeyError returns true when the error is a SQLite foreign-key
 // constraint violation.
 func isForeignKeyError(err error) bool {

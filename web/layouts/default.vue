@@ -88,13 +88,19 @@
          the time. The system/sync indicators it replaces reported neither. -->
     <footer class="h-7 shrink-0 border-t border-border-hairline flex items-center justify-between px-4 font-mono-data text-mono-data text-text-faint">
       <span>{{ vaultLabel }}</span>
-      <span>{{ currentTime }}</span>
+      <div class="flex items-center gap-4">
+        <span v-if="screenStatus">{{ screenStatus }}</span>
+        <span>{{ currentTime }}</span>
+      </div>
     </footer>
   </div>
 </template>
 
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from 'vue'
+
+// Set by whichever screen has a count worth reporting; empty on the rest.
+const screenStatus = useVaultCounter()
 
 // Grouped destinations. Home is the only exact match: every path starts with
 // "/", so a prefix test would light it up on every page.

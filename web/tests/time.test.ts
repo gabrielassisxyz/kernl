@@ -1,5 +1,38 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { formatTimestamp, formatRelativeTime, formatDueDate, isOverdue } from '../utils/time'
+import {
+  formatTimestamp,
+  formatRelativeTime,
+  formatDayStamp,
+  formatDueDate,
+  isOverdue,
+} from '../utils/time'
+
+describe('formatDayStamp', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('returns empty string for missing or invalid input', () => {
+    expect(formatDayStamp('')).toBe('')
+    expect(formatDayStamp(undefined)).toBe('')
+    expect(formatDayStamp('not-a-date')).toBe('')
+  })
+
+  it('drops the year inside the current one and keeps it outside', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00Z'))
+
+    expect(formatDayStamp('2026-08-07T20:06:00Z')).not.toMatch(/2026/)
+    expect(formatDayStamp('2024-08-07T20:06:00Z')).toMatch(/2024/)
+  })
+
+  it('carries no clock - it is the day alone', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-10T12:00:00Z'))
+
+    expect(formatDayStamp('2026-08-07T20:06:00Z')).not.toMatch(/\d{1,2}:\d{2}/)
+  })
+})
 
 describe('formatTimestamp', () => {
   it('returns empty string for missing or invalid input', () => {

@@ -1,211 +1,243 @@
 <template>
   <div class="tag-hierarchy">
     <div v-if="loading" class="tag-hierarchy__status">Loading…</div>
-    <p v-else-if="isEmpty" class="tag-hierarchy__status">No tags yet. Add tags in a note's properties.</p>
-    <div v-else class="tag-hierarchy__groups">
-      <div v-for="(node, name) in tree" :key="name" class="tag-group">
-        <button
-          type="button"
-          class="tag-group__head"
-          :aria-expanded="!!expanded[name]"
-          :aria-controls="`tag-group-${name}`"
-          @click="toggle(name)"
+
+    <p v-else-if="!hasAnyNote" class="tag-hierarchy__status">
+      No tags yet. Add tags in a note's properties.
+    </p>
+
+    <div v-else-if="groups.length === 0" class="tag-hierarchy__status">
+      No tag holds a note matching “{{ query }}”.
+    </div>
+
+    <div v-for="group in groups" v-else :key="group.key" class="tag-section">
+      <!-- The Pinned heading only earns its place once something is pinned, so
+           an untouched vault shows one unlabelled list rather than two. -->
+      <div v-if="showHeader(group)" class="tag-section__head">
+        <span class="tag-section__label">{{ group.label }}</span>
+        <span class="tag-section__count">{{ group.count }}</span>
+      </div>
+
+      <div v-for="tag in group.tags" :key="tag.name" class="tag-group">
+        <div
+          class="tag-row"
+          :class="{ 'tag-row--open': isTagOpen(tag.name) }"
+          role="button"
+          tabindex="0"
+          :aria-expanded="isTagOpen(tag.name)"
+          @click="$emit('toggle-tag', tag.name)"
+          @keydown.enter.prevent="$emit('toggle-tag', tag.name)"
+          @keydown.space.prevent="$emit('toggle-tag', tag.name)"
         >
-          <span class="material-symbols-outlined tag-group__chevron !text-[18px]" :class="{ 'is-open': expanded[name] }" aria-hidden="true">expand_more</span>
-          <span class="material-symbols-outlined tag-group__icon !text-[15px]" aria-hidden="true">tag</span>
-          <span class="tag-group__name">{{ name }}</span>
-          <span class="tag-group__count">{{ node.files.length }}</span>
-        </button>
-        <div v-if="expanded[name]" :id="`tag-group-${name}`" class="tag-group__files">
+          <span
+            class="material-symbols-outlined tag-row__chevron !text-[14px]"
+            :class="{ 'is-open': isTagOpen(tag.name) }"
+            aria-hidden="true"
+          >expand_more</span>
+          <span class="tag-row__hash">#</span>
+          <span class="tag-row__name" :class="{ 'tag-row__name--pinned': tag.pinned }">{{ tag.name }}</span>
           <button
-            v-for="file in node.files"
-            :key="file"
             type="button"
-            class="tag-file"
-            :class="{ 'tag-file--active': file === selected }"
-            :title="file"
-            @click="$emit('select', file)"
+            class="tag-row__pin"
+            :class="{ 'tag-row__pin--on': tag.pinned }"
+            :title="tag.pinned ? 'Unpin tag' : 'Pin tag'"
+            :aria-label="tag.pinned ? 'Unpin tag' : 'Pin tag'"
+            :aria-pressed="tag.pinned"
+            @click.stop="$emit('toggle-tag-pin', tag)"
           >
-            <span class="tag-file__dot" aria-hidden="true"></span>
-            <span class="tag-file__name">{{ displayName(file) }}</span>
+            <span class="material-symbols-outlined !text-[13px]" aria-hidden="true">keep</span>
           </button>
+          <span class="tag-row__count">{{ tag.count }}</span>
         </div>
+
+        <VaultNoteRow
+          v-for="note in tag.notes"
+          :key="`${tag.name}:${note.id}`"
+          :note="note"
+          :active="note.path === selected"
+          variant="child"
+          @open="$emit('select', $event.path)"
+          @toggle-pin="$emit('toggle-pin', $event)"
+        />
       </div>
     </div>
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted } from 'vue'
+<script setup lang="ts">
+import VaultNoteRow from '~/components/notes/VaultNoteRow.vue'
+import type { VaultNote } from '~/composables/useVaultIndex'
+import type { TagEntry, TagGroup } from '~/composables/useVaultFilters'
 
-const props = defineProps({
-  selected: { type: String, default: null },
-})
+const props = defineProps<{
+  groups: TagGroup[]
+  selected: string | null
+  query: string
+  loading: boolean
+  hasAnyNote: boolean
+  isTagOpen: (name: string) => boolean
+}>()
 
-defineEmits(['select'])
+defineEmits<{
+  select: [string]
+  'toggle-tag': [string]
+  'toggle-tag-pin': [TagEntry]
+  'toggle-pin': [VaultNote]
+}>()
 
-const tree = ref({})
-const expanded = ref({})
-const loading = ref(true)
-
-const isEmpty = computed(() => Object.keys(tree.value).length === 0)
-
-const displayName = (file) => {
-  const base = file.split('/').pop() || file
-  return base.replace(/\.md$/, '')
-}
-
-const toggle = (name) => {
-  expanded.value[name] = !expanded.value[name]
-}
-
-onMounted(async () => {
-  try {
-    // Tag hierarchy comes from the graph in one request (node_tags + note_paths),
-    // shaped as { tag: { files: [...] } } - no per-file frontmatter parsing.
-    const res = await fetch('/api/notes/tags')
-    if (res.ok) {
-      tree.value = await res.json()
-    }
-  } catch (e) {
-    console.error('Error fetching tags', e)
-  } finally {
-    loading.value = false
-  }
-})
+const showHeader = (group: TagGroup): boolean =>
+  group.key === 'pinned' || props.groups.length > 1
 </script>
 
 <style scoped>
 .tag-hierarchy {
-  padding: var(--spacing-base);
+  padding: 0 8px 24px 8px;
 }
 
 .tag-hierarchy__status {
-  padding: var(--spacing-base) var(--spacing-component);
+  padding: 28px 10px;
   font-family: var(--font-body);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12.5px;
+  line-height: 1.6;
   color: var(--color-text-muted);
 }
 
-.tag-hierarchy__groups {
+.tag-section__head {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 6px 6px 6px;
 }
 
-.tag-group__head {
+.tag-section__label {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.tag-section__count {
+  font-family: var(--font-mono-data);
+  font-size: 10px;
+  color: var(--color-text-faint);
+}
+
+.tag-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
   width: 100%;
-  padding: 5px 8px;
+  padding: 6px 8px;
   border-radius: var(--radius-lg);
-  text-align: left;
-  color: var(--color-text-primary);
   cursor: pointer;
   transition: background-color 120ms ease;
 }
 
-.tag-group__head:hover {
-  background-color: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
+.tag-row:hover,
+/* An open tag keeps its background: with its notes listed underneath, the row
+   is a heading for them, and a heading that looks like every other row leaves
+   the indentation to carry the whole structure. */
+.tag-row--open {
+  background-color: var(--color-surface-hover);
 }
 
-.tag-group__head:focus-visible {
+.tag-row:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
-.tag-group__chevron {
+.tag-row__chevron {
+  flex: 0 0 auto;
   color: var(--color-text-faint);
-  transition: transform 150ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform: rotate(-90deg);
+  transition: transform 140ms ease-out;
 }
 
-.tag-group__chevron.is-open {
+.tag-row__chevron.is-open {
   transform: rotate(0deg);
 }
 
-.tag-group__chevron:not(.is-open) {
-  transform: rotate(-90deg);
+.tag-row__hash {
+  flex: 0 0 auto;
+  font-family: var(--font-mono-data);
+  font-size: 11px;
+  color: var(--color-text-faint);
 }
 
-.tag-group__icon {
-  color: var(--color-node-note);
-}
-
-.tag-group__name {
+.tag-row__name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
 }
 
-.tag-group__count {
-  flex-shrink: 0;
-  font-family: var(--font-mono-data);
-  font-size: 11px;
-  color: var(--color-text-dim);
-}
-
-.tag-group__files {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 1px 0 2px 13px;
-  padding-left: 9px;
-  border-left: 1px solid var(--color-border-hairline);
-}
-
-.tag-file {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 5px 9px;
-  border-radius: var(--radius-lg);
-  text-align: left;
-  color: var(--color-text-muted);
-  cursor: pointer;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.tag-file:hover {
-  background-color: color-mix(in srgb, var(--color-surface-hover) 60%, transparent);
+.tag-row__name--pinned {
   color: var(--color-text-primary);
 }
 
-.tag-file:focus-visible {
+.tag-row__pin {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 120ms ease-out, color 120ms ease;
+}
+
+.tag-row:hover .tag-row__pin,
+.tag-row:focus-within .tag-row__pin,
+.tag-row__pin--on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.tag-row__pin--on {
+  color: var(--color-primary);
+}
+
+.tag-row__pin:hover {
+  color: var(--color-text-primary);
+}
+
+.tag-row__pin--on:hover {
+  color: var(--color-primary);
+}
+
+.tag-row__pin:focus-visible {
   outline: none;
+  opacity: 1;
+  pointer-events: auto;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
 }
 
-.tag-file--active {
-  background-color: var(--color-surface-hover);
-  color: var(--color-text-primary);
+.tag-row__count {
+  flex: 0 0 auto;
+  font-family: var(--font-mono-data);
+  font-size: 10.5px;
+  color: var(--color-text-faint);
 }
 
-.tag-file__dot {
-  width: 4px;
-  height: 4px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background-color: var(--color-text-dim);
-  transition: background-color 120ms ease;
+@media (pointer: coarse) {
+  .tag-row__pin {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
-.tag-file:hover .tag-file__dot,
-.tag-file--active .tag-file__dot {
-  background-color: var(--color-node-note);
-}
-
-.tag-file__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
+@media (prefers-reduced-motion: reduce) {
+  .tag-row,
+  .tag-row__chevron,
+  .tag-row__pin {
+    transition: none;
+  }
 }
 </style>

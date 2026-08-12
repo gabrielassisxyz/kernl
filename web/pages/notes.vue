@@ -12,16 +12,16 @@
      <div class="vault__inner">
       <div class="vault__tabs">
         <button
-          v-for="tab in TABS"
-          :key="tab.id"
+          v-for="option in TABS"
+          :key="option.id"
           type="button"
           class="vault-tab"
-          :class="{ 'vault-tab--active': activeTab === tab.id }"
-          :aria-selected="activeTab === tab.id"
-          @click="activeTab = tab.id"
+          :class="{ 'vault-tab--active': tab === option.id }"
+          :aria-selected="tab === option.id"
+          @click="tab = option.id"
         >
-          <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">{{ tab.icon }}</span>
-          {{ tab.label }}
+          <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">{{ option.icon }}</span>
+          {{ option.label }}
         </button>
         <div class="vault__tabs-grow"></div>
         <button type="button" class="vault__new" title="New note" aria-label="New note" @click="openNewNote">
@@ -29,32 +29,61 @@
         </button>
       </div>
 
-      <div v-if="activeTab === 'files'" class="vault__search">
+      <!-- One search for both tabs: a query narrows the tag tree as much as it
+           narrows the file list, and hiding it behind a tab made the Tags tab
+           the one place in the app you could not search. -->
+      <div class="vault__search">
         <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">search</span>
         <input
           v-model="query"
           class="vault__search-input"
           type="text"
-          placeholder="Search notes"
-          aria-label="Search notes"
+          :placeholder="searchPlaceholder"
+          :aria-label="searchPlaceholder"
         >
         <button v-if="query" type="button" class="vault__search-clear" aria-label="Clear search" @click="query = ''">
           <span class="material-symbols-outlined !text-[15px]" aria-hidden="true">close</span>
         </button>
       </div>
 
+      <VaultFilters
+        v-model:sort-field="sortField"
+        v-model:sort-dir="sortDir"
+        v-model:source-mode="sourceMode"
+        v-model:category-filter="categoryFilter"
+        v-model:group-by-category="groupByCategory"
+        :sort-label="sortLabel"
+        :source-label="sourceLabel"
+        :category-label="categoryLabel"
+        :categories="categories"
+        :show-categories="!isTags"
+      />
+
       <div class="vault__body">
         <NoteList
-          v-show="activeTab === 'files'"
-          ref="noteListRef"
+          v-if="!isTags"
+          :groups="fileGroups"
           :selected="selectedFile"
           :query="query"
+          :loading="loading"
+          :has-any-note="notes.length > 0"
+          :is-group-open="isGroupOpen"
           @select="selectFile"
+          @toggle-group="toggleGroup"
+          @toggle-pin="togglePin"
         />
         <TagHierarchy
-          v-if="activeTab === 'tags'"
+          v-else
+          :groups="tagGroups"
           :selected="selectedFile"
+          :query="query"
+          :loading="loading"
+          :has-any-note="notes.length > 0"
+          :is-tag-open="isTagOpen"
           @select="selectFile"
+          @toggle-tag="toggleTag"
+          @toggle-tag-pin="toggleTagPin"
+          @toggle-pin="togglePin"
         />
       </div>
      </div>
@@ -65,6 +94,7 @@
         v-if="selectedFile"
         :path="selectedFile"
         :key="selectedFile"
+        :note="selectedNote"
         :sidebar-collapsed="sidebarCollapsed"
         @open-wikilink="openWikilink"
         @toggle-sidebar="toggleSidebar"
@@ -130,9 +160,10 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, defineAsyncComponent } from 'vue'
+import { ref, computed, nextTick, onMounted, onBeforeUnmount, watchEffect, defineAsyncComponent } from 'vue'
 import TagHierarchy from '~/components/notes/TagHierarchy.vue'
 import NoteList from '~/components/notes/NoteList.vue'
+import VaultFilters from '~/components/notes/VaultFilters.vue'
 import UiButton from '~/components/ui/UiButton.vue'
 import UiField from '~/components/ui/UiField.vue'
 import UiInput from '~/components/ui/UiInput.vue'
@@ -142,16 +173,44 @@ import UiModal from '~/components/ui/UiModal.vue'
 // note is actually opened, keeping the vault index paint light.
 const MarkdownEditor = defineAsyncComponent(() => import('~/components/notes/MarkdownEditor.vue'))
 
+// Tags first, and the default: the vault is browsed by subject far more often
+// than by filename, and the file list is the fallback for a note whose tag you
+// cannot remember.
 const TABS = [
-  { id: 'files', label: 'Files', icon: 'description' },
   { id: 'tags', label: 'Tags', icon: 'tag' },
+  { id: 'files', label: 'Files', icon: 'description' },
 ]
 
 const selectedFile = ref(null)
-const noteListRef = ref(null)
-const activeTab = ref('files')
-const query = ref('')
 const sidebarCollapsed = ref(false)
+
+const { notes, pinnedTags, loading, load, setNotePinned, setTagPinned } = useVaultIndex()
+const {
+  tab, query, sortField, sortDir, sourceMode, categoryFilter, groupByCategory,
+  isTags, sortLabel, sourceLabel, categoryLabel, categories,
+  tagGroups, fileGroups, counter,
+  isTagOpen, toggleTag, isGroupOpen, toggleGroup,
+} = useVaultFilters(notes, pinnedTags)
+
+const searchPlaceholder = computed(() =>
+  isTags.value ? 'Search notes inside tags' : 'Search notes'
+)
+
+// The open note's index entry, so the editor's frontmatter block can show the
+// category and the graph timestamps. Null until the index loads, and for a file
+// the index does not carry - the block simply omits what it does not have.
+const selectedNote = computed(() =>
+  notes.value.find((n) => n.path === selectedFile.value) || null
+)
+
+// The shell footer reports what the open screen is showing; Notes is the first
+// screen with a count worth reporting.
+const footerStatus = useVaultCounter()
+watchEffect(() => { footerStatus.value = counter.value })
+onBeforeUnmount(() => { footerStatus.value = '' })
+
+const togglePin = (note) => setNotePinned(note.id, !note.pinned)
+const toggleTagPin = (tag) => setTagPinned(tag.name, !tag.pinned)
 
 const showNewNote = ref(false)
 const newTitle = ref('')
@@ -163,9 +222,10 @@ const creating = ref(false)
 // "Edit" on a Telos note); ?new=<tag> opens the create dialog pre-tagged.
 const route = useRoute()
 onMounted(() => {
+  load()
   const path = typeof route.query.path === 'string' ? route.query.path : ''
   if (path) {
-    activeTab.value = 'files'
+    tab.value = 'files'
     selectFile(path)
     return
   }
@@ -235,7 +295,7 @@ const openWikilink = async (target) => {
         // Wait briefly for the backend vault watcher to index the new note
         await new Promise((r) => setTimeout(r, 250))
         // Refresh the file list so the sidebar knows about it
-        if (noteListRef.value) noteListRef.value.refresh()
+        await load()
         selectFile(path)
       }
     }
@@ -257,7 +317,7 @@ const confirmDeleteNote = async () => {
     if (res.ok || res.status === 404) {
       showDeleteNote.value = false
       selectedFile.value = null
-      noteListRef.value?.refresh()
+      await load()
     }
   } finally {
     deleting.value = false
@@ -310,10 +370,10 @@ const confirmNewNote = async () => {
     if (res.ok) {
       showNewNote.value = false
       newNoteTag.value = ''
-      activeTab.value = 'files'
+      tab.value = 'files'
       selectFile(path)
       await new Promise((r) => setTimeout(r, 250))
-      noteListRef.value?.refresh()
+      await load()
     }
   } finally {
     creating.value = false
@@ -325,7 +385,7 @@ const confirmNewNote = async () => {
 .notes-shell {
   position: relative;
   display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
+  grid-template-columns: 320px minmax(0, 1fr);
   /* An explicit row track, not the implicit `auto` one: with `auto` the row grows
      to the open note's full length, so the editor's `height: 100%` resolves
      against nothing, the shell outgrows the viewport and the page scrolls as a
@@ -360,18 +420,16 @@ const confirmNewNote = async () => {
 .vault__inner {
   display: flex;
   flex-direction: column;
-  width: 272px;
+  width: 320px;
   height: 100%;
 }
 
 .vault__tabs {
   display: flex;
   align-items: center;
-  gap: 2px;
-  height: 42px;
+  gap: 4px;
   flex-shrink: 0;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--color-border-hairline);
+  padding: 12px 12px 0 12px;
 }
 
 .vault-tab {
@@ -382,10 +440,9 @@ const confirmNewNote = async () => {
   padding: 0 10px;
   border-radius: var(--radius-lg);
   color: var(--color-text-muted);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 400;
   cursor: pointer;
-  position: relative;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
@@ -394,20 +451,13 @@ const confirmNewNote = async () => {
   background-color: color-mix(in srgb, var(--color-surface-hover) 50%, transparent);
 }
 
+/* A filled pill rather than an underline: the tabs no longer sit on a divider
+   to hang one from, and the search and chips below them are already a stack of
+   horizontal rules. */
 .vault-tab--active {
+  background-color: var(--color-surface-container);
   color: var(--color-text-primary);
-}
-
-/* Underline indicator for the active tab. */
-.vault-tab--active::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  right: 10px;
-  bottom: -8px;
-  height: 2px;
-  border-radius: 2px;
-  background-color: var(--color-primary);
+  font-weight: 500;
 }
 
 .vault-tab:focus-visible {
@@ -444,14 +494,14 @@ const confirmNewNote = async () => {
 .vault__search {
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 34px;
-  margin: 8px;
-  padding: 0 8px;
+  gap: 7px;
+  height: 30px;
+  margin: 10px 12px 8px 12px;
+  padding: 0 9px;
   border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border-hairline);
-  background-color: var(--color-bg-base);
-  color: var(--color-text-faint);
+  border: 1px solid var(--color-border-default);
+  background-color: var(--color-bg-elevated);
+  color: var(--color-text-muted);
   transition: border-color 120ms ease;
 }
 
@@ -465,7 +515,7 @@ const confirmNewNote = async () => {
   background: transparent;
   border: none;
   outline: none;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--color-text-primary);
 }
 
@@ -586,7 +636,7 @@ const confirmNewNote = async () => {
     top: 0;
     bottom: 0;
     left: 0;
-    width: 272px;
+    width: 320px;
     z-index: 50;
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
     transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);

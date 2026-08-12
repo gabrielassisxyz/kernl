@@ -14,6 +14,19 @@ export function formatTimestamp(iso?: string): string {
   })
 }
 
+// "Aug 7" - the day alone, for lines too tight to spend characters on a clock.
+// Carries the year when it is not the current one, on the same reasoning as
+// formatDueDate: a vault holds notes years deep, and a bare "Aug 7" in it is
+// ambiguous. Empty string for missing/invalid.
+export function formatDayStamp(iso?: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' }
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric'
+  return d.toLocaleDateString([], opts)
+}
+
 // --- Due dates ---
 //
 // A due date is a calendar day ("2026-04-02"), not an instant. `new Date(day)`

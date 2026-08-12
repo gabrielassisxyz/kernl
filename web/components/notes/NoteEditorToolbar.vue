@@ -144,6 +144,25 @@
 
         <div class="settings-row settings-row--stack">
           <span class="settings-label">
+            <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">view_list</span>
+            Frontmatter
+          </span>
+          <div class="seg seg--wide" role="group" aria-label="Frontmatter presentation">
+            <button
+              v-for="m in FRONTMATTER_MODES"
+              :key="m.id"
+              type="button"
+              class="seg-btn seg-btn--text"
+              :class="{ 'seg-btn--active': settings.frontmatter === m.id }"
+              :title="m.title"
+              :aria-pressed="settings.frontmatter === m.id"
+              @click="setFrontmatterMode(m.id)"
+            >{{ m.label }}</button>
+          </div>
+        </div>
+
+        <div class="settings-row settings-row--stack">
+          <span class="settings-label">
             <span class="material-symbols-outlined !text-[16px]" aria-hidden="true">text_fields</span>
             Font
           </span>
@@ -191,7 +210,12 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useEditorSettings, type EditorFont, type ViewMode } from '~/composables/useEditorSettings'
+import {
+  useEditorSettings,
+  type EditorFont,
+  type FrontmatterMode,
+  type ViewMode,
+} from '~/composables/useEditorSettings'
 
 defineProps<{ sidebarCollapsed?: boolean; saveState?: 'saved' | 'saving' | 'dirty' | 'conflict' }>()
 defineEmits<{ (e: 'toggle-sidebar'): void; (e: 'delete-note'): void; (e: 'save-manual'): void }>()
@@ -203,12 +227,19 @@ const SAVE_LABELS: Record<string, string> = {
   conflict: 'Conflict',
 }
 
-const { settings, setViewMode, setFont, setFontSize, setHeadingScale, reset } = useEditorSettings()
+const {
+  settings, setViewMode, setFont, setFontSize, setHeadingScale, setFrontmatterMode, reset,
+} = useEditorSettings()
 
 const VIEW_MODES: { id: ViewMode; icon: string; title: string }[] = [
   { id: 'source', icon: 'code', title: 'Source' },
   { id: 'live', icon: 'visibility', title: 'Live preview' },
   { id: 'reading', icon: 'chrome_reader_mode', title: 'Reading' },
+]
+
+const FRONTMATTER_MODES: { id: FrontmatterMode; label: string; title: string }[] = [
+  { id: 'inline', label: 'Inline', title: 'Frontmatter as a metadata line under the title' },
+  { id: 'panel', label: 'Panel', title: 'Frontmatter as a collapsible properties panel' },
 ]
 
 const FONTS: { id: EditorFont; label: string }[] = [
