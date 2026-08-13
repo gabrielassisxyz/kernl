@@ -1,12 +1,22 @@
 <template>
   <div class="flex-1 min-h-0 overflow-y-auto flex flex-col px-7 pt-1 pb-[72px] text-body">
     <section v-for="section in sections" :key="section.id" class="mt-[26px]">
-      <div class="flex items-baseline gap-2 pb-[7px] border-b border-border-hairline">
+      <button
+        type="button"
+        class="w-full flex items-baseline gap-2 pb-[7px] border-b border-border-hairline select-none cursor-pointer"
+        :aria-expanded="!collapsed[section.id]"
+        @click="$emit('toggle-section', section.id)"
+      >
+        <span
+          class="material-symbols-outlined self-center section-chevron transition-transform duration-150"
+          :class="collapsed[section.id] ? '-rotate-90' : 'rotate-0'"
+          aria-hidden="true"
+        >expand_more</span>
         <span class="font-label-caps text-label-caps uppercase text-text-label">{{ section.label }}</span>
         <span class="font-mono-data text-mono-data text-text-faint">{{ section.projects.length }}</span>
-      </div>
+      </button>
 
-      <template v-if="view === 'list'">
+      <template v-if="!collapsed[section.id] && view === 'list'">
         <ProjectRow
           v-for="p in section.projects"
           :key="p.id"
@@ -21,7 +31,7 @@
         />
       </template>
 
-      <div v-else class="grid gap-2.5 mt-3.5" :style="CARD_GRID">
+      <div v-else-if="!collapsed[section.id]" class="grid gap-2.5 mt-3.5" :style="CARD_GRID">
         <ProjectCard
           v-for="p in section.projects"
           :key="p.id"
@@ -41,6 +51,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Project, ProjectStatus } from '~/composables/useProjects'
+import type { ListSortDir, ListSortField } from '~/composables/useListPreferences'
 import ProjectRow from '~/components/projects/ProjectRow.vue'
 import ProjectCard from '~/components/projects/ProjectCard.vue'
 
@@ -49,6 +60,9 @@ const props = defineProps<{
   view: 'list' | 'card'
   compact?: boolean
   confirmId?: string | null
+  collapsed: Record<string, boolean>
+  sortField: ListSortField
+  sortDir: ListSortDir
 }>()
 
 defineEmits<{
@@ -57,6 +71,7 @@ defineEmits<{
   (e: 'ask-delete', project: Project): void
   (e: 'confirm-delete', project: Project): void
   (e: 'cancel-delete'): void
+  (e: 'toggle-section', id: string): void
 }>()
 
 const CARD_GRID = { gridTemplateColumns: 'repeat(auto-fill, minmax(224px, 1fr))' }
@@ -75,12 +90,25 @@ const sections = computed(() => {
   const pinned = props.projects.filter((p) => p.pinned)
   const rest = props.projects.filter((p) => !p.pinned)
   return [
-    { id: 'pinned', label: 'Pinned', projects: pinned },
+    { id: 'pinned', label: 'Pinned', projects: sorted(pinned) },
     ...LIFECYCLE.map((s) => ({
       id: s.id,
       label: s.label,
-      projects: rest.filter((p) => p.status === s.id),
+      projects: sorted(rest.filter((p) => p.status === s.id)),
     })),
   ].filter((s) => s.projects.length > 0)
 })
+
+const sorted = (projects: Project[]): Project[] => {
+  const direction = props.sortDir === 'asc' ? 1 : -1
+  return [...projects].sort((a, b) => {
+    if (props.sortField === 'name') return a.title.localeCompare(b.title) * direction
+    const field = props.sortField === 'created' ? 'createdAt' : 'updatedAt'
+    return (a[field] < b[field] ? -1 : a[field] > b[field] ? 1 : 0) * direction
+  })
+}
 </script>
+
+<style scoped>
+.section-chevron { font-size: 12px; line-height: 1; color: var(--color-text-faint); }
+</style>

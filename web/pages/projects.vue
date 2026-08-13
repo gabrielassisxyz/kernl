@@ -34,6 +34,14 @@
           </button>
         </div>
 
+        <UiSortControl
+          :sort-field="sortField"
+          :sort-dir="sortDir"
+          :sort-label="sortLabel()"
+          @update:sort-field="setSortField"
+          @toggle-direction="toggleSortDir"
+        />
+
         <UiButton size="sm" variant="primary" icon="add" :icon-size="13" @click="openCreate">New</UiButton>
       </div>
     </header>
@@ -74,7 +82,11 @@
         :view="view"
         :compact="panelOpen"
         :confirm-id="confirmId"
+        :collapsed="collapsed"
+        :sort-field="sortField"
+        :sort-dir="sortDir"
         @open="openEdit"
+        @toggle-section="toggleSection"
         @toggle-pin="togglePin"
         @ask-delete="confirmId = $event.id"
         @confirm-delete="removeProject"
@@ -106,6 +118,8 @@ import UiButton from '~/components/ui/UiButton.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiSkeleton from '~/components/ui/UiSkeleton.vue'
+import UiSortControl from '~/components/ui/UiSortControl.vue'
+import { useListPreferences } from '~/composables/useListPreferences'
 
 const { projects, loading, error, load, create, update, remove } = useProjects()
 // Only used to write a nested task's status; the panel owns its own reading.
@@ -117,6 +131,8 @@ const VIEWS: { id: View; icon: string; title: string }[] = [
   { id: 'card', icon: 'view_kanban', title: 'Card view' },
 ]
 const view = ref<View>('list')
+const { collapsed, sortField, sortDir, sortLabel, toggleSection, setSortField, toggleSortDir } =
+  useListPreferences('kernl:projects-list-preferences')
 
 const query = ref('')
 const confirmId = ref<string | null>(null)

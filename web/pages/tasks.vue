@@ -47,6 +47,14 @@
           </button>
         </div>
 
+        <UiSortControl
+          :sort-field="sortField"
+          :sort-dir="sortDir"
+          :sort-label="sortLabel()"
+          @update:sort-field="setSortField"
+          @toggle-direction="toggleSortDir"
+        />
+
         <UiButton size="sm" variant="primary" icon="add" :icon-size="13" @click="openCreate">New task</UiButton>
       </div>
     </header>
@@ -95,7 +103,11 @@
         :project-titles="projectTitles"
         :compact="panelOpen"
         :confirm-id="confirmId"
+        :collapsed="collapsed"
+        :sort-field="sortField"
+        :sort-dir="sortDir"
         @open="openEdit"
+        @toggle-section="toggleSection"
         @toggle-done="toggleDone"
         @advance="advance"
         @ask-delete="confirmId = $event.id"
@@ -129,6 +141,8 @@ import UiButton from '~/components/ui/UiButton.vue'
 import UiEmptyState from '~/components/ui/UiEmptyState.vue'
 import UiErrorState from '~/components/ui/UiErrorState.vue'
 import UiSkeleton from '~/components/ui/UiSkeleton.vue'
+import UiSortControl from '~/components/ui/UiSortControl.vue'
+import { useListPreferences } from '~/composables/useListPreferences'
 
 const { tasks, loading, error, load, create, update, remove } = useTasks()
 const { projects, load: loadProjects } = useProjects()
@@ -142,6 +156,8 @@ const VIEWS: { id: View; icon: string; title: string }[] = [
   { id: 'board', icon: 'view_kanban', title: 'Board view' },
 ]
 const view = ref<View>('list')
+const { collapsed, sortField, sortDir, sortLabel, toggleSection, setSortField, toggleSortDir } =
+  useListPreferences('kernl:tasks-list-preferences', { done: true, closed: true })
 
 const query = ref('')
 const confirmId = ref<string | null>(null)

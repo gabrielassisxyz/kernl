@@ -21,12 +21,15 @@ function project(id: string, status: ProjectStatus, pinned = false): Project {
 const global = { stubs: { NuxtLink: { props: ['to'], template: '<a :href="to"><slot /></a>' } } }
 
 const mountList = (projects: Project[], view: 'list' | 'card' = 'list') =>
-  mount(ProjectList, { props: { projects, view }, global })
+  mount(ProjectList, {
+    props: { projects, view, collapsed: {}, sortField: 'updated', sortDir: 'desc' },
+    global,
+  })
 
 // The heading is the section's first child; reading the whole section would
 // pick up every row's text with no separators between them.
 const headings = (w: ReturnType<typeof mount>) =>
-  w.findAll('section > div:first-child').map((h) => h.findAll('span').map((s) => s.text()).join(' '))
+  w.findAll('section > button').map((h) => h.findAll('span').slice(1).map((s) => s.text()).join(' '))
 
 describe('ProjectList sections', () => {
   it('orders the lifecycle sections active, paused, done, archived', () => {
@@ -63,12 +66,34 @@ describe('ProjectList sections', () => {
     expect(mountList(projects, 'card').findAll('.project-row')).toHaveLength(0)
   })
 
+  it('collapses a section without hiding its count', async () => {
+    const w = mountList([project('a', 'active')])
+    await w.get('section > button').trigger('click')
+    expect(w.emitted('toggle-section')?.[0]).toEqual(['active'])
+    await w.setProps({ collapsed: { active: true } })
+    expect(w.findAll('.project-row')).toHaveLength(0)
+    expect(w.get('section > button').text()).toContain('1')
+    expect(w.get('section > button').attributes('aria-expanded')).toBe('false')
+  })
+
+  it('sorts projects within their lifecycle section', () => {
+    const w = mount(ProjectList, {
+      props: {
+        projects: [project('z', 'active'), project('a', 'active'), project('p', 'paused')],
+        view: 'list', collapsed: {}, sortField: 'name', sortDir: 'asc',
+      },
+      global,
+    })
+    expect(w.findAll('.project-row').map((row) => row.get('.row-title').text())).toEqual(['a', 'z', 'p'])
+  })
+
   it('marks only the row being deleted', () => {
     const w = mount(ProjectList, {
       props: {
         projects: [project('a', 'active'), project('b', 'active')],
         view: 'list',
         confirmId: 'b',
+        collapsed: {}, sortField: 'updated', sortDir: 'desc',
       },
       global,
     })
