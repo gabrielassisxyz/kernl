@@ -20,8 +20,8 @@ function note(p: Partial<VaultNote> = {}): VaultNote {
 
 const DA = 'agent:da'
 
-function setup(notes: VaultNote[], pinnedTags: string[] = []) {
-  return useVaultFilters(ref(notes), ref(pinnedTags))
+function setup(notes: VaultNote[], pinnedTags: string[] = [], pinnedCategories: string[] = []) {
+  return useVaultFilters(ref(notes), ref(pinnedTags), ref(pinnedCategories))
 }
 
 const labelsOf = (groups: { label: string }[]) => groups.map((g) => g.label)
@@ -134,6 +134,35 @@ describe('categories', () => {
     f.sourceMode.value = 'split'
     // Empty crossings are dropped rather than rendered as empty headings.
     expect(labelsOf(f.fileGroups.value)).toEqual(['Note · me', 'Project · me', 'Project · DA'])
+  })
+
+  it('moves pinned categories first without duplicating their groups', () => {
+    const f = setup([
+      note({ title: 'a note' }),
+      note({ title: 'a project', category: 'project' }),
+      note({ title: 'a task', category: 'task' }),
+    ], [], ['task'])
+    f.tab.value = 'files'
+    f.groupByCategory.value = true
+
+    expect(labelsOf(f.fileGroups.value)).toEqual(['Task', 'Note', 'Project'])
+    expect(f.fileGroups.value.filter((group) => group.category === 'task')).toHaveLength(1)
+    expect(f.fileGroups.value.reduce((count, group) => count + group.count, 0)).toBe(3)
+  })
+
+  it('returns an unpinned category to its natural position', () => {
+    const pinnedCategories = ref(['task'])
+    const f = useVaultFilters(ref([
+      note({ title: 'a note' }),
+      note({ title: 'a project', category: 'project' }),
+      note({ title: 'a task', category: 'task' }),
+    ]), ref([]), pinnedCategories)
+    f.tab.value = 'files'
+    f.groupByCategory.value = true
+
+    pinnedCategories.value = []
+
+    expect(labelsOf(f.fileGroups.value)).toEqual(['Note', 'Project', 'Task'])
   })
 })
 

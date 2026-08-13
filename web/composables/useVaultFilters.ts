@@ -43,6 +43,8 @@ export interface CategoryOption {
 export interface NoteGroup {
   key: string
   label: string
+  category: string | null
+  pinned: boolean
   /** How much the group holds, which a collapsed group still reports. */
   count: number
   notes: VaultNote[]
@@ -85,7 +87,11 @@ const seedFoldedGroups = (): Record<string, boolean> =>
  * rather than inside it because both tabs read the same filtered pool, and a
  * note that a filter removed has to disappear from the tag tree too.
  */
-export function useVaultFilters(notes: Ref<VaultNote[]>, pinnedTags: Ref<string[]>) {
+export function useVaultFilters(
+  notes: Ref<VaultNote[]>,
+  pinnedTags: Ref<string[]>,
+  pinnedCategories: Ref<string[]> = ref([]),
+) {
   const tab = ref<VaultTab>('tags')
   const query = ref('')
   const sortField = ref<SortField>('updated')
@@ -202,9 +208,16 @@ export function useVaultFilters(notes: Ref<VaultNote[]>, pinnedTags: Ref<string[
 
   const fileGroups = computed<NoteGroup[]>(() => {
     const groups: NoteGroup[] = []
-    const push = (key: string, label: string, list: VaultNote[]): void => {
+    const push = (key: string, label: string, list: VaultNote[], category: string | null = null): void => {
       if (!list.length) return
-      groups.push({ key, label, count: list.length, notes: isGroupOpen(key) ? sorted(list) : [] })
+      groups.push({
+        key,
+        label,
+        category,
+        pinned: category !== null && pinnedCategories.value.includes(category),
+        count: list.length,
+        notes: isGroupOpen(key) ? sorted(list) : [],
+      })
     }
 
     const pinned = pool.value.filter((n) => n.pinned)
@@ -212,14 +225,16 @@ export function useVaultFilters(notes: Ref<VaultNote[]>, pinnedTags: Ref<string[
     push('pinned', 'Pinned', pinned)
 
     if (groupByCategory.value) {
-      for (const category of categories.value) {
-        if (category.id === 'all') continue
+      const categoryGroups = categories.value.filter((category) => category.id !== 'all')
+      const pinned = categoryGroups.filter((category) => pinnedCategories.value.includes(category.id))
+      const unpinnedCategories = categoryGroups.filter((category) => !pinnedCategories.value.includes(category.id))
+      for (const category of [...pinned, ...unpinnedCategories]) {
         const inCategory = rest.filter((n) => n.category === category.id)
         if (isSplit.value) {
-          push(`${category.id}:me`, `${category.label} · me`, inCategory.filter((n) => !isAgentAuthored(n)))
-          push(`${category.id}:da`, `${category.label} · DA`, inCategory.filter((n) => isAgentAuthored(n)))
+          push(`${category.id}:me`, `${category.label} · me`, inCategory.filter((n) => !isAgentAuthored(n)), category.id)
+          push(`${category.id}:da`, `${category.label} · DA`, inCategory.filter((n) => isAgentAuthored(n)), category.id)
         } else {
-          push(category.id, category.label, inCategory)
+          push(category.id, category.label, inCategory, category.id)
         }
       }
     } else if (isSplit.value) {

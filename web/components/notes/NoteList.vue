@@ -12,20 +12,34 @@
     </div>
 
     <div v-for="group in groups" v-else :key="group.key" class="note-group">
-      <button
-        type="button"
-        class="note-group__head"
-        :aria-expanded="isGroupOpen(group.key)"
-        @click="$emit('toggle-group', group.key)"
-      >
-        <span
-          class="material-symbols-outlined note-group__chevron !text-[16px]"
-          :class="{ 'is-open': isGroupOpen(group.key) }"
-          aria-hidden="true"
-        >expand_more</span>
-        <span class="note-group__label">{{ group.label }}</span>
+      <div class="note-group__head">
+        <button
+          type="button"
+          class="note-group__toggle"
+          :aria-expanded="isGroupOpen(group.key)"
+          @click="$emit('toggle-group', group.key)"
+        >
+          <span
+            class="material-symbols-outlined note-group__chevron !text-[16px]"
+            :class="{ 'is-open': isGroupOpen(group.key) }"
+            aria-hidden="true"
+          >expand_more</span>
+          <span class="note-group__label">{{ group.label }}</span>
+        </button>
+        <button
+          v-if="group.category"
+          type="button"
+          class="note-group__pin"
+          :class="{ 'note-group__pin--on': group.pinned }"
+          :title="group.pinned ? `Unpin ${group.label} category` : `Pin ${group.label} category`"
+          :aria-label="group.pinned ? `Unpin ${group.label} category` : `Pin ${group.label} category`"
+          :aria-pressed="group.pinned"
+          @click.stop="$emit('toggle-category-pin', group.category)"
+        >
+          <span class="material-symbols-outlined !text-[13px]" aria-hidden="true">keep</span>
+        </button>
         <span class="note-group__count">{{ group.count }}</span>
-      </button>
+      </div>
 
       <VaultNoteRow
         v-for="note in group.notes"
@@ -54,7 +68,12 @@ defineProps<{
   isGroupOpen: (key: string) => boolean
 }>()
 
-defineEmits<{ select: [string]; 'toggle-pin': [VaultNote]; 'toggle-group': [string] }>()
+defineEmits<{
+  select: [string]
+  'toggle-pin': [VaultNote]
+  'toggle-group': [string]
+  'toggle-category-pin': [string]
+}>()
 </script>
 
 <style scoped>
@@ -74,11 +93,18 @@ defineEmits<{ select: [string]; 'toggle-pin': [VaultNote]; 'toggle-group': [stri
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 100%;
   padding: 12px 6px 6px 6px;
+  user-select: none;
+}
+
+.note-group__toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
   text-align: left;
   cursor: pointer;
-  user-select: none;
 }
 
 .note-group__chevron {
@@ -112,14 +138,61 @@ defineEmits<{ select: [string]; 'toggle-pin': [VaultNote]; 'toggle-group': [stri
   color: var(--color-text-faint);
 }
 
-.note-group__head:focus-visible {
+.note-group__pin {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 120ms ease-out, color 120ms ease;
+}
+
+.note-group__head:hover .note-group__pin,
+.note-group__head:focus-within .note-group__pin,
+.note-group__pin--on {
+  opacity: 1;
+}
+
+.note-group__pin--on {
+  color: var(--color-primary);
+}
+
+.note-group__pin:hover {
+  color: var(--color-text-primary);
+}
+
+.note-group__pin--on:hover {
+  color: var(--color-primary);
+}
+
+.note-group__pin:focus-visible {
+  outline: none;
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
+}
+
+.note-group__toggle:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 70%, transparent);
   border-radius: var(--radius-lg);
 }
 
+@media (pointer: coarse) {
+  .note-group__pin {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .note-group__chevron {
+    transition: none;
+  }
+
+  .note-group__pin {
     transition: none;
   }
 }
