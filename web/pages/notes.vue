@@ -71,6 +71,7 @@
           @select="selectFile"
           @toggle-group="toggleGroup"
           @toggle-pin="togglePin"
+          @toggle-category-pin="toggleCategoryPin"
         />
         <TagHierarchy
           v-else
@@ -187,12 +188,14 @@ const selectedFile = ref(null)
 const sidebarCollapsed = ref(false)
 
 const { notes, pinnedTags, loading, load, setNotePinned, setTagPinned } = useVaultIndex()
+const { recall: recallPinnedCategories, remember: rememberPinnedCategories } = usePinnedCategories()
+const pinnedCategories = ref([])
 const {
   tab, query, sortField, sortDir, sourceMode, categoryFilter, groupByCategory,
   isTags, sortLabel, sourceLabel, categoryLabel, categories,
   tagGroups, fileGroups, counter,
   isTagOpen, toggleTag, isGroupOpen, toggleGroup,
-} = useVaultFilters(notes, pinnedTags)
+} = useVaultFilters(notes, pinnedTags, pinnedCategories)
 
 const searchPlaceholder = computed(() =>
   isTags.value ? 'Search notes inside tags' : 'Search notes'
@@ -213,6 +216,12 @@ onBeforeUnmount(() => { footerStatus.value = '' })
 
 const togglePin = (note) => setNotePinned(note.id, !note.pinned)
 const toggleTagPin = (tag) => setTagPinned(tag.name, !tag.pinned)
+const toggleCategoryPin = (category) => {
+  pinnedCategories.value = pinnedCategories.value.includes(category)
+    ? pinnedCategories.value.filter((pinned) => pinned !== category)
+    : [...pinnedCategories.value, category]
+  rememberPinnedCategories(pinnedCategories.value)
+}
 
 const showNewNote = ref(false)
 const newTitle = ref('')
@@ -248,6 +257,8 @@ const clearDeepLink = () => {
 onMounted(async () => {
   const deepLink = typeof route.query.path === 'string' ? route.query.path : ''
   const tag = typeof route.query.new === 'string' ? route.query.new : ''
+
+  pinnedCategories.value = recallPinnedCategories()
 
   // The remembered tab is restored first so the deep link below can still
   // override it: a note arriving from another screen has to be findable in the
