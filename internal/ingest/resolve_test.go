@@ -289,7 +289,7 @@ func TestResolveReviewCreatePageSourceEdgeIsDerivedFrom(t *testing.T) {
 	// The read errors are checked rather than discarded: a failing query would
 	// otherwise leave newNoteID empty and labels nil, and the assertions below
 	// would report "created note not found" or "expected exactly one
-	// derived_from edge" — a wrong diagnosis that hides the real failure.
+	// derived_from edge", a wrong diagnosis that hides the real failure.
 	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(
 			`SELECT id FROM nodes WHERE type='note' AND id != ? AND title='Fresh page'`, sourceID,
