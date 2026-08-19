@@ -644,3 +644,35 @@ func TestBuildContext_TypeIsPresent(t *testing.T) {
 		t.Errorf("expected both a note and a task with their types, got %v (full: %+v)", types, notes)
 	}
 }
+
+// TestBuildContext_NoteWinsATieAgainstAnEntity pins the tie-break. When a note
+// and an entity match the same number of distinct seed terms, the note comes
+// first: it is the canonical representation, and its body carries the fuller
+// reasoning where the entity carries only what its description happens to say.
+//
+// The rule was measured before it was written: without it the generated easy
+// question set drops from Recall@5 1.000 to 0.950, two targets losing their
+// place to an entity they tied with. That measurement lives in another repo and
+// takes minutes, so it cannot be the thing that guards this ordering.
+func TestBuildContext_NoteWinsATieAgainstAnEntity(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// Same salient vocabulary on both, so they tie on matched terms. The task is
+	// seeded first, so a stable sort alone would leave it in front.
+	const shared = "zephyr backoff retries"
+	seedTask(t, g, "Zephyr rollout", shared, nodes.TaskStatusInProgress)
+	noteID := seedNote(t, g, "Zephyr protocol", shared)
+
+	notes, err := planning.BuildContext(ctx, g, shared, 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if len(notes) < 2 {
+		t.Fatalf("expected both the note and the task, got %+v", notes)
+	}
+	if notes[0].ID != noteID {
+		t.Errorf("a note must win a tie against an entity, got %q (type %q) first: %+v",
+			notes[0].Title, notes[0].Type, notes)
+	}
+}
