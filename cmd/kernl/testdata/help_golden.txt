@@ -800,7 +800,7 @@ Flags:
 kernl note write - Create or overwrite a note from a file or stdin
 
 Usage:
-  kernl note write <path> [--file <local-path>] [--json]
+  kernl note write <path> [--file <local-path>] [--no-links-reason <text>] [--json]
 
 The body comes from --file, or from stdin when --file is omitted.
 Writing a .md note the server does not know yet gets a node id injected
@@ -815,8 +815,9 @@ from a capture is the case that keeps them apart: the body is the person's own
 words, carried across untouched, so it has an origin and no author at all.
 
 Flags:
-  --file <local-path>  Read the body from a local file instead of stdin
-  --json               Emit {"status":"saved"} on stdout
+  --file <local-path>       Read the body from a local file instead of stdin
+  --no-links-reason <text>  Record why this note should not get link suggestions
+  --json                    Emit the server's response (status, suggestions, accepted, rejected) on stdout
 
 Examples:
   kernl note write inbox/idea.md --file ./draft.md

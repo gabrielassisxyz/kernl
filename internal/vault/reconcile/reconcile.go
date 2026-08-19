@@ -484,14 +484,11 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 			// If not tombstoned, just update the path cache - the node is live
 
 			// Update note's title/body if the frontmatter changed
-			if err := nodes.UpdateNote(ctx, tx, nodes.Note{
-				ID:     pending.nodeID,
-				Title:  title,
-				Body:   body,
-				Origin: nodes.NormalizeOrigin(fm.Origin),
-				Author: fm.Author,
-				Tags:   fm.Tags,
-			}, author); err != nil {
+			n, err := noteFromFile(ctx, tx, pending.nodeID, fm, title, body)
+			if err != nil {
+				return err
+			}
+			if err := nodes.UpdateNote(ctx, tx, n, author); err != nil {
 				return fmt.Errorf("UpdateNote (move): %w", err)
 			}
 
@@ -578,14 +575,11 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 					return fmt.Errorf("ReviveNoteTx: %w", err)
 				}
 				// Update title/body to the new file content
-				if err := nodes.UpdateNote(ctx, tx, nodes.Note{
-					ID:     noteID,
-					Title:  title,
-					Body:   body,
-					Origin: nodes.NormalizeOrigin(fm.Origin),
-					Author: fm.Author,
-					Tags:   fm.Tags,
-				}, author); err != nil {
+				n, err := noteFromFile(ctx, tx, noteID, fm, title, body)
+				if err != nil {
+					return err
+				}
+				if err := nodes.UpdateNote(ctx, tx, n, author); err != nil {
 					return fmt.Errorf("UpdateNote (revive): %w", err)
 				}
 
@@ -627,13 +621,9 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 	// --- Fresh create ---
 	var promoted int
 	err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		n := nodes.Note{
-			ID:     noteID,
-			Title:  title,
-			Body:   body,
-			Origin: nodes.NormalizeOrigin(fm.Origin),
-			Author: fm.Author,
-			Tags:   fm.Tags,
+		n, err := noteFromFile(ctx, tx, noteID, fm, title, body)
+		if err != nil {
+			return err
 		}
 
 		id, err := nodes.CreateNote(ctx, tx, n, author)
@@ -690,14 +680,11 @@ func (r *Reconciler) adoptNote(
 ) error {
 	var promoted int
 	err := r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		if err := nodes.UpdateNote(ctx, tx, nodes.Note{
-			ID:     noteID,
-			Title:  title,
-			Body:   body,
-			Origin: nodes.NormalizeOrigin(fm.Origin),
-			Author: fm.Author,
-			Tags:   fm.Tags,
-		}, author); err != nil {
+		n, err := noteFromFile(ctx, tx, noteID, fm, title, body)
+		if err != nil {
+			return err
+		}
+		if err := nodes.UpdateNote(ctx, tx, n, author); err != nil {
 			return fmt.Errorf("UpdateNote (adopt): %w", err)
 		}
 		if _, err := r.resolver.ResolveInTx(ctx, tx, noteID, body); err != nil {
@@ -755,13 +742,9 @@ func (r *Reconciler) OnChange(ctx context.Context, absPath string) error {
 	contentHash := HashBytes(raw)
 
 	err = r.g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		n := nodes.Note{
-			ID:     fm.ID,
-			Title:  title,
-			Body:   body,
-			Origin: nodes.NormalizeOrigin(fm.Origin),
-			Author: fm.Author,
-			Tags:   fm.Tags,
+		n, err := noteFromFile(ctx, tx, fm.ID, fm, title, body)
+		if err != nil {
+			return err
 		}
 		if err := nodes.UpdateNote(ctx, tx, n, author); err != nil {
 			return fmt.Errorf("UpdateNote: %w", err)
@@ -840,6 +823,117 @@ func ResolveAuthor(fmAuthor string) nodes.Author {
 		return nodes.AuthorAgent("da")
 	}
 	return nodes.Author{Name: fmAuthor}
+}
+
+// NoteFromFile builds the Note a file's frontmatter describes. It is the one
+// place a file becomes a Note, shared by the reconciler and the endpoint. Link
+// state is not read from the file (it is not in frontmatter); the reconciler
+// preserves it via noteFromFile, and the endpoint sets it explicitly.
+func NoteFromFile(fm *frontmatter.Frontmatter, title, body string) nodes.Note {
+	return nodes.Note{
+		ID:     fm.ID,
+		Title:  title,
+		Body:   body,
+		Origin: nodes.NormalizeOrigin(fm.Origin),
+		Author: fm.Author,
+		Tags:   fm.Tags,
+	}
+}
+
+// noteFromFile builds the Note a file's frontmatter describes, carrying over
+// the link state the node already holds. Link state (channel, offered
+// suggestions, no-links reason) is machine bookkeeping written straight to
+// attrs, never to frontmatter, so a rebuild from the file would silently drop
+// it. Every site that turns a file into a Note goes through here, so a future
+// site cannot forget to preserve it.
+func noteFromFile(ctx context.Context, tx *graph.WriteTx, id string, fm *frontmatter.Frontmatter, title, body string) (nodes.Note, error) {
+	n := NoteFromFile(fm, title, body)
+	n.ID = id
+	existing, err := nodes.GetNote(ctx, tx.AsReadTx(), id)
+	if err == nil {
+		n.Channel = existing.Channel
+		n.LinkSuggestions = existing.LinkSuggestions
+		n.NoLinksReason = existing.NoLinksReason
+		return n, nil
+	}
+	if errors.Is(err, graph.ErrNotFound) {
+		return n, nil
+	}
+	return n, err
+}
+
+// LinkState is the link bookkeeping the endpoint writes onto a note after
+// writing its file: where the write came from, which links were offered, and
+// why the writer declined them (when they did).
+type LinkState struct {
+	Channel       string
+	Suggestions   []nodes.LinkCandidate
+	NoLinksReason string
+}
+
+// LinkStateFor reads the link state a note carries, or an empty state when the
+// note does not exist. The endpoint uses it to derive which previously-offered
+// suggestions the writer accepted on this write.
+func LinkStateFor(ctx context.Context, g *graph.Graph, noteID string) (LinkState, error) {
+	var state LinkState
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		n, err := nodes.GetNote(ctx, tx, noteID)
+		if err == nil {
+			state.Channel = n.Channel
+			state.Suggestions = n.LinkSuggestions
+			state.NoLinksReason = n.NoLinksReason
+			return nil
+		}
+		if errors.Is(err, graph.ErrNotFound) {
+			return nil
+		}
+		return err
+	})
+	return state, err
+}
+
+// SetLinkState writes link state onto a note's attrs, creating the note from
+// the file when it does not exist yet. The endpoint calls this after writing
+// the file; noteFromFile preserves the state on every later rebuild. It does
+// not resolve wikilinks - the reconciler owns that, and runs it on the same
+// file in its own pass.
+func SetLinkState(ctx context.Context, g *graph.Graph, vaultRoot, absPath string, state LinkState) error {
+	raw, err := os.ReadFile(absPath)
+	if err != nil {
+		return fmt.Errorf("reconcile SetLinkState %q: read file: %w", absPath, err)
+	}
+	fm, err := frontmatter.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("reconcile SetLinkState %q: frontmatter: %w", absPath, err)
+	}
+	if fm.ID == "" {
+		// No id yet: the reconciler will inject one and create the node. The
+		// state cannot be attached to a node that does not exist, so it is
+		// dropped - the endpoint injects the id before writing, so this is the
+		// unusual case of a file written without one.
+		return nil
+	}
+	title := resolveTitle(fm, absPath)
+	body := extractBody(raw)
+	author := ResolveAuthor(fm.Author)
+
+	return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		n := NoteFromFile(fm, title, body)
+		n.Channel = state.Channel
+		n.LinkSuggestions = state.Suggestions
+		n.NoLinksReason = state.NoLinksReason
+
+		_, err := nodes.GetNote(ctx, tx.AsReadTx(), fm.ID)
+		switch {
+		case err == nil:
+			return nodes.UpdateNote(ctx, tx, n, author)
+		case errors.Is(err, graph.ErrNotFound):
+			_, err := nodes.CreateNote(ctx, tx, n, author)
+			return err
+		default:
+			return err
+		}
+	})
 }
 
 // resolveTitle returns the title from frontmatter or falls back to the filename stem.

@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,8 +17,11 @@ import (
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
+	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/notes"
+	"github.com/gabrielassisxyz/kernl/internal/planning/linksuggest"
 	"github.com/gabrielassisxyz/kernl/internal/vault/frontmatter"
+	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
 
 // Where POST /api/vault/append puts the block. An ordinary journal grows at the
@@ -37,6 +42,17 @@ const (
 // appendPositions is the accepted set, in the order the error message lists
 // them, so a rejected value and the CLI's help agree on the vocabulary.
 var appendPositions = []string{appendPositionStart, appendPositionEnd, appendPositionAfterBreak}
+
+// vaultFileWriteResponse is what POST /api/vault/file answers with. The
+// suggestions are the links offered for this write; accepted and rejected are
+// derived from the previous write's suggestions against the body's wikilinks,
+// so the writer learns which of its earlier offers it took.
+type vaultFileWriteResponse struct {
+	Status      string                `json:"status"`
+	Suggestions []nodes.LinkCandidate `json:"suggestions"`
+	Accepted    []nodes.LinkCandidate `json:"accepted"`
+	Rejected    []nodes.LinkCandidate `json:"rejected"`
+}
 
 func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/vault/list", func(w http.ResponseWriter, r *http.Request) {
@@ -179,13 +195,44 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			return
 		}
 
+		// Link suggestions: the channel says where the write came from, and the
+		// gate offers links to the assistant (cli) and unidentified clients but
+		// not to the user writing in the web UI. The state is written straight
+		// to the node's attrs; the reconciler preserves it on its own pass.
+		channel := r.Header.Get("X-Kernl-Client")
+		noLinksReason := r.URL.Query().Get("noLinksReason")
+
+		resp := vaultFileWriteResponse{Status: "saved"}
+		if a.Graph != nil && strings.HasSuffix(fullPath, ".md") {
+			_, noteBody := notes.SplitFrontmatter(string(body))
+			state := reconcile.LinkState{Channel: channel, NoLinksReason: noLinksReason}
+			if linksuggest.ShouldSuggest(channel) {
+				suggestions, err := linksuggest.Suggest(r.Context(), a.Graph, noteBody, 8)
+				if err != nil {
+					slog.Warn("link suggestion failed; note saved without suggestions", "path", filePath, "err", err)
+				} else {
+					state.Suggestions = suggestions
+					resp.Suggestions = suggestions
+					if prev, err := previousLinkState(r.Context(), a.Graph, body); err != nil {
+						slog.Warn("reading previous link state failed", "path", filePath, "err", err)
+					} else {
+						resp.Accepted, resp.Rejected = linksuggest.DeriveReceipts(prev, noteBody)
+					}
+				}
+			}
+			if err := reconcile.SetLinkState(r.Context(), a.Graph, root, fullPath, state); err != nil {
+				slog.Warn("writing link state failed; note saved without it", "path", filePath, "err", err)
+			}
+		}
+
 		if info, statErr := os.Stat(fullPath); statErr == nil {
 			lm := info.ModTime().Format(time.RFC3339)
 			w.Header().Set("Last-Modified", lm)
 			w.Header().Set("ETag", lm)
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"saved"}`))
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	// Add a block at one of the note's named positions without a
@@ -322,4 +369,19 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// previousLinkState reads the link suggestions a note already carries, so the
+// endpoint can derive which of them the writer accepted on this write. It
+// returns nil when the note has no id or does not exist yet.
+func previousLinkState(ctx context.Context, g *graph.Graph, body []byte) ([]nodes.LinkCandidate, error) {
+	fm, err := frontmatter.Parse(body)
+	if err != nil || fm.ID == "" {
+		return nil, nil
+	}
+	state, err := reconcile.LinkStateFor(ctx, g, fm.ID)
+	if err != nil {
+		return nil, err
+	}
+	return state.Suggestions, nil
 }

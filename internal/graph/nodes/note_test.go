@@ -582,3 +582,52 @@ func TestNormalizeOrigin_LegacySpellingCannotDisableTheFilter(t *testing.T) {
 		}
 	}
 }
+
+// TestNoteLinkStateRoundtrip verifies the link bookkeeping (channel, offered
+// suggestions, no-links reason) survives the attrs write/read round trip. It
+// is machine state, not frontmatter, so it must be carried by the node itself.
+func TestNoteLinkStateRoundtrip(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	path := "projects/kernl.md"
+	n := Note{
+		Title:   "My Note",
+		Body:    "Body content.",
+		Channel: "cli",
+		LinkSuggestions: []LinkCandidate{
+			{ID: "id-1", Title: "Kernl", Path: &path, Snippet: "snippet"},
+		},
+		NoLinksReason: "scratch note",
+	}
+
+	var id string
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = CreateNote(ctx, tx, n, Author{Name: "test"})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	var got *Note
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		got, err = GetNote(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+
+	if got.Channel != "cli" {
+		t.Errorf("channel = %q, want %q", got.Channel, "cli")
+	}
+	if len(got.LinkSuggestions) != 1 || got.LinkSuggestions[0].ID != "id-1" {
+		t.Errorf("linkSuggestions = %+v, want [id-1]", got.LinkSuggestions)
+	}
+	if got.NoLinksReason != "scratch note" {
+		t.Errorf("noLinksReason = %q, want %q", got.NoLinksReason, "scratch note")
+	}
+}
