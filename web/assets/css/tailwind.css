@@ -147,6 +147,8 @@
   --color-border-row: #1c2025;        /* divider between list rows, fainter than a hairline */
   --color-status-done: #6b7a8c;
   --color-status-archived: #565d65;
+  --color-status-stalled: #5f7d9c;
+  --color-status-not-started: #8a7f9e;
 
   /* Derived from the accent, never literal: the accent is a user-facing choice,
      and a resolved oklab() copied out of the running page would silently stop

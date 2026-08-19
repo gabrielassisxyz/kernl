@@ -32,14 +32,16 @@ const headings = (w: ReturnType<typeof mount>) =>
   w.findAll('section > button').map((h) => h.findAll('span').slice(1).map((s) => s.text()).join(' '))
 
 describe('ProjectList sections', () => {
-  it('orders the lifecycle sections active, paused, done, archived', () => {
+  it('orders the lifecycle sections active, stalled, paused, not started, done, archived', () => {
     const w = mountList([
-      project('d', 'archived'),
-      project('c', 'done'),
-      project('b', 'paused'),
+      project('f', 'archived'),
+      project('e', 'done'),
+      project('d', 'not_started'),
+      project('c', 'paused'),
+      project('b', 'stalled'),
       project('a', 'active'),
     ])
-    expect(headings(w)).toEqual(['Active 1', 'Paused 1', 'Done 1', 'Archived 1'])
+    expect(headings(w)).toEqual(['Active 1', 'Stalled 1', 'Paused 1', 'Not started 1', 'Done 1', 'Archived 1'])
   })
 
   it('puts pinned first, above every lifecycle section', () => {
