@@ -84,6 +84,68 @@ func TestNoteListFilesUsesVaultList(t *testing.T) {
 	}
 }
 
+// --author ai keeps only the notes the assistant wrote (resolved author with
+// an "agent:" prefix). Removing the filter would print both notes, so this
+// test is the guard that fails when the filter is removed.
+func TestNoteListAuthorFilterAI(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`[
+		{"path":"a.md","id":"1","type":"note","title":"A","author":"agent:da"},
+		{"path":"b.md","id":"2","type":"note","title":"B","author":"human"}
+	]`))
+	out, err := api.run(t, "list", "--author", "ai")
+	if err != nil {
+		t.Fatalf("note list --author ai: %v", err)
+	}
+	if !strings.Contains(out, "a.md") || strings.Contains(out, "b.md") {
+		t.Fatalf("--author ai must list only assistant notes, got %q", out)
+	}
+}
+
+// --author me is the complement: everything the assistant did not write.
+func TestNoteListAuthorFilterMe(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`[
+		{"path":"a.md","id":"1","type":"note","title":"A","author":"agent:da"},
+		{"path":"b.md","id":"2","type":"note","title":"B","author":"human"}
+	]`))
+	out, err := api.run(t, "list", "--author", "me")
+	if err != nil {
+		t.Fatalf("note list --author me: %v", err)
+	}
+	if strings.Contains(out, "a.md") || !strings.Contains(out, "b.md") {
+		t.Fatalf("--author me must list only user notes, got %q", out)
+	}
+}
+
+// The raw resolved spellings stay accepted for callers that know them: an
+// exact match, not the ai/me vocabulary.
+func TestNoteListAuthorFilterRawValue(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`[
+		{"path":"a.md","id":"1","type":"note","title":"A","author":"agent:da"},
+		{"path":"b.md","id":"2","type":"note","title":"B","author":"human"}
+	]`))
+	out, err := api.run(t, "list", "--author", "agent:da")
+	if err != nil {
+		t.Fatalf("note list --author agent:da: %v", err)
+	}
+	if !strings.Contains(out, "a.md") || strings.Contains(out, "b.md") {
+		t.Fatalf("--author agent:da must match exactly, got %q", out)
+	}
+}
+
+// --author and --files answer different questions (indexed notes vs files on
+// disk), so asking for both at once is a usage error rather than a silent
+// ignore.
+func TestNoteListAuthorRejectsFiles(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"files":[]}`))
+	_, err := api.run(t, "list", "--files", "--author", "ai")
+	if err == nil || exitCode(err) != 2 {
+		t.Fatalf("--author with --files must be a usage error, got: %v", err)
+	}
+	if len(api.requests) != 0 {
+		t.Fatalf("nothing must reach the server, got %d requests", len(api.requests))
+	}
+}
+
 func TestNoteReadWritesRawBytes(t *testing.T) {
 	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")

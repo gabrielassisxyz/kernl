@@ -83,15 +83,17 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 	// (wikilink navigation) without N+1 frontmatter parsing.
 	mux.HandleFunc("GET /api/vault/notes", func(w http.ResponseWriter, r *http.Request) {
 		type vaultNote struct {
-			Path  string `json:"path"`
-			ID    string `json:"id"`
-			Type  string `json:"type"`
-			Title string `json:"title"`
+			Path   string `json:"path"`
+			ID     string `json:"id"`
+			Type   string `json:"type"`
+			Title  string `json:"title"`
+			Author string `json:"author"`
 		}
 		out := []vaultNote{}
 		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
 			rows, err := tx.Query(`
-				SELECT np.path, np.uuid, COALESCE(n.type, ''), COALESCE(n.title, '')
+				SELECT np.path, np.uuid, COALESCE(n.type, ''), COALESCE(n.title, ''),
+				       COALESCE(json_extract(n.attrs, '$.author'), '')
 				FROM note_paths np
 				LEFT JOIN nodes n ON n.id = np.uuid AND n.deleted_at IS NULL`)
 			if err != nil {
@@ -100,9 +102,11 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			defer rows.Close()
 			for rows.Next() {
 				var vn vaultNote
-				if err := rows.Scan(&vn.Path, &vn.ID, &vn.Type, &vn.Title); err != nil {
+				var rawAuthor string
+				if err := rows.Scan(&vn.Path, &vn.ID, &vn.Type, &vn.Title, &rawAuthor); err != nil {
 					return err
 				}
+				vn.Author = reconcile.ResolveAuthor(rawAuthor).Name
 				out = append(out, vn)
 			}
 			return rows.Err()
