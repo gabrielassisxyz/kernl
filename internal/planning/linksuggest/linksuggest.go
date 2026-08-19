@@ -17,8 +17,22 @@ import (
 // Suggest returns the notes most relevant to seed as link candidates. It is
 // BuildContext minus the memory claims: a claim is not a note and has no file,
 // so it can never be a link target.
-func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int) ([]nodes.LinkCandidate, error) {
-	notes, err := planning.BuildContext(ctx, g, seed, limit)
+//
+// excludeID, when non-empty, drops the note being written from the candidates:
+// from the second write of a note onward it is already in the graph, matches
+// its own body, and would otherwise be offered as a link to itself. An empty
+// excludeID excludes nothing, so the first write of a note (which has no id
+// yet) is unaffected.
+func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, excludeID string) ([]nodes.LinkCandidate, error) {
+	// One slot over when there is something to exclude, then trimmed back. The
+	// point of dropping the self-candidate is that it was costing a real one;
+	// filtering a list already closed at limit removes the bad link and keeps
+	// the loss, which is half the fix.
+	fetch := limit
+	if excludeID != "" && limit > 0 {
+		fetch = limit + 1
+	}
+	notes, err := planning.BuildContext(ctx, g, seed, fetch)
 	if err != nil {
 		return nil, err
 	}
@@ -27,12 +41,18 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int) ([]nod
 		if n.Via == "claim" {
 			continue
 		}
+		if excludeID != "" && n.ID == excludeID {
+			continue
+		}
 		out = append(out, nodes.LinkCandidate{
 			ID:      n.ID,
 			Title:   n.Title,
 			Path:    n.Path,
 			Snippet: n.Snippet,
 		})
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
