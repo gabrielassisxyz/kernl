@@ -27,6 +27,14 @@ const EdgeLabel = "describes"
 
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
+// maxSlugBytes caps the slug well under the 255-byte limit every Linux filesystem
+// enforces per path component. The headroom absorbs the "-42" collision suffix and
+// the ".md" extension. The cap is not theoretical: a DA briefing takes its title
+// from the whole capture body, and titles of 900 to 1700 characters already exist,
+// so an uncapped slug makes the write fail after its transaction has committed -
+// leaving a node and a note_paths row pointing at a file that can never be created.
+const maxSlugBytes = 120
+
 // slugOf builds a filesystem-safe slug from a label, falling back to the
 // node id when the label has no usable characters (e.g. a bookmark titled by URL).
 func slugOf(label, fallback string) string {
@@ -35,6 +43,15 @@ func slugOf(label, fallback string) string {
 	s = strings.Trim(s, "-")
 	if s == "" {
 		return fallback
+	}
+	if len(s) > maxSlugBytes {
+		// Cut back to a word boundary when there is one, so the truncated name
+		// still reads as words rather than ending mid-syllable.
+		s = s[:maxSlugBytes]
+		if i := strings.LastIndex(s, "-"); i > maxSlugBytes/2 {
+			s = s[:i]
+		}
+		s = strings.Trim(s, "-")
 	}
 	return s
 }
