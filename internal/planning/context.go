@@ -26,13 +26,41 @@ const maxContextClaims = 4
 
 // stopwords are common words dropped from a planning seed before retrieval, so
 // the content signal keys on the meaningful terms.
+//
+// Both languages, and the Portuguese half is not symmetry for its own sake. A note is
+// scored by HOW MANY distinct seed terms it matches, so every word left in the seed counts
+// the same whether it is "navegação" or "sobre". The vault and the questions asked of it are
+// mostly Portuguese, so an English-only list left four or five junk terms in a typical
+// question and handed the top slots to whichever notes happened to contain them. Measured on
+// 2026-08-19: "o que já foi decidido sobre navegação de notas" kept que, já, foi and sobre as
+// salient terms and did not return its target at any depth up to 40; the same question with
+// those words removed returned it at rank 2.
 var stopwords = map[string]bool{
+	// en
 	"the": true, "and": true, "for": true, "should": true, "with": true,
 	"how": true, "what": true, "why": true, "this": true, "that": true,
 	"are": true, "was": true, "but": true, "not": true, "you": true,
 	"can": true, "our": true, "out": true, "use": true, "into": true,
 	"a": true, "an": true, "of": true, "to": true, "in": true, "is": true,
 	"do": true, "we": true, "it": true, "on": true, "or": true, "be": true,
+	// pt
+	"que": true, "qual": true, "quais": true, "quando": true, "onde": true,
+	"como": true, "por": true, "para": true, "com": true, "sem": true,
+	"uma": true, "uns": true, "umas": true, "dos": true, "das": true,
+	"nos": true, "nas": true, "aos": true, "ele": true, "ela": true,
+	"eles": true, "elas": true, "isso": true, "esse": true, "essa": true,
+	"este": true, "esta": true, "isto": true, "aquele": true, "aquela": true,
+	"foi": true, "ser": true, "sao": true, "são": true,
+	"est": true, "está": true, "estao": true, "estão": true, "tem": true,
+	"têm": true, "ter": true, "havia": true, "sobre": true, "entre": true,
+	"mais": true, "menos": true, "muito": true, "pouco": true, "todo": true,
+	"toda": true, "todos": true, "todas": true, "não": true, "nao": true,
+	"sim": true, "meu": true, "minha": true, "seu": true, "sua": true,
+	"nosso": true, "nossa": true, "vai": true, "vou": true, "fica": true,
+	"ficar": true, "fazer": true, "faz": true, "pode": true, "deve": true,
+	"já": true, "jah": true, "ainda": true, "agora": true, "depois": true,
+	"antes": true, "aqui": true, "ali": true, "lá": true, "eu": true,
+	"escrito": true, "coisa": true, "coisas": true,
 }
 
 // salientTerms splits a seed into lowercased, de-duplicated content terms,

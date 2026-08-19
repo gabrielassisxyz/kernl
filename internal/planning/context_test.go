@@ -434,3 +434,33 @@ func TestBuildContext_EmptySeed(t *testing.T) {
 		t.Errorf("empty seed should return no notes, got %d", len(notes))
 	}
 }
+
+// TestBuildContext_PortugueseSeedIsNotDecidedByFunctionWords guards the property that a
+// question's grammar must not outvote its subject. A note is scored by how many distinct
+// seed terms it matches, so every word left in the seed counts the same. The vault and the
+// questions asked of it are mostly Portuguese, and an English-only stopword list left "que",
+// "sobre", "foi" and their neighbours in the seed: a note carrying those and nothing else
+// outscored the note actually about the subject. Measured against the real vault on
+// 2026-08-19, this took Recall@10 over the regression set from 0.200 to 0.600.
+func TestBuildContext_PortugueseSeedIsNotDecidedByFunctionWords(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Navegação por arestas",
+		"Como a navegação entre notas acontece seguindo arestas do grafo.")
+	// Carries the question's function words and none of its subject. With an English-only
+	// stopword list this note matches more seed terms than the one above and wins.
+	seedNote(t, g, "Diário de bordo",
+		"O que já foi decidido sobre isso ainda está para ser escrito, qual seja o caso.")
+
+	notes, err := planning.BuildContext(ctx, g, "o que já foi decidido sobre navegação de notas", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if len(notes) == 0 {
+		t.Fatal("expected at least one note")
+	}
+	if notes[0].Title != "Navegação por arestas" {
+		t.Errorf("function words decided the ranking: got %q first, full: %+v", notes[0].Title, notes)
+	}
+}
