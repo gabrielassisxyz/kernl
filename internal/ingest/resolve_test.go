@@ -286,17 +286,23 @@ func TestResolveReviewCreatePageSourceEdgeIsDerivedFrom(t *testing.T) {
 	}
 
 	var newNoteID string
-	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	// The read errors are checked rather than discarded: a failing query would
+	// otherwise leave newNoteID empty and labels nil, and the assertions below
+	// would report "created note not found" or "expected exactly one
+	// derived_from edge" — a wrong diagnosis that hides the real failure.
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		return tx.QueryRow(
 			`SELECT id FROM nodes WHERE type='note' AND id != ? AND title='Fresh page'`, sourceID,
 		).Scan(&newNoteID)
-	})
+	}); err != nil {
+		t.Fatalf("reading the created note: %v", err)
+	}
 	if newNoteID == "" {
 		t.Fatalf("created note not found")
 	}
 
 	var labels []string
-	_ = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+	readErr := g.DoRead(ctx, func(tx *graph.ReadTx) error {
 		rows, err := tx.Query(`SELECT label FROM edges WHERE src = ? AND dst = ?`, newNoteID, sourceID)
 		if err != nil {
 			return err
@@ -311,6 +317,9 @@ func TestResolveReviewCreatePageSourceEdgeIsDerivedFrom(t *testing.T) {
 		}
 		return rows.Err()
 	})
+	if readErr != nil {
+		t.Fatalf("reading the edges to the source: %v", readErr)
+	}
 	if len(labels) != 1 || labels[0] != "derived_from" {
 		t.Errorf("expected exactly one derived_from edge to source, got %v", labels)
 	}
