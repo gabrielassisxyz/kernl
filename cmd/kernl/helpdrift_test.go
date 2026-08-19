@@ -14,11 +14,17 @@ func subDetails(t *testing.T, verb, sub string) string {
 	t.Helper()
 	cmd := findCommand(commandTable, verb)
 	if cmd == nil {
+		// Unreachable after t.Fatalf, which ends the goroutine. Spelled out
+		// anyway because staticcheck does not always carry that fact across a
+		// build, and without it SA5011 reads the dereferences below as
+		// possible nil derefs and fails CI where the same lint passes locally.
 		t.Fatalf("no %q command in the table", verb)
+		return ""
 	}
 	s := findCommand(cmd.Subs, sub)
 	if s == nil {
 		t.Fatalf("no %q sub under %q", sub, verb)
+		return ""
 	}
 	return s.Details
 }
@@ -58,10 +64,12 @@ func TestBeadRunHelpDocumentsDryRun(t *testing.T) {
 	bead := findCommand(commandTable, "bead")
 	if bead == nil {
 		t.Fatal(`no "bead" command in the table`)
+		return
 	}
 	run := findCommand(bead.Subs, "run")
 	if run == nil {
 		t.Fatal(`no "run" sub under "bead"`)
+		return
 	}
 	if !strings.Contains(run.Usage, "--dry-run") {
 		t.Errorf("bead run usage must document --dry-run, got: %q", run.Usage)
