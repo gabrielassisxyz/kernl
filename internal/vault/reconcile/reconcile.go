@@ -488,7 +488,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 				ID:     pending.nodeID,
 				Title:  title,
 				Body:   body,
-				Origin: fm.Origin,
+				Origin: nodes.NormalizeOrigin(fm.Origin),
 				Author: fm.Author,
 				Tags:   fm.Tags,
 			}, author); err != nil {
@@ -582,7 +582,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 					ID:     noteID,
 					Title:  title,
 					Body:   body,
-					Origin: fm.Origin,
+					Origin: nodes.NormalizeOrigin(fm.Origin),
 					Author: fm.Author,
 					Tags:   fm.Tags,
 				}, author); err != nil {
@@ -631,7 +631,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 			ID:     noteID,
 			Title:  title,
 			Body:   body,
-			Origin: fm.Origin,
+			Origin: nodes.NormalizeOrigin(fm.Origin),
 			Author: fm.Author,
 			Tags:   fm.Tags,
 		}
@@ -694,7 +694,7 @@ func (r *Reconciler) adoptNote(
 			ID:     noteID,
 			Title:  title,
 			Body:   body,
-			Origin: fm.Origin,
+			Origin: nodes.NormalizeOrigin(fm.Origin),
 			Author: fm.Author,
 			Tags:   fm.Tags,
 		}, author); err != nil {
@@ -759,7 +759,7 @@ func (r *Reconciler) OnChange(ctx context.Context, absPath string) error {
 			ID:     fm.ID,
 			Title:  title,
 			Body:   body,
-			Origin: fm.Origin,
+			Origin: nodes.NormalizeOrigin(fm.Origin),
 			Author: fm.Author,
 			Tags:   fm.Tags,
 		}

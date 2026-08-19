@@ -77,7 +77,7 @@ func seedDANote(t *testing.T, g *graph.Graph, title, body string) string {
 		var err error
 		id, err = nodes.CreateNote(ctx, tx, nodes.Note{
 			Title: title, Body: body,
-			Origin: nodes.OriginDA,
+			Origin: nodes.OriginPrep,
 			Tags:   []string{"da", "prep"},
 		}, nodes.Author{Name: "da"})
 		return err

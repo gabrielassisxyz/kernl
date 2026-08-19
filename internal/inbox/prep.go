@@ -117,7 +117,7 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 		noteID, err = nodes.CreateNote(ctx, tx, nodes.Note{
 			Title:  title,
 			Body:   primer,
-			Origin: "da",
+			Origin: nodes.OriginPrep,
 			Tags:   []string{"da", "prep"},
 		}, author)
 		if err != nil {
@@ -134,7 +134,8 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 		prepFile, err = companion.PrepareNote(tx, vaultRoot, daSubdir, companion.NoteFrontmatter{
 			ID:     noteID,
 			Title:  title,
-			Origin: "da",
+			Origin: nodes.OriginPrep,
+			Author: "da",
 			Tags:   []string{"da", "prep"},
 		}, primer)
 		if err != nil {

@@ -360,11 +360,15 @@ func rewriteDescription(raw []byte, note noteRef, description string) ([]byte, b
 // properties panel - visible at the top of the note without competing with the
 // prose underneath.
 type NoteFrontmatter struct {
-	ID          string   `yaml:"id"`
-	Title       string   `yaml:"title"`
-	Description string   `yaml:"description,omitempty"`
-	Origin      string   `yaml:"origin,omitempty"`
-	Tags        []string `yaml:"tags,omitempty"`
+	ID          string `yaml:"id"`
+	Title       string `yaml:"title"`
+	Description string `yaml:"description,omitempty"`
+	// Origin says where the note came from; Author says who wrote it. They are separate
+	// axes on purpose: a note made from a capture has an origin and no author, because
+	// the body is the user's own words and the DA only filed them.
+	Origin string   `yaml:"origin,omitempty"`
+	Author string   `yaml:"author,omitempty"`
+	Tags   []string `yaml:"tags,omitempty"`
 }
 
 // renderMarkdown builds the markdown file content with a frontmatter

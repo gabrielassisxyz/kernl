@@ -563,3 +563,22 @@ func TestNoteTombstoneHidden(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestNormalizeOrigin_LegacySpellingCannotDisableTheFilter guards the one property that
+// makes the rename safe. Frontmatter is the source of truth for a note, so a vault file
+// written before 2026-08-19 still says origin "da"; reconciled without normalisation it
+// would put "da" back into the node, and the retrieval filter compares against "prep".
+// The briefings would silently return as knowledge about the user, which is the exact
+// loop the filter exists to prevent.
+func TestNormalizeOrigin_LegacySpellingCannotDisableTheFilter(t *testing.T) {
+	if got := NormalizeOrigin("da"); got != OriginPrep {
+		t.Errorf("legacy origin %q normalised to %q, want %q", "da", got, OriginPrep)
+	}
+	// Every other value passes through untouched: capture is the axis-defining case and
+	// must not be rewritten into anything.
+	for _, keep := range []string{OriginCapture, OriginIngest, OriginPrep, ""} {
+		if got := NormalizeOrigin(keep); got != keep {
+			t.Errorf("origin %q was rewritten to %q", keep, got)
+		}
+	}
+}
