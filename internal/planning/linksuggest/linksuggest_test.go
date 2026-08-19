@@ -2,6 +2,7 @@ package linksuggest_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -158,5 +159,30 @@ func TestShouldSuggestGatesOnTheChannel(t *testing.T) {
 	}
 	if linksuggest.ShouldSuggest("ui") {
 		t.Error("ShouldSuggest(ui) = true, want false: the user finds connections himself")
+	}
+}
+
+// TestSuggestExclusionDoesNotCostASlot verifies the excluded note gives its slot
+// back. Dropping the self-candidate from a list BuildContext already closed at
+// limit removes the bad link and keeps the loss it was costing, which is the
+// half-fix this guards against.
+func TestSuggestExclusionDoesNotCostASlot(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	const shared = "write-through cache policy for hot keys"
+	self := seedNote(t, g, "Caching strategy", shared)
+	for i := 0; i < 5; i++ {
+		seedNote(t, g, fmt.Sprintf("Sibling %d", i), shared)
+	}
+
+	const limit = 3
+	withExclusion, err := linksuggest.Suggest(ctx, g, shared, limit, self)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if len(withExclusion) != limit {
+		t.Errorf("excluding the note being written cost a slot: got %d candidates, want %d",
+			len(withExclusion), limit)
 	}
 }

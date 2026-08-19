@@ -24,7 +24,15 @@ import (
 // excludeID excludes nothing, so the first write of a note (which has no id
 // yet) is unaffected.
 func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, excludeID string) ([]nodes.LinkCandidate, error) {
-	notes, err := planning.BuildContext(ctx, g, seed, limit)
+	// One slot over when there is something to exclude, then trimmed back. The
+	// point of dropping the self-candidate is that it was costing a real one;
+	// filtering a list already closed at limit removes the bad link and keeps
+	// the loss, which is half the fix.
+	fetch := limit
+	if excludeID != "" && limit > 0 {
+		fetch = limit + 1
+	}
+	notes, err := planning.BuildContext(ctx, g, seed, fetch)
 	if err != nil {
 		return nil, err
 	}
@@ -42,6 +50,9 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, exclud
 			Path:    n.Path,
 			Snippet: n.Snippet,
 		})
+	}
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
