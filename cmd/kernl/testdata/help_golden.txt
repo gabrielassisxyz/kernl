@@ -533,7 +533,8 @@ Usage:
   kernl plan [--json] <topic>
 
 Flags:
-  --json  Emit {"topic","notes":[{"title","via","snippet"}]} on stdout
+  --json  Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout
+          path is null for via=claim (a claim has no file on disk)
 
 Example:
   kernl plan "caching strategy"

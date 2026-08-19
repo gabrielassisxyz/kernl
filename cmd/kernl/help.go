@@ -278,7 +278,8 @@ Examples:
 Example:
   kernl plan "caching strategy"`,
 		Flags: []commandFlag{
-			{Name: "--json", Description: `Emit {"topic","notes":[{"title","via","snippet"}]} on stdout`},
+			{Name: "--json", Description: `Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout`,
+				Continuation: []string{`path is null for via=claim (a claim has no file on disk)`}},
 		},
 	},
 	{

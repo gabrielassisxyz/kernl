@@ -8,6 +8,7 @@ package planning
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -56,7 +57,15 @@ type ContextNote struct {
 	Title   string  `json:"title"`
 	Snippet string  `json:"snippet"`
 	Score   float64 `json:"score"`
-	Via     string  `json:"via"` // "content" (FTS) or "linked" (structural)
+	Via     string  `json:"via"` // "content" (FTS), "linked" (structural), or "claim" (memory claim)
+	// Path is the note's vault path, resolved from the reconciler's cache. It
+	// is nil - serialized as JSON null - when the node has no file on disk. A
+	// claim is not a note that lost its file; it is a different kind of thing
+	// that never had one. nil is deliberate: an empty string would be
+	// indistinguishable from "I failed to resolve the path", a real failure
+	// mode in this system, and an omitted key would break consumers that
+	// branch on the field's presence.
+	Path *string `json:"path"`
 }
 
 const snippetLen = 240
@@ -120,9 +129,14 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 			if daAuthored(tx, id) {
 				continue
 			}
+			path, err := notePath(tx, id)
+			if err != nil {
+				return fmt.Errorf("planning: note path: %w", err)
+			}
 			ranked = append(ranked, ContextNote{
 				ID: id, Title: a.title, Snippet: snippet(tx, id),
 				Score: float64(a.matches) - a.bestRank/1000, Via: "content",
+				Path: path,
 			})
 		}
 		// Most distinct terms matched first; FTS rank breaks ties.
@@ -156,7 +170,11 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 					continue
 				}
 				seen[id] = true
-				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked"})
+				path, err := notePath(tx, id)
+				if err != nil {
+					return fmt.Errorf("planning: note path: %w", err)
+				}
+				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked", Path: path})
 			}
 		}
 
@@ -261,6 +279,23 @@ func isNodeID(tx *graph.ReadTx, s string) bool {
 		return false
 	}
 	return n > 0
+}
+
+// notePath resolves a note's vault path from the reconciler's cache. It
+// returns (nil, nil) when the node has no file on disk (a claim, or a note
+// node created without a file), so the JSON contract can distinguish "no file
+// by design" (null) from "failed to resolve" (an error). Any other query
+// failure is returned to the caller rather than silently serialized as null.
+func notePath(tx *graph.ReadTx, nodeID string) (*string, error) {
+	var p string
+	err := tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, nodeID).Scan(&p)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 func snippet(tx *graph.ReadTx, nodeID string) string {
