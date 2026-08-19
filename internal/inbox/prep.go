@@ -96,7 +96,7 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 	}
 
 	// Related notes (own read transaction inside Suggest).
-	notesCtx, _ := linksuggest.Suggest(ctx, g, capture.Body, 5)
+	notesCtx, _ := linksuggest.Suggest(ctx, g, capture.Body, 5, "")
 
 	resp, err := llm.Chat(ctx, []chat.Message{{Role: "user", Content: buildPrepPrompt(capture, notesCtx, bookmarkTitles, project, projectTasks)}}, nil)
 	if err != nil {

@@ -17,7 +17,13 @@ import (
 // Suggest returns the notes most relevant to seed as link candidates. It is
 // BuildContext minus the memory claims: a claim is not a note and has no file,
 // so it can never be a link target.
-func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int) ([]nodes.LinkCandidate, error) {
+//
+// excludeID, when non-empty, drops the note being written from the candidates:
+// from the second write of a note onward it is already in the graph, matches
+// its own body, and would otherwise be offered as a link to itself. An empty
+// excludeID excludes nothing, so the first write of a note (which has no id
+// yet) is unaffected.
+func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, excludeID string) ([]nodes.LinkCandidate, error) {
 	notes, err := planning.BuildContext(ctx, g, seed, limit)
 	if err != nil {
 		return nil, err
@@ -25,6 +31,9 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int) ([]nod
 	out := make([]nodes.LinkCandidate, 0, len(notes))
 	for _, n := range notes {
 		if n.Via == "claim" {
+			continue
+		}
+		if excludeID != "" && n.ID == excludeID {
 			continue
 		}
 		out = append(out, nodes.LinkCandidate{

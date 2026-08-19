@@ -51,7 +51,7 @@ func TestSuggestFiltersClaims(t *testing.T) {
 	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy for hot keys.")
 	seedClaim(t, g, "Cache claim", "Caching is done with an LRU cache.")
 
-	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8)
+	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "")
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -71,6 +71,53 @@ func TestSuggestFiltersClaims(t *testing.T) {
 	}
 	if slices.Contains(titles, "Cache claim") {
 		t.Errorf("a claim is not a linkable note and must be filtered, got %v", titles)
+	}
+}
+
+// TestSuggestExcludesOwnID verifies a note whose id is excluded is not offered
+// as a link candidate to itself. From the second write of a note onward it is
+// already in the graph and matches its own body, so without the exclusion it
+// would come back first among the candidates.
+func TestSuggestExcludesOwnID(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	body := "We use an LRU cache with a write-through policy for hot keys."
+	id := seedNote(t, g, "Caching strategy", body)
+
+	candidates, err := linksuggest.Suggest(ctx, g, body, 8, id)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+
+	for _, c := range candidates {
+		if c.ID == id {
+			t.Errorf("a note must not be offered as a link candidate to itself, got %q", c.Title)
+		}
+	}
+}
+
+// TestSuggestEmptyExcludeChangesNothing verifies an empty exclusion id filters
+// nothing: on the first write the note has no id yet, and it must not
+// accidentally drop a real candidate.
+func TestSuggestEmptyExcludeChangesNothing(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	body := "We use an LRU cache with a write-through policy for hot keys."
+	id := seedNote(t, g, "Caching strategy", body)
+
+	candidates, err := linksuggest.Suggest(ctx, g, body, 8, "")
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+
+	var ids []string
+	for _, c := range candidates {
+		ids = append(ids, c.ID)
+	}
+	if !slices.Contains(ids, id) {
+		t.Errorf("empty exclusion id must not filter the note itself, got %v", ids)
 	}
 }
 

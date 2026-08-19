@@ -207,7 +207,15 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			_, noteBody := notes.SplitFrontmatter(string(body))
 			state := reconcile.LinkState{Channel: channel, NoLinksReason: noLinksReason}
 			if linksuggest.ShouldSuggest(channel) {
-				suggestions, err := linksuggest.Suggest(r.Context(), a.Graph, noteBody, 8)
+				// The note being written must not be offered as a link to itself.
+				// From the second write onward it is already in the graph and
+				// matches its own body; its id is read from the frontmatter the
+				// handler just wrote, and an empty id (first write) excludes nothing.
+				excludeID := ""
+				if fm, fmErr := frontmatter.Parse(body); fmErr == nil {
+					excludeID = fm.ID
+				}
+				suggestions, err := linksuggest.Suggest(r.Context(), a.Graph, noteBody, 8, excludeID)
 				if err != nil {
 					slog.Warn("link suggestion failed; note saved without suggestions", "path", filePath, "err", err)
 				} else {
