@@ -8,6 +8,7 @@ package planning
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -128,10 +129,14 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 			if daAuthored(tx, id) {
 				continue
 			}
+			path, err := notePath(tx, id)
+			if err != nil {
+				return fmt.Errorf("planning: note path: %w", err)
+			}
 			ranked = append(ranked, ContextNote{
 				ID: id, Title: a.title, Snippet: snippet(tx, id),
 				Score: float64(a.matches) - a.bestRank/1000, Via: "content",
-				Path: notePath(tx, id),
+				Path: path,
 			})
 		}
 		// Most distinct terms matched first; FTS rank breaks ties.
@@ -165,7 +170,11 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 					continue
 				}
 				seen[id] = true
-				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked", Path: notePath(tx, id)})
+				path, err := notePath(tx, id)
+				if err != nil {
+					return fmt.Errorf("planning: note path: %w", err)
+				}
+				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked", Path: path})
 			}
 		}
 
@@ -273,15 +282,20 @@ func isNodeID(tx *graph.ReadTx, s string) bool {
 }
 
 // notePath resolves a note's vault path from the reconciler's cache. It
-// returns nil when the node has no file on disk (a claim, or a note node
-// created without a file), so the JSON contract can distinguish "no file by
-// design" (null) from "failed to resolve" (which would be an empty string).
-func notePath(tx *graph.ReadTx, nodeID string) *string {
+// returns (nil, nil) when the node has no file on disk (a claim, or a note
+// node created without a file), so the JSON contract can distinguish "no file
+// by design" (null) from "failed to resolve" (an error). Any other query
+// failure is returned to the caller rather than silently serialized as null.
+func notePath(tx *graph.ReadTx, nodeID string) (*string, error) {
 	var p string
-	if err := tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, nodeID).Scan(&p); err != nil {
-		return nil
+	err := tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, nodeID).Scan(&p)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
 	}
-	return &p
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 func snippet(tx *graph.ReadTx, nodeID string) string {

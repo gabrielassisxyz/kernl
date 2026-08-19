@@ -309,6 +309,51 @@ func TestBuildContext_ResolvesNotePath(t *testing.T) {
 	}
 }
 
+// TestBuildContext_NoteWithoutFileHasNilPath verifies a note node with no
+// note_paths row (created without a file, before the reconciler adopts it)
+// surfaces with a nil path - serialized as JSON null - rather than an empty
+// string, so consumers can tell "no file by design" from "failed to resolve".
+func TestBuildContext_NoteWithoutFileHasNilPath(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Caching strategy", "We use an LRU cache.")
+
+	notes, err := planning.BuildContext(ctx, g, "caching strategy", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	content := findVia(notes, "content")
+	if len(content) == 0 {
+		t.Fatal("expected the caching note to surface")
+	}
+	if content[0].Path != nil {
+		t.Errorf("note without a file must have a nil path, got %q", *content[0].Path)
+	}
+}
+
+// TestBuildContext_NotePathQueryErrorPropagates verifies a genuine note_paths
+// query failure (here a missing table, standing in for a corrupted index or
+// schema mismatch) surfaces as an error instead of silently serializing every
+// note's path as null.
+func TestBuildContext_NotePathQueryErrorPropagates(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Caching strategy", "We use an LRU cache.")
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := tx.Exec(`DROP TABLE note_paths`)
+		return err
+	}); err != nil {
+		t.Fatalf("drop note_paths: %v", err)
+	}
+
+	_, err := planning.BuildContext(ctx, g, "caching strategy", 8)
+	if err == nil {
+		t.Fatal("expected BuildContext to fail when note_paths is unreadable, got nil error")
+	}
+}
+
 // TestBuildContext_RefutedClaimExcluded verifies a refuted claim never surfaces,
 // reusing the shared non-refuted gate.
 func TestBuildContext_RefutedClaimExcluded(t *testing.T) {
