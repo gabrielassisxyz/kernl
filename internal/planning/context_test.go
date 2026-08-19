@@ -31,6 +31,57 @@ func seedTaggedNote(t *testing.T, g *graph.Graph, title, body string, tags []str
 	return id
 }
 
+func seedTask(t *testing.T, g *graph.Graph, title, description, status string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateTask(ctx, tx, nodes.Task{Title: title, Description: description, Status: status}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed task %q: %v", title, err)
+	}
+	return id
+}
+
+func seedProject(t *testing.T, g *graph.Graph, title, description, status string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateProject(ctx, tx, nodes.Project{Title: title, Description: description, Status: status}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed project %q: %v", title, err)
+	}
+	return id
+}
+
+// seedCompanionNote creates a note and the links_to edge a companion note
+// carries back to its entity, mirroring what the wikilink resolver writes when
+// it resolves the [[entity|title]] link in a companion note's body.
+func seedCompanionNote(t *testing.T, g *graph.Graph, title, body, entityID string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateNote(ctx, tx, nodes.Note{Title: title, Body: body}, nodes.Author{Name: "test"})
+		if err != nil {
+			return err
+		}
+		_, err = edges.Create(ctx, tx, edges.Edge{
+			Src: id, Dst: entityID, Type: edges.EdgeTypeLinksTo,
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed companion note %q: %v", title, err)
+	}
+	return id
+}
+
 // TestBuildContext_TopicalRetrieval verifies a free-text planning seed surfaces
 // content-matching notes (the topical signal structural relevance cannot give).
 func TestBuildContext_TopicalRetrieval(t *testing.T) {
@@ -462,5 +513,166 @@ func TestBuildContext_PortugueseSeedIsNotDecidedByFunctionWords(t *testing.T) {
 	}
 	if notes[0].Title != "Navegação por arestas" {
 		t.Errorf("function words decided the ranking: got %q first, full: %+v", notes[0].Title, notes)
+	}
+}
+
+// TestBuildContext_ReturnsTaskWithMatchingDescription verifies a task whose
+// description matches the seed surfaces as planning context, with its type set
+// and its description as the snippet - the reasoning that used to be invisible
+// to the planner.
+func TestBuildContext_ReturnsTaskWithMatchingDescription(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedTask(t, g, "Report composer", "The composer writes a markdown report for every run.", nodes.TaskStatusInProgress)
+
+	notes, err := planning.BuildContext(ctx, g, "markdown report composer", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	var found bool
+	for _, n := range notes {
+		if n.Type == "task" && n.Title == "Report composer" {
+			found = true
+			if !strings.Contains(n.Snippet, "markdown report") {
+				t.Errorf("task snippet should carry the description, got %q", n.Snippet)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected the task to surface, got %+v", notes)
+	}
+}
+
+// TestBuildContext_ReturnsProjectWithMatchingDescription verifies a project
+// whose description matches the seed surfaces as planning context.
+func TestBuildContext_ReturnsProjectWithMatchingDescription(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedProject(t, g, "Report composer", "The composer writes a markdown report for every run.", "active")
+
+	notes, err := planning.BuildContext(ctx, g, "markdown report composer", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	var found bool
+	for _, n := range notes {
+		if n.Type == "project" && n.Title == "Report composer" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected the project to surface, got %+v", notes)
+	}
+}
+
+// TestBuildContext_ExcludesFinishedWork verifies the state filter: a done or
+// closed task, and an archived project, are finished work and must not feed
+// planning context.
+func TestBuildContext_ExcludesFinishedWork(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedTask(t, g, "Done task", "The composer writes a markdown report for every run.", nodes.TaskStatusDone)
+	seedTask(t, g, "Closed task", "The composer writes a markdown report for every run.", nodes.TaskStatusClosed)
+	seedProject(t, g, "Archived project", "The composer writes a markdown report for every run.", "archived")
+
+	notes, err := planning.BuildContext(ctx, g, "markdown report composer", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	for _, n := range notes {
+		if n.Type == "task" || n.Type == "project" {
+			t.Errorf("finished work must not surface, got %+v", notes)
+		}
+	}
+}
+
+// TestBuildContext_DedupesEntityAgainstCompanion verifies a task and its
+// companion note - two nodes about one thing - do not both occupy slots. The
+// higher-scoring one (the task, whose description matches more terms) is kept.
+func TestBuildContext_DedupesEntityAgainstCompanion(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	taskID := seedTask(t, g, "Report composer", "The composer writes a markdown report for every run.", nodes.TaskStatusInProgress)
+	companionID := seedCompanionNote(t, g, "Report composer", "Notes for the report composer.", taskID)
+
+	notes, err := planning.BuildContext(ctx, g, "report composer markdown", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	var taskSeen, companionSeen bool
+	for _, n := range notes {
+		if n.ID == taskID {
+			taskSeen = true
+		}
+		if n.ID == companionID {
+			companionSeen = true
+		}
+	}
+	if taskSeen && companionSeen {
+		t.Errorf("task and companion must not both appear, got %+v", notes)
+	}
+	if !taskSeen {
+		t.Errorf("expected the higher-scoring task to be kept, got %+v", notes)
+	}
+}
+
+// TestBuildContext_TypeIsPresent verifies every result carries its node type,
+// so a consumer can tell a note from a task without guessing from a path.
+func TestBuildContext_TypeIsPresent(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Caching strategy", "We use an LRU cache.")
+	seedTask(t, g, "Report composer", "The composer writes a markdown report.", nodes.TaskStatusInProgress)
+
+	notes, err := planning.BuildContext(ctx, g, "caching report composer", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	types := map[string]bool{}
+	for _, n := range notes {
+		if n.Type == "" {
+			t.Errorf("every result must carry a type, got %+v", notes)
+		}
+		types[n.Type] = true
+	}
+	if !types["note"] || !types["task"] {
+		t.Errorf("expected both a note and a task with their types, got %v (full: %+v)", types, notes)
+	}
+}
+
+// TestBuildContext_NoteWinsATieAgainstAnEntity pins the tie-break. When a note
+// and an entity match the same number of distinct seed terms, the note comes
+// first: it is the canonical representation, and its body carries the fuller
+// reasoning where the entity carries only what its description happens to say.
+//
+// The rule was measured before it was written: without it the generated easy
+// question set drops from Recall@5 1.000 to 0.950, two targets losing their
+// place to an entity they tied with. That measurement lives in another repo and
+// takes minutes, so it cannot be the thing that guards this ordering.
+func TestBuildContext_NoteWinsATieAgainstAnEntity(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// Same salient vocabulary on both, so they tie on matched terms. The task is
+	// seeded first, so a stable sort alone would leave it in front.
+	const shared = "zephyr backoff retries"
+	seedTask(t, g, "Zephyr rollout", shared, nodes.TaskStatusInProgress)
+	noteID := seedNote(t, g, "Zephyr protocol", shared)
+
+	notes, err := planning.BuildContext(ctx, g, shared, 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if len(notes) < 2 {
+		t.Fatalf("expected both the note and the task, got %+v", notes)
+	}
+	if notes[0].ID != noteID {
+		t.Errorf("a note must win a tie against an entity, got %q (type %q) first: %+v",
+			notes[0].Title, notes[0].Type, notes)
 	}
 }

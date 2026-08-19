@@ -42,6 +42,20 @@ func seedClaim(t *testing.T, g *graph.Graph, title, statement string) string {
 	return id
 }
 
+func seedTask(t *testing.T, g *graph.Graph, title, description string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateTask(ctx, tx, nodes.Task{Title: title, Description: description, Status: nodes.TaskStatusInProgress}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed task %q: %v", title, err)
+	}
+	return id
+}
+
 // TestSuggestFiltersClaims verifies a memory claim matching the seed is not
 // offered as a link candidate: a claim is not a note and has no file, so it can
 // never be a link target.
@@ -72,6 +86,33 @@ func TestSuggestFiltersClaims(t *testing.T) {
 	}
 	if slices.Contains(titles, "Cache claim") {
 		t.Errorf("a claim is not a linkable note and must be filtered, got %v", titles)
+	}
+}
+
+// TestSuggestFiltersTasksAndProjects verifies a task or project matching the
+// seed is not offered as a link candidate: an entity is not a note and cannot
+// be a wikilink target.
+func TestSuggestFiltersTasksAndProjects(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy for hot keys.")
+	seedTask(t, g, "Cache task", "Caching is done with an LRU cache.")
+
+	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "")
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+
+	var titles []string
+	for _, c := range candidates {
+		titles = append(titles, c.Title)
+	}
+	if !slices.Contains(titles, "Caching strategy") {
+		t.Errorf("expected the note as a candidate, got %v", titles)
+	}
+	if slices.Contains(titles, "Cache task") {
+		t.Errorf("a task is not a linkable note and must be filtered, got %v", titles)
 	}
 }
 

@@ -113,6 +113,7 @@ type planNote struct {
 	ID      string  `json:"id"`
 	Title   string  `json:"title"`
 	Via     string  `json:"via"`
+	Type    string  `json:"type"`
 	Snippet string  `json:"snippet"`
 	Path    *string `json:"path"` // null for via=claim: a claim has no file on disk
 }
@@ -121,7 +122,7 @@ func newPlanOutput(topic string, notes []planning.ContextNote) planOutput {
 	out := planOutput{Topic: topic, Notes: make([]planNote, 0, len(notes))}
 	for _, n := range notes {
 		out.Notes = append(out.Notes, planNote{
-			ID: n.ID, Title: n.Title, Via: n.Via, Snippet: n.Snippet, Path: n.Path,
+			ID: n.ID, Title: n.Title, Via: n.Via, Type: n.Type, Snippet: n.Snippet, Path: n.Path,
 		})
 	}
 	return out

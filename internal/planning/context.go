@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -23,6 +24,11 @@ import (
 // maxContextClaims caps how many memory claims supplement the notes in a single
 // planning context, so claims enrich rather than dominate the retrieved set.
 const maxContextClaims = 4
+
+// contextTypes are the node types BuildContext retrieves: notes, tasks and
+// projects. A task's reasoning lives in its description and a project's in its
+// description, both FTS-indexed, so they are planning context alongside notes.
+var contextTypes = []string{"note", "task", "project"}
 
 // stopwords are common words dropped from a planning seed before retrieval, so
 // the content signal keys on the meaningful terms.
@@ -85,7 +91,15 @@ type ContextNote struct {
 	Title   string  `json:"title"`
 	Snippet string  `json:"snippet"`
 	Score   float64 `json:"score"`
-	Via     string  `json:"via"` // "content" (FTS), "linked" (structural), or "claim" (memory claim)
+	// matches is the number of distinct seed terms the node matched. It is
+	// unexported because it is a ranking detail, not part of the wire contract:
+	// the sort ranks by matches first, and Score (matches minus a bestRank
+	// adjustment) cannot recover that raw count.
+	matches int
+	Via     string `json:"via"` // "content" (FTS), "linked" (structural), or "claim" (memory claim)
+	// Type is the node's type: "note", "task", "project", or "memory_claim".
+	// It lets a consumer tell a note from a task without guessing from a path.
+	Type string `json:"type"`
 	// Path is the note's vault path, resolved from the reconciler's cache. It
 	// is nil - serialized as JSON null - when the node has no file on disk. A
 	// claim is not a note that lost its file; it is a different kind of thing
@@ -135,7 +149,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 		}
 		scored := map[string]*agg{}
 		for _, term := range salientTerms(seed) {
-			hits, err := search.Search(ctx, tx, term, search.WithTypes("note"))
+			hits, err := search.Search(ctx, tx, term, search.WithTypes(contextTypes...))
 			if err != nil {
 				continue // a single bad term must not sink the whole retrieval
 			}
@@ -154,7 +168,17 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 
 		ranked := make([]ContextNote, 0, len(scored))
 		for id, a := range scored {
-			if daAuthored(tx, id) {
+			surface, err := fetchNodeSurface(tx, id)
+			if err != nil {
+				return fmt.Errorf("planning: node surface: %w", err)
+			}
+			// Notes the DA authored (origin "prep") are never returned: see
+			// BuildContext. Tasks and projects carry no origin, so the check
+			// applies to notes only.
+			if surface.typ == "note" && surface.origin == nodes.OriginPrep {
+				continue
+			}
+			if excludedByState(surface.typ, surface.status) {
 				continue
 			}
 			path, err := notePath(tx, id)
@@ -162,18 +186,43 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 				return fmt.Errorf("planning: note path: %w", err)
 			}
 			ranked = append(ranked, ContextNote{
-				ID: id, Title: a.title, Snippet: snippet(tx, id),
+				ID: id, Title: a.title, Snippet: surface.snippet,
 				Score: float64(a.matches) - a.bestRank/1000, Via: "content",
-				Path: path,
+				Type: surface.typ, Path: path, matches: a.matches,
 			})
 		}
-		// Most distinct terms matched first; FTS rank breaks ties.
-		sort.Slice(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
+		// Most distinct terms matched first. On a tie, a note beats an entity:
+		// a task/project and its companion note are two nodes about one thing,
+		// and the note is the canonical representation whose body carries the
+		// fuller reasoning. FTS rank breaks the remaining ties.
+		sort.Slice(ranked, func(i, j int) bool {
+			if ranked[i].matches != ranked[j].matches {
+				return ranked[i].matches > ranked[j].matches
+			}
+			if (ranked[i].Type == "note") != (ranked[j].Type == "note") {
+				return ranked[i].Type == "note"
+			}
+			return ranked[i].Score > ranked[j].Score
+		})
 		for _, n := range ranked {
 			if len(out) >= limit {
 				break
 			}
+			if seen[n.ID] {
+				continue
+			}
+			// A task/project and its companion note are two nodes about one
+			// thing and must not occupy two slots. Iterating in score order,
+			// the first of the pair reached is the higher-scoring; mark its
+			// companion seen so the lower-scoring half is skipped.
+			partner, err := companionPartner(tx, n.ID, n.Type)
+			if err != nil {
+				return fmt.Errorf("planning: companion: %w", err)
+			}
 			seen[n.ID] = true
+			if partner != "" {
+				seen[partner] = true
+			}
 			out = append(out, n)
 		}
 
@@ -187,22 +236,35 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 				if len(out) >= limit || seen[id] {
 					continue
 				}
-				var title, typ string
-				var origin sql.NullString
-				if err := tx.QueryRow(
-					`SELECT title, type, json_extract(attrs, '$.origin') FROM nodes WHERE id = ? AND deleted_at IS NULL`, id,
-				).Scan(&title, &typ, &origin); err != nil || typ != "note" {
+				surface, err := fetchNodeSurface(tx, id)
+				if errors.Is(err, sql.ErrNoRows) {
+					continue // a neighbour deleted between relate and here
+				}
+				if err != nil {
+					return fmt.Errorf("planning: node surface: %w", err)
+				}
+				if !isContextType(surface.typ) {
 					continue
 				}
-				if origin.String == nodes.OriginPrep {
+				if surface.typ == "note" && surface.origin == nodes.OriginPrep {
 					continue
+				}
+				if excludedByState(surface.typ, surface.status) {
+					continue
+				}
+				partner, err := companionPartner(tx, id, surface.typ)
+				if err != nil {
+					return fmt.Errorf("planning: companion: %w", err)
 				}
 				seen[id] = true
+				if partner != "" {
+					seen[partner] = true
+				}
 				path, err := notePath(tx, id)
 				if err != nil {
 					return fmt.Errorf("planning: note path: %w", err)
 				}
-				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked", Path: path})
+				out = append(out, ContextNote{ID: id, Title: surface.title, Snippet: surface.snippet, Via: "linked", Type: surface.typ, Path: path})
 			}
 		}
 
@@ -216,6 +278,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 		for _, c := range claims {
 			out = append(out, ContextNote{
 				ID: c.ID, Title: c.Title, Snippet: truncateSnippet(c.Statement), Via: "claim",
+				Type: "memory_claim",
 			})
 		}
 		return nil
@@ -289,16 +352,94 @@ func matchClaims(ctx context.Context, tx *graph.ReadTx, seed string) ([]*nodes.M
 	return active, nil
 }
 
-// daAuthored reports whether a node is a note the DA wrote itself. Its output is
-// not the user's knowledge: see BuildContext.
-func daAuthored(tx *graph.ReadTx, nodeID string) bool {
-	var origin sql.NullString
-	if err := tx.QueryRow(
-		`SELECT json_extract(attrs, '$.origin') FROM nodes WHERE id = ?`, nodeID,
-	).Scan(&origin); err != nil {
-		return false
+// nodeSurface is the planning-relevant surface of a node: its title, type,
+// status (empty for notes), origin (empty for non-notes), and snippet text -
+// the body for a note, the description for a task or project, since that is
+// the text FTS indexed for each.
+type nodeSurface struct {
+	title   string
+	typ     string
+	status  string
+	origin  string
+	snippet string
+}
+
+// fetchNodeSurface reads a node's planning surface in one query. It returns
+// sql.ErrNoRows when the node does not exist (deleted between discovery and
+// here), which the structural signal treats as "skip" and the content signal
+// never sees because search already filters deleted nodes.
+func fetchNodeSurface(tx *graph.ReadTx, nodeID string) (nodeSurface, error) {
+	var title, typ string
+	var status, body, desc, origin sql.NullString
+	err := tx.QueryRow(`
+		SELECT title, type,
+		       json_extract(attrs, '$.status'),
+		       json_extract(attrs, '$.body'),
+		       json_extract(attrs, '$.description'),
+		       json_extract(attrs, '$.origin')
+		FROM nodes WHERE id = ? AND deleted_at IS NULL`, nodeID,
+	).Scan(&title, &typ, &status, &body, &desc, &origin)
+	if err != nil {
+		return nodeSurface{}, err
 	}
-	return origin.String == nodes.OriginPrep
+	text := body.String
+	if typ != "note" {
+		text = desc.String
+	}
+	return nodeSurface{
+		title: title, typ: typ, status: status.String,
+		origin: origin.String, snippet: truncateSnippet(text),
+	}, nil
+}
+
+// isContextType reports whether a node type is one BuildContext retrieves.
+func isContextType(typ string) bool {
+	return slices.Contains(contextTypes, typ)
+}
+
+// excludedByState reports whether a node's status marks it as finished work
+// that must not feed planning context: a done or closed task, or an archived
+// project. Finished work is not context for planning the next thing; it would
+// arrive as pure noise.
+func excludedByState(typ, status string) bool {
+	switch typ {
+	case "task":
+		return status == nodes.TaskStatusDone || status == nodes.TaskStatusClosed
+	case "project":
+		return status == "archived"
+	}
+	return false
+}
+
+// companionPartner returns the id of the node's companion - the entity a
+// companion note describes, or the note describing an entity - or "" when the
+// node has none. The relationship is the links_to edge the wikilink resolver
+// writes when it resolves the [[entity|title]] link in a companion note's body
+// (see internal/vault/reconcile): a note links to its entity, an entity is
+// linked from its companion note.
+func companionPartner(tx *graph.ReadTx, nodeID, typ string) (string, error) {
+	var partner string
+	var err error
+	if typ == "note" {
+		err = tx.QueryRow(`
+			SELECT dst FROM edges
+			WHERE src = ? AND label = 'links_to'
+			  AND dst IN (SELECT id FROM nodes WHERE type IN ('task','project') AND deleted_at IS NULL)
+			LIMIT 1`, nodeID).Scan(&partner)
+	} else {
+		err = tx.QueryRow(`
+			SELECT src FROM edges
+			WHERE dst = ? AND label = 'links_to'
+			  AND src IN (SELECT id FROM nodes WHERE type = 'note' AND deleted_at IS NULL)
+			LIMIT 1`, nodeID).Scan(&partner)
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return partner, nil
 }
 
 func isNodeID(tx *graph.ReadTx, s string) bool {
@@ -324,16 +465,6 @@ func notePath(tx *graph.ReadTx, nodeID string) (*string, error) {
 		return nil, err
 	}
 	return &p, nil
-}
-
-func snippet(tx *graph.ReadTx, nodeID string) string {
-	var body string
-	if err := tx.QueryRow(
-		`SELECT COALESCE(json_extract(attrs, '$.body'), '') FROM nodes WHERE id = ?`, nodeID,
-	).Scan(&body); err != nil {
-		return ""
-	}
-	return truncateSnippet(body)
 }
 
 // truncateSnippet collapses whitespace and caps text at snippetLen, appending
