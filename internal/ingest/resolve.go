@@ -263,24 +263,27 @@ func relatedNoteIDs(ctx context.Context, g *graph.Graph, payload, excludeID, sou
 	return out, nil
 }
 
-// connectNote links noteID to its source node and to the related notes with
-// related edges, so the resolved note is reachable in the graph.
+// connectNote links noteID to its source node with a derived_from edge and to
+// the related notes with related edges, so the resolved note is reachable in
+// the graph. The source link is provenance - a fact known at write time - while
+// the fan-out is computed similarity, so the two use different labels.
 func connectNote(ctx context.Context, tx *graph.WriteTx, noteID, sourceNodeID string, relatedIDs []string) error {
-	if err := ensureRelatedEdge(ctx, tx, noteID, sourceNodeID); err != nil {
+	if err := ensureEdge(ctx, tx, noteID, sourceNodeID, edges.EdgeTypeDerivedFrom); err != nil {
 		return err
 	}
 	for _, rid := range relatedIDs {
-		if err := ensureRelatedEdge(ctx, tx, noteID, rid); err != nil {
+		if err := ensureEdge(ctx, tx, noteID, rid, edges.EdgeTypeRelated); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// ensureRelatedEdge creates a related edge from src to dst, skipping when dst is
-// empty, self-referential, absent, or already linked. Ingest sources can be
-// arbitrary node ids that may not exist, so a missing dst is not an error.
-func ensureRelatedEdge(ctx context.Context, tx *graph.WriteTx, src, dst string) error {
+// ensureEdge creates an edge of the given type from src to dst, skipping when
+// dst is empty, self-referential, absent, or already linked with that type.
+// Ingest sources can be arbitrary node ids that may not exist, so a missing dst
+// is not an error.
+func ensureEdge(ctx context.Context, tx *graph.WriteTx, src, dst string, t edges.EdgeType) error {
 	if dst == "" || dst == src {
 		return nil
 	}
@@ -296,7 +299,7 @@ func ensureRelatedEdge(ctx context.Context, tx *graph.WriteTx, src, dst string) 
 	var dup int
 	if err := tx.QueryRow(
 		`SELECT COUNT(*) FROM edges WHERE src = ? AND dst = ? AND label = ?`,
-		src, dst, string(edges.EdgeTypeRelated),
+		src, dst, string(t),
 	).Scan(&dup); err != nil {
 		return fmt.Errorf("connect: check dup: %w", err)
 	}
@@ -307,7 +310,7 @@ func ensureRelatedEdge(ctx context.Context, tx *graph.WriteTx, src, dst string) 
 	_, err := edges.Create(ctx, tx, edges.Edge{
 		Src:  src,
 		Dst:  dst,
-		Type: edges.EdgeTypeRelated,
+		Type: t,
 	}, nodes.Author{Name: resolveAuthor})
 	return err
 }

@@ -271,3 +271,56 @@ func TestResolveReviewCreatePageConnectsSource(t *testing.T) {
 		t.Errorf("expected an edge connecting the new note to its source")
 	}
 }
+
+// The source link is a derived_from provenance edge, not a related edge, and it
+// is the only edge to the source - the topical fan-out stays related.
+func TestResolveReviewCreatePageSourceEdgeIsDerivedFrom(t *testing.T) {
+	ctx := context.Background()
+	g := openGraph(t)
+
+	sourceID := createNote(t, g, "Source", "origin material")
+	reviewID := seedReviewWith(t, g, "Fresh page", "Some ingested knowledge.", sourceID)
+
+	if err := ResolveReview(ctx, g, "", reviewID, "Create Page", nil); err != nil {
+		t.Fatalf("ResolveReview Create Page: %v", err)
+	}
+
+	var newNoteID string
+	// The read errors are checked rather than discarded: a failing query would
+	// otherwise leave newNoteID empty and labels nil, and the assertions below
+	// would report "created note not found" or "expected exactly one
+	// derived_from edge", a wrong diagnosis that hides the real failure.
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(
+			`SELECT id FROM nodes WHERE type='note' AND id != ? AND title='Fresh page'`, sourceID,
+		).Scan(&newNoteID)
+	}); err != nil {
+		t.Fatalf("reading the created note: %v", err)
+	}
+	if newNoteID == "" {
+		t.Fatalf("created note not found")
+	}
+
+	var labels []string
+	readErr := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		rows, err := tx.Query(`SELECT label FROM edges WHERE src = ? AND dst = ?`, newNoteID, sourceID)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var l string
+			if err := rows.Scan(&l); err != nil {
+				return err
+			}
+			labels = append(labels, l)
+		}
+		return rows.Err()
+	})
+	if readErr != nil {
+		t.Fatalf("reading the edges to the source: %v", readErr)
+	}
+	if len(labels) != 1 || labels[0] != "derived_from" {
+		t.Errorf("expected exactly one derived_from edge to source, got %v", labels)
+	}
+}

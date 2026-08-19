@@ -121,21 +121,24 @@ func discoverCandidates(ctx context.Context, tx *graph.ReadTx, origin string) (m
 	// 3. Provenance co-neighbours (shared provenance source)
 	if len(provenanceLabels) > 0 {
 		ph := placeholders(len(provenanceLabels))
-		args := make([]any, 0, 2+2*len(provenanceLabels))
+		args := make([]any, 0, 2+len(provenanceLabels))
+		for _, l := range provenanceLabels {
+			args = append(args, l)
+		}
 		args = append(args, origin, origin)
-		for _, l := range provenanceLabels {
-			args = append(args, l)
-		}
-		for _, l := range provenanceLabels {
-			args = append(args, l)
-		}
 
 		query := `
-			SELECT DISTINCT e2.dst FROM edges e1
-			JOIN edges e2 ON e1.src = e2.src
-			WHERE e1.dst = ? AND e2.dst != ?
-			  AND e1.label IN (` + ph + `)
-			  AND e2.label IN (` + ph + `)`
+			WITH provenance AS (
+				SELECT
+					CASE WHEN label = 'derived_from' THEN dst ELSE src END AS source,
+					CASE WHEN label = 'derived_from' THEN src ELSE dst END AS derived
+				FROM edges
+				WHERE label IN (` + ph + `)
+			)
+			SELECT DISTINCT p2.derived
+			FROM provenance p1
+			JOIN provenance p2 ON p1.source = p2.source
+			WHERE p1.derived = ? AND p2.derived != ?`
 
 		rows, err = tx.Query(query, args...)
 		if err != nil {

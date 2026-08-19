@@ -86,6 +86,37 @@ func TestRelatedTo_AE2_SourceOverlap(t *testing.T) {
 	}
 }
 
+// derived_from is a provenance label: two notes sharing a source via
+// derived_from edges (src=derived, dst=source) score higher through
+// sourceOverlap. Before derived_from joined provenanceLabels this pair scored
+// zero on the signal.
+func TestRelatedTo_DerivedFromSourceOverlap(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// A and B are both derived_from S (src=derived, dst=source).
+	setupGraph(t, ctx, g,
+		`INSERT INTO nodes(id, type, title) VALUES ('A','note','A'),('B','note','B'),('S','capture','S');`,
+		`INSERT INTO edges(id, src, dst, label) VALUES ('e1','A','S','derived_from'),('e2','B','S','derived_from');`,
+	)
+
+	var score float64
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		score, err = scoreBetween(tx, "A", "B")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("scoreBetween: %v", err)
+	}
+	// sourceOverlap = 1 distinct shared source * WeightSourceOverlap = 4.0.
+	// S is also a common undirected neighbour (degree 2), so Adamic-Adar adds.
+	expected := WeightSourceOverlap + WeightTypeAffinity + WeightAdamicAdar*(1.0/math.Log(2))
+	if math.Abs(score-expected) > 1e-9 {
+		t.Errorf("expected score ≈ %v, got %v", expected, score)
+	}
+}
+
 // AE3: Adamic-Adar with degree=2 common neighbor.
 func TestRelatedTo_AE3_AdamicAdar(t *testing.T) {
 	ctx := context.Background()

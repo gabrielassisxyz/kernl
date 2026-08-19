@@ -22,6 +22,11 @@ const (
 	EdgeTypeBlocks    EdgeType = "blocks"
 	EdgeTypePartOf    EdgeType = "part_of"
 	EdgeTypeLinksTo   EdgeType = "links_to"
+	// EdgeTypeDerivedFrom links a node (Src) to the node it was derived from
+	// (Dst): a note to the capture or ingest source that produced it. It is a
+	// provenance edge written deterministically at creation time, never a
+	// similarity edge, so it is distinct from EdgeTypeRelated.
+	EdgeTypeDerivedFrom EdgeType = "derived_from"
 	// EdgeTypeHasDecision links a bead or epic (Src) to a Decision node
 	// (Dst) recording a design decision made during that unit of work. It
 	// exists so that link has a typed member of this closed set instead of
