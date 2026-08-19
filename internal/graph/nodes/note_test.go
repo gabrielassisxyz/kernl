@@ -631,3 +631,35 @@ func TestNoteLinkStateRoundtrip(t *testing.T) {
 		t.Errorf("noLinksReason = %q, want %q", got.NoLinksReason, "scratch note")
 	}
 }
+
+// TestNotePermissionRoundtrip verifies the permission override survives the
+// attrs write/read round trip, so the index endpoint can read it without
+// opening the file.
+func TestNotePermissionRoundtrip(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	n := Note{Title: "N", Body: "b", Permission: "edit"}
+	var id string
+	err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = CreateNote(ctx, tx, n, Author{Name: "test"})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+
+	var got *Note
+	err = g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		got, err = GetNote(ctx, tx, id)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+	if got.Permission != "edit" {
+		t.Errorf("permission = %q, want %q", got.Permission, "edit")
+	}
+}

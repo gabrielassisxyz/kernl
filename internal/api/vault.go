@@ -193,6 +193,20 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			}
 		}
 
+		// Refuse an unrecognised permission BEFORE the file lands. noteFromFile
+		// refuses it too, but that runs on the reconciler's own pass: the write
+		// would answer "saved", the file would sit on disk, and the graph would
+		// quietly never adopt it - the orphan shape the shared write primitive
+		// exists to prevent. Same resolver, so there is one definition of the rule.
+		if strings.HasSuffix(fullPath, ".md") {
+			if fm, fmErr := frontmatter.Parse(body); fmErr == nil {
+				if _, permErr := reconcile.ResolvePermission(fm.Permission, fm.Author); permErr != nil {
+					http.Error(w, permErr.Error(), http.StatusBadRequest)
+					return
+				}
+			}
+		}
+
 		err = os.WriteFile(fullPath, body, 0644)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
