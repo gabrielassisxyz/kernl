@@ -22,6 +22,10 @@ const WeightTypeAffinity = 1.0
 const CrossTypeAffinity = 0.25
 
 // provenanceLabels lists the edge labels that indicate shared source nodes.
-// These are currently unused because the graph contains no provenance edges,
-// but the signal is built in full and will activate when P2.5 writes them.
-var provenanceLabels = []string{"generated_from", "processed_from", "processed_into"}
+// The labels disagree on which side of the edge holds the source: derived_from
+// points from the derived node to its source (src=derived, dst=source), while
+// the others point from the source to the derived node (src=source,
+// dst=derived). sourceOverlap and discoverCandidates normalise both directions
+// to a common (source, derived) pair before counting, so the CASE in those
+// queries must stay in step with this list.
+var provenanceLabels = []string{"generated_from", "processed_from", "processed_into", "derived_from"}

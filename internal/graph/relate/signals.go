@@ -54,7 +54,9 @@ func directLink(tx *graph.ReadTx, a, b string) (float64, error) {
 }
 
 // sourceOverlap counts the number of distinct source nodes S that have a
-// provenance edge to both a and b.
+// provenance edge to both a and b. Provenance labels disagree on which side of
+// the edge holds the source (derived_from stores it on dst, the rest on src),
+// so the query normalises both to a (source, derived) pair first.
 func sourceOverlap(tx *graph.ReadTx, a, b string) (int, error) {
 	if len(provenanceLabels) == 0 {
 		return 0, nil
@@ -63,22 +65,24 @@ func sourceOverlap(tx *graph.ReadTx, a, b string) (int, error) {
 	if phSQL == "" {
 		return 0, nil
 	}
-	args := make([]any, 0, 2+2*len(provenanceLabels))
+	args := make([]any, 0, 2+len(provenanceLabels))
+	for _, l := range provenanceLabels {
+		args = append(args, l)
+	}
 	args = append(args, a, b)
-	for _, l := range provenanceLabels {
-		args = append(args, l)
-	}
-	for _, l := range provenanceLabels {
-		args = append(args, l)
-	}
 	var count int
 	err := tx.QueryRow(`
-		SELECT COUNT(DISTINCT s1.src)
-		FROM edges s1
-		JOIN edges s2 ON s1.src = s2.src
-		WHERE s1.dst = ? AND s2.dst = ?
-		  AND s1.label IN (`+phSQL+`)
-		  AND s2.label IN (`+phSQL+`)
+		WITH provenance AS (
+			SELECT
+				CASE WHEN label = 'derived_from' THEN dst ELSE src END AS source,
+				CASE WHEN label = 'derived_from' THEN src ELSE dst END AS derived
+			FROM edges
+			WHERE label IN (`+phSQL+`)
+		)
+		SELECT COUNT(DISTINCT p1.source)
+		FROM provenance p1
+		JOIN provenance p2 ON p1.source = p2.source
+		WHERE p1.derived = ? AND p2.derived = ?
 	`, args...).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("relate.sourceOverlap: %w", err)
