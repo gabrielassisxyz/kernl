@@ -56,6 +56,14 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 Writing a .md note the server does not know yet gets a node id injected
 into its frontmatter.
 
+Two frontmatter fields answer two different questions, and writing one in
+place of the other is the mistake this paragraph exists to prevent. "origin"
+says where the note came from, named after the pipeline that produced it:
+prep, ingest, capture. "author" says who created the file, and its only value
+is "da" - anything else, absent included, means a person wrote it. A note made
+from a capture is the case that keeps them apart: the body is the person's own
+words, carried across untouched, so it has an origin and no author at all.
+
 {{flags}}
 
 Examples:
