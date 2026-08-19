@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
@@ -276,7 +277,7 @@ func (r *Reconciler) softDeleteCached(ctx context.Context, e cachedPathEntry) er
 			e.uuid,
 		).Scan(&title)
 	})
-	if err != nil {
+	if err == sql.ErrNoRows {
 		// Node doesn't exist or already tombstoned. The path cache row is
 		// still there and must be forgotten, or it outlives the node: it
 		// surfaces as an empty type/title ghost in `kernl note list` and
@@ -288,6 +289,13 @@ func (r *Reconciler) softDeleteCached(ctx context.Context, e cachedPathEntry) er
 			return ferr
 		}
 		return nil
+	}
+	if err != nil {
+		// A read failure that is not "no rows" (busy/locked DB, I/O fault,
+		// cancelled context) is not evidence the node is gone. Forgetting the
+		// path here would orphan a still-live note from the index, so surface
+		// the error instead of mutating note_paths.
+		return fmt.Errorf("read note title %q: %w", e.uuid, err)
 	}
 
 	author := nodes.Author{Name: "human"}
