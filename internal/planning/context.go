@@ -60,7 +60,7 @@ var stopwords = map[string]bool{
 	"ficar": true, "fazer": true, "faz": true, "pode": true, "deve": true,
 	"já": true, "jah": true, "ainda": true, "agora": true, "depois": true,
 	"antes": true, "aqui": true, "ali": true, "lá": true, "eu": true,
-	"escrito": true, "coisa": true, "coisas": true,
+	"coisa": true, "coisas": true,
 }
 
 // salientTerms splits a seed into lowercased, de-duplicated content terms,
