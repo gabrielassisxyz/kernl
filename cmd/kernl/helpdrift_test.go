@@ -14,11 +14,17 @@ func subDetails(t *testing.T, verb, sub string) string {
 	t.Helper()
 	cmd := findCommand(commandTable, verb)
 	if cmd == nil {
+		// Unreachable after t.Fatalf, which ends the goroutine. Spelled out
+		// anyway because staticcheck does not always carry that fact across a
+		// build, and without it SA5011 reads the dereferences below as
+		// possible nil derefs and fails CI where the same lint passes locally.
 		t.Fatalf("no %q command in the table", verb)
+		return ""
 	}
 	s := findCommand(cmd.Subs, sub)
 	if s == nil {
 		t.Fatalf("no %q sub under %q", sub, verb)
+		return ""
 	}
 	return s.Details
 }
