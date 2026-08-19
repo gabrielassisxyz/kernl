@@ -8,6 +8,49 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
+// TestParsePlanArgsLimit pins the --limit flag contract: the default stays 8,
+// an explicit value is honoured, and a non-positive or non-numeric value is
+// refused with an error that names the flag and the value - never silently
+// falling back to the default, which would quietly measure the wrong depth.
+func TestParsePlanArgsLimit(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      []string
+		wantLimit int
+		wantTopic string
+		wantErr   string
+	}{
+		{name: "default", args: []string{"caching"}, wantLimit: 8, wantTopic: "caching"},
+		{name: "explicit", args: []string{"--limit", "25", "caching"}, wantLimit: 25, wantTopic: "caching"},
+		{name: "zero", args: []string{"--limit", "0", "caching"}, wantErr: `--limit must be positive, got 0`},
+		{name: "negative", args: []string{"--limit", "-3", "caching"}, wantErr: `--limit must be positive, got -3`},
+		{name: "non-numeric", args: []string{"--limit", "abc", "caching"}, wantErr: `--limit needs a positive integer, got "abc"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pa, err := parsePlanArgs(c.args)
+			if c.wantErr != "" {
+				if err == nil {
+					t.Fatalf("parsePlanArgs(%v) = %+v, want error containing %q", c.args, pa, c.wantErr)
+				}
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("parsePlanArgs(%v) error = %q, want it to contain %q", c.args, err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parsePlanArgs(%v) unexpected error: %v", c.args, err)
+			}
+			if pa.limit != c.wantLimit {
+				t.Errorf("parsePlanArgs(%v).limit = %d, want %d", c.args, pa.limit, c.wantLimit)
+			}
+			if pa.topic != c.wantTopic {
+				t.Errorf("parsePlanArgs(%v).topic = %q, want %q", c.args, pa.topic, c.wantTopic)
+			}
+		})
+	}
+}
+
 // TestPlanJSONClaimPathIsNull pins the null convention at the wire: a claim has
 // no file on disk, so its path must serialize as an explicit JSON null, never
 // as "" (which would be indistinguishable from "failed to resolve the path").
