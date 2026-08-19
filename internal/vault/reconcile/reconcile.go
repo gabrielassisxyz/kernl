@@ -825,18 +825,60 @@ func ResolveAuthor(fmAuthor string) nodes.Author {
 	return nodes.Author{Name: fmAuthor}
 }
 
+// Permission values a note's frontmatter can declare. Permission is an
+// override, never a required field: the default falls out of the axes that
+// already exist, so a note that never mentions permission still has one and no
+// migration is needed to give it one.
+const (
+	PermissionAsk  = "ask"
+	PermissionEdit = "edit"
+)
+
+// ResolvePermission returns the effective permission for a note: the explicit
+// frontmatter value when present, otherwise the default derived from author.
+// A note with author "da" is assistant territory and defaults to "edit"; a
+// note with no author (or any other author) is the user's and defaults to
+// "ask". An unrecognised value is a hard error rather than a silent fallback:
+// a typo'd policy that silently reads as permissive is the failure mode worth
+// refusing.
+//
+// Enforcement is deliberately out of scope. For now the assistant OBEYS by
+// instruction; kernl ENFORCING is a separate task that depends on the
+// assistant writing THROUGH kernl instead of dropping markdown into the vault.
+// So this is an honour system, and it does not survive an agent in a hurry or
+// a weaker model. The safety net remains the revision log, not this field:
+// permission says what is allowed, revisions say what happened.
+//
+// Exported for the same reason ResolveAuthor is: the notes list endpoint has to
+// answer "may the assistant modify this note?" from the same rule the
+// reconciler validated the file with, and a second copy in the API would drift.
+func ResolvePermission(fmPermission, fmAuthor string) (string, error) {
+	switch fmPermission {
+	case "":
+		if ResolveAuthor(fmAuthor).Name == "agent:da" {
+			return PermissionEdit, nil
+		}
+		return PermissionAsk, nil
+	case PermissionAsk, PermissionEdit:
+		return fmPermission, nil
+	default:
+		return "", fmt.Errorf("reconcile: invalid permission %q: must be %q or %q", fmPermission, PermissionAsk, PermissionEdit)
+	}
+}
+
 // NoteFromFile builds the Note a file's frontmatter describes. It is the one
 // place a file becomes a Note, shared by the reconciler and the endpoint. Link
 // state is not read from the file (it is not in frontmatter); the reconciler
 // preserves it via noteFromFile, and the endpoint sets it explicitly.
 func NoteFromFile(fm *frontmatter.Frontmatter, title, body string) nodes.Note {
 	return nodes.Note{
-		ID:     fm.ID,
-		Title:  title,
-		Body:   body,
-		Origin: nodes.NormalizeOrigin(fm.Origin),
-		Author: fm.Author,
-		Tags:   fm.Tags,
+		ID:         fm.ID,
+		Title:      title,
+		Body:       body,
+		Origin:     nodes.NormalizeOrigin(fm.Origin),
+		Author:     fm.Author,
+		Permission: fm.Permission,
+		Tags:       fm.Tags,
 	}
 }
 
@@ -849,6 +891,13 @@ func NoteFromFile(fm *frontmatter.Frontmatter, title, body string) nodes.Note {
 func noteFromFile(ctx context.Context, tx *graph.WriteTx, id string, fm *frontmatter.Frontmatter, title, body string) (nodes.Note, error) {
 	n := NoteFromFile(fm, title, body)
 	n.ID = id
+	// Refuse an unrecognised permission value here, at the moment the file
+	// becomes a note, rather than letting a typo'd policy sit in attrs and
+	// read as permissive at the surface. The resolver is the single definition
+	// of the mapping; the endpoint calls it again to answer the same question.
+	if _, err := ResolvePermission(fm.Permission, fm.Author); err != nil {
+		return nodes.Note{}, err
+	}
 	existing, err := nodes.GetNote(ctx, tx.AsReadTx(), id)
 	if err == nil {
 		n.Channel = existing.Channel

@@ -35,6 +35,17 @@ func TestParseWithId(t *testing.T) {
 	}
 }
 
+func TestParsePermission(t *testing.T) {
+	raw := []byte("---\nid: abc-123\npermission: edit\n---\n# Body\n")
+	fm, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fm.Permission != "edit" {
+		t.Errorf("permission = %q, want edit", fm.Permission)
+	}
+}
+
 func TestParseMalformedYAML(t *testing.T) {
 	raw := []byte("---\n\t\tt\n---\n")
 	_, err := Parse(raw)

@@ -64,6 +64,13 @@ is "da" - anything else, absent included, means a person wrote it. A note made
 from a capture is the case that keeps them apart: the body is the person's own
 words, carried across untouched, so it has an origin and no author at all.
 
+"permission" is a third axis and an override, never a required field: it says
+whether the assistant may modify the note. The values are "ask" and "edit".
+Absent, the default falls out of author - a note with author "da" is the
+assistant's to edit, any other note is the user's and the assistant asks
+first. It is an honour system, not enforcement: the assistant obeys it by
+instruction, and the revision log remains the record of what actually happened.
+
 {{flags}}
 
 Examples:
