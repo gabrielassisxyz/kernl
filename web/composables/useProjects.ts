@@ -15,11 +15,13 @@ export interface Project {
   doneCount: number
 }
 
-export type ProjectStatus = 'active' | 'paused' | 'done' | 'archived'
+export type ProjectStatus = 'active' | 'stalled' | 'paused' | 'not_started' | 'done' | 'archived'
 
 export const PROJECT_STATUSES: { id: ProjectStatus; label: string }[] = [
   { id: 'active', label: 'Active' },
+  { id: 'stalled', label: 'Stalled' },
   { id: 'paused', label: 'Paused' },
+  { id: 'not_started', label: 'Not started' },
   { id: 'done', label: 'Done' },
   { id: 'archived', label: 'Archived' },
 ]

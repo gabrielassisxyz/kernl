@@ -21,7 +21,7 @@ type Project struct {
 	UpdatedAt   time.Time
 	Title       string
 	Description string
-	Status      string // active | paused | done | archived
+	Status      string // active | stalled | paused | not_started | done | archived
 	Tags        []string
 	// Pinned lifts a project above the lifecycle sections in the UI. It is
 	// deliberately not a status: a pinned project is still active or paused,

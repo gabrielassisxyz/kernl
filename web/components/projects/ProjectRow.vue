@@ -131,7 +131,9 @@ defineEmits<{
 
 const STATUS_DOT: Record<ProjectStatus, string> = {
   active: 'bg-status-active',
+  stalled: 'bg-status-stalled',
   paused: 'bg-status-gate',
+  not_started: 'bg-status-not-started',
   done: 'bg-status-done',
   archived: 'bg-status-archived',
 }

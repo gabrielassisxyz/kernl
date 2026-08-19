@@ -78,7 +78,9 @@ const CARD_GRID = { gridTemplateColumns: 'repeat(auto-fill, minmax(224px, 1fr))'
 
 const LIFECYCLE: { id: ProjectStatus; label: string }[] = [
   { id: 'active', label: 'Active' },
+  { id: 'stalled', label: 'Stalled' },
   { id: 'paused', label: 'Paused' },
+  { id: 'not_started', label: 'Not started' },
   { id: 'done', label: 'Done' },
   { id: 'archived', label: 'Archived' },
 ]
