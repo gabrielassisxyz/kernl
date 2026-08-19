@@ -64,10 +64,12 @@ func TestBeadRunHelpDocumentsDryRun(t *testing.T) {
 	bead := findCommand(commandTable, "bead")
 	if bead == nil {
 		t.Fatal(`no "bead" command in the table`)
+		return
 	}
 	run := findCommand(bead.Subs, "run")
 	if run == nil {
 		t.Fatal(`no "run" sub under "bead"`)
+		return
 	}
 	if !strings.Contains(run.Usage, "--dry-run") {
 		t.Errorf("bead run usage must document --dry-run, got: %q", run.Usage)
