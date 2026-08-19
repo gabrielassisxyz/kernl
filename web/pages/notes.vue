@@ -349,7 +349,7 @@ const openWikilink = async (target) => {
 
       const createRes = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
+        headers: { 'Content-Type': 'text/plain', 'X-Kernl-Client': 'ui' },
         body
       })
       if (createRes.ok) {
@@ -427,7 +427,7 @@ const confirmNewNote = async () => {
   try {
     const res = await fetch(`/api/vault/file?path=${encodeURIComponent(path)}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
+      headers: { 'Content-Type': 'text/plain', 'X-Kernl-Client': 'ui' },
       body
     })
     if (res.ok) {
