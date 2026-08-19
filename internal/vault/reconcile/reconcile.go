@@ -918,12 +918,26 @@ func SetLinkState(ctx context.Context, g *graph.Graph, vaultRoot, absPath string
 	author := ResolveAuthor(fm.Author)
 
 	return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
-		n := NoteFromFile(fm, title, body)
+		n, err := noteFromFile(ctx, tx, fm.ID, fm, title, body)
+		if err != nil {
+			return err
+		}
+		// The channel is a fact about THIS write, so it always replaces. The
+		// other two are not: a write that offers nothing is not a write that
+		// withdraws the last offer, and a write that declares no reason is not
+		// a write that erases the one already given. Overwriting them wholesale
+		// meant the user opening a note in the web UI and saving it erased the
+		// receipt the assistant had just recorded, silently, taking the derived
+		// accepted/rejected of every later write with it.
 		n.Channel = state.Channel
-		n.LinkSuggestions = state.Suggestions
-		n.NoLinksReason = state.NoLinksReason
+		if len(state.Suggestions) > 0 {
+			n.LinkSuggestions = state.Suggestions
+		}
+		if state.NoLinksReason != "" {
+			n.NoLinksReason = state.NoLinksReason
+		}
 
-		_, err := nodes.GetNote(ctx, tx.AsReadTx(), fm.ID)
+		_, err = nodes.GetNote(ctx, tx.AsReadTx(), fm.ID)
 		switch {
 		case err == nil:
 			return nodes.UpdateNote(ctx, tx, n, author)

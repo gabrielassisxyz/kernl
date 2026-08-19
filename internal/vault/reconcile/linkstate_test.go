@@ -96,3 +96,51 @@ func TestLinkStateSurvivesReconcile(t *testing.T) {
 		t.Errorf("noLinksReason = %q, want %q after reconcile", got.NoLinksReason, "scratch")
 	}
 }
+
+// TestLinkStateSurvivesAWriteThatOffersNothing guards the receipt against the
+// write that carries no offer of its own. A save from the web UI never offers
+// links, so it arrives with an empty state; wholesale replacement made that
+// save erase the offer the assistant had just recorded, with no error and no
+// log line. The derived accepted/rejected of every later write went with it,
+// and a retroactive pass would have re-offered the same links forever.
+func TestLinkStateSurvivesAWriteThatOffersNothing(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "kept.md")
+	writeFile(t, path, "---\nid: kept-note\ntitle: Kept\n---\n\nBody.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	offered := reconcile.LinkState{
+		Channel:       "cli",
+		Suggestions:   []nodes.LinkCandidate{{ID: "a", Title: "A"}, {ID: "b", Title: "B"}},
+		NoLinksReason: "nothing fit",
+	}
+	if err := reconcile.SetLinkState(ctx, g, vault, path, offered); err != nil {
+		t.Fatalf("SetLinkState cli: %v", err)
+	}
+
+	// The same note saved from the web UI: a real write, with nothing to offer.
+	if err := reconcile.SetLinkState(ctx, g, vault, path, reconcile.LinkState{Channel: "ui"}); err != nil {
+		t.Fatalf("SetLinkState ui: %v", err)
+	}
+
+	got, err := reconcile.LinkStateFor(ctx, g, "kept-note")
+	if err != nil {
+		t.Fatalf("LinkStateFor: %v", err)
+	}
+	if got.Channel != "ui" {
+		t.Errorf("channel = %q, want %q: the channel is a fact about the last write", got.Channel, "ui")
+	}
+	if len(got.Suggestions) != 2 {
+		t.Errorf("the offer was erased by a write that offered nothing: %d, want 2", len(got.Suggestions))
+	}
+	if got.NoLinksReason != "nothing fit" {
+		t.Errorf("the reason was erased by a write that declared none: %q", got.NoLinksReason)
+	}
+}
