@@ -88,3 +88,21 @@ func TestPlanJSONNoteCarriesIDAndPath(t *testing.T) {
 		}
 	}
 }
+
+// TestPlanJSONCarriesType verifies the node type lands in the JSON, so a
+// consumer can tell a note from a task without guessing from a path.
+func TestPlanJSONCarriesType(t *testing.T) {
+	out := newPlanOutput("composer", []planning.ContextNote{
+		{ID: "note-1", Title: "Caching", Via: "content", Type: "note", Snippet: "LRU"},
+		{ID: "task-1", Title: "Report composer", Via: "content", Type: "task", Snippet: "markdown report"},
+	})
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, want := range []string{`"type":"note"`, `"type":"task"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("plan JSON missing %s, got: %s", want, raw)
+		}
+	}
+}

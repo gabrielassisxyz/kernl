@@ -24,7 +24,12 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int) ([]nod
 	}
 	out := make([]nodes.LinkCandidate, 0, len(notes))
 	for _, n := range notes {
-		if n.Via == "claim" {
+		// A link candidate must be a note. A claim (memory_claim) has no file,
+		// and a task or project is an entity, not a note - none of them can be
+		// a wikilink target. BuildContext now returns tasks and projects
+		// alongside notes, so this filter must drop them too or every note
+		// written through the CLI starts being offered links to task nodes.
+		if n.Type != "note" {
 			continue
 		}
 		out = append(out, nodes.LinkCandidate{
