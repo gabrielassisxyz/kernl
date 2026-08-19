@@ -56,7 +56,15 @@ type ContextNote struct {
 	Title   string  `json:"title"`
 	Snippet string  `json:"snippet"`
 	Score   float64 `json:"score"`
-	Via     string  `json:"via"` // "content" (FTS) or "linked" (structural)
+	Via     string  `json:"via"` // "content" (FTS), "linked" (structural), or "claim" (memory claim)
+	// Path is the note's vault path, resolved from the reconciler's cache. It
+	// is nil - serialized as JSON null - when the node has no file on disk. A
+	// claim is not a note that lost its file; it is a different kind of thing
+	// that never had one. nil is deliberate: an empty string would be
+	// indistinguishable from "I failed to resolve the path", a real failure
+	// mode in this system, and an omitted key would break consumers that
+	// branch on the field's presence.
+	Path *string `json:"path"`
 }
 
 const snippetLen = 240
@@ -123,6 +131,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 			ranked = append(ranked, ContextNote{
 				ID: id, Title: a.title, Snippet: snippet(tx, id),
 				Score: float64(a.matches) - a.bestRank/1000, Via: "content",
+				Path: notePath(tx, id),
 			})
 		}
 		// Most distinct terms matched first; FTS rank breaks ties.
@@ -156,7 +165,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 					continue
 				}
 				seen[id] = true
-				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked"})
+				out = append(out, ContextNote{ID: id, Title: title, Snippet: snippet(tx, id), Via: "linked", Path: notePath(tx, id)})
 			}
 		}
 
@@ -261,6 +270,18 @@ func isNodeID(tx *graph.ReadTx, s string) bool {
 		return false
 	}
 	return n > 0
+}
+
+// notePath resolves a note's vault path from the reconciler's cache. It
+// returns nil when the node has no file on disk (a claim, or a note node
+// created without a file), so the JSON contract can distinguish "no file by
+// design" (null) from "failed to resolve" (which would be an empty string).
+func notePath(tx *graph.ReadTx, nodeID string) *string {
+	var p string
+	if err := tx.QueryRow(`SELECT path FROM note_paths WHERE uuid = ?`, nodeID).Scan(&p); err != nil {
+		return nil
+	}
+	return &p
 }
 
 func snippet(tx *graph.ReadTx, nodeID string) string {

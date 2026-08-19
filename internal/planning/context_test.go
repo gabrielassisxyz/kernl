@@ -271,6 +271,44 @@ func TestBuildContext_SurfacesActiveClaim(t *testing.T) {
 	}
 }
 
+// TestBuildContext_ResolvesNotePath verifies content notes carry their vault
+// path (resolved from note_paths) while claims carry nil - the null convention
+// the CLI serializes as JSON null, never as an empty string.
+func TestBuildContext_ResolvesNotePath(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	noteID := seedNote(t, g, "Caching strategy", "We use an LRU cache.")
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := tx.Exec(`INSERT INTO note_paths (uuid, path) VALUES (?, ?)`, noteID, "notes/caching.md")
+		return err
+	}); err != nil {
+		t.Fatalf("seed note_paths: %v", err)
+	}
+	seedClaim(t, g, "Deploy cadence", "We deploy on Fridays using a canary rollout.")
+
+	notes, err := planning.BuildContext(ctx, g, "caching deploy canary", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+
+	content := findVia(notes, "content")
+	if len(content) == 0 {
+		t.Fatal("expected the caching note to surface")
+	}
+	if content[0].Path == nil || *content[0].Path != "notes/caching.md" {
+		t.Errorf("content note path should resolve to notes/caching.md, got %v", content[0].Path)
+	}
+
+	claims := findVia(notes, "claim")
+	if len(claims) == 0 {
+		t.Fatal("expected the deploy claim to surface")
+	}
+	if claims[0].Path != nil {
+		t.Errorf("claim path must be nil (no file on disk), got %v", claims[0].Path)
+	}
+}
+
 // TestBuildContext_RefutedClaimExcluded verifies a refuted claim never surfaces,
 // reusing the shared non-refuted gate.
 func TestBuildContext_RefutedClaimExcluded(t *testing.T) {

@@ -42,7 +42,8 @@ Read the machine contract first: kernl capabilities --json
 `)
 	for _, line := range []string{
 		"kernl epic list --json      {\"epics\":[{\"id\",\"title\",\"children\",\"state\"}]}",
-		"kernl plan --json <topic>   {\"topic\",\"notes\":[{\"title\",\"via\",\"snippet\"}]}",
+		"kernl plan --json <topic>   {\"topic\",\"notes\":[{\"id\",\"title\",\"via\",\"snippet\",\"path\"}]}",
+		"                            path is null for via=claim (a claim has no file on disk)",
 		"kernl doctor --json         {\"ok\",\"checks\":[...],\"recommendedAction\"}",
 		"kernl version --json        {\"version\",\"commit\",\"built\",\"go\"}",
 		"kernl capabilities          full contract, always JSON",
