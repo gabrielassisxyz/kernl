@@ -277,7 +277,16 @@ func (r *Reconciler) softDeleteCached(ctx context.Context, e cachedPathEntry) er
 		).Scan(&title)
 	})
 	if err != nil {
-		// Node doesn't exist or already tombstoned - nothing to do.
+		// Node doesn't exist or already tombstoned. The path cache row is
+		// still there and must be forgotten, or it outlives the node: it
+		// surfaces as an empty type/title ghost in `kernl note list` and
+		// keeps the path "taken" for freePath, pushing a new note onto a
+		// -2 suffix. Forgetting it is exactly what this function exists to
+		// clean, and leaving it makes every later ColdStart re-derive the
+		// same false "nothing to do" conclusion.
+		if ferr := forgetPath(ctx, r.g, e.path); ferr != nil {
+			return ferr
+		}
 		return nil
 	}
 

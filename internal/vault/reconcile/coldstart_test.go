@@ -337,6 +337,62 @@ func TestColdStart_FileDeletedWhileOff_NodeTombstoned(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// A note_paths row whose node is already tombstoned is forgotten on cold start
+// ---------------------------------------------------------------------------
+
+// TestColdStart_SoftDeleteCachedForgetsDeadPath verifies that a note_paths row
+// whose node is already soft-deleted is removed during cold-start phase 3,
+// rather than left behind to surface as an empty type/title ghost in
+// `kernl note list` and to keep the path "taken" for freePath (pushing a new
+// note onto a -2 suffix).
+func TestColdStart_SoftDeleteCachedForgetsDeadPath(t *testing.T) {
+	ctx := context.Background()
+	g, _, rec := newColdStartHarness(t)
+
+	// Seed a note node, soft-delete it, and leave a note_paths row behind.
+	// The file is deliberately NOT on disk, so phase 3 reaches softDeleteCached
+	// for this UUID (it was never seen during the startup walk).
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		if _, err := nodes.CreateNote(ctx, tx, nodes.Note{
+			ID:    "ghost-uuid",
+			Title: "Ghost",
+			Body:  "body",
+		}, nodes.Author{Name: "test"}); err != nil {
+			return err
+		}
+		if err := nodes.SoftDeleteNoteTx(ctx, tx, "ghost-uuid", "ghost", "Ghost", nodes.Author{Name: "test"}); err != nil {
+			return err
+		}
+		_, err := tx.Exec(
+			`INSERT INTO note_paths (uuid, path, content_hash, updated_at)
+			 VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`,
+			"ghost-uuid", "ghost.md", "deadbeef",
+		)
+		return err
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	if err := rec.ColdStart(ctx); err != nil {
+		t.Fatalf("ColdStart: %v", err)
+	}
+
+	// The dead path row must be gone.
+	if err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM note_paths WHERE uuid = 'ghost-uuid'`).Scan(&n); err != nil {
+			return err
+		}
+		if n != 0 {
+			t.Errorf("note_paths row for tombstoned node still present (count=%d), want 0", n)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Rebuild-from-vault: empty graph + files on disk → all notes recreated (R17)
 // ---------------------------------------------------------------------------
 
