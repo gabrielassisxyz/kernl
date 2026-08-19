@@ -52,6 +52,7 @@ func TestCapabilitiesExposesThirdLevelCommands(t *testing.T) {
 			}
 			if found == nil {
 				t.Fatalf("capabilities is missing %s", strings.Join(path, " "))
+				return
 			}
 			cur = found.Subcommands
 		}

@@ -77,7 +77,13 @@ func TestCapabilitiesExposesServerAndFlagDetails(t *testing.T) {
 		}
 	}
 	if project == nil {
+		// The return is unreachable: t.Fatal ends the goroutine. It is here
+		// because staticcheck does not always carry that fact across a build,
+		// and without it SA5011 reports the dereference below as a possible
+		// nil deref, which fails CI on a machine where the same lint version
+		// passes locally.
 		t.Fatal("project verb missing from capabilities")
+		return
 	}
 	var setSub *capabilityCommand
 	for i := range project.Subcommands {
