@@ -26,7 +26,7 @@ func TestCompanionFrontmatterSurvivesAwkwardTitles(t *testing.T) {
 
 	for name, title := range awkward {
 		t.Run(name, func(t *testing.T) {
-			raw := renderMarkdown("019f-abc", title, "", "Body text.\n", []string{"task"})
+			raw := renderMarkdown(NoteFrontmatter{ID: "019f-abc", Title: title, Tags: []string{"task"}}, "Body text.\n")
 
 			fm, err := frontmatter.Parse(raw)
 			if err != nil {
@@ -52,7 +52,7 @@ func TestCompanionFrontmatterSurvivesAwkwardTitles(t *testing.T) {
 // nil list and is noise in a file the user opens in Obsidian. Same for a task
 // with no description, which is the common case.
 func TestCompanionFrontmatterOmitsEmptyTags(t *testing.T) {
-	raw := string(renderMarkdown("019f-abc", "Plain", "", "Body.\n", nil))
+	raw := string(renderMarkdown(NoteFrontmatter{ID: "019f-abc", Title: "Plain"}, "Body.\n"))
 	if strings.Contains(raw, "tags:") {
 		t.Errorf("expected no tags key when there are none:\n%s", raw)
 	}
@@ -79,7 +79,7 @@ func TestCompanionFrontmatterCarriesDescription(t *testing.T) {
 
 	for name, description := range descriptions {
 		t.Run(name, func(t *testing.T) {
-			raw := renderMarkdown("019f-abc", "A task", description, "Body text.\n", []string{"task"})
+			raw := renderMarkdown(NoteFrontmatter{ID: "019f-abc", Title: "A task", Description: description, Tags: []string{"task"}}, "Body text.\n")
 
 			fm, err := frontmatter.Parse(raw)
 			if err != nil {

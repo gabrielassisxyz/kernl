@@ -122,15 +122,9 @@ func pathTaken(vaultRoot string, tx *graph.WriteTx, relPath string) (bool, error
 // remove its companion; renaming deliberately does not.
 func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder, label, description string, tags ...string) (File, error) {
 	noteID := uuid.Must(uuid.NewV7()).String()
-	slug := slugOf(label, noteID)
-	relPath, err := freePath(vaultRoot, tx, folder, slug, noteID)
-	if err != nil {
-		return File{}, err
-	}
-
 	title := strings.TrimSpace(label)
 	if title == "" {
-		title = slug
+		title = noteID
 	}
 	body := fmt.Sprintf("Notes for [[%s|%s]].\n", entityID, title)
 
@@ -144,9 +138,6 @@ func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder,
 			cleanTags = append(cleanTags, t)
 		}
 	}
-
-	fileBytes := renderMarkdown(noteID, title, description, body, cleanTags)
-	contentHash := reconcile.HashBytes(fileBytes)
 
 	if _, err := nodes.CreateNote(ctx, tx, nodes.Note{
 		ID:    noteID,
@@ -166,11 +157,40 @@ func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder,
 		return File{}, fmt.Errorf("companion: create describes edge: %w", err)
 	}
 
-	// note_paths mapping with the on-disk hash so the reconciler adopts the file.
+	return PrepareNote(tx, vaultRoot, folder, NoteFrontmatter{
+		ID:          noteID,
+		Title:       title,
+		Description: description,
+		Tags:        cleanTags,
+	}, body)
+}
+
+// PrepareNote renders a note's markdown file and inserts its note_paths row
+// inside the caller's transaction, returning the file for the caller to write
+// after the commit. It is the single writer primitive for every note kernl
+// creates: companion notes, DA briefings, and ingested pages all go through it,
+// so a note is never committed without its note_paths row and two notes never
+// share a file name.
+//
+// The slug is derived from the title (falling back to the note id), and freePath
+// suffixes -2, -3, ... when the name is already claimed by a note_paths row or a
+// file on disk. The edge that anchors the note (describes, prepared_for, or none
+// for an ingested page) is orthogonal to "this node has a file", so it stays
+// with the caller.
+func PrepareNote(tx *graph.WriteTx, vaultRoot, folder string, fm NoteFrontmatter, body string) (File, error) {
+	slug := slugOf(fm.Title, fm.ID)
+	relPath, err := freePath(vaultRoot, tx, folder, slug, fm.ID)
+	if err != nil {
+		return File{}, err
+	}
+
+	fileBytes := renderMarkdown(fm, body)
+	contentHash := reconcile.HashBytes(fileBytes)
+
 	if _, err := tx.Exec(
 		`INSERT INTO note_paths (uuid, path, content_hash, updated_at)
 		 VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))`,
-		noteID, relPath, contentHash,
+		fm.ID, relPath, contentHash,
 	); err != nil {
 		return File{}, fmt.Errorf("companion: insert note_paths: %w", err)
 	}
@@ -304,45 +324,54 @@ func rewriteDescription(raw []byte, note noteRef, description string) ([]byte, b
 	if title == "" {
 		title = note.title
 	}
-	return renderMarkdown(note.id, title, description, body, fm.Tags), true
+	return renderMarkdown(NoteFrontmatter{
+		ID:          note.id,
+		Title:       title,
+		Description: description,
+		Tags:        fm.Tags,
+	}, body), true
+}
+
+// NoteFrontmatter is the YAML block kernl writes at the top of a note file it
+// creates. Description and Origin are optional and omitted when empty: a
+// companion carries a description, a DA briefing or an ingested page carries an
+// origin, and a plain note carries neither.
+//
+// Description sits in the frontmatter and not in the body on purpose. The
+// frontmatter is already machine-managed, so the "this is mine / this is the
+// system's" boundary exists without inventing one, and an editor renders it as a
+// properties panel - visible at the top of the note without competing with the
+// prose underneath.
+type NoteFrontmatter struct {
+	ID          string   `yaml:"id"`
+	Title       string   `yaml:"title"`
+	Description string   `yaml:"description,omitempty"`
+	Origin      string   `yaml:"origin,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
 }
 
 // renderMarkdown builds the markdown file content with a frontmatter
 // id equal to the note node id, so reconcile.OnCreate/ColdStart match the
 // existing node by id rather than creating a duplicate.
 //
-// description sits in the frontmatter and not in the body on purpose. The
-// frontmatter is already machine-managed, so the "this is mine / this is the
-// system's" boundary exists without inventing one, and an editor renders it as a
-// properties panel - visible at the top of the note without competing with the
-// prose underneath. It is written empty-key-omitted, like tags.
-//
 // The block is MARSHALLED, not concatenated. Pasting a title in raw wrote
-// `title: AI-SEO: llms.txt` - a second colon YAML reads as a nested mapping  -
-// and the file became unparseable the moment a title contained ":", "#" or a
-// leading "-". The marshaller quotes what needs quoting; a string builder cannot
-// know what that is.
-func renderMarkdown(id, title, description, body string, tags []string) []byte {
-	// A local shape rather than frontmatter.Frontmatter: that struct is the READ
-	// contract and has no omitempty, so marshalling it would stamp empty author
-	// and origin lines onto every file.
-	fm, err := yaml.Marshal(struct {
-		ID          string   `yaml:"id"`
-		Title       string   `yaml:"title"`
-		Description string   `yaml:"description,omitempty"`
-		Tags        []string `yaml:"tags,omitempty"`
-	}{ID: id, Title: title, Description: description, Tags: tags})
+// `title: AI-SEO: llms.txt` - a second colon YAML reads as a nested mapping -
+// and the file became unparseable the moment a title contained ":", "#", a
+// leading "-", or a newline. The marshaller quotes what needs quoting; a string
+// builder cannot know what that is.
+func renderMarkdown(fm NoteFrontmatter, body string) []byte {
+	data, err := yaml.Marshal(fm)
 	if err != nil {
 		// Marshalling plain strings cannot fail; if it somehow does, a file with
 		// no frontmatter is still better than a corrupt one (the reconciler
 		// injects an id on cold start).
-		slog.Error("render companion frontmatter", "id", id, "error", err)
+		slog.Error("render note frontmatter", "id", fm.ID, "error", err)
 		return []byte(body)
 	}
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	b.Write(fm)
+	b.Write(data)
 	b.WriteString("---\n")
 	b.WriteString(body)
 	return []byte(b.String())
