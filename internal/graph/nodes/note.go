@@ -58,6 +58,19 @@ func NormalizeOrigin(origin string) string {
 	return origin
 }
 
+// LinkCandidate is one note offered as a link target when a note was written.
+// It is machine bookkeeping - which links were once offered to a writer - not
+// something the note declares about itself, so it lives in attrs rather than
+// frontmatter. The snippet is the same truncation planning.ContextNote uses,
+// so a consumer that swaps BuildContext for the link-suggestion mechanism keeps
+// its prompt byte-identical.
+type LinkCandidate struct {
+	ID      string  `json:"id"`
+	Title   string  `json:"title"`
+	Path    *string `json:"path"`
+	Snippet string  `json:"snippet"`
+}
+
 // Note represents a vault note node - all notes share type "note".
 // The user-vs-generated distinction is read from frontmatter author/origin,
 // not folders (KTD-1, R20).
@@ -70,6 +83,17 @@ type Note struct {
 	Title     string // from frontmatter title or filename stem
 	Body      string // re-derivable cache stored in attrs (FTS source)
 	Tags      []string
+	// Channel records where the write that produced this note came from
+	// ("cli", "api", "ui", or empty when unknown). It is observed, not
+	// declared: the author says who created the file, the channel says where
+	// the request came from, and the two are deliberately separate axes.
+	Channel string
+	// LinkSuggestions are the link targets offered to the writer when the note
+	// was written. Machine bookkeeping, kept in attrs so it survives reconcile.
+	LinkSuggestions []LinkCandidate
+	// NoLinksReason is why the writer declined link suggestions, set only by
+	// the CLI's --no-links-reason flag and never defaulted.
+	NoLinksReason string
 }
 
 // Meta returns the common metadata for this node.
@@ -83,6 +107,15 @@ func (n Note) NodeAttrs() []byte {
 		"body":   n.Body,
 		"origin": n.Origin,
 		"author": n.Author,
+	}
+	if n.Channel != "" {
+		attrs["channel"] = n.Channel
+	}
+	if len(n.LinkSuggestions) > 0 {
+		attrs["linkSuggestions"] = n.LinkSuggestions
+	}
+	if n.NoLinksReason != "" {
+		attrs["noLinksReason"] = n.NoLinksReason
 	}
 	data, _ := json.Marshal(attrs)
 	return data
@@ -127,9 +160,12 @@ func GetNote(ctx context.Context, tx *graph.ReadTx, id string) (*Note, error) {
 	}
 
 	var attrs struct {
-		Body   string `json:"body"`
-		Origin string `json:"origin"`
-		Author string `json:"author"`
+		Body            string          `json:"body"`
+		Origin          string          `json:"origin"`
+		Author          string          `json:"author"`
+		Channel         string          `json:"channel"`
+		LinkSuggestions []LinkCandidate `json:"linkSuggestions"`
+		NoLinksReason   string          `json:"noLinksReason"`
 	}
 	if attrsRaw.Valid && attrsRaw.String != "" {
 		if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -143,14 +179,17 @@ func GetNote(ctx context.Context, tx *graph.ReadTx, id string) (*Note, error) {
 	}
 
 	return &Note{
-		ID:        id,
-		CreatedAt: tryParseTime(createdAt.String),
-		UpdatedAt: tryParseTime(updatedAt.String),
-		Origin:    attrs.Origin,
-		Author:    attrs.Author,
-		Title:     title.String,
-		Body:      attrs.Body,
-		Tags:      tags,
+		ID:              id,
+		CreatedAt:       tryParseTime(createdAt.String),
+		UpdatedAt:       tryParseTime(updatedAt.String),
+		Origin:          attrs.Origin,
+		Author:          attrs.Author,
+		Title:           title.String,
+		Body:            attrs.Body,
+		Tags:            tags,
+		Channel:         attrs.Channel,
+		LinkSuggestions: attrs.LinkSuggestions,
+		NoLinksReason:   attrs.NoLinksReason,
 	}, nil
 }
 
@@ -255,9 +294,12 @@ func ListNotes(ctx context.Context, tx *graph.ReadTx, f NoteFilter) ([]*Note, er
 		}
 
 		var attrs struct {
-			Body   string `json:"body"`
-			Origin string `json:"origin"`
-			Author string `json:"author"`
+			Body            string          `json:"body"`
+			Origin          string          `json:"origin"`
+			Author          string          `json:"author"`
+			Channel         string          `json:"channel"`
+			LinkSuggestions []LinkCandidate `json:"linkSuggestions"`
+			NoLinksReason   string          `json:"noLinksReason"`
 		}
 		if attrsRaw.Valid && attrsRaw.String != "" {
 			if err := json.Unmarshal([]byte(attrsRaw.String), &attrs); err != nil {
@@ -271,14 +313,17 @@ func ListNotes(ctx context.Context, tx *graph.ReadTx, f NoteFilter) ([]*Note, er
 		}
 
 		out = append(out, &Note{
-			ID:        id,
-			CreatedAt: tryParseTime(createdAt.String),
-			UpdatedAt: tryParseTime(updatedAt.String),
-			Origin:    attrs.Origin,
-			Author:    attrs.Author,
-			Title:     title.String,
-			Body:      attrs.Body,
-			Tags:      tags,
+			ID:              id,
+			CreatedAt:       tryParseTime(createdAt.String),
+			UpdatedAt:       tryParseTime(updatedAt.String),
+			Origin:          attrs.Origin,
+			Author:          attrs.Author,
+			Title:           title.String,
+			Body:            attrs.Body,
+			Tags:            tags,
+			Channel:         attrs.Channel,
+			LinkSuggestions: attrs.LinkSuggestions,
+			NoLinksReason:   attrs.NoLinksReason,
 		})
 	}
 	return out, rows.Err()

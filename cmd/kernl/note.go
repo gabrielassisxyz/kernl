@@ -51,7 +51,7 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 		{
 			Name:    "write",
 			Summary: "Create or overwrite a note from a file or stdin",
-			Usage:   "kernl note write <path> [--file <local-path>] [--json]",
+			Usage:   "kernl note write <path> [--file <local-path>] [--no-links-reason <text>] [--json]",
 			Details: `The body comes from --file, or from stdin when --file is omitted.
 Writing a .md note the server does not know yet gets a node id injected
 into its frontmatter.
@@ -71,7 +71,8 @@ Examples:
   echo "# Title" | kernl note write inbox/idea.md`,
 			Flags: []commandFlag{
 				{Name: "--file", Value: "<local-path>", Description: "Read the body from a local file instead of stdin"},
-				{Name: "--json", Description: `Emit {"status":"saved"} on stdout`},
+				{Name: "--no-links-reason", Value: "<text>", Description: "Record why this note should not get link suggestions"},
+				{Name: "--json", Description: `Emit the server's response (status, suggestions, accepted, rejected) on stdout`},
 			},
 		},
 		{
@@ -338,6 +339,10 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 	if err != nil {
 		return err
 	}
+	noLinksReason, _, args, err := takeFlag("note write", args, "--no-links-reason")
+	if err != nil {
+		return err
+	}
 	path, err := notePathArg("write", args)
 	if err != nil {
 		return err
@@ -346,7 +351,11 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 	if err != nil {
 		return err
 	}
-	raw, err := c.postRaw(ctx, noteFileRoute(path), "text/markdown", body)
+	route := noteFileRoute(path)
+	if noLinksReason != "" {
+		route += "&noLinksReason=" + url.QueryEscape(noLinksReason)
+	}
+	raw, err := c.postRawWithClient(ctx, route, "text/markdown", body, "cli")
 	if err != nil {
 		return err
 	}
@@ -630,6 +639,13 @@ func sortedKeys[V any](m map[string]V) []string {
 // JSON), reusing the client's transport and its status/exit-code mapping  -
 // apiClient.post would JSON-encode the markdown and write a quoted string.
 func (c *apiClient) postRaw(ctx context.Context, path, contentType string, body []byte) (json.RawMessage, error) {
+	return c.postRawWithClient(ctx, path, contentType, body, "")
+}
+
+// postRawWithClient is postRaw plus the X-Kernl-Client header, so the server
+// knows which client wrote the note and can offer link suggestions to the
+// assistant (cli) rather than the user (ui).
+func (c *apiClient) postRawWithClient(ctx context.Context, path, contentType string, body []byte, client string) (json.RawMessage, error) {
 	base, err := c.base()
 	if err != nil {
 		return nil, err
@@ -639,6 +655,9 @@ func (c *apiClient) postRaw(ctx context.Context, path, contentType string, body 
 		return nil, wrapLoud("building request", err)
 	}
 	req.Header.Set("Content-Type", contentType)
+	if client != "" {
+		req.Header.Set("X-Kernl-Client", client)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {

@@ -10,7 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/search"
-	"github.com/gabrielassisxyz/kernl/internal/planning"
+	"github.com/gabrielassisxyz/kernl/internal/planning/linksuggest"
 	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 )
 
@@ -95,8 +95,8 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 		return existingPrep, nil
 	}
 
-	// Related notes (own read transaction inside BuildContext).
-	notesCtx, _ := planning.BuildContext(ctx, g, capture.Body, 5)
+	// Related notes (own read transaction inside Suggest).
+	notesCtx, _ := linksuggest.Suggest(ctx, g, capture.Body, 5)
 
 	resp, err := llm.Chat(ctx, []chat.Message{{Role: "user", Content: buildPrepPrompt(capture, notesCtx, bookmarkTitles, project, projectTasks)}}, nil)
 	if err != nil {
@@ -154,7 +154,7 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 
 // buildPrepPrompt assembles the single-shot primer prompt from the capture and
 // whatever related graph material was found.
-func buildPrepPrompt(c *nodes.Capture, notes []planning.ContextNote, bookmarks []string, project *nodes.Project, tasks []*nodes.Task) string {
+func buildPrepPrompt(c *nodes.Capture, notes []nodes.LinkCandidate, bookmarks []string, project *nodes.Project, tasks []*nodes.Task) string {
 	var b strings.Builder
 	b.WriteString("You are the user's DA preparing an Inbox item for future action.\n\n")
 	b.WriteString("Goal: create a compact work brief that reduces the user's future planning work and reduces the future DA work needed to act on this in a new session. ")

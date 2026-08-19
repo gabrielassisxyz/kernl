@@ -24,6 +24,7 @@ type recordedRequest struct {
 	path   string
 	query  string
 	body   string
+	client string // X-Kernl-Client header value
 }
 
 func newNoteAPI(t *testing.T, respond func(w http.ResponseWriter, r *http.Request)) *noteAPI {
@@ -33,6 +34,7 @@ func newNoteAPI(t *testing.T, respond func(w http.ResponseWriter, r *http.Reques
 		body, _ := io.ReadAll(r.Body)
 		api.requests = append(api.requests, recordedRequest{
 			method: r.Method, path: r.URL.Path, query: r.URL.RawQuery, body: string(body),
+			client: r.Header.Get("X-Kernl-Client"),
 		})
 		respond(w, r)
 	}))
@@ -133,6 +135,38 @@ func TestNoteWriteSendsFileBodyVerbatim(t *testing.T) {
 	// string into the vault.
 	if req.body != "# Draft\n" {
 		t.Fatalf("body must be verbatim markdown, got %q", req.body)
+	}
+}
+
+// The CLI is the assistant's write path, so it must identify itself as cli: the
+// server offers link suggestions to cli and not to the web UI.
+func TestNoteWriteSendsCLIClientHeader(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"saved"}`))
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.run(t, "write", "notes/x.md", "--file", local); err != nil {
+		t.Fatalf("note write: %v", err)
+	}
+	if api.requests[0].client != "cli" {
+		t.Fatalf("X-Kernl-Client = %q, want %q", api.requests[0].client, "cli")
+	}
+}
+
+// --no-links-reason records why the writer declined suggestions; it must reach
+// the server as a query param, never defaulted.
+func TestNoteWriteNoLinksReasonTravelsOnTheWire(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"saved"}`))
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.run(t, "write", "notes/x.md", "--file", local, "--no-links-reason", "scratch note"); err != nil {
+		t.Fatalf("note write: %v", err)
+	}
+	if !strings.Contains(api.requests[0].query, "noLinksReason=scratch+note") {
+		t.Fatalf("noLinksReason must travel as a query param, got %q", api.requests[0].query)
 	}
 }
 
