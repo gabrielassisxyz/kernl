@@ -28,11 +28,13 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 		{
 			Name:    "list",
 			Summary: "List notes with their graph node id, type and title",
-			Usage:   "kernl note list [--files] [--json]",
+			Usage:   "kernl note list [--files] [--author ai|me] [--json]",
 			Details: `{{flags}}`,
 			Flags: []commandFlag{
 				{Name: "--files", Description: "List the .md files on disk instead (files the graph has not",
 					Continuation: []string{"indexed yet show up here and nowhere else)"}},
+				{Name: "--author", Value: "ai|me", Description: "Only list notes by who wrote them: ai (the assistant) or me (you);",
+					Continuation: []string{"the raw resolved values (agent:da, human, ...) are also accepted"}},
 				{Name: "--json", Description: "Emit the API response verbatim on stdout"},
 			},
 		},
@@ -63,6 +65,13 @@ prep, ingest, capture. "author" says who created the file, and its only value
 is "da" - anything else, absent included, means a person wrote it. A note made
 from a capture is the case that keeps them apart: the body is the person's own
 words, carried across untouched, so it has an origin and no author at all.
+
+"permission" is a third axis and an override, never a required field: it says
+whether the assistant may modify the note. The values are "ask" and "edit".
+Absent, the default falls out of author - a note with author "da" is the
+assistant's to edit, any other note is the user's and the assistant asks
+first. It is an honour system, not enforcement: the assistant obeys it by
+instruction, and the revision log remains the record of what actually happened.
 
 {{flags}}
 
@@ -257,30 +266,48 @@ func rejectNoteArgs(sub string, args []string) error {
 
 func runNoteList(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, args []string) error {
 	onlyFiles, args := parseBoolFlag(args, "--files")
+	author, hasAuthor, args, err := takeFlag("note list", args, "--author")
+	if err != nil {
+		return err
+	}
 	if err := rejectNoteArgs("list", args); err != nil {
 		return err
 	}
 	if onlyFiles {
+		if hasAuthor {
+			return usagef("KERNL DISPATCH FAILURE: note list --author filters the indexed notes, which --files does not list - drop one of the two")
+		}
 		return runNoteListFiles(ctx, c, out, asJSON)
 	}
 	raw, err := c.get(ctx, "/api/vault/notes")
 	if err != nil {
 		return err
 	}
-	if asJSON {
+	// Without a filter, --json passes the server's own body through untouched,
+	// exactly as before the flag existed.
+	if asJSON && !hasAuthor {
 		return emitJSON(out, raw)
 	}
 	// The route answers with a bare JSON array, not an envelope object.
-	var notes []struct {
-		Path  string `json:"path"`
-		ID    string `json:"id"`
-		Type  string `json:"type"`
-		Title string `json:"title"`
-	}
+	var notes []noteListItem
 	if err := decodeInto(raw, "GET /api/vault/notes", &notes); err != nil {
 		return err
 	}
+	if hasAuthor {
+		notes = filterNotesByAuthor(notes, author)
+	}
+	if asJSON {
+		encoded, err := json.Marshal(notes)
+		if err != nil {
+			return wrapLoud("encoding the note list", err)
+		}
+		return emitJSON(out, encoded)
+	}
 	if len(notes) == 0 {
+		if hasAuthor {
+			_, err := fmt.Fprintf(out, "No notes match --author %s.\n", author)
+			return err
+		}
 		_, err := fmt.Fprintln(out, "No notes indexed. Try: kernl note list --files")
 		return err
 	}
@@ -290,6 +317,47 @@ func runNoteList(ctx context.Context, c *apiClient, out io.Writer, asJSON bool, 
 		}
 	}
 	return nil
+}
+
+// noteListItem is one row of GET /api/vault/notes: the fields the CLI's
+// `note list` prints and filters on. Author is the resolved value the server
+// already computes, so the CLI never re-derives the rule.
+type noteListItem struct {
+	Path   string `json:"path"`
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Title  string `json:"title"`
+	Author string `json:"author"`
+}
+
+// filterNotesByAuthor keeps the notes whose resolved author matches the
+// --author flag. "ai" and "me" are the human spellings: "ai" means the
+// assistant wrote the note (the resolved author carries an "agent:" prefix),
+// "me" means a person did (anything else). Any other value is matched exactly
+// against the resolved author, so the raw spellings ("agent:da", "human")
+// keep working for callers that know them.
+func filterNotesByAuthor(notes []noteListItem, author string) []noteListItem {
+	keep := notes[:0]
+	for _, n := range notes {
+		if noteAuthorMatches(n.Author, author) {
+			keep = append(keep, n)
+		}
+	}
+	return keep
+}
+
+// noteAuthorMatches is the one place the --author vocabulary maps to a
+// resolved author, so the CLI's "ai"/"me" and the raw spellings cannot drift
+// apart.
+func noteAuthorMatches(resolved, filter string) bool {
+	switch filter {
+	case "ai":
+		return strings.HasPrefix(resolved, "agent:")
+	case "me":
+		return !strings.HasPrefix(resolved, "agent:")
+	default:
+		return resolved == filter
+	}
 }
 
 func runNoteListFiles(ctx context.Context, c *apiClient, out io.Writer, asJSON bool) error {

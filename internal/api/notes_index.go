@@ -26,10 +26,15 @@ type noteIndexEntry struct {
 	// "agent:da" or a human identifier - never the raw frontmatter string. A
 	// client tells "not mine" by the "agent:" prefix rather than by knowing
 	// which spellings mean the DA.
-	Author    string `json:"author"`
-	Pinned    bool   `json:"pinned"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	Author string `json:"author"`
+	// Permission is the effective permission for the note, resolved through
+	// reconcile.ResolvePermission: the explicit frontmatter value when present,
+	// otherwise the default derived from author ("edit" for the DA's notes,
+	// "ask" for the user's). It is an honour-system signal, not enforcement.
+	Permission string `json:"permission"`
+	Pinned     bool   `json:"pinned"`
+	CreatedAt  string `json:"createdAt"`
+	UpdatedAt  string `json:"updatedAt"`
 }
 
 // noteIndexResponse carries the pinned tags alongside the notes because both
@@ -157,6 +162,7 @@ func readNoteIndexRows(tx *graph.ReadTx) ([]*noteIndexEntry, map[string]*noteInd
 	rows, err := tx.Query(`
 		SELECT np.uuid, np.path, np.pinned, n.title, n.created_at, n.updated_at,
 		       COALESCE(json_extract(n.attrs, '$.author'), '') AS author,
+		       COALESCE(json_extract(n.attrs, '$.permission'), '') AS permission,
 		       COALESCE((
 		           SELECT e_target.type FROM edges e
 		           JOIN nodes e_target ON e_target.id = e.dst AND e_target.deleted_at IS NULL
@@ -176,13 +182,18 @@ func readNoteIndexRows(tx *graph.ReadTx) ([]*noteIndexEntry, map[string]*noteInd
 	for rows.Next() {
 		entry := &noteIndexEntry{Tags: []string{}}
 		var pinned int
-		var rawAuthor string
+		var rawAuthor, rawPermission string
 		if err := rows.Scan(&entry.ID, &entry.Path, &pinned, &entry.Title,
-			&entry.CreatedAt, &entry.UpdatedAt, &rawAuthor, &entry.Category); err != nil {
+			&entry.CreatedAt, &entry.UpdatedAt, &rawAuthor, &rawPermission, &entry.Category); err != nil {
 			return nil, nil, err
 		}
 		entry.Pinned = pinned != 0
 		entry.Author = reconcile.ResolveAuthor(rawAuthor).Name
+		perm, err := reconcile.ResolvePermission(rawPermission, rawAuthor)
+		if err != nil {
+			return nil, nil, err
+		}
+		entry.Permission = perm
 		ordered = append(ordered, entry)
 		byID[entry.ID] = entry
 	}

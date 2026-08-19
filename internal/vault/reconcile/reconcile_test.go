@@ -533,6 +533,130 @@ func TestOnCreate_AuthorAbsentDefaultsToHuman(t *testing.T) {
 	}
 }
 
+// TestResolvePermission covers the resolver that turns a note's frontmatter
+// permission (an override, never a required field) into the effective value:
+// the explicit value when present, otherwise the default derived from author.
+func TestResolvePermission(t *testing.T) {
+	cases := []struct {
+		name         string
+		fmPermission string
+		fmAuthor     string
+		want         string
+		wantErr      bool
+	}{
+		{"explicit edit overrides no author", "edit", "", "edit", false},
+		{"explicit ask overrides da author", "ask", "da", "ask", false},
+		{"default da author is edit", "", "da", "edit", false},
+		{"default no author is ask", "", "", "ask", false},
+		{"default human author is ask", "", "alex", "ask", false},
+		{"invalid value refused", "read-only", "", "", true},
+		{"typo'd edit refused", "edti", "da", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := reconcile.ResolvePermission(tc.fmPermission, tc.fmAuthor)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ResolvePermission(%q, %q) = %q, want error", tc.fmPermission, tc.fmAuthor, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolvePermission(%q, %q): %v", tc.fmPermission, tc.fmAuthor, err)
+			}
+			if got != tc.want {
+				t.Errorf("ResolvePermission(%q, %q) = %q, want %q", tc.fmPermission, tc.fmAuthor, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestOnCreate_InvalidPermissionRefused verifies that a typo'd permission value
+// fails the reconcile rather than silently reading as permissive at the surface.
+func TestOnCreate_InvalidPermissionRefused(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "typo.md")
+	writeFile(t, path, "---\nid: perm-typo\ntitle: Typo\npermission: edti\n---\n\nBody.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err == nil {
+		t.Fatal("expected OnCreate to fail on an unrecognised permission value")
+	}
+
+	// Nothing must have been written: the node and the path cache both stay empty.
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM nodes`).Scan(&count); err != nil {
+			return err
+		}
+		if count != 0 {
+			t.Errorf("node count = %d, want 0 after refused create", count)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("DoRead: %v", err)
+	}
+	_, found, err := reconcile.Lookup(ctx, g, "typo.md")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if found {
+		t.Error("path cache should be empty after a refused create")
+	}
+}
+
+// TestPermissionSurvivesReconcile proves the trap this repository already hit
+// once does not recur. The reconciler rebuilds a note's attrs from the file
+// wholesale, so anything in attrs that is not re-derived from the file is
+// silently erased on the next pass. Permission is re-derived from frontmatter
+// on every rebuild, so an explicit override must survive OnChange.
+func TestPermissionSurvivesReconcile(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+
+	path := filepath.Join(vault, "override.md")
+	writeFile(t, path, "---\nid: perm-override\ntitle: Override\npermission: edit\n---\n\nVersion one.\n")
+
+	rec := reconcile.New(g, vault)
+	if err := rec.OnCreate(ctx, path); err != nil {
+		t.Fatalf("OnCreate: %v", err)
+	}
+
+	assertNotePermission(t, g, "perm-override", "edit")
+
+	// A reconcile pass (OnChange) rebuilds the node from the file.
+	writeFile(t, path, "---\nid: perm-override\ntitle: Override\npermission: edit\n---\n\nVersion two.\n")
+	if err := rec.OnChange(ctx, path); err != nil {
+		t.Fatalf("OnChange: %v", err)
+	}
+
+	assertNotePermission(t, g, "perm-override", "edit")
+}
+
+// assertNotePermission reads the note's raw permission from the graph and
+// compares it against want.
+func assertNotePermission(t *testing.T, g *graph.Graph, id, want string) {
+	t.Helper()
+	err := g.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		n, err := nodes.GetNote(context.Background(), tx, id)
+		if err != nil {
+			return err
+		}
+		if n.Permission != want {
+			t.Errorf("note %s permission = %q, want %q", id, n.Permission, want)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+}
+
 // TestOnChange_DiffRevisionRecorded verifies that OnChange records a diff
 // revision and re-indexes the body in FTS.
 func TestOnChange_DiffRevisionRecorded(t *testing.T) {

@@ -83,6 +83,13 @@ type Note struct {
 	Title     string // from frontmatter title or filename stem
 	Body      string // re-derivable cache stored in attrs (FTS source)
 	Tags      []string
+	// Permission is the note's frontmatter permission override, carried raw
+	// from the file. The effective permission - the explicit value when present,
+	// otherwise the default derived from author - is resolved by
+	// reconcile.ResolvePermission at the surface, mirroring how Author is
+	// resolved. It is an honour-system signal, not enforcement: the assistant
+	// obeys it by instruction, and the revision log remains the safety net.
+	Permission string
 	// Channel records where the write that produced this note came from
 	// ("cli", "api", "ui", or empty when unknown). It is observed, not
 	// declared: the author says who created the file, the channel says where
@@ -104,9 +111,10 @@ func (n Note) Meta() *Meta {
 // NodeAttrs marshals type-specific fields for the nodes.attrs column.
 func (n Note) NodeAttrs() []byte {
 	attrs := map[string]any{
-		"body":   n.Body,
-		"origin": n.Origin,
-		"author": n.Author,
+		"body":       n.Body,
+		"origin":     n.Origin,
+		"author":     n.Author,
+		"permission": n.Permission,
 	}
 	if n.Channel != "" {
 		attrs["channel"] = n.Channel
@@ -163,6 +171,7 @@ func GetNote(ctx context.Context, tx *graph.ReadTx, id string) (*Note, error) {
 		Body            string          `json:"body"`
 		Origin          string          `json:"origin"`
 		Author          string          `json:"author"`
+		Permission      string          `json:"permission"`
 		Channel         string          `json:"channel"`
 		LinkSuggestions []LinkCandidate `json:"linkSuggestions"`
 		NoLinksReason   string          `json:"noLinksReason"`
@@ -187,6 +196,7 @@ func GetNote(ctx context.Context, tx *graph.ReadTx, id string) (*Note, error) {
 		Title:           title.String,
 		Body:            attrs.Body,
 		Tags:            tags,
+		Permission:      attrs.Permission,
 		Channel:         attrs.Channel,
 		LinkSuggestions: attrs.LinkSuggestions,
 		NoLinksReason:   attrs.NoLinksReason,
@@ -297,6 +307,7 @@ func ListNotes(ctx context.Context, tx *graph.ReadTx, f NoteFilter) ([]*Note, er
 			Body            string          `json:"body"`
 			Origin          string          `json:"origin"`
 			Author          string          `json:"author"`
+			Permission      string          `json:"permission"`
 			Channel         string          `json:"channel"`
 			LinkSuggestions []LinkCandidate `json:"linkSuggestions"`
 			NoLinksReason   string          `json:"noLinksReason"`
@@ -321,6 +332,7 @@ func ListNotes(ctx context.Context, tx *graph.ReadTx, f NoteFilter) ([]*Note, er
 			Title:           title.String,
 			Body:            attrs.Body,
 			Tags:            tags,
+			Permission:      attrs.Permission,
 			Channel:         attrs.Channel,
 			LinkSuggestions: attrs.LinkSuggestions,
 			NoLinksReason:   attrs.NoLinksReason,

@@ -2,6 +2,7 @@ package linksuggest_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -65,7 +66,7 @@ func TestSuggestFiltersClaims(t *testing.T) {
 	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy for hot keys.")
 	seedClaim(t, g, "Cache claim", "Caching is done with an LRU cache.")
 
-	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8)
+	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "")
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -98,7 +99,7 @@ func TestSuggestFiltersTasksAndProjects(t *testing.T) {
 	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy for hot keys.")
 	seedTask(t, g, "Cache task", "Caching is done with an LRU cache.")
 
-	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8)
+	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "")
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -112,6 +113,53 @@ func TestSuggestFiltersTasksAndProjects(t *testing.T) {
 	}
 	if slices.Contains(titles, "Cache task") {
 		t.Errorf("a task is not a linkable note and must be filtered, got %v", titles)
+	}
+}
+
+// TestSuggestExcludesOwnID verifies a note whose id is excluded is not offered
+// as a link candidate to itself. From the second write of a note onward it is
+// already in the graph and matches its own body, so without the exclusion it
+// would come back first among the candidates.
+func TestSuggestExcludesOwnID(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	body := "We use an LRU cache with a write-through policy for hot keys."
+	id := seedNote(t, g, "Caching strategy", body)
+
+	candidates, err := linksuggest.Suggest(ctx, g, body, 8, id)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+
+	for _, c := range candidates {
+		if c.ID == id {
+			t.Errorf("a note must not be offered as a link candidate to itself, got %q", c.Title)
+		}
+	}
+}
+
+// TestSuggestEmptyExcludeChangesNothing verifies an empty exclusion id filters
+// nothing: on the first write the note has no id yet, and it must not
+// accidentally drop a real candidate.
+func TestSuggestEmptyExcludeChangesNothing(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	body := "We use an LRU cache with a write-through policy for hot keys."
+	id := seedNote(t, g, "Caching strategy", body)
+
+	candidates, err := linksuggest.Suggest(ctx, g, body, 8, "")
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+
+	var ids []string
+	for _, c := range candidates {
+		ids = append(ids, c.ID)
+	}
+	if !slices.Contains(ids, id) {
+		t.Errorf("empty exclusion id must not filter the note itself, got %v", ids)
 	}
 }
 
@@ -152,5 +200,30 @@ func TestShouldSuggestGatesOnTheChannel(t *testing.T) {
 	}
 	if linksuggest.ShouldSuggest("ui") {
 		t.Error("ShouldSuggest(ui) = true, want false: the user finds connections himself")
+	}
+}
+
+// TestSuggestExclusionDoesNotCostASlot verifies the excluded note gives its slot
+// back. Dropping the self-candidate from a list BuildContext already closed at
+// limit removes the bad link and keeps the loss it was costing, which is the
+// half-fix this guards against.
+func TestSuggestExclusionDoesNotCostASlot(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	const shared = "write-through cache policy for hot keys"
+	self := seedNote(t, g, "Caching strategy", shared)
+	for i := 0; i < 5; i++ {
+		seedNote(t, g, fmt.Sprintf("Sibling %d", i), shared)
+	}
+
+	const limit = 3
+	withExclusion, err := linksuggest.Suggest(ctx, g, shared, limit, self)
+	if err != nil {
+		t.Fatalf("Suggest: %v", err)
+	}
+	if len(withExclusion) != limit {
+		t.Errorf("excluding the note being written cost a slot: got %d candidates, want %d",
+			len(withExclusion), limit)
 	}
 }

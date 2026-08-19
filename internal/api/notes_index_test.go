@@ -182,6 +182,51 @@ func TestNoteIndexCarriesTagsAndTimestamps(t *testing.T) {
 	}
 }
 
+// The permission badge answers "may the assistant modify this note?" from the
+// same rule the reconciler validated the file with: an explicit override wins,
+// and absent one the default falls out of author.
+func TestNoteIndexSurfacesPermission(t *testing.T) {
+	a, _ := newCompanionTestApp(t)
+	ctx := context.Background()
+
+	seed := func(title, path, fmAuthor, fmPermission string) {
+		t.Helper()
+		var id string
+		if err := a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+			var err error
+			id, err = nodes.CreateNote(ctx, tx, nodes.Note{
+				Title:      title,
+				Body:       "body of " + title,
+				Author:     fmAuthor,
+				Permission: fmPermission,
+			}, testAuthor)
+			return err
+		}); err != nil {
+			t.Fatalf("seed note %q: %v", title, err)
+		}
+		if err := reconcile.Upsert(ctx, a.Graph, id, path, "hash-"+id); err != nil {
+			t.Fatalf("index note %q: %v", title, err)
+		}
+	}
+
+	seed("mine", "notes/mine.md", "", "")
+	seed("the DA's", "notes/da.md", "da", "")
+	seed("explicit ask on DA", "notes/da-ask.md", "da", "ask")
+	seed("explicit edit on mine", "notes/mine-edit.md", "", "edit")
+
+	index := getNoteIndex(t, a)
+	for path, want := range map[string]string{
+		"notes/mine.md":      "ask",
+		"notes/da.md":        "edit",
+		"notes/da-ask.md":    "ask",
+		"notes/mine-edit.md": "edit",
+	} {
+		if got := entryByPath(t, index, path).Permission; got != want {
+			t.Errorf("%s permission = %q, want %q", path, got, want)
+		}
+	}
+}
+
 func TestNoteIndexPinRoundTrip(t *testing.T) {
 	a, _ := newCompanionTestApp(t)
 	id := seedVaultNote(t, a, "worth keeping", "notes/keep.md", "", "")

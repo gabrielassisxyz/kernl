@@ -16,11 +16,12 @@ import (
 
 // Frontmatter holds parsed YAML frontmatter values.
 type Frontmatter struct {
-	ID     string   `yaml:"id"`
-	Title  string   `yaml:"title"`
-	Author string   `yaml:"author"`
-	Origin string   `yaml:"origin"`
-	Tags   []string `yaml:"tags"`
+	ID         string   `yaml:"id"`
+	Title      string   `yaml:"title"`
+	Author     string   `yaml:"author"`
+	Origin     string   `yaml:"origin"`
+	Permission string   `yaml:"permission"`
+	Tags       []string `yaml:"tags"`
 }
 
 // Parse extracts frontmatter values from raw bytes.

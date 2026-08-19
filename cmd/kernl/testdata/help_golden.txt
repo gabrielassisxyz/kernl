@@ -777,12 +777,14 @@ Run 'kernl note <subcommand> --help' for details on each.
 kernl note list - List notes with their graph node id, type and title
 
 Usage:
-  kernl note list [--files] [--json]
+  kernl note list [--files] [--author ai|me] [--json]
 
 Flags:
-  --files  List the .md files on disk instead (files the graph has not
-           indexed yet show up here and nowhere else)
-  --json   Emit the API response verbatim on stdout
+  --files         List the .md files on disk instead (files the graph has not
+                  indexed yet show up here and nowhere else)
+  --author ai|me  Only list notes by who wrote them: ai (the assistant) or me (you);
+                  the raw resolved values (agent:da, human, ...) are also accepted
+  --json          Emit the API response verbatim on stdout
 
 ### kernl note read
 kernl note read - Print a note's contents
@@ -813,6 +815,13 @@ prep, ingest, capture. "author" says who created the file, and its only value
 is "da" - anything else, absent included, means a person wrote it. A note made
 from a capture is the case that keeps them apart: the body is the person's own
 words, carried across untouched, so it has an origin and no author at all.
+
+"permission" is a third axis and an override, never a required field: it says
+whether the assistant may modify the note. The values are "ask" and "edit".
+Absent, the default falls out of author - a note with author "da" is the
+assistant's to edit, any other note is the user's and the assistant asks
+first. It is an honour system, not enforcement: the assistant obeys it by
+instruction, and the revision log remains the record of what actually happened.
 
 Flags:
   --file <local-path>       Read the body from a local file instead of stdin
