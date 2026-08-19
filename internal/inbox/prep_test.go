@@ -43,8 +43,8 @@ func TestPrep(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if note.Origin != "da" {
-			t.Errorf("origin = %q, want da", note.Origin)
+		if note.Origin != nodes.OriginPrep {
+			t.Errorf("origin = %q, want %q", note.Origin, nodes.OriginPrep)
 		}
 		if note.Body == "" {
 			t.Errorf("expected primer body")

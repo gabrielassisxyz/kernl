@@ -20,11 +20,43 @@ const (
 	MaxChangeRatio = 0.5        // 50% of the larger body
 )
 
-// OriginDA marks a note the DA wrote itself - today, the prep briefings it
-// files under the vault's DA subfolder. It is the flag that keeps the DA's own
-// output out of the knowledge it retrieves: a briefing is a derivative of the
-// user's captures, never a source of truth about what the user knows.
-const OriginDA = "da"
+// Origin says where a note CAME FROM. It is a separate axis from author, which says
+// who wrote the text, and the two answer different questions: a note made from a
+// capture originates in the inbox and is written by the user, so it carries an origin
+// and no author at all.
+//
+// The values are named after the pipeline that produced the note, not after who ran it.
+// OriginPrep was spelled "da" until 2026-08-19, which read as an author and made the two
+// axes look like one field said twice.
+const (
+	// OriginPrep is a briefing the DA writes before a capture is triaged. It is the flag
+	// that keeps the DA's own output out of the knowledge it retrieves: a briefing is a
+	// derivative of the user's captures, never a source of truth about what the user knows.
+	OriginPrep = "prep"
+	// OriginIngest is a note built from an ingested document.
+	OriginIngest = "ingest"
+	// OriginCapture is a note made from a capture. The body is the user's own words,
+	// carried through untouched, so a capture-origin note has no author: the DA filed it
+	// and did not write it.
+	OriginCapture = "capture"
+
+	// originPrepLegacy is what OriginPrep was called before 2026-08-19.
+	originPrepLegacy = "da"
+)
+
+// NormalizeOrigin maps a legacy origin value onto its current name.
+//
+// It exists so a file written before the rename cannot switch the retrieval filter off by
+// being read: frontmatter is the source of truth for a note, so a vault file still saying
+// "da" would put "da" straight back into the node the moment it was reconciled, and the
+// filter compares against "prep". Normalising on the way in makes the old spelling
+// self-healing and removes any ordering hazard between the code, the database and the files.
+func NormalizeOrigin(origin string) string {
+	if origin == originPrepLegacy {
+		return OriginPrep
+	}
+	return origin
+}
 
 // Note represents a vault note node - all notes share type "note".
 // The user-vs-generated distinction is read from frontmatter author/origin,

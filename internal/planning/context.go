@@ -194,7 +194,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 				).Scan(&title, &typ, &origin); err != nil || typ != "note" {
 					continue
 				}
-				if origin.String == nodes.OriginDA {
+				if origin.String == nodes.OriginPrep {
 					continue
 				}
 				seen[id] = true
@@ -298,7 +298,7 @@ func daAuthored(tx *graph.ReadTx, nodeID string) bool {
 	).Scan(&origin); err != nil {
 		return false
 	}
-	return origin.String == nodes.OriginDA
+	return origin.String == nodes.OriginPrep
 }
 
 func isNodeID(tx *graph.ReadTx, s string) bool {
