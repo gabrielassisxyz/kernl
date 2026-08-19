@@ -5,15 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
 )
 
@@ -116,7 +114,8 @@ func createPage(ctx context.Context, g *graph.Graph, vaultRoot string, review *n
 		return err
 	}
 
-	return g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+	var pageFile companion.File
+	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		noteID, err := nodes.CreateNote(ctx, tx, nodes.Note{
 			Title:  title,
 			Body:   review.Payload,
@@ -126,12 +125,27 @@ func createPage(ctx context.Context, g *graph.Graph, vaultRoot string, review *n
 		if err != nil {
 			return fmt.Errorf("create note: %w", err)
 		}
-		writeVaultMarkdown(vaultRoot, noteID, title, review.Payload)
+		pageFile, err = companion.PrepareNote(tx, vaultRoot, "", companion.NoteFrontmatter{
+			ID:     noteID,
+			Title:  title,
+			Origin: "ingest",
+			Tags:   []string{"ingest"},
+		}, review.Payload)
+		if err != nil {
+			return err
+		}
 		if err := connectNote(ctx, tx, noteID, review.SourceNodeID, related); err != nil {
 			return err
 		}
 		return nodes.DeleteIngestReview(ctx, tx, review.ID, nodes.Author{Name: resolveAuthor})
 	})
+	if err != nil {
+		return err
+	}
+	if err := companion.WriteFile(vaultRoot, pageFile); err != nil {
+		return fmt.Errorf("write ingested page: %w", err)
+	}
+	return nil
 }
 
 // updatePage merges the accepted hunks into a target note. The target comes from
@@ -324,14 +338,4 @@ func noteExists(ctx context.Context, g *graph.Graph, id string) bool {
 		).Scan(&n)
 	})
 	return n > 0
-}
-
-// writeVaultMarkdown best-effort writes a markdown mirror of a created note.
-func writeVaultMarkdown(vaultRoot, noteID, title, body string) {
-	if vaultRoot == "" {
-		return
-	}
-	slug := "ingest-" + time.Now().Format("20060102150405")
-	md := fmt.Sprintf("---\nid: %s\ntitle: %q\ntags: [ingest]\norigin: ingest\n---\n\n%s", noteID, title, body)
-	_ = os.WriteFile(filepath.Join(vaultRoot, slug+".md"), []byte(md), 0644)
 }

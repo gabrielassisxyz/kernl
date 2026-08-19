@@ -3,10 +3,7 @@ package inbox
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -14,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/graph/search"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 )
 
 // prepEdgeLabel ties a DA primer note to the capture it was prepared for.
@@ -111,12 +109,9 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 
 	title := "Briefing: " + captureDisplayTitle(capture)
 	author := nodes.Author{Name: "da"}
-	daDir := filepath.Join(vaultRoot, daSubdir)
-	if err := os.MkdirAll(daDir, 0755); err != nil {
-		return "", fmt.Errorf("prep: mkdir da dir: %w", err)
-	}
 
 	var noteID string
+	var prepFile companion.File
 	err = g.DoWrite(ctx, func(tx *graph.WriteTx) error {
 		var err error
 		noteID, err = nodes.CreateNote(ctx, tx, nodes.Note{
@@ -136,15 +131,22 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 			return fmt.Errorf("create prepared_for edge: %w", err)
 		}
 
-		slug := "prep-" + time.Now().Format("20060102150405")
-		md := fmt.Sprintf("---\nid: %s\ntitle: %q\ntags: [da, prep]\norigin: da\n---\n\n%s\n", noteID, title, primer)
-		if err := os.WriteFile(filepath.Join(daDir, slug+".md"), []byte(md), 0644); err != nil {
-			return fmt.Errorf("write da note md: %w", err)
+		prepFile, err = companion.PrepareNote(tx, vaultRoot, daSubdir, companion.NoteFrontmatter{
+			ID:     noteID,
+			Title:  title,
+			Origin: "da",
+			Tags:   []string{"da", "prep"},
+		}, primer)
+		if err != nil {
+			return fmt.Errorf("prepare da note file: %w", err)
 		}
 		return nil
 	})
 	if err != nil {
 		return "", err
+	}
+	if err := companion.WriteFile(vaultRoot, prepFile); err != nil {
+		return "", fmt.Errorf("write da note md: %w", err)
 	}
 	return noteID, nil
 }
