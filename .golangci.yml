@@ -32,6 +32,22 @@ linters:
       # source keeps this from devolving into a brittle per-type allowlist.
       - linters: [errcheck]
         source: '\.Close\(\)'
+      # SA5011 after a t.Fatal guard is a false positive, and a moving one.
+      # The pattern is `if x == nil { t.Fatal(...) }` followed by a use of x:
+      # t.Fatal ends the goroutine, so the dereference cannot run with a nil
+      # pointer. staticcheck only knows that when it resolves testing.T's
+      # noreturn fact, and it does not do so reliably here: the same commit
+      # passed on one run and failed on the next, naming different files each
+      # time, while the whole tree reports 0 issues locally under the same
+      # golangci-lint and Go versions with a cold cache.
+      #
+      # Scoped to _test.go and to this one check on purpose. It is not a nolint
+      # blanket: production code keeps SA5011, and every other check keeps test
+      # files. Chasing the sites one by one was tried first and does not
+      # converge, because the set that gets reported changes between runs.
+      - linters: [staticcheck]
+        text: 'SA5011'
+        path: '_test\.go'
 
 formatters:
   enable:
