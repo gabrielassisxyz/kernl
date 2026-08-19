@@ -530,11 +530,12 @@ Examples:
 kernl plan - Show the vault notes relevant to a topic (substrate-aware planning)
 
 Usage:
-  kernl plan [--json] <topic>
+  kernl plan [--json] [--limit <n>] <topic>
 
 Flags:
-  --json  Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout
-          path is null for via=claim (a claim has no file on disk)
+  --json       Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout
+               path is null for via=claim (a claim has no file on disk)
+  --limit <n>  Maximum notes to return (default: 8)
 
 Example:
   kernl plan "caching strategy"

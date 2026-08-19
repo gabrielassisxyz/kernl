@@ -5,34 +5,71 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
+// planArgs is the parsed surface of `kernl plan`: the topic seed, the note
+// limit, and whether the caller wants the machine-readable JSON contract.
+type planArgs struct {
+	asJSON bool
+	limit  int
+	topic  string
+}
+
+// parsePlanArgs turns the plan verb's args into planArgs. The limit defaults
+// to 8 and is only overridden by an explicit --limit; a non-positive or
+// non-numeric value is refused rather than silently falling back, because a
+// typo that quietly measures the wrong depth is exactly the failure the flag
+// exists to prevent.
+func parsePlanArgs(args []string) (planArgs, error) {
+	p := planArgs{limit: 8}
+	var topicWords []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--json":
+			p.asJSON = true
+		case arg == "--limit":
+			if i+1 >= len(args) {
+				return p, usagef("KERNL DISPATCH FAILURE: --limit requires a value - run: kernl plan --help")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return p, usagef("KERNL DISPATCH FAILURE: --limit needs a positive integer, got %q", args[i])
+			}
+			if n <= 0 {
+				return p, usagef("KERNL DISPATCH FAILURE: --limit must be positive, got %d", n)
+			}
+			p.limit = n
+		case strings.HasPrefix(arg, "-"):
+			return p, usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s - valid: --json, --limit <n>",
+				arg, didYouMean(arg, []string{"--json", "--limit"}))
+		default:
+			topicWords = append(topicWords, arg)
+		}
+	}
+	p.topic = strings.Join(topicWords, " ")
+	return p, nil
+}
+
 // runPlan shows the substrate-aware planning context for a topic: the vault
 // notes the DA planner would automatically have in scope. This is the keystone
 // seam made visible from the CLI - "you're about to plan X, here are your notes
 // on it" - no hunting, no manual paste.
 func runPlan(configPath string, args []string) error {
-	var asJSON bool
-	var topicWords []string
-	for _, arg := range args {
-		switch {
-		case arg == "--json":
-			asJSON = true
-		case strings.HasPrefix(arg, "-"):
-			return usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s - valid: --json",
-				arg, didYouMean(arg, []string{"--json"}))
-		default:
-			topicWords = append(topicWords, arg)
-		}
+	pa, err := parsePlanArgs(args)
+	if err != nil {
+		return err
 	}
-	if len(topicWords) == 0 {
+	if pa.topic == "" {
 		return usagef("KERNL DISPATCH FAILURE: plan requires a topic - run: kernl plan \"caching strategy\"")
 	}
-	seed := strings.Join(topicWords, " ")
+	seed := pa.topic
 
 	cfg, err := loadCLIConfig(configPath)
 	if err != nil {
@@ -44,12 +81,12 @@ func runPlan(configPath string, args []string) error {
 	}
 	defer a.Close()
 
-	notes, err := planning.BuildContext(context.Background(), a.Graph, seed, 8)
+	notes, err := planning.BuildContext(context.Background(), a.Graph, seed, pa.limit)
 	if err != nil {
 		return fmt.Errorf("building planning context: %w", err)
 	}
 
-	if asJSON {
+	if pa.asJSON {
 		return json.NewEncoder(os.Stdout).Encode(newPlanOutput(seed, notes))
 	}
 

@@ -272,7 +272,7 @@ Examples:
 	{
 		Name:    "plan",
 		Summary: "Show the vault notes relevant to a topic (substrate-aware planning)",
-		Usage:   "kernl plan [--json] <topic>",
+		Usage:   "kernl plan [--json] [--limit <n>] <topic>",
 		Details: `{{flags}}
 
 Example:
@@ -280,6 +280,7 @@ Example:
 		Flags: []commandFlag{
 			{Name: "--json", Description: `Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout`,
 				Continuation: []string{`path is null for via=claim (a claim has no file on disk)`}},
+			{Name: "--limit", Value: "<n>", Description: "Maximum notes to return (default: 8)"},
 		},
 	},
 	{
