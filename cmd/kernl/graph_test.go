@@ -225,6 +225,71 @@ func TestGraphEdgesPrintsTheConnections(t *testing.T) {
 	}
 }
 
+func TestGraphEdgesScopedToANode(t *testing.T) {
+	fake := newFakeGraphAPI(t, http.StatusOK, `[{"id":"e1","src":"n1","dst":"n2","label":"part_of"}]`)
+	out, err := fake.run("edges", "n1")
+	if err != nil {
+		t.Fatalf("graph edges <node-id>: %v", err)
+	}
+	call := fake.only(t)
+	if call.path != "/api/nodes/n1/edges" {
+		t.Fatalf("want GET /api/nodes/n1/edges, got %s", call.path)
+	}
+	if call.query != "" {
+		t.Errorf("scoped form with no flags must send no query, got %q", call.query)
+	}
+	// Same printed shape as the unscoped form.
+	if !strings.Contains(out, "n2") {
+		t.Errorf("scoped edge listing missing the neighbour, got: %s", out)
+	}
+}
+
+func TestGraphEdgesScopedSendsResolveLabelAndType(t *testing.T) {
+	fake := newFakeGraphAPI(t, http.StatusOK, `[{"id":"n2","title":"Target","type":"note","path":"","label":"links_to","direction":"out","via":"n1","depth":1}]`)
+	out, err := fake.run("edges", "n1", "--resolve", "--label", "links_to", "--type", "note")
+	if err != nil {
+		t.Fatalf("graph edges <node-id> --resolve: %v", err)
+	}
+	call := fake.only(t)
+	if call.path != "/api/nodes/n1/edges" {
+		t.Fatalf("want GET /api/nodes/n1/edges, got %s", call.path)
+	}
+	if call.query != "label=links_to&resolve=true&type=note" {
+		t.Errorf("unexpected query %q", call.query)
+	}
+	// The resolved view prints the neighbour, not the edge endpoints.
+	for _, want := range []string{"out", "links_to", "Target"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resolved edge listing missing %q, got: %s", want, out)
+		}
+	}
+}
+
+func TestGraphEdgesResolveWithoutANodeIDFailsLoud(t *testing.T) {
+	fake := newFakeGraphAPI(t, http.StatusOK, `[]`)
+	_, err := fake.run("edges", "--resolve")
+	if err == nil || !strings.Contains(err.Error(), "--resolve requires a node ID") {
+		t.Fatalf("--resolve without a node id must fail loud, got: %v", err)
+	}
+	if exitCode(err) != 2 {
+		t.Errorf("want usage error, got exit %d", exitCode(err))
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("a rejected invocation must not reach the API: %+v", fake.calls)
+	}
+}
+
+func TestGraphEdgesScopedRejectsUnknownFlags(t *testing.T) {
+	fake := newFakeGraphAPI(t, http.StatusOK, `[]`)
+	_, err := fake.run("edges", "n1", "--bogus")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("unknown flag must fail loud, got: %v", err)
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("a rejected invocation must not reach the API: %+v", fake.calls)
+	}
+}
+
 func TestGraphAPIErrorsMapToExitCodes(t *testing.T) {
 	// A 400 is about the invocation and exits 2.
 	badRequest := newFakeGraphAPI(t, http.StatusBadRequest, "bad limit\n")
@@ -253,7 +318,7 @@ func TestGraphUnknownSubcommandHints(t *testing.T) {
 }
 
 func TestGraphReadOnlyVerbsRejectStrayPositionalArgs(t *testing.T) {
-	for _, args := range [][]string{{"nodes", "extra"}, {"edges", "extra"}} {
+	for _, args := range [][]string{{"nodes", "extra"}} {
 		fake := newFakeGraphAPI(t, http.StatusOK, `[]`)
 		_, err := fake.run(args...)
 		if err == nil || !strings.Contains(err.Error(), "takes no positional arguments") {
