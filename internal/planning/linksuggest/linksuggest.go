@@ -5,7 +5,6 @@ package linksuggest
 
 import (
 	"context"
-	"path"
 	"strings"
 
 	"github.com/gabrielassisxyz/kernl/internal/graph"
@@ -71,8 +70,9 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, exclud
 
 // DeriveReceipts splits previously-offered candidates into accepted and
 // rejected by whether the body now links to them. A candidate is accepted when
-// the body carries a wikilink whose target matches its id, title, or filename
-// stem; everything else is rejected. Pure: it reads only its arguments.
+// the body carries a wikilink the RESOLVER would turn into an edge to it, and
+// nothing else is: this function's answer and the graph must not disagree.
+// Pure: it reads only its arguments.
 func DeriveReceipts(prev []nodes.LinkCandidate, body string) (accepted, rejected []nodes.LinkCandidate) {
 	links := wikilink.Parse(body)
 	targets := make(map[string]bool, len(links))
@@ -129,14 +129,22 @@ func withEntityContext(ctx context.Context, g *graph.Graph, seed, noteID string)
 	return strings.TrimSpace(seed + "\n" + extra)
 }
 
-// linked reports whether a candidate is referenced by the body's wikilink
-// targets, matching on id, title, or the filename stem of its path.
+// linked mirrors the three routes wikilink.Resolver takes, in the same order:
+// the uuid, the vault-relative path with .md dropped, and the title.
+//
+// The stem is the WHOLE path and not its base name, because that is the key the
+// resolver looks up (`note_paths WHERE path = target || '.md'`). Accepting the
+// base name here made this function claim an accepted link the graph never grew:
+// measured 2026-08-20 over a 20-note batch, 20 candidates came back accepted and
+// only 7 edges existed, every miss being a note outside the vault root, which is
+// every companion. A receipt more permissive than the resolver is worse than no
+// receipt, because it is believed.
 func linked(c nodes.LinkCandidate, targets map[string]bool) bool {
 	if targets[c.ID] || targets[c.Title] {
 		return true
 	}
 	if c.Path != nil {
-		stem := strings.TrimSuffix(path.Base(*c.Path), ".md")
+		stem := strings.TrimSuffix(*c.Path, ".md")
 		if stem != "" && targets[stem] {
 			return true
 		}

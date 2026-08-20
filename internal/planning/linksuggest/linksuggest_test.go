@@ -165,9 +165,34 @@ func TestSuggestEmptyExcludeChangesNothing(t *testing.T) {
 	}
 }
 
+// TestDeriveReceiptsRejectsABaseNameOnlyLink pins the receipt to what the graph
+// will actually contain.
+//
+// wikilink.Resolver looks a stem up as the vault-relative path
+// (`note_paths WHERE path = target || '.md'`) and falls back to the title, so
+// `[[foo]]` for a note at notes/foo.md resolves to neither and grows no edge.
+// Reporting it accepted told a caller it had linked something it had not:
+// measured 2026-08-20 over a 20-note batch, all 20 candidates came back accepted
+// and 7 edges existed. Every miss was a note outside the vault root, which is
+// where every companion note lives.
+func TestDeriveReceiptsRejectsABaseNameOnlyLink(t *testing.T) {
+	notePath := "kernl/tasks/some-task.md"
+	prev := []nodes.LinkCandidate{{ID: "id-1", Title: "Some task", Path: &notePath, Snippet: "s"}}
+
+	accepted, rejected := linksuggest.DeriveReceipts(prev, "See [[some-task]].")
+
+	if len(accepted) != 0 {
+		t.Errorf("a base-name link grows no edge, so it must not be reported accepted, got %+v", accepted)
+	}
+	if len(rejected) != 1 {
+		t.Errorf("rejected = %+v, want the candidate", rejected)
+	}
+}
+
 // TestDeriveReceiptsSplitsAcceptedAndRejected verifies a candidate is accepted
-// when the body links to it by title, id, or filename stem, and rejected
-// otherwise.
+// when the body links to it by title, id, or vault-relative path stem, and
+// rejected otherwise. The stem is the whole path because that is the key
+// wikilink.Resolver looks up; see TestDeriveReceiptsRejectsABaseNameOnlyLink.
 func TestDeriveReceiptsSplitsAcceptedAndRejected(t *testing.T) {
 	path := "projects/kernl.md"
 	stemPath := "notes/stem-note.md"
@@ -176,7 +201,7 @@ func TestDeriveReceiptsSplitsAcceptedAndRejected(t *testing.T) {
 		{ID: "id-2", Title: "By Stem", Path: &stemPath, Snippet: "s"},
 		{ID: "id-3", Title: "Unlinked", Snippet: "s"},
 	}
-	body := "See [[Kernl]] and [[stem-note]] for the details."
+	body := "See [[Kernl]] and [[notes/stem-note]] for the details."
 
 	accepted, rejected := linksuggest.DeriveReceipts(prev, body)
 
