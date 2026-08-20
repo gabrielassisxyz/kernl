@@ -214,6 +214,49 @@ func TestNodeEdgesUnresolvedMatchesUnscopedShape(t *testing.T) {
 	}
 }
 
+// A node that does not exist must not answer like a node with no edges. This
+// route is made to be WALKED, so a caller following a wrong id has to get an
+// error rather than silence - the same distinction the vault convention draws
+// between a broken link and a placeholder one.
+func TestNodeEdgesUnknownNodeIs404NotEmpty(t *testing.T) {
+	a := seedNodeEdgeFixture(t)
+	r := NewRouter(a)
+
+	for _, q := range []string{"", "?resolve=true"} {
+		req := httptest.NewRequest("GET", "/api/nodes/does-not-exist/edges"+q, nil)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Errorf("unknown node with query %q: got %d %s, want 404",
+				q, w.Code, w.Body.String())
+		}
+	}
+}
+
+// A soft-deleted node is gone, not empty: asking about it must 404 too, or the
+// tombstone reads as a node that simply has no edges.
+func TestNodeEdgesTombstonedNodeIs404(t *testing.T) {
+	a := seedNodeEdgeFixture(t)
+	r := NewRouter(a)
+
+	req := httptest.NewRequest("GET", "/api/nodes/n4/edges", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("tombstoned node: got %d %s, want 404", w.Code, w.Body.String())
+	}
+}
+
+// A live node with every edge filtered out still answers 200 with an empty
+// list. Empty and absent are different answers and this pins both.
+func TestNodeEdgesLiveNodeWithNoMatchesIsEmpty200(t *testing.T) {
+	a := seedNodeEdgeFixture(t)
+	out := getNodeEdges(t, a, "?label=no-such-label")
+	if len(out) != 0 {
+		t.Errorf("want an empty list, got %+v", out)
+	}
+}
+
 func TestListEdges(t *testing.T) {
 	a := newTestAppWithGraphWithLLM(t)
 	ctx := context.Background()

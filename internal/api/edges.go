@@ -1,7 +1,9 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -58,7 +60,24 @@ func RegisterNodeEdgeRoutes(mux *http.ServeMux, a *app.App) {
 		}
 
 		var out any
+		var missing bool
 		err := a.Graph.DoRead(r.Context(), func(tx *graph.ReadTx) error {
+			// A node that does not exist and a node with no edges both produce an
+			// empty list, and this route exists to be WALKED: a caller following a
+			// wrong id would get silence where it needs an error. Distinguishing
+			// them is the same rule the vault convention states for a broken link
+			// versus a placeholder one, and the same rule the retrieval receipt
+			// states for an error versus zero results.
+			var exists bool
+			if err := tx.QueryRow(
+				`SELECT 1 FROM nodes WHERE id = ? AND deleted_at IS NULL`, id,
+			).Scan(&exists); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					missing = true
+					return nil
+				}
+				return err
+			}
 			var err error
 			if resolve {
 				out, err = resolvedEdgesForNode(tx, id, label, typ)
@@ -67,6 +86,10 @@ func RegisterNodeEdgeRoutes(mux *http.ServeMux, a *app.App) {
 			}
 			return err
 		})
+		if missing {
+			http.Error(w, "no such node: "+id, http.StatusNotFound)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
