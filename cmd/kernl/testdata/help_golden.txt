@@ -1247,7 +1247,7 @@ Subcommands:
   search         Prefix-search node titles
   related        Show the nodes a node is related to
   briefing       Print the DA briefing note attached to a node
-  edges          List every stored edge between live nodes
+  edges          List stored edges: the whole graph, or one node's
 
 Every subcommand is read-only. They talk to a running server over the
 REST API, so 'kernl serve' must be up (or point elsewhere with
@@ -1312,16 +1312,26 @@ Flags:
           when the node has no briefing yet
 
 ### kernl graph edges
-kernl graph edges - List every stored edge between live nodes
+kernl graph edges - List stored edges: the whole graph, or one node's
 
 Usage:
-  kernl graph edges [--json]
+  kernl graph edges [<node-id>] [--resolve] [--label <label>] [--type <node-type>] [--json]
 
-The edges table as persisted - the source of truth for checking that
-connections are actually being made.
+Without a node ID: every edge in the graph, {id,src,dst,label}.
+With a node ID: only that node's edges, in the same shape.
+
+--resolve swaps the raw endpoints for the neighbour at the far end:
+{id,title,type,path,label,direction,via,depth}. Direction is "out" when
+the node is the edge source and "in" when it is the destination; via is
+the node the hop came from; depth is always 1. One hop only - it does not
+walk further, because where to stop is the caller's call, not the
+command's guess.
 
 Flags:
-  --json  Emit [{"id","src","dst","label"}] verbatim on stdout
+  --resolve           Resolve each edge to its neighbour (direction, title, type, path)
+  --label <label>     Only edges with this label (e.g. links_to, part_of)
+  --type <node-type>  Only edges whose neighbour is this node type (e.g. note, task)
+  --json              Emit the API body verbatim on stdout
 
 ### kernl settings
 kernl settings - Read and write kernl.yaml through the running server

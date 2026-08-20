@@ -40,6 +40,7 @@ func NewRouter(a *app.App) http.Handler {
 	RegisterNotesRoutes(mux, a)
 	RegisterNodeSearchRoutes(mux, a)
 	RegisterNodeRelatedRoutes(mux, a)
+	RegisterNodeEdgeRoutes(mux, a)
 	RegisterEdgeRoutes(mux, a)
 	RegisterPlanRoutes(mux, a)
 	RegisterRunRoutes(mux, a)
