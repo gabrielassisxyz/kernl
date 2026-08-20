@@ -2,6 +2,7 @@ package planning_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -674,5 +675,49 @@ func TestBuildContext_NoteWinsATieAgainstAnEntity(t *testing.T) {
 	if notes[0].ID != noteID {
 		t.Errorf("a note must win a tie against an entity, got %q (type %q) first: %+v",
 			notes[0].Title, notes[0].Type, notes)
+	}
+}
+
+// TestLinkingScoringDemotesTheLongDocument is the whole reason the two scorings
+// exist separately. A long note contains a little of everything, so against a seed
+// that is itself a note it matches more terms than the note that is genuinely
+// about the subject, and term counting hands it the top slot.
+//
+// Measured over the 282 links somebody made by reading: under term counting one
+// machine log was offered in 40 of 40 queries whatever the subject. Without a test
+// the two entry points look like duplication and get merged back.
+func TestLinkingScoringDemotesTheLongDocument(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// The note that is about zephyr, and nothing else.
+	focused := seedNote(t, g, "Zephyr protocol", "The zephyr protocol handles retries.")
+	// A log that mentions zephyr once among everything else it mentions.
+	seedNote(t, g, "Machine log", "zephyr retries "+strings.Repeat(
+		"disk kernel mount network backup upgrade service unit timer package ", 60))
+	// Enough unrelated notes that "zephyr" is rare and the log's other words are not.
+	for i := 0; i < 30; i++ {
+		seedNote(t, g, fmt.Sprintf("Ops note %d", i),
+			"disk kernel mount network backup upgrade service unit timer package")
+	}
+
+	seed := "zephyr retries disk kernel mount network backup upgrade service unit timer package"
+
+	byCount, err := planning.BuildContext(ctx, g, seed, 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	byLength, err := planning.BuildContextForLinking(ctx, g, seed, 8)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	if len(byCount) == 0 || len(byLength) == 0 {
+		t.Fatalf("both scorings must return something, got %d and %d", len(byCount), len(byLength))
+	}
+	if byCount[0].ID == byLength[0].ID {
+		t.Fatalf("the two scorings must disagree here, both returned %q first", byCount[0].Title)
+	}
+	if byLength[0].ID != focused {
+		t.Errorf("linking must put the note the seed is about first, got %q", byLength[0].Title)
 	}
 }

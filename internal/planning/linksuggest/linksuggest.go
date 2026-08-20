@@ -15,8 +15,12 @@ import (
 )
 
 // Suggest returns the notes most relevant to seed as link candidates. It is
-// BuildContext minus the memory claims: a claim is not a note and has no file,
-// so it can never be a link target.
+// BuildContextForLinking minus the memory claims: a claim is not a note and has
+// no file, so it can never be a link target.
+//
+// The linking variant rather than plain BuildContext because the seed here is a
+// whole note rather than a question, and against a seed that long every large
+// document matches something. See BuildContextForLinking for the measurement.
 //
 // excludeID, when non-empty, drops the note being written from the candidates:
 // from the second write of a note onward it is already in the graph, matches
@@ -32,7 +36,7 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, exclud
 	if excludeID != "" && limit > 0 {
 		fetch = limit + 1
 	}
-	notes, err := planning.BuildContext(ctx, g, seed, fetch)
+	notes, err := planning.BuildContextForLinking(ctx, g, seed, fetch)
 	if err != nil {
 		return nil, err
 	}

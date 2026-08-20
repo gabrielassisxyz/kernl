@@ -91,11 +91,13 @@ type ContextNote struct {
 	Title   string  `json:"title"`
 	Snippet string  `json:"snippet"`
 	Score   float64 `json:"score"`
-	// matches is the number of distinct seed terms the node matched. It is
-	// unexported because it is a ranking detail, not part of the wire contract:
-	// the sort ranks by matches first, and Score (matches minus a bestRank
-	// adjustment) cannot recover that raw count.
+	// matches is the number of distinct seed terms the node matched, and weight
+	// is what those terms were worth once rarity is priced in. Both are
+	// unexported because they are ranking details, not part of the wire
+	// contract: the sort ranks by weight, and Score (weight minus a bestRank
+	// adjustment) cannot recover either raw figure.
 	matches int
+	weight  float64
 	Via     string `json:"via"` // "content" (FTS), "linked" (structural), or "claim" (memory claim)
 	// Type is the node's type: "note", "task", "project", or "memory_claim".
 	// It lets a consumer tell a note from a task without guessing from a path.
@@ -126,6 +128,55 @@ const snippetLen = 240
 // one seam where a note is retrieved as knowledge, rather than at each caller  -
 // the rule is a property of the note, not of who is asking.
 func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
+	return buildContext(ctx, g, seed, limit, scoreByTermCount)
+}
+
+// BuildContextForLinking is BuildContext scored for a different question, and the
+// difference is the seed rather than a preference.
+//
+// A question is a handful of words, so a long note that matches all of them is
+// usually the right answer. A note being linked is the seed itself - hundreds of
+// terms - and against that almost every long document matches something, so length
+// alone wins. Measured on 2026-08-19 over the 282 note-to-note links somebody made
+// by reading: under term counting, one machine log was offered in 40 of 40 queries
+// whatever the subject, and 40% of notes were offered none of the links they
+// actually have. Scoring by the rank FTS5 already computed - bm25, which prices
+// both rarity and document length - took that to 22% and doubled link recall from
+// 0.277 to 0.545.
+//
+// The same change measured on questions is a small loss, not a gain: an answer that
+// genuinely lives inside a large note gets buried with the noise. So the two
+// scorings stay apart, because the two questions are apart.
+func BuildContextForLinking(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
+	return buildContext(ctx, g, seed, limit, scoreByLengthNormalizedRank)
+}
+
+// scoring says what a matched term is worth to a node.
+type scoring int
+
+const (
+	// scoreByTermCount gives every matched term the same worth, so a node ranks
+	// by how many distinct seed terms it matched.
+	scoreByTermCount scoring = iota
+	// scoreByLengthNormalizedRank uses the bm25 rank FTS5 returns for the term,
+	// which already prices how rare the term is and how long the document is.
+	scoreByLengthNormalizedRank
+)
+
+// termScore is what one matched term is worth under a given scoring.
+//
+// FTS5 ranks lower-is-better and returns a negative number, so the sign flips for
+// the normalized scoring and the caller sums. Measured on a 202-document table with
+// one short and one long document both holding a rare term: the short one ranks
+// -5.71 and the long one -0.12, a factor of forty-seven for the same word.
+func termScore(how scoring, rank float64) float64 {
+	if how == scoreByLengthNormalizedRank {
+		return -rank
+	}
+	return 1
+}
+
+func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, how scoring) ([]ContextNote, error) {
 	if limit <= 0 {
 		limit = 8
 	}
@@ -145,6 +196,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 		type agg struct {
 			title    string
 			matches  int
+			weight   float64
 			bestRank float64
 		}
 		scored := map[string]*agg{}
@@ -160,6 +212,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 					scored[h.NodeID] = a
 				}
 				a.matches++
+				a.weight += termScore(how, h.Rank)
 				if h.Rank < a.bestRank {
 					a.bestRank = h.Rank
 				}
@@ -187,17 +240,17 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 			}
 			ranked = append(ranked, ContextNote{
 				ID: id, Title: a.title, Snippet: surface.snippet,
-				Score: float64(a.matches) - a.bestRank/1000, Via: "content",
-				Type: surface.typ, Path: path, matches: a.matches,
+				Score: a.weight - a.bestRank/1000, Via: "content",
+				Type: surface.typ, Path: path, matches: a.matches, weight: a.weight,
 			})
 		}
-		// Most distinct terms matched first. On a tie, a note beats an entity:
+		// Rarest vocabulary first. On a tie, a note beats an entity:
 		// a task/project and its companion note are two nodes about one thing,
 		// and the note is the canonical representation whose body carries the
 		// fuller reasoning. FTS rank breaks the remaining ties.
 		sort.Slice(ranked, func(i, j int) bool {
-			if ranked[i].matches != ranked[j].matches {
-				return ranked[i].matches > ranked[j].matches
+			if ranked[i].weight != ranked[j].weight {
+				return ranked[i].weight > ranked[j].weight
 			}
 			if (ranked[i].Type == "note") != (ranked[j].Type == "note") {
 				return ranked[i].Type == "note"
