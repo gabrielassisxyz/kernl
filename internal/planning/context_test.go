@@ -721,3 +721,73 @@ func TestLinkingScoringDemotesTheLongDocument(t *testing.T) {
 		t.Errorf("linking must put the note the seed is about first, got %q", byLength[0].Title)
 	}
 }
+
+// TestBuildContextForLinking_ReturnsNotesOnly holds the boundary between the two
+// paths: a link candidate has to be something a wikilink can point at, and only a
+// note has a file. An entity in the list is a slot spent on a target the writer
+// never sees, because the caller discards it.
+func TestBuildContextForLinking_ReturnsNotesOnly(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	seedNote(t, g, "Zephyr protocol", "The zephyr protocol handles retries.")
+	seedTask(t, g, "Ship zephyr", "The zephyr rollout needs retries measured.", nodes.TaskStatusInProgress)
+	seedProject(t, g, "Zephyr", "Everything zephyr, retries included.", nodes.DefaultProjectStatus)
+
+	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr retries", 8)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	if len(notes) == 0 {
+		t.Fatal("expected the note to be returned")
+	}
+	for _, n := range notes {
+		if n.Type != "note" {
+			t.Errorf("linking must return notes only, got %q of type %q", n.Title, n.Type)
+		}
+	}
+}
+
+// TestBuildContextForLinking_CompanionSurvivesItsEntity is the case over-fetching
+// cannot reach. The ranking collapses an entity and its companion note into one
+// slot, keeping whichever scores higher; when the entity wins, the companion is
+// marked seen and never returned. A caller that then drops the entity for not
+// being a note loses both halves, so the companion has to be retrieved in the
+// entity's place rather than filtered out after it.
+func TestBuildContextForLinking_CompanionSurvivesItsEntity(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// The entity carries the vocabulary; its companion carries one mention, which
+	// is what a thin companion looks like in the vault.
+	taskID := seedTask(t, g, "Zephyr retries", "The zephyr protocol retries every failed delivery.", nodes.TaskStatusInProgress)
+	companionID := seedCompanionNote(t, g, "Zephyr retries", "Notes for zephyr.", taskID)
+
+	// The seed carries four terms the entity's description matches and only one
+	// the companion body does, so the entity outscores its own companion.
+	const seed = "zephyr protocol retries delivery"
+
+	byCount, err := planning.BuildContext(ctx, g, seed, 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	// The premise: on the planning path the entity takes the pair's only slot.
+	// Without it this test would pass for the wrong reason.
+	if len(byCount) != 1 || byCount[0].ID != taskID {
+		t.Fatalf("premise broken: planning should return the entity alone, got %+v", byCount)
+	}
+
+	notes, err := planning.BuildContextForLinking(ctx, g, seed, 8)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	var found bool
+	for _, n := range notes {
+		if n.ID == companionID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("the companion note must be offered when its entity is not a candidate, got %+v", notes)
+	}
+}
