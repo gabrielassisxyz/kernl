@@ -11,6 +11,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/planning"
+	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/wikilink"
 )
 
@@ -28,6 +29,7 @@ import (
 // excludeID excludes nothing, so the first write of a note (which has no id
 // yet) is unaffected.
 func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, excludeID string) ([]nodes.LinkCandidate, error) {
+	seed = withEntityContext(ctx, g, seed, excludeID)
 	// One slot over when there is something to exclude, then trimmed back. The
 	// point of dropping the self-candidate is that it was costing a real one;
 	// filtering a list already closed at limit removes the bad link and keeps
@@ -84,6 +86,46 @@ func DeriveReceipts(prev []nodes.LinkCandidate, body string) (accepted, rejected
 		}
 	}
 	return accepted, rejected
+}
+
+// withEntityContext adds what a companion note is ABOUT to its seed.
+//
+// A companion is created holding one generated line, "Notes for [[id|title]].",
+// and nothing else until somebody writes in it. Measured 2026-08-20: 468 of 636
+// companions still have under 200 bytes of indexed body. Seeding link suggestion
+// on that body asks the ranker to find neighbours for a template, and it answers
+// accordingly - a companion for the homelab project was offered notes about the
+// editor UI, matched on the word "Notes".
+//
+// The subject is not missing, it is one edge away. The entity's title and
+// description are what the companion is for, and they are already indexed on the
+// entity's own node. Appending rather than replacing, so a companion somebody has
+// written in keeps what they wrote and gains the context around it.
+//
+// Everything is best-effort: a note with no entity, a deleted entity or a failed
+// read leaves the seed exactly as it came in. A worse seed is a worse suggestion,
+// never a failed write.
+func withEntityContext(ctx context.Context, g *graph.Graph, seed, noteID string) string {
+	if noteID == "" || g == nil {
+		return seed
+	}
+	var title, description string
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		return tx.QueryRow(`
+			SELECT COALESCE(e.title, ''), COALESCE(json_extract(e.attrs, '$.description'), '')
+			FROM edges ed
+			JOIN nodes e ON e.id = ed.dst AND e.deleted_at IS NULL
+			WHERE ed.src = ? AND ed.label = ?
+			LIMIT 1`, noteID, companion.EdgeLabel).Scan(&title, &description)
+	})
+	if err != nil {
+		return seed
+	}
+	extra := strings.TrimSpace(title + "\n" + description)
+	if extra == "" {
+		return seed
+	}
+	return strings.TrimSpace(seed + "\n" + extra)
 }
 
 // linked reports whether a candidate is referenced by the body's wikilink
