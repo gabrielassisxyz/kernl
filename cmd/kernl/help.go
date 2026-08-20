@@ -272,7 +272,7 @@ Examples:
 	{
 		Name:    "plan",
 		Summary: "Show the vault notes relevant to a topic (substrate-aware planning)",
-		Usage:   "kernl plan [--json] [--limit <n>] <topic>",
+		Usage:   "kernl plan [--json] [--limit <n>] [--for-linking] <topic>",
 		Details: `{{flags}}
 
 Example:
@@ -281,6 +281,12 @@ Example:
 			{Name: "--json", Description: `Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout`,
 				Continuation: []string{`path is null for via=claim (a claim has no file on disk)`}},
 			{Name: "--limit", Value: "<n>", Description: "Maximum notes to return (default: 8)"},
+			{Name: "--for-linking", Description: "Score the way link suggestion does, weighing a term by the",
+				Continuation: []string{
+					"rank FTS5 gives it so a long note stops matching every seed.",
+					"The seed there is a whole note, not a question. Exists so the",
+					"mechanism can be measured without writing a note to see it.",
+				}},
 		},
 	},
 	{

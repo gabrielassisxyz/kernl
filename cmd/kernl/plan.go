@@ -15,9 +15,10 @@ import (
 // planArgs is the parsed surface of `kernl plan`: the topic seed, the note
 // limit, and whether the caller wants the machine-readable JSON contract.
 type planArgs struct {
-	asJSON bool
-	limit  int
-	topic  string
+	asJSON     bool
+	forLinking bool
+	limit      int
+	topic      string
 }
 
 // parsePlanArgs turns the plan verb's args into planArgs. The limit defaults
@@ -33,6 +34,8 @@ func parsePlanArgs(args []string) (planArgs, error) {
 		switch {
 		case arg == "--json":
 			p.asJSON = true
+		case arg == "--for-linking":
+			p.forLinking = true
 		case arg == "--limit":
 			if i+1 >= len(args) {
 				return p, usagef("KERNL DISPATCH FAILURE: --limit requires a value - run: kernl plan --help")
@@ -81,7 +84,15 @@ func runPlan(configPath string, args []string) error {
 	}
 	defer a.Close()
 
-	notes, err := planning.BuildContext(context.Background(), a.Graph, seed, pa.limit)
+	// Link suggestion scores the same signal differently, because its seed is a
+	// whole note rather than a question. Exposing that here is what lets the
+	// mechanism be measured from outside: an instrument that had to write a note
+	// to see the candidates would change the corpus it is measuring.
+	build := planning.BuildContext
+	if pa.forLinking {
+		build = planning.BuildContextForLinking
+	}
+	notes, err := build(context.Background(), a.Graph, seed, pa.limit)
 	if err != nil {
 		return fmt.Errorf("building planning context: %w", err)
 	}
