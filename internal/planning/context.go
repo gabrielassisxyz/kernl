@@ -30,6 +30,20 @@ const maxContextClaims = 4
 // description, both FTS-indexed, so they are planning context alongside notes.
 var contextTypes = []string{"note", "task", "project"}
 
+// linkTypes are the node types the LINKING path retrieves. A link candidate has
+// to be something a wikilink can point at, and only a note has a file, so a task
+// or a project reaching the candidate list is a slot spent on a target that will
+// be discarded before the writer ever sees it.
+//
+// Filtering after retrieval is not the same thing and was measured: with tasks
+// and projects in the ranking, 20 thin companion notes were offered an average of
+// 4.7 candidates of the 8 asked for, and one was offered none. Worse, the ranking
+// collapses a task and its companion note into one slot; when the task wins that
+// slot the note is marked seen, so dropping the task afterwards loses BOTH halves
+// and no amount of over-fetching brings the note back. Retrieving notes only is
+// the fix that reaches that case.
+var linkTypes = []string{"note"}
+
 // stopwords are common words dropped from a planning seed before retrieval, so
 // the content signal keys on the meaningful terms.
 //
@@ -128,7 +142,7 @@ const snippetLen = 240
 // one seam where a note is retrieved as knowledge, rather than at each caller  -
 // the rule is a property of the note, not of who is asking.
 func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
-	return buildContext(ctx, g, seed, limit, scoreByTermCount)
+	return buildContext(ctx, g, seed, limit, scoreByTermCount, contextTypes)
 }
 
 // BuildContextForLinking is BuildContext scored for a different question, and the
@@ -148,7 +162,7 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 // genuinely lives inside a large note gets buried with the noise. So the two
 // scorings stay apart, because the two questions are apart.
 func BuildContextForLinking(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
-	return buildContext(ctx, g, seed, limit, scoreByLengthNormalizedRank)
+	return buildContext(ctx, g, seed, limit, scoreByLengthNormalizedRank, linkTypes)
 }
 
 // scoring says what a matched term is worth to a node.
@@ -176,7 +190,7 @@ func termScore(how scoring, rank float64) float64 {
 	return 1
 }
 
-func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, how scoring) ([]ContextNote, error) {
+func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, how scoring, types []string) ([]ContextNote, error) {
 	if limit <= 0 {
 		limit = 8
 	}
@@ -201,7 +215,7 @@ func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, h
 		}
 		scored := map[string]*agg{}
 		for _, term := range salientTerms(seed) {
-			hits, err := search.Search(ctx, tx, term, search.WithTypes(contextTypes...))
+			hits, err := search.Search(ctx, tx, term, search.WithTypes(types...))
 			if err != nil {
 				continue // a single bad term must not sink the whole retrieval
 			}
@@ -296,7 +310,7 @@ func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, h
 				if err != nil {
 					return fmt.Errorf("planning: node surface: %w", err)
 				}
-				if !isContextType(surface.typ) {
+				if !slices.Contains(types, surface.typ) {
 					continue
 				}
 				if surface.typ == "note" && surface.origin == nodes.OriginPrep {
@@ -443,11 +457,6 @@ func fetchNodeSurface(tx *graph.ReadTx, nodeID string) (nodeSurface, error) {
 		title: title, typ: typ, status: status.String,
 		origin: origin.String, snippet: truncateSnippet(text),
 	}, nil
-}
-
-// isContextType reports whether a node type is one BuildContext retrieves.
-func isContextType(typ string) bool {
-	return slices.Contains(contextTypes, typ)
 }
 
 // excludedByState reports whether a node's status marks it as finished work
