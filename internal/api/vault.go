@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -187,8 +190,30 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		// out-of-band right after the editor loads the file, bumping the mtime and
 		// turning the editor's very next autosave into a false 409 conflict.
 		// InjectID is a no-op when an id is already present.
+		//
+		// The id to inject is the one this PATH already has, and minting a fresh one
+		// unconditionally is what destroyed a note's history on 2026-08-01: a save whose
+		// frontmatter omitted id - which the editor's own round-trip produces - gave the
+		// file a stranger's identity, and the next cold start could not match it to the
+		// cached uuid, so it tombstoned the original node and adopted the new one. The
+		// body survived; the revisions and every edge pointing at the old id did not.
+		// A path with no row is genuinely new and gets a new id, which is the case the
+		// injection was written for.
 		if strings.HasSuffix(fullPath, ".md") {
-			if injected, injErr := frontmatter.InjectID(body, uuid.Must(uuid.NewV7()).String()); injErr == nil {
+			relPath, relErr := filepath.Rel(root, fullPath)
+			if relErr != nil {
+				http.Error(w, relErr.Error(), http.StatusInternalServerError)
+				return
+			}
+			id, err := noteIDForPath(r.Context(), a.Graph, relPath)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if id == "" {
+				id = uuid.Must(uuid.NewV7()).String()
+			}
+			if injected, injErr := frontmatter.InjectID(body, id); injErr == nil {
 				body = injected
 			}
 		}
@@ -410,4 +435,38 @@ func previousLinkState(ctx context.Context, g *graph.Graph, body []byte) ([]node
 		return nil, err
 	}
 	return state.Suggestions, nil
+}
+
+// noteIDForPath returns the node id the vault cache already holds for a path, or
+// the empty string when the path is new to it.
+//
+// Only a LIVE node counts. A path whose node was tombstoned is not an identity to
+// preserve - resurrecting a deleted id would reattach the new file to a history that
+// was deliberately ended - so that case is treated as new and gets a fresh id.
+func noteIDForPath(ctx context.Context, g *graph.Graph, relPath string) (string, error) {
+	// No graph, no identity to look up. A server always has one; this is the
+	// graph-less App some handlers are exercised with, where minting is the only
+	// answer available rather than a preference.
+	if g == nil {
+		return "", nil
+	}
+	var id string
+	err := g.DoRead(ctx, func(tx *graph.ReadTx) error {
+		row := tx.QueryRow(
+			`SELECT np.uuid FROM note_paths np
+			 JOIN nodes n ON n.id = np.uuid AND n.deleted_at IS NULL
+			 WHERE np.path = ?`, relPath)
+		switch scanErr := row.Scan(&id); {
+		case errors.Is(scanErr, sql.ErrNoRows):
+			id = ""
+			return nil
+		case scanErr != nil:
+			return scanErr
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("vault: resolving the id of %q: %w", relPath, err)
+	}
+	return id, nil
 }
