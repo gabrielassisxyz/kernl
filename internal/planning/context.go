@@ -81,6 +81,33 @@ var stopwords = map[string]bool{
 	"já": true, "jah": true, "ainda": true, "agora": true, "depois": true,
 	"antes": true, "aqui": true, "ali": true, "lá": true, "eu": true,
 	"coisa": true, "coisas": true,
+
+	// The functional tail, added 2026-08-20. These are the words a seed carries because
+	// it is a sentence, not because it is about anything: quantifiers, connectives,
+	// hedges and positions. Document frequency measured over the 823 notes in the vault -
+	// "então" matches 19.1% of them, "nada" 17.5%, "porque" 17.4%, "mesmo" 17.1% - and
+	// under term counting each of those weighs exactly what "zfs" weighs.
+	//
+	// Words that are functional in one reading and content in another are deliberately
+	// NOT here, however common: vez (20.7%), primeiro (14.9%), forma (12.2%), parte,
+	// lugar, ponto, ordem, caso, ideia, lado, modo, jeito, dado. "dado" is the clearest
+	// of them - it is the Portuguese for a datum, in a vault that talks about data.
+	// A stopword list earns its keep by dropping words nobody could be searching for;
+	// one word of real content dropped costs more than ten function words kept.
+	// en
+	"each": true, "some": true, "every": true, "while": true, "whose": true,
+	"may": true, "also": true, "then": true, "than": true, "both": true,
+	"other": true, "another": true, "such": true, "only": true, "just": true,
+	"even": true, "still": true, "many": true, "few": true,
+	// pt
+	"contra": true, "abaixo": true, "acima": true, "seria": true,
+	"provavelmente": true, "talvez": true, "apenas": true, "mesmo": true,
+	"dentro": true, "fora": true, "algum": true, "outro": true,
+	"sempre": true, "nunca": true, "quase": true, "entao": true, "então": true,
+	"assim": true, "porque": true, "enquanto": true, "embora": true,
+	"desde": true, "alguem": true, "alguém": true, "ninguem": true,
+	"ninguém": true, "tudo": true, "nada": true, "veio": true, "vem": true,
+	"cada": true,
 }
 
 // salientTerms splits a seed into lowercased, de-duplicated content terms,
