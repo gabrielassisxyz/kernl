@@ -22,15 +22,16 @@ const (
 	// spike case - it belongs to the operator, never to a queue.
 	DepthGate Depth = "gate"
 
-	// DepthFullPipeline runs a planner before an implementer: what "correct"
-	// means is settled, but how to get there is not, so a plan is what has
-	// to exist before code does.
+	// DepthFullPipeline runs a planner before an implementer: no acceptance
+	// criteria are stated, so what "correct" means for this bead was never
+	// settled, and that has to happen before an implementer commits to an
+	// approach.
 	DepthFullPipeline Depth = "full_pipeline"
 
 	// DepthShortFlow skips the planner: a single implementer goes straight
-	// to work because a failing test (or an equivalent, already-stated
-	// acceptance criterion) already says what "correct" means for a
-	// localized defect.
+	// to work because the bead already states its own acceptance criteria -
+	// a bead that exists has already been planned, so this is the default,
+	// not the exception.
 	DepthShortFlow Depth = "short_flow"
 )
 
@@ -79,28 +80,30 @@ func openDesignReason(b backend.Bead) (string, bool) {
 // ClassifyDepth proposes a depth for one candidate bead. ProposeDepths below
 // is the list version every real caller uses; this is exported on its own
 // so a single classification can be tested and reasoned about in isolation.
+//
+// The default is DepthShortFlow, not DepthFullPipeline: a bead that exists
+// has already been planned - that is what turned an idea into a bead in the
+// first place - so the exception that needs a positive reason is the one
+// that still runs a planner, not the one that skips it. DepthFullPipeline
+// is reached only when acceptance criteria are missing, which is the
+// positive, checkable fact that "what correct means" was never settled.
 func ClassifyDepth(b backend.Bead) DepthProposal {
 	if reason, ok := openDesignReason(b); ok {
 		return DepthProposal{ID: b.ID, Depth: DepthGate, Reason: reason}
 	}
 
-	// "bug" is br's issue_type for a defect report, not this package's own
-	// vocabulary - see brIssue.IssueType in internal/backend/brcli.go. A bug
-	// with acceptance criteria already on file means a failing test already
-	// defines correct, which is exactly the short-flow case: nothing left
-	// for a planner to decide.
-	if b.Type == "bug" && strings.TrimSpace(b.Acceptance) != "" {
+	if strings.TrimSpace(b.Acceptance) == "" {
 		return DepthProposal{
 			ID:     b.ID,
-			Depth:  DepthShortFlow,
-			Reason: "a bug with acceptance criteria already stated - a failing test already defines what correct means, so one implementer can go straight to it, no planner needed",
+			Depth:  DepthFullPipeline,
+			Reason: "no acceptance criteria stated - what correct means for this bead was never settled, so a planner needs to decide it before an implementer commits to an approach",
 		}
 	}
 
 	return DepthProposal{
 		ID:     b.ID,
-		Depth:  DepthFullPipeline,
-		Reason: "no open-design language and no ready-made acceptance criteria for a localized defect - a planner should settle how before an implementer commits to an approach",
+		Depth:  DepthShortFlow,
+		Reason: "a bead that exists has already been planned - acceptance criteria are already stated, so one implementer can go straight to it, no planner needed",
 	}
 }
 
