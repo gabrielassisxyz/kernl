@@ -13,6 +13,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
+	"github.com/gabrielassisxyz/kernl/internal/vault/wikilink"
 )
 
 // taskDTO is the camelCase shape the web client consumes.
@@ -151,6 +152,9 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 				return err
 			}
 		}
+		if err := wikilink.ResolveDescriptionInTx(ctx, tx, id, req.Description); err != nil {
+			return err
+		}
 		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.TasksFolder, title, req.Description, "task")
 		return err
 	})
@@ -245,6 +249,9 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			}
 		}
 		if req.Description != nil {
+			if err := wikilink.ResolveDescriptionInTx(ctx, tx, id, *req.Description); err != nil {
+				return err
+			}
 			if err := nodes.SetTaskDescription(ctx, tx, id, *req.Description, author); err != nil {
 				return err
 			}

@@ -17,6 +17,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 	"github.com/gabrielassisxyz/kernl/internal/vault/reconcile"
+	"github.com/gabrielassisxyz/kernl/internal/vault/wikilink"
 )
 
 // mergedIntoLabel marks the provenance edge from a note to the capture whose
@@ -431,6 +432,9 @@ func createTaskFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot stri
 			return "", companion.File{}, err
 		}
 	}
+	if err := wikilink.ResolveDescriptionInTx(ctx, tx, id, t.Description); err != nil {
+		return "", companion.File{}, err
+	}
 	cf, err := companion.Create(ctx, tx, vaultRoot, id, layout.TasksFolder, t.Title, t.Description, "task")
 	if err != nil {
 		return "", companion.File{}, err
@@ -463,6 +467,9 @@ func createProjectFromAction(ctx context.Context, tx *graph.WriteTx, vaultRoot s
 	}
 
 	created := []string{projectID}
+	if err := wikilink.ResolveDescriptionInTx(ctx, tx, projectID, description); err != nil {
+		return nil, nil, err
+	}
 	projectCompanion, err := companion.Create(ctx, tx, vaultRoot, projectID, layout.ProjectsFolder, title, description, "project")
 	if err != nil {
 		return nil, nil, err
