@@ -162,9 +162,18 @@ func resolveInTx(ctx context.Context, tx *graph.WriteTx, srcNodeID, body string)
 
 // PromoteKey represents a key that can be matched against dangling_links
 // when a new note appears.
+// PromoteKey is one spelling under which a newly adopted note might have been
+// linked before it existed.
+//
+// It carries no kind, and that absence is the fix rather than an omission. A
+// dangling row's target_kind is not a classification of the target: ClassifyTarget
+// sees only text and calls everything that is not a uuid a "stem", so the title
+// "Kernl: redesign brief" and the path "kernl/tasks/foo" are both stored as stems.
+// Matching on the kind column therefore compared a title key against stem rows and
+// never matched, which is the defect. The key is the only thing that carries
+// information, so the key is what is matched.
 type PromoteKey struct {
-	Key  string
-	Kind string // "stem" or "title"
+	Key string
 }
 
 // PromoteDangling scans dangling_links for rows matching the given keys and
@@ -205,8 +214,8 @@ func promoteDanglingInTx(ctx context.Context, tx *graph.WriteTx, noteID string, 
 	var promoted int
 	for _, key := range keys {
 		rows, err := tx.Query(
-			`SELECT id, src_node_id, target_key, target_kind FROM dangling_links WHERE target_key = ? AND target_kind = ?`,
-			key.Key, key.Kind,
+			`SELECT id, src_node_id, target_key, target_kind FROM dangling_links WHERE target_key = ?`,
+			key.Key,
 		)
 		if err != nil {
 			return promoted, fmt.Errorf("PromoteDangling: query: %w", err)

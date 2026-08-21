@@ -498,7 +498,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 			}
 
 			// Promote any dangling links that now point here
-			keys := danglingKeysFor(title, absPath)
+			keys := r.danglingKeysFor(title, absPath)
 			p, err := wikilink.PromoteDanglingInTx(ctx, tx, pending.nodeID, keys...)
 			if err != nil {
 				return fmt.Errorf("PromoteDanglingInTx (move): %w", err)
@@ -583,7 +583,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 					return fmt.Errorf("UpdateNote (revive): %w", err)
 				}
 
-				keys := danglingKeysFor(title, absPath)
+				keys := r.danglingKeysFor(title, absPath)
 				p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, keys...)
 				if err != nil {
 					return fmt.Errorf("PromoteDanglingInTx (revive): %w", err)
@@ -638,7 +638,7 @@ func (r *Reconciler) OnCreate(ctx context.Context, absPath string) error {
 		}
 
 		// Promote any previously-dangling links pointing at this note
-		keys := danglingKeysFor(title, absPath)
+		keys := r.danglingKeysFor(title, absPath)
 		p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, keys...)
 		if err != nil {
 			return fmt.Errorf("PromoteDanglingInTx: %w", err)
@@ -690,7 +690,7 @@ func (r *Reconciler) adoptNote(
 		if _, err := r.resolver.ResolveInTx(ctx, tx, noteID, body); err != nil {
 			return fmt.Errorf("ResolveInTx (adopt): %w", err)
 		}
-		p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, danglingKeysFor(title, absPath)...)
+		p, err := wikilink.PromoteDanglingInTx(ctx, tx, noteID, r.danglingKeysFor(title, absPath)...)
 		if err != nil {
 			return fmt.Errorf("PromoteDanglingInTx (adopt): %w", err)
 		}
@@ -1118,15 +1118,33 @@ func extractBody(raw []byte) string {
 
 // danglingKeysFor returns the PromoteKeys for a note: stem and title.
 // Stem is derived from the filename; title is the resolved display title.
-func danglingKeysFor(title, absPath string) []wikilink.PromoteKey {
+// danglingKeysFor returns every spelling under which this note could have been
+// linked before it existed: the file stem, the title, and the vault-relative path
+// without its extension.
+//
+// All three, because the resolver stores the target text exactly as it was written
+// and cannot know which spelling it is. Offering only the stem lost a link whose
+// text was the title, which happens whenever a file name cannot carry the title -
+// a colon is enough. Offering stem and title still lost a link written as the
+// vault-relative path, because that diverges in the KEY rather than in the kind,
+// which is why matching by key alone was not sufficient on its own.
+func (r *Reconciler) danglingKeysFor(title, absPath string) []wikilink.PromoteKey {
 	base := filepath.Base(absPath)
 	stem := strings.TrimSuffix(base, filepath.Ext(base))
 
+	seen := map[string]bool{}
 	var keys []wikilink.PromoteKey
-	keys = append(keys, wikilink.PromoteKey{Key: stem, Kind: "stem"})
-	if title != "" && title != stem {
-		keys = append(keys, wikilink.PromoteKey{Key: title, Kind: "title"})
+	add := func(k string) {
+		if k == "" || seen[k] {
+			return
+		}
+		seen[k] = true
+		keys = append(keys, wikilink.PromoteKey{Key: k})
 	}
+	add(stem)
+	add(title)
+	rel := r.relPath(absPath)
+	add(strings.TrimSuffix(rel, filepath.Ext(rel)))
 	return keys
 }
 
