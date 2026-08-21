@@ -22,12 +22,15 @@ import (
 // whole note rather than a question, and against a seed that long every large
 // document matches something. See BuildContextForLinking for the measurement.
 //
+// linkBudget reserves that many of the slots for notes reached by an edge from a
+// content hit; config.PlanningConfig owns the value and the curve behind it.
+//
 // excludeID, when non-empty, drops the note being written from the candidates:
 // from the second write of a note onward it is already in the graph, matches
 // its own body, and would otherwise be offered as a link to itself. An empty
 // excludeID excludes nothing, so the first write of a note (which has no id
 // yet) is unaffected.
-func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, excludeID string) ([]nodes.LinkCandidate, error) {
+func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, excludeID string, linkBudget int) ([]nodes.LinkCandidate, error) {
 	seed = withEntityContext(ctx, g, seed, excludeID)
 	// One slot over when there is something to exclude, then trimmed back. The
 	// point of dropping the self-candidate is that it was costing a real one;
@@ -37,7 +40,7 @@ func Suggest(ctx context.Context, g *graph.Graph, seed string, limit int, exclud
 	if excludeID != "" && limit > 0 {
 		fetch = limit + 1
 	}
-	notes, err := planning.BuildContextForLinking(ctx, g, seed, fetch)
+	notes, err := planning.BuildContextForLinking(ctx, g, seed, fetch, linkBudget)
 	if err != nil {
 		return nil, err
 	}

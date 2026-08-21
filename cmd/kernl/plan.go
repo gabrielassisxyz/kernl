@@ -19,6 +19,11 @@ type planArgs struct {
 	forLinking bool
 	limit      int
 	topic      string
+	// linkBudget overrides config's planning.linkBudget for this one call. nil
+	// means "whatever the config resolves to", which is what every real caller
+	// wants; a value is how the curve gets swept without editing the config and
+	// restarting anything.
+	linkBudget *int
 }
 
 // parsePlanArgs turns the plan verb's args into planArgs. The limit defaults
@@ -49,9 +54,25 @@ func parsePlanArgs(args []string) (planArgs, error) {
 				return p, usagef("KERNL DISPATCH FAILURE: --limit must be positive, got %d", n)
 			}
 			p.limit = n
+		case arg == "--link-budget":
+			if i+1 >= len(args) {
+				return p, usagef("KERNL DISPATCH FAILURE: --link-budget requires a value - run: kernl plan --help")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return p, usagef("KERNL DISPATCH FAILURE: --link-budget needs a non-negative integer, got %q", args[i])
+			}
+			if n < 0 {
+				return p, usagef("KERNL DISPATCH FAILURE: --link-budget must be non-negative, got %d", n)
+			}
+			if n >= p.limit {
+				return p, usagef("KERNL DISPATCH FAILURE: --link-budget %d leaves no slot for the content hits it walks out from (limit %d)", n, p.limit)
+			}
+			p.linkBudget = &n
 		case strings.HasPrefix(arg, "-"):
-			return p, usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s - valid: --json, --limit <n>",
-				arg, didYouMean(arg, []string{"--json", "--limit"}))
+			return p, usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s - valid: --json, --limit <n>, --for-linking, --link-budget <n>",
+				arg, didYouMean(arg, []string{"--json", "--limit", "--for-linking", "--link-budget"}))
 		default:
 			topicWords = append(topicWords, arg)
 		}
@@ -88,11 +109,23 @@ func runPlan(configPath string, args []string) error {
 	// whole note rather than a question. Exposing that here is what lets the
 	// mechanism be measured from outside: an instrument that had to write a note
 	// to see the candidates would change the corpus it is measuring.
-	build := planning.BuildContext
-	if pa.forLinking {
-		build = planning.BuildContextForLinking
+	//
+	// --link-budget is the sweep surface, and the reason it exists rather than an
+	// environment variable: the budget is a measured value that ages with the
+	// graph's density, so re-reading the curve has to be one command away or the
+	// warning on config.PlanningConfig is a warning nobody can act on. This verb
+	// opens the graph in process, so a sweep touches no running server.
+	linkBudget := cfg.Planning.LinkBudgetOrDefault()
+	if pa.linkBudget != nil {
+		linkBudget = *pa.linkBudget
 	}
-	notes, err := build(context.Background(), a.Graph, seed, pa.limit)
+	build := func(ctx context.Context, seed string, limit int) ([]planning.ContextNote, error) {
+		if pa.forLinking {
+			return planning.BuildContextForLinking(ctx, a.Graph, seed, limit, linkBudget)
+		}
+		return planning.BuildContext(ctx, a.Graph, seed, limit)
+	}
+	notes, err := build(context.Background(), seed, pa.limit)
 	if err != nil {
 		return fmt.Errorf("building planning context: %w", err)
 	}

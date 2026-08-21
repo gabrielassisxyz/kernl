@@ -30,7 +30,7 @@ func TestPrep(t *testing.T) {
 	}
 
 	llm := &mockLLM{content: "A nuclear plant boils water with fission heat to spin turbines."}
-	noteID, err := Prep(ctx, g, llm, vaultRoot, "DA", captureID)
+	noteID, err := Prep(ctx, g, llm, vaultRoot, "DA", captureID, 3)
 	if err != nil {
 		t.Fatalf("Prep: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestPrep(t *testing.T) {
 	}
 
 	// Idempotent: a second prep returns the same note, creates nothing new.
-	again, err := Prep(ctx, g, llm, vaultRoot, "DA", captureID)
+	again, err := Prep(ctx, g, llm, vaultRoot, "DA", captureID, 3)
 	if err != nil {
 		t.Fatalf("Prep (2nd): %v", err)
 	}
@@ -113,7 +113,7 @@ func TestProcessLinksBriefing(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateCapture: %v", err)
 	}
-	prepID, err := Prep(ctx, g, &mockLLM{content: "primer body"}, vaultRoot, "DA", captureID)
+	prepID, err := Prep(ctx, g, &mockLLM{content: "primer body"}, vaultRoot, "DA", captureID, 3)
 	if err != nil {
 		t.Fatalf("Prep: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestDiscardDeletesPrep(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateCapture: %v", err)
 	}
-	prepID, err := Prep(ctx, g, &mockLLM{content: "primer"}, vaultRoot, "DA", captureID)
+	prepID, err := Prep(ctx, g, &mockLLM{content: "primer"}, vaultRoot, "DA", captureID, 3)
 	if err != nil {
 		t.Fatalf("Prep: %v", err)
 	}

@@ -707,7 +707,7 @@ func TestLinkingScoringDemotesTheLongDocument(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
-	byLength, err := planning.BuildContextForLinking(ctx, g, seed, 8)
+	byLength, err := planning.BuildContextForLinking(ctx, g, seed, 8, 3)
 	if err != nil {
 		t.Fatalf("BuildContextForLinking: %v", err)
 	}
@@ -734,7 +734,7 @@ func TestBuildContextForLinking_ReturnsNotesOnly(t *testing.T) {
 	seedTask(t, g, "Ship zephyr", "The zephyr rollout needs retries measured.", nodes.TaskStatusInProgress)
 	seedProject(t, g, "Zephyr", "Everything zephyr, retries included.", nodes.DefaultProjectStatus)
 
-	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr retries", 8)
+	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr retries", 8, 3)
 	if err != nil {
 		t.Fatalf("BuildContextForLinking: %v", err)
 	}
@@ -777,7 +777,7 @@ func TestBuildContextForLinking_CompanionSurvivesItsEntity(t *testing.T) {
 		t.Fatalf("premise broken: planning should return the entity alone, got %+v", byCount)
 	}
 
-	notes, err := planning.BuildContextForLinking(ctx, g, seed, 8)
+	notes, err := planning.BuildContextForLinking(ctx, g, seed, 8, 3)
 	if err != nil {
 		t.Fatalf("BuildContextForLinking: %v", err)
 	}
@@ -789,5 +789,155 @@ func TestBuildContextForLinking_CompanionSurvivesItsEntity(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the companion note must be offered when its entity is not a candidate, got %+v", notes)
+	}
+}
+
+// seedLink joins two existing notes with a links_to edge, which is what the edge
+// expansion walks.
+func seedLink(t *testing.T, g *graph.Graph, src, dst string) {
+	t.Helper()
+	ctx := context.Background()
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		_, err := edges.Create(ctx, tx, edges.Edge{
+			Src: src, Dst: dst, Type: edges.EdgeTypeLinksTo,
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+}
+
+// TestBuildContext_TheQuestionPathDoesNotExpand pins the scope of the expansion: it
+// belongs to linking and not to questions. The whole budget curve was measured through
+// link recall, which reads the tail the expansion rewrites; the three question sets came
+// back identical with it on, because recall@5, MRR and nDCG read the head. No number
+// means no ship, and the question path also carries the callers that can least afford
+// the reservation - ingest resolves against a limit of 5, the inbox classifier against 6.
+func TestBuildContext_TheQuestionPathDoesNotExpand(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	hit := seedNote(t, g, "Zephyr protocol", "The zephyr protocol handles retries.")
+	// Shares no vocabulary with the seed: content match cannot reach it, only an edge can.
+	neighbour := seedNote(t, g, "Mount points on the workstation", "Disks, fstab and nothing else.")
+	seedLink(t, g, hit, neighbour)
+
+	notes, err := planning.BuildContext(ctx, g, "zephyr", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	for _, n := range notes {
+		if n.ID == neighbour {
+			t.Fatalf("the question path must not expand over edges, got %+v", notes)
+		}
+	}
+}
+
+// TestBuildContextForLinking_EdgeExpansionReachesANoteContentCannot is the expansion
+// itself: a note one edge away from a content hit is offered as a candidate, marked
+// linked. Measured 2026-08-19 this returned nothing at all, and the cause was the corpus -
+// only 106 of 808 notes reached another note, so there was nothing to walk. After the
+// retroactive pass of 2026-08-20 it takes link recall from 0.720 to 0.827 on the frozen
+// cohort, whose links somebody made by reading.
+func TestBuildContextForLinking_EdgeExpansionReachesANoteContentCannot(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	hit := seedNote(t, g, "Zephyr protocol", "The zephyr protocol handles retries.")
+	neighbour := seedNote(t, g, "Mount points on the workstation", "Disks, fstab and nothing else.")
+	seedLink(t, g, hit, neighbour)
+
+	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr", 8, 3)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	var found *planning.ContextNote
+	for i := range notes {
+		if notes[i].ID == neighbour {
+			found = &notes[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("the neighbour must be reached by the edge, got %+v", notes)
+	}
+	if found.Via != "linked" {
+		t.Errorf("via = %q, want \"linked\" - the caller has to be able to tell how it arrived", found.Via)
+	}
+}
+
+// TestBuildContextForLinking_EdgeExpansionSpendsTheContentBudget pins the constraint that
+// makes this measurable at all: the reserved slots come OUT OF the limit, never on top of
+// it. An expansion that widens the context window measures something nobody would ship.
+//
+// It also pins the budget itself. There are more content hits than slots, so every slot
+// not taken by expansion goes to content, and the split is arithmetic: raising or lowering
+// the constant moves these two counts and nothing else does.
+func TestBuildContextForLinking_EdgeExpansionSpendsTheContentBudget(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	var hits []string
+	for i := 0; i < 12; i++ {
+		hits = append(hits, seedNote(t, g, fmt.Sprintf("Zephyr note %d", i), "zephyr retries"))
+	}
+	for i, h := range hits {
+		n := seedNote(t, g, fmt.Sprintf("Neighbour %d", i), "disks fstab mount")
+		seedLink(t, g, h, n)
+	}
+
+	const limit = 8
+	const budget = 3
+	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr retries", limit, budget)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	if len(notes) != limit {
+		t.Fatalf("the limit is the whole budget and there is enough to fill it, got %d: %+v", len(notes), notes)
+	}
+	var content, linked int
+	for _, n := range notes {
+		switch n.Via {
+		case "content":
+			content++
+		case "linked":
+			linked++
+		}
+	}
+	if linked != budget {
+		t.Errorf("expansion took %d slots, want %d - the budget it was given: %+v", linked, budget, notes)
+	}
+	if content != limit-budget {
+		t.Errorf("content took %d slots, want %d - the expansion is paid for out of the content budget, not on top of it: %+v", content, limit-budget, notes)
+	}
+}
+
+// TestBuildContextForLinking_AnUnfillableBudgetCostsNothing pins the half of the
+// reservation that is easy to get wrong: the slots are deducted for what the walk
+// actually found, never for what it was allowed to find. Reserving up front charged the
+// content budget whether or not the expansion could spend it, and at a small limit that
+// was fatal - the note being written took the one surviving content slot and the
+// self-exclusion then dropped it, for zero candidates.
+func TestBuildContextForLinking_AnUnfillableBudgetCostsNothing(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// Content hits with no edges at all: the expansion has nowhere to walk.
+	for i := 0; i < 10; i++ {
+		seedNote(t, g, fmt.Sprintf("Zephyr note %d", i), "zephyr retries")
+	}
+
+	const limit = 8
+	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr retries", limit, 3)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	if len(notes) != limit {
+		t.Fatalf("a budget the expansion cannot spend must cost content nothing, got %d of %d: %+v",
+			len(notes), limit, notes)
+	}
+	for _, n := range notes {
+		if n.Via == "linked" {
+			t.Fatalf("nothing is linked here, so no slot may be filled by expansion: %+v", notes)
+		}
 	}
 }
