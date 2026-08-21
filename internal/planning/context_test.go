@@ -941,3 +941,103 @@ func TestBuildContextForLinking_AnUnfillableBudgetCostsNothing(t *testing.T) {
 		}
 	}
 }
+
+// seedBookmark creates a bookmark whose description is where its subject matter
+// lives, which is what 57 of the 66 live bookmarks look like.
+func seedBookmark(t *testing.T, g *graph.Graph, title, description string) string {
+	t.Helper()
+	ctx := context.Background()
+	var id string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		var err error
+		id, err = nodes.CreateBookmark(ctx, tx, nodes.Bookmark{
+			Title: title, URL: "https://example.com/" + title, Description: description,
+		}, nodes.Author{Name: "test"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed bookmark %q: %v", title, err)
+	}
+	return id
+}
+
+// TestBuildContext_ABookmarkAnswersAQuestion is the defect this closes: a bookmark's
+// text was always in the FTS index, and no retrieval path ever asked for the type, so
+// it was reachable by nobody. Measured against the live vault on 2026-08-20, a query
+// built from the words of a bookmark's own description returned eight notes and not
+// the bookmark whose description contains the sentence.
+func TestBuildContext_ABookmarkAnswersAQuestion(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	// The subject exists nowhere else, so content match can only arrive at the bookmark.
+	id := seedBookmark(t, g, "Zephyr retries explained",
+		"A breakdown of how the zephyr protocol handles retries under partition.")
+	seedNote(t, g, "Unrelated", "disks fstab mount")
+
+	notes, err := planning.BuildContext(ctx, g, "zephyr protocol retries partition", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	for _, n := range notes {
+		if n.ID == id {
+			return
+		}
+	}
+	t.Fatalf("the bookmark carrying the answer was not returned, got %+v", notes)
+}
+
+// TestBuildContextForLinking_ABookmarkIsNeverALinkCandidate is the other half of the
+// same decision. A wikilink needs a file to point at and a bookmark has none, so a
+// bookmark reaching the candidate list is a slot spent on a target that is discarded
+// before the writer sees it. kernl #279 drew that cut for tasks and projects; this
+// keeps it drawn for the type that arrived after it.
+func TestBuildContextForLinking_ABookmarkIsNeverALinkCandidate(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	id := seedBookmark(t, g, "Zephyr retries explained",
+		"A breakdown of how the zephyr protocol handles retries under partition.")
+
+	notes, err := planning.BuildContextForLinking(ctx, g, "zephyr protocol retries partition", 8, 3)
+	if err != nil {
+		t.Fatalf("BuildContextForLinking: %v", err)
+	}
+	for _, n := range notes {
+		if n.ID == id {
+			t.Fatalf("a bookmark cannot be a wikilink target and must not be offered, got %+v", notes)
+		}
+	}
+}
+
+// TestBuildContext_ABookmarkAndItsCompanionShareOneSlot pins the half of this change
+// that is easy to miss, because it is invisible until the corpus has both halves.
+//
+// A bookmark has a companion note, so the pair is two nodes about one thing. The note
+// is usually the higher-scoring half; reaching it first without marking the bookmark
+// seen spends two slots of a budget of eight on one subject. That is exactly the
+// failure that made the linking path retrieve notes only.
+func TestBuildContext_ABookmarkAndItsCompanionShareOneSlot(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	bookmarkID := seedBookmark(t, g, "Zephyr retries explained",
+		"A breakdown of how the zephyr protocol handles retries under partition.")
+	companionID := seedNote(t, g, "Notes on zephyr retries",
+		"Notes for the zephyr protocol retries partition bookmark.")
+	seedLink(t, g, companionID, bookmarkID)
+
+	notes, err := planning.BuildContext(ctx, g, "zephyr protocol retries partition", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	var pair int
+	for _, n := range notes {
+		if n.ID == bookmarkID || n.ID == companionID {
+			pair++
+		}
+	}
+	if pair != 1 {
+		t.Fatalf("a bookmark and its companion are one subject and must take one slot, took %d: %+v",
+			pair, notes)
+	}
+}

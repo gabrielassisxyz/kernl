@@ -25,10 +25,22 @@ import (
 // planning context, so claims enrich rather than dominate the retrieved set.
 const maxContextClaims = 4
 
-// contextTypes are the node types BuildContext retrieves: notes, tasks and
-// projects. A task's reasoning lives in its description and a project's in its
+// contextTypes are the node types BuildContext retrieves: notes, tasks, projects
+// and bookmarks. A task's reasoning lives in its description and a project's in its
 // description, both FTS-indexed, so they are planning context alongside notes.
-var contextTypes = []string{"note", "task", "project"}
+//
+// A bookmark is here and deliberately absent from linkTypes below, and the two
+// decisions are the same one seen from opposite ends. Its text has always been in
+// the index - Bookmark.FTSFields carries title, description, excerpt and tags - but
+// nothing ever asked for the type, so it was reachable by nobody. Measured
+// 2026-08-20: 57 of the 66 live bookmarks carry a description, and a query built
+// from the words of one of those descriptions returned eight notes and not the
+// bookmark that contains the sentence.
+//
+// It answers questions and cannot be a link candidate, because a wikilink needs a
+// file to point at and a bookmark has none. That is the cut kernl #279 drew for
+// tasks and projects, applied to the type that arrived after it.
+var contextTypes = []string{"note", "task", "project", "bookmark"}
 
 // linkTypes are the node types the LINKING path retrieves. A link candidate has
 // to be something a wikilink can point at, and only a note has a file, so a task
@@ -663,10 +675,15 @@ func companionPartner(tx *graph.ReadTx, nodeID, typ string) (string, error) {
 	var partner string
 	var err error
 	if typ == "note" {
+		// Bookmark belongs in this list for the same reason task and project do: it
+		// has a companion note, so the pair is two nodes about one thing. Leaving it
+		// out is not a missing nicety - the note is usually the higher-scoring half,
+		// and reaching it first without marking the bookmark seen spends two slots of
+		// a budget of eight on one subject.
 		err = tx.QueryRow(`
 			SELECT dst FROM edges
 			WHERE src = ? AND label = 'links_to'
-			  AND dst IN (SELECT id FROM nodes WHERE type IN ('task','project') AND deleted_at IS NULL)
+			  AND dst IN (SELECT id FROM nodes WHERE type IN ('task','project','bookmark') AND deleted_at IS NULL)
 			LIMIT 1`, nodeID).Scan(&partner)
 	} else {
 		err = tx.QueryRow(`
