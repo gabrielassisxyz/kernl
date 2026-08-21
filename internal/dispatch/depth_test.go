@@ -142,6 +142,75 @@ func TestClassifyDepth_GateBeatsAcceptance(t *testing.T) {
 	}
 }
 
+// TestClassifyDepth_ShortFlowWhenAcceptanceIsInDescription guards the case
+// that motivated broadening the acceptance check: a hand-planned backlog
+// often states acceptance criteria inside the description rather than in the
+// dedicated field. The bead still has a concrete definition of "correct",
+// so it does not need a planner.
+func TestClassifyDepth_ShortFlowWhenAcceptanceIsInDescription(t *testing.T) {
+	cases := []struct {
+		name string
+		bead backend.Bead
+	}{
+		{
+			name: "done when in description",
+			bead: backend.Bead{
+				ID:          "arch-done-when",
+				Type:        "task",
+				Title:       "Reduce per-page fetch overhead",
+				Description: "Each standalone fetch builds a fresh runtime.\n\nDone when: a single fetch path reuses the same runtime for the whole batch.",
+			},
+		},
+		{
+			name: "acceptance criteria heading in description",
+			bead: backend.Bead{
+				ID:          "arch-acc-heading",
+				Type:        "feature",
+				Title:       "Collect addresses without archiving",
+				Description: "A pass that lists what a crawl would reach.\n\n## Acceptance criteria\n- Nothing is written to disk.\n- Every guard a normal crawl applies still applies.",
+			},
+		},
+		{
+			name: "acceptance criteria in notes",
+			bead: backend.Bead{
+				ID:          "arch-notes",
+				Type:        "docs",
+				Title:       "Fix served-document example",
+				Description: "The JSON example omits fields.",
+				Notes:       "Done when: the example matches serde_json output for that record.",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifyDepth(tc.bead)
+			if got.Depth != DepthShortFlow {
+				t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", tc.bead.ID, got.Depth, DepthShortFlow)
+			}
+		})
+	}
+}
+
+// TestClassifyDepth_FullPipelineStillRequiresRealCriteria asserts that the
+// broadened acceptance check does not catch a bead that merely mentions
+// acceptance criteria to say they are missing. The positive full_pipeline
+// condition stays checkable: no criteria are actually stated.
+func TestClassifyDepth_FullPipelineStillRequiresRealCriteria(t *testing.T) {
+	b := backend.Bead{
+		ID:          "arch-no-criteria",
+		Type:        "task",
+		Title:       "Bring retry backoff in line with contract",
+		Description: "The existing design doc describes the intent, but no acceptance criteria are written down yet.",
+	}
+
+	got := ClassifyDepth(b)
+
+	if got.Depth != DepthFullPipeline {
+		t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", b.ID, got.Depth, DepthFullPipeline)
+	}
+}
+
 // TestProposeDepths_ClassifiesEachCandidateIndependently is the list
 // contract the operator's "what can be worked on today?" question needs: a
 // depth and a reason per item, order preserved, one candidate's depth never

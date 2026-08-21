@@ -77,7 +77,7 @@ func TestHandleDepthGate_OpenDesignBeadIsSettledByTheDABeforeDispatch(t *testing
 	dir := t.TempDir()
 	da := settlingDA("count unmarked requests as friction, and say so in the report")
 
-	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, "ep-1", dir, "implementation", 0)
+	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", 0)
 	if err != nil {
 		t.Fatalf("handleDepthGate: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestHandleDepthGate_TheDAsEscalationBlocksForTheOperator(t *testing.T) {
 	dir := t.TempDir()
 	da := escalatingOpenDesignDA()
 
-	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, "ep-1", dir, "implementation", 0)
+	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", 0)
 	if err != nil {
 		t.Fatalf("handleDepthGate: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestHandleDepthGate_NoDAConfiguredBlocksRatherThanDispatching(t *testing.T)
 	be.beads[bead.ID] = bead
 	dir := t.TempDir()
 
-	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, nil), bead, "ep-1", dir, "implementation", 0)
+	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, nil), bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", 0)
 	if err != nil {
 		t.Fatalf("handleDepthGate: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestHandleDepthGate_ASettledBeadIsNeverPutToTheDA(t *testing.T) {
 
 	deps := depthGateDeps(t, be, da)
 	deps.BeadID = bead.ID
-	got, err := handleDepthGate(context.Background(), deps, bead, "ep-1", dir, "implementation", 0)
+	got, err := handleDepthGate(context.Background(), deps, bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", 0)
 	if err != nil {
 		t.Fatalf("handleDepthGate: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestHandleDepthGate_AskedAtMostOncePerBead(t *testing.T) {
 	dir := t.TempDir()
 	da := settlingDA("count unmarked requests as friction")
 
-	if _, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, "ep-1", dir, "implementation", 0); err != nil {
+	if _, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", 0); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
 	if da.calls != 1 {
@@ -189,7 +189,7 @@ func TestHandleDepthGate_AskedAtMostOncePerBead(t *testing.T) {
 	}
 
 	// A separate run: the counter is back at zero, the marker is not.
-	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, "ep-1", dir, "implementation", 0)
+	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", 0)
 	if err != nil {
 		t.Fatalf("second call: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestHandleDepthGate_SpentSharedBudgetEscalatesWithoutAskingTheDA(t *testing
 	dir := t.TempDir()
 	da := settlingDA("should never be asked")
 
-	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, "ep-1", dir, "implementation", forkHandoverLimit)
+	got, err := handleDepthGate(context.Background(), depthGateDeps(t, be, da), bead, dispatch.ClassifyDepth(*bead), "ep-1", dir, "implementation", forkHandoverLimit)
 	if err != nil {
 		t.Fatalf("handleDepthGate: %v", err)
 	}
@@ -272,5 +272,62 @@ func TestParseOpenDesignAnswer_ReadsASettledShapeAndItsReason(t *testing.T) {
 	}
 	if !strings.Contains(got.Reason, "already take this position") {
 		t.Errorf("Reason = %q, want the DA's own reasoning preserved", got.Reason)
+	}
+}
+
+// TestApplyDepthProfile_SelectsProfileForUnprofiledBeads pins the production
+// consumer the reviewer found missing: the depth classifier's answer must
+// select a workflow profile the dispatcher can run. It also verifies that
+// explicit tracker profiles are not overridden.
+func TestApplyDepthProfile_SelectsProfileForUnprofiledBeads(t *testing.T) {
+	cases := []struct {
+		name           string
+		bead           backend.Bead
+		classification dispatch.DepthProposal
+		wantProfile    string
+	}{
+		{
+			name:           "short_flow with no profile selects autopilot_no_planning",
+			bead:           backend.Bead{ID: "short-1", Acceptance: "test passes"},
+			classification: dispatch.DepthProposal{ID: "short-1", Depth: dispatch.DepthShortFlow, Reason: "has acceptance"},
+			wantProfile:    "autopilot_no_planning",
+		},
+		{
+			name:           "full_pipeline with no profile selects autopilot",
+			bead:           backend.Bead{ID: "full-1"},
+			classification: dispatch.DepthProposal{ID: "full-1", Depth: dispatch.DepthFullPipeline, Reason: "no acceptance"},
+			wantProfile:    "autopilot",
+		},
+		{
+			name:           "gate gets no profile",
+			bead:           backend.Bead{ID: "gate-1"},
+			classification: dispatch.DepthProposal{ID: "gate-1", Depth: dispatch.DepthGate, Reason: "open design"},
+			wantProfile:    "",
+		},
+		{
+			name:           "existing ProfileID is respected",
+			bead:           backend.Bead{ID: "worker-1", ProfileID: "worker", Acceptance: "test passes"},
+			classification: dispatch.DepthProposal{ID: "worker-1", Depth: dispatch.DepthShortFlow, Reason: "has acceptance"},
+			wantProfile:    "",
+		},
+		{
+			name:           "existing WorkflowID is respected",
+			bead:           backend.Bead{ID: "wf-1", WorkflowID: "semiauto"},
+			classification: dispatch.DepthProposal{ID: "wf-1", Depth: dispatch.DepthFullPipeline, Reason: "no acceptance"},
+			wantProfile:    "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bead := tc.bead
+			got := applyDepthProfile(&bead, tc.classification)
+			if got != tc.wantProfile {
+				t.Fatalf("applyDepthProfile profile = %q, want %q", got, tc.wantProfile)
+			}
+			if tc.wantProfile != "" && bead.ProfileID != tc.wantProfile {
+				t.Errorf("bead.ProfileID = %q, want %q", bead.ProfileID, tc.wantProfile)
+			}
+		})
 	}
 }

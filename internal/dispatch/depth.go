@@ -77,6 +77,34 @@ func openDesignReason(b backend.Bead) (string, bool) {
 	return "", false
 }
 
+// acceptanceMarkers are phrases that, appearing in a bead's own text,
+// indicate its acceptance criteria are already stated somewhere other than
+// the dedicated Acceptance field. A hand-planned backlog often writes the
+// criteria inside the description ("Done when:" or an "Acceptance criteria"
+// heading) rather than in the separate field. The list is literal and short,
+// same discipline as openDesignMarkers.
+var acceptanceMarkers = []string{
+	"done when:",
+	"## acceptance criteria",
+}
+
+// hasAcceptanceCriteria reports whether the bead's own text states what
+// "correct" means for it. It checks the dedicated Acceptance field first,
+// then scans the title, description and notes for markers that show
+// acceptance criteria are present in the prose.
+func hasAcceptanceCriteria(b backend.Bead) bool {
+	if strings.TrimSpace(b.Acceptance) != "" {
+		return true
+	}
+	haystack := strings.ToLower(b.Title + "\n" + b.Description + "\n" + b.Notes)
+	for _, marker := range acceptanceMarkers {
+		if strings.Contains(haystack, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // ClassifyDepth proposes a depth for one candidate bead. ProposeDepths below
 // is the list version every real caller uses; this is exported on its own
 // so a single classification can be tested and reasoned about in isolation.
@@ -92,7 +120,7 @@ func ClassifyDepth(b backend.Bead) DepthProposal {
 		return DepthProposal{ID: b.ID, Depth: DepthGate, Reason: reason}
 	}
 
-	if strings.TrimSpace(b.Acceptance) == "" {
+	if !hasAcceptanceCriteria(b) {
 		return DepthProposal{
 			ID:     b.ID,
 			Depth:  DepthFullPipeline,
