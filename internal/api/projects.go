@@ -12,6 +12,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
 	"github.com/gabrielassisxyz/kernl/internal/vault/companion"
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
+	"github.com/gabrielassisxyz/kernl/internal/vault/wikilink"
 )
 
 // projectDTO is the camelCase shape the web client consumes.
@@ -147,6 +148,9 @@ func createProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err != nil {
 			return err
 		}
+		if err := wikilink.ResolveDescriptionInTx(ctx, tx, id, req.Description); err != nil {
+			return err
+		}
 		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.ProjectsFolder, title, req.Description, "project")
 		return err
 	})
@@ -229,6 +233,11 @@ func patchProjectHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			}
 			if err := nodes.UpdateProjectMeta(ctx, tx, id, newTitle, newDescription, nodes.Author{Name: "api"}); err != nil {
 				return err
+			}
+			if req.Description != nil {
+				if err := wikilink.ResolveDescriptionInTx(ctx, tx, id, newDescription); err != nil {
+					return err
+				}
 			}
 			// The title is deliberately not synced: the companion keeps its file
 			// name and its own frontmatter title, same as a task's.
