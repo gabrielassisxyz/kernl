@@ -210,10 +210,29 @@ func BuildContextForLinking(ctx context.Context, g *graph.Graph, seed string, li
 // linkedSeeds is how many of the best content hits get expanded. Past a few, the hits are
 // no longer good enough for their neighbours to be worth a slot.
 //
-// Compiled, unlike the budget, and deliberately not a config key: this three entered no
-// measurement at all - the whole budget curve was taken with it held fixed - so exposing it
-// would offer a knob that looks chosen and is not. It becomes configurable the day somebody
-// measures it.
+// Compiled, unlike the budget, and deliberately not a config key. It was measured on
+// 2026-08-21 and the answer is that it is not a lever, so exposing it would offer a knob
+// that moves nothing:
+//
+//	seeds    1      2      3      5      8
+//	cohort   0.840  0.853  0.840  0.827  0.827
+//	live     0.761  0.761  0.761  -      0.761
+//
+// On the live population every value is byte-identical, and the mechanism is visible in
+// the walk below: it consults seeds IN ORDER and stops as soon as the budget is full, so
+// a single content hit whose neighbours fill three slots makes every later seed dead code.
+// On the dense cohort the whole 8x range moves two links out of 75, in no monotone
+// direction - up at 2, down at 5 - which is the size of a different sample rather than of
+// an effect.
+//
+// It stays at 3 for that reason. Two scored one link higher on one population and lower on
+// nothing, which is not enough to move a constant: a value picked that way is a guess
+// wearing a measured value's clothes, which is the standard config.PlanningConfig sets.
+//
+// This also bounds the neighbour ORDERING question that shipped beside it. Changing the
+// seed count changes the entire candidate pool the walk chooses from, and that moved
+// recall by at most two links; whatever order relate.RelatedTo returns neighbours in has
+// no more headroom than that. The budget is the lever here, and it has its own curve.
 const linkedSeeds = 3
 
 // linkedNote loads a node reached by expansion as a context note, or reports that it is not
