@@ -1338,3 +1338,92 @@ func TestOnCreate_AdoptsLiveNodeMissingFromPathCache(t *testing.T) {
 		t.Fatalf("verify node: %v", err)
 	}
 }
+
+// edgeCount is the number of links_to edges between two nodes.
+func edgeCount(t *testing.T, g *graph.Graph, src, dst string) int {
+	t.Helper()
+	var n int
+	if err := g.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		return tx.QueryRow(
+			`SELECT COUNT(*) FROM edges WHERE src = ? AND dst = ? AND label = 'links_to'`,
+			src, dst).Scan(&n)
+	}); err != nil {
+		t.Fatalf("edge count: %v", err)
+	}
+	return n
+}
+
+// TestOnCreate_DanglingPromotesWhenTheFilenameCannotSpellTheTitle is the case found in
+// the live vault on 2026-07-27: an index note with 13 wikilinks resolved 12 of them by
+// title, and the one that stayed dangling was the only note whose FILE NAME is not
+// byte-identical to its title, because the title carries a colon that a file name drops.
+//
+// The link text is the title, so the row's key is the title; the row's kind is "stem",
+// because ClassifyTarget calls everything that is not a uuid a stem. Matching on both
+// columns then compares the title key against stem rows only, and the title key never
+// matched anything.
+//
+// The second write is what makes this hard to notice: any later edit of the linking file
+// re-runs the resolver, whose stem lookup falls back to title and succeeds. The defect is
+// a window rather than permanent loss, which is why it needs a note created AFTER its own
+// link and never touched again.
+func TestOnCreate_DanglingPromotesWhenTheFilenameCannotSpellTheTitle(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+	rec := reconcile.New(g, vault)
+
+	writeFile(t, filepath.Join(vault, "index.md"),
+		"---\nid: node-index\ntitle: Index\n---\n\nSee [[Kernl: redesign brief]].\n")
+	if err := rec.OnCreate(ctx, filepath.Join(vault, "index.md")); err != nil {
+		t.Fatalf("OnCreate index: %v", err)
+	}
+
+	// The file name cannot carry the colon, so stem and title diverge.
+	target := filepath.Join(vault, "kernl-redesign-brief.md")
+	writeFile(t, target, "---\nid: node-brief\ntitle: 'Kernl: redesign brief'\n---\n\nContent.\n")
+	if err := rec.OnCreate(ctx, target); err != nil {
+		t.Fatalf("OnCreate target: %v", err)
+	}
+
+	if n := edgeCount(t, g, "node-index", "node-brief"); n == 0 {
+		t.Fatal("the link was written before the note existed and the note's title matches it " +
+			"exactly, so adoption must promote it without the linking file being touched again")
+	}
+}
+
+// TestOnCreate_DanglingPromotesWhenTheLinkIsAVaultPath is the second spelling of the same
+// defect, measured 2026-08-20, and it is the one that decided the fix.
+//
+// A link written as the vault-relative path stores that whole path as the key, while the
+// keys offered on adoption were the base name and the title. This diverges in the KEY and
+// not in the kind, so "match on the key alone" does not reach it either: it would still be
+// comparing "foo" against "kernl/tasks/foo". Only offering every spelling the resolver
+// could have stored covers both cases.
+//
+// The retroactive link pass made this spelling one somebody actually writes.
+func TestOnCreate_DanglingPromotesWhenTheLinkIsAVaultPath(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+	vault := newVaultDir(t)
+	rec := reconcile.New(g, vault)
+
+	writeFile(t, filepath.Join(vault, "index.md"),
+		"---\nid: node-index\ntitle: Index\n---\n\nSee [[kernl/tasks/ship-the-thing]].\n")
+	if err := rec.OnCreate(ctx, filepath.Join(vault, "index.md")); err != nil {
+		t.Fatalf("OnCreate index: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(vault, "kernl", "tasks"), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	target := filepath.Join(vault, "kernl", "tasks", "ship-the-thing.md")
+	writeFile(t, target, "---\nid: node-task\ntitle: Ship the thing\n---\n\nContent.\n")
+	if err := rec.OnCreate(ctx, target); err != nil {
+		t.Fatalf("OnCreate target: %v", err)
+	}
+
+	if n := edgeCount(t, g, "node-index", "node-task"); n == 0 {
+		t.Fatal("a link written as the vault-relative path must promote when that path arrives")
+	}
+}

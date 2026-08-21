@@ -417,7 +417,7 @@ func TestPromoteDangling_AE4(t *testing.T) {
 	insertNotePath(t, g, ctx, dstID, "Roadmap.md")
 
 	// Promote - stem match.
-	promoted, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Roadmap", Kind: "stem"})
+	promoted, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Roadmap"})
 	if err != nil {
 		t.Fatalf("PromoteDangling: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestPromoteDangling_EdgeLabel(t *testing.T) {
 	}
 
 	dstID := createTestNote(t, g, ctx, "Target", "body")
-	if _, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target", Kind: "stem"}); err != nil {
+	if _, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target"}); err != nil {
 		t.Fatalf("PromoteDangling: %v", err)
 	}
 
@@ -481,7 +481,7 @@ func TestPromoteDangling_ProvenanceAttrs(t *testing.T) {
 	}
 
 	dstID := createTestNote(t, g, ctx, "Target", "body")
-	if _, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target", Kind: "stem"}); err != nil {
+	if _, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target"}); err != nil {
 		t.Fatalf("PromoteDangling: %v", err)
 	}
 
@@ -507,12 +507,12 @@ func TestPromoteDangling_Idempotent(t *testing.T) {
 	}
 
 	dstID := createTestNote(t, g, ctx, "Target", "body")
-	if _, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target", Kind: "stem"}); err != nil {
+	if _, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target"}); err != nil {
 		t.Fatalf("first PromoteDangling: %v", err)
 	}
 
 	// Second call - dangling row already deleted, so nothing to promote.
-	n, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target", Kind: "stem"})
+	n, err := PromoteDangling(ctx, g, dstID, PromoteKey{Key: "Target"})
 	if err != nil {
 		t.Fatalf("second PromoteDangling: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestPromoteDangling_SelfLinkCleanedUp(t *testing.T) {
 	}
 
 	// PromoteDangling is called for the note itself - self-link should be cleared.
-	promoted, err := PromoteDangling(ctx, g, noteID, PromoteKey{Key: "Self", Kind: "stem"})
+	promoted, err := PromoteDangling(ctx, g, noteID, PromoteKey{Key: "Self"})
 	if err != nil {
 		t.Fatalf("PromoteDangling: %v", err)
 	}
