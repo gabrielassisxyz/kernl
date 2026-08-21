@@ -118,9 +118,10 @@ func classifyPendingHandler(w http.ResponseWriter, r *http.Request, a *app.App) 
 		return
 	}
 	classifier := inbox.NewClassifier(a.Graph, llm, inbox.ClassifierOptions{
-		AutoPrep:  a.Config.Inbox.AutoPrep,
-		VaultRoot: a.Config.Vault.Root,
-		DASubdir:  a.Config.Inbox.DASubdir,
+		AutoPrep:   a.Config.Inbox.AutoPrep,
+		VaultRoot:  a.Config.Vault.Root,
+		DASubdir:   a.Config.Inbox.DASubdir,
+		LinkBudget: a.Config.Planning.LinkBudgetOrDefault(),
 	})
 	if err := classifier.ClassifyPending(r.Context()); err != nil {
 		writeError(w, http.StatusInternalServerError, "classify: "+err.Error())
@@ -679,7 +680,7 @@ func prepCaptureHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		writeError(w, http.StatusInternalServerError, "llm: "+err.Error())
 		return
 	}
-	noteID, err := inbox.Prep(r.Context(), a.Graph, llm, a.Config.Vault.Root, a.Config.Inbox.DASubdir, id)
+	noteID, err := inbox.Prep(r.Context(), a.Graph, llm, a.Config.Vault.Root, a.Config.Inbox.DASubdir, id, a.Config.Planning.LinkBudgetOrDefault())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

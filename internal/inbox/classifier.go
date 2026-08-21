@@ -31,6 +31,8 @@ type ClassifierOptions struct {
 	AutoPrep  bool
 	VaultRoot string
 	DASubdir  string
+	// LinkBudget is config.PlanningConfig's retrieval tuning, passed on to Prep.
+	LinkBudget int
 }
 
 func NewClassifier(g *graph.Graph, llm chat.LLMClient, opts ClassifierOptions) *Classifier {
@@ -158,7 +160,7 @@ func (c *Classifier) classifyGroup(ctx context.Context, group []*nodes.Capture, 
 		}
 		if c.opts.AutoPrep && looksLikeQuestion(cap.Body) {
 			go func(captureID string) {
-				if _, err := Prep(ctx, c.graph, c.llm, c.opts.VaultRoot, c.opts.DASubdir, captureID); err != nil {
+				if _, err := Prep(ctx, c.graph, c.llm, c.opts.VaultRoot, c.opts.DASubdir, captureID, c.opts.LinkBudget); err != nil {
 					slog.Error("auto-prep failed", "id", captureID, "err", err)
 				}
 			}(cap.ID)

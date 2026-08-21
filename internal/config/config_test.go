@@ -554,3 +554,27 @@ orchestrator:
 		}
 	})
 }
+
+// TestLinkBudgetOrDefault covers why the field is a pointer: 0 is a real setting -
+// it turns the edge expansion off - so "the user asked for none" has to survive as
+// something other than "the key is absent", which resolves to the measured default.
+func TestLinkBudgetOrDefault(t *testing.T) {
+	zero, three, negative := 0, 3, -1
+	for _, tc := range []struct {
+		name string
+		set  *int
+		want int
+	}{
+		{"absent falls back to the measured default", nil, 3},
+		{"an explicit zero turns the expansion off", &zero, 0},
+		{"an explicit value is honoured", &three, 3},
+		{"a negative value cannot reserve slots", &negative, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := PlanningConfig{LinkBudget: tc.set}.LinkBudgetOrDefault()
+			if got != tc.want {
+				t.Errorf("LinkBudgetOrDefault() = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}

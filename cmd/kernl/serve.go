@@ -336,9 +336,10 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 			// The loop always starts (given an LLM); it gates each tick on the
 			// live switch App exposes, so the toggle can pause it at runtime.
 			go inbox.NewClassifier(a.Graph, llm, inbox.ClassifierOptions{
-				AutoPrep:  cfg.Inbox.AutoPrep,
-				VaultRoot: cfg.Vault.Root,
-				DASubdir:  cfg.Inbox.DASubdir,
+				AutoPrep:   cfg.Inbox.AutoPrep,
+				VaultRoot:  cfg.Vault.Root,
+				DASubdir:   cfg.Inbox.DASubdir,
+				LinkBudget: cfg.Planning.LinkBudgetOrDefault(),
 			}).Run(ctx, a.AutoClassifyEnabled)
 			slog.Info("inbox classifier started", "autoPrep", cfg.Inbox.AutoPrep, "autoClassify", a.AutoClassifyEnabled())
 		}

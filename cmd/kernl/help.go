@@ -272,7 +272,7 @@ Examples:
 	{
 		Name:    "plan",
 		Summary: "Show the vault notes relevant to a topic (substrate-aware planning)",
-		Usage:   "kernl plan [--json] [--limit <n>] [--for-linking] <topic>",
+		Usage:   "kernl plan [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>",
 		Details: `{{flags}}
 
 Example:
@@ -286,6 +286,15 @@ Example:
 					"rank FTS5 gives it so a long note stops matching every seed.",
 					"The seed there is a whole note, not a question. Exists so the",
 					"mechanism can be measured without writing a note to see it.",
+				}},
+			{Name: "--link-budget", Value: "<n>", Description: "Slots reserved for notes reached by an EDGE from a content hit,",
+				Continuation: []string{
+					"overriding planning.linkBudget in kernl.yaml for this call only.",
+					"0 turns the expansion off. The reservation comes out of --limit,",
+					"never on top of it, so it must be smaller than --limit.",
+					"Only --for-linking uses it; the question path never expands.",
+					"Exists to sweep the curve: the right budget grows as the graph",
+					"densifies, so the config value ages and has to be re-measured.",
 				}},
 		},
 	},

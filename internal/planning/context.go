@@ -142,7 +142,7 @@ const snippetLen = 240
 // one seam where a note is retrieved as knowledge, rather than at each caller  -
 // the rule is a property of the note, not of who is asking.
 func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
-	return buildContext(ctx, g, seed, limit, scoreByTermCount, contextTypes)
+	return buildContext(ctx, g, seed, limit, scoreByTermCount, contextTypes, 0)
 }
 
 // BuildContextForLinking is BuildContext scored for a different question, and the
@@ -161,8 +161,49 @@ func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) (
 // The same change measured on questions is a small loss, not a gain: an answer that
 // genuinely lives inside a large note gets buried with the noise. So the two
 // scorings stay apart, because the two questions are apart.
-func BuildContextForLinking(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
-	return buildContext(ctx, g, seed, limit, scoreByLengthNormalizedRank, linkTypes)
+// linkBudget is how many slots are reserved for the edge expansion; see
+// config.PlanningConfig, which owns the value, the curve it was measured on and
+// the warning against changing it without taking a reading.
+func BuildContextForLinking(ctx context.Context, g *graph.Graph, seed string, limit int, linkBudget int) ([]ContextNote, error) {
+	return buildContext(ctx, g, seed, limit, scoreByLengthNormalizedRank, linkTypes, linkBudget)
+}
+
+// linkedSeeds is how many of the best content hits get expanded. Past a few, the hits are
+// no longer good enough for their neighbours to be worth a slot.
+//
+// Compiled, unlike the budget, and deliberately not a config key: this three entered no
+// measurement at all - the whole budget curve was taken with it held fixed - so exposing it
+// would offer a knob that looks chosen and is not. It becomes configurable the day somebody
+// measures it.
+const linkedSeeds = 3
+
+// linkedNote loads a node reached by expansion as a context note, or reports that it is not
+// eligible. It applies exactly the filters the content path applies - the retrieved types,
+// the origin-prep exclusion that stops the assistant being fed its own briefings back as
+// knowledge, and the finished-work exclusion - because a note that content match would have
+// refused does not become admissible by being adjacent to one that matched.
+func linkedNote(tx *graph.ReadTx, id string, types []string) (ContextNote, bool) {
+	surface, err := fetchNodeSurface(tx, id)
+	if err != nil {
+		return ContextNote{}, false
+	}
+	if !slices.Contains(types, surface.typ) {
+		return ContextNote{}, false
+	}
+	if surface.typ == "note" && surface.origin == nodes.OriginPrep {
+		return ContextNote{}, false
+	}
+	if excludedByState(surface.typ, surface.status) {
+		return ContextNote{}, false
+	}
+	path, err := notePath(tx, id)
+	if err != nil {
+		return ContextNote{}, false
+	}
+	return ContextNote{
+		ID: id, Title: surface.title, Snippet: surface.snippet,
+		Via: "linked", Type: surface.typ, Path: path,
+	}, true
 }
 
 // scoring says what a matched term is worth to a node.
@@ -190,7 +231,7 @@ func termScore(how scoring, rank float64) float64 {
 	return 1
 }
 
-func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, how scoring, types []string) ([]ContextNote, error) {
+func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, how scoring, types []string, linked int) ([]ContextNote, error) {
 	if limit <= 0 {
 		limit = 8
 	}
@@ -271,11 +312,31 @@ func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, h
 			}
 			return ranked[i].Score > ranked[j].Score
 		})
+		// The expansion's slots are taken from the content budget, never added to it,
+		// and it can never take the last one: an expansion with no content hit to walk
+		// out from has nothing to do.
+		// The expansion can never take the last slot: with no content hit to walk out
+		// from it has nothing to do.
+		reserved := linked
+		if reserved >= limit {
+			reserved = limit - 1
+		}
+		contentSlots := limit - reserved
+		var topContent []string
+		// The content the reservation displaced, held back rather than dropped. It is
+		// deliberately NOT marked seen: a note the expansion could reach must not be
+		// blocked by a content hit that is not going to be returned anyway.
+		var spare []ContextNote
+
 		for _, n := range ranked {
-			if len(out) >= limit {
+			if len(out)+len(spare) >= limit {
 				break
 			}
 			if seen[n.ID] {
+				continue
+			}
+			if len(out) >= contentSlots {
+				spare = append(spare, n)
 				continue
 			}
 			// A task/project and its companion note are two nodes about one
@@ -291,7 +352,99 @@ func buildContext(ctx context.Context, g *graph.Graph, seed string, limit int, h
 				seen[partner] = true
 			}
 			out = append(out, n)
+			if len(topContent) < linkedSeeds {
+				topContent = append(topContent, n.ID)
+			}
 		}
+
+		// 1b. Edge expansion, on the linking path only.
+		//
+		// The structural signal below only ever runs when the seed is itself a node id,
+		// which a question never is, so a note one edge away from a good content hit was
+		// unreachable however relevant it was. This walks out from the best content hits
+		// instead.
+		//
+		// Measured 2026-08-19, it returned nothing at all, and the cause was the corpus
+		// rather than the code: the neighbours of a note were its own task and project,
+		// and only 106 of 808 notes reached another note. After the retroactive link pass
+		// of 2026-08-20 that is 584 of 817, and 282 note-to-note edges are 1210. This is
+		// the same experiment against a graph that can finally be walked.
+		//
+		// The linking path only, which is a decision and not an oversight. The whole curve
+		// was measured through link recall, which reads the tail the expansion rewrites;
+		// the three question sets came back byte-identical with it on, because recall@5,
+		// MRR and nDCG all read the head. That is no evidence rather than no harm, so the
+		// question path has no measured number to ship on. It also has the callers that
+		// can least afford the reservation - ingest resolves against a limit of 5, the
+		// inbox classifier against 6, so three reserved slots would hand half the window
+		// to adjacency on paths nothing has measured, and a classifier starved of content
+		// fails silently. BuildContext passes 0 until an instrument that can see the tail
+		// says otherwise.
+		var expanded []ContextNote
+		if reserved > 0 {
+			for _, src := range topContent {
+				if len(expanded) >= reserved {
+					break
+				}
+				ids, err := relate.RelatedTo(ctx, tx, src, reserved)
+				if err != nil {
+					continue // one bad expansion must not sink the whole retrieval
+				}
+				for _, id := range ids {
+					if len(expanded) >= reserved || seen[id] {
+						continue
+					}
+					n, ok := linkedNote(tx, id, types)
+					if !ok {
+						continue
+					}
+					// The companion dedup applies here too: reaching a task by an edge
+					// must not put its companion note in the next slot.
+					partner, err := companionPartner(tx, id, n.Type)
+					if err != nil {
+						return fmt.Errorf("planning: companion: %w", err)
+					}
+					seen[id] = true
+					if partner != "" {
+						seen[partner] = true
+					}
+					expanded = append(expanded, n)
+				}
+			}
+		}
+		// What the walk could not spend goes back to the content it displaced, rather
+		// than being lost. The reservation used to be charged whether or not the
+		// expansion could fill it, and it frequently could not - measured on the live
+		// population, 320 slots used at budget 0 against 293 at 3. At a small limit that
+		// is fatal rather than wasteful: at a fetch of 4 it left one content slot, the
+		// note being written took it, and the self-exclusion dropped it, for zero
+		// candidates.
+		//
+		// Holding the displaced content back unseen, rather than deducting from a list
+		// already built, is what keeps this from costing recall. A content hit the walk
+		// could also reach must not block it: with the displaced notes marked seen, the
+		// walk skipped them, returned fewer neighbours, and those notes then lost their
+		// slots anyway. Measured, that spelling scored 0.727 against 0.761 for this one
+		// on the same sample - the same number the curve was read at, now without the
+		// wasted slots.
+		for _, n := range spare {
+			if len(out)+len(expanded) >= limit {
+				break
+			}
+			if seen[n.ID] {
+				continue
+			}
+			partner, err := companionPartner(tx, n.ID, n.Type)
+			if err != nil {
+				return fmt.Errorf("planning: companion: %w", err)
+			}
+			seen[n.ID] = true
+			if partner != "" {
+				seen[partner] = true
+			}
+			out = append(out, n)
+		}
+		out = append(out, expanded...)
 
 		// 2. Structural signal: if the seed is a node id, fold in its neighbours.
 		if isNodeID(tx, seed) {

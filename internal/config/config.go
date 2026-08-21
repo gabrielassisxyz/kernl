@@ -275,6 +275,69 @@ type Config struct {
 	LLM          LLMConfig          `yaml:"llm,omitempty"`
 	Inbox        InboxConfig        `yaml:"inbox,omitempty"`
 	DA           DAConfig           `yaml:"da,omitempty"`
+	Planning     PlanningConfig     `yaml:"planning,omitempty"`
+}
+
+// PlanningConfig holds the retrieval tuning the linking path was measured with.
+//
+// DO NOT CHANGE THESE PERMANENTLY WITHOUT RE-MEASURING. Every value here was
+// picked by running an experiment, and a value picked any other way is a guess
+// wearing a measured value's clothes. Sweep it freely to take a reading - that
+// is what the key is for - but a change that stays needs a number behind it,
+// and the numbers below need to be replaced with the ones that justified it.
+type PlanningConfig struct {
+	// LinkBudget is how many of the link-suggestion slots are reserved for notes
+	// reached by an EDGE from a content hit rather than by matching the text. The
+	// slots come OUT OF the content budget rather than being added to it: a
+	// context window is the scarce thing, and an expansion that grows the window
+	// would be measuring something nobody would ship.
+	//
+	// A pointer, not a plain int, because 0 is a meaningful setting - it turns the
+	// expansion off - and a plain int cannot tell "the user asked for none" from
+	// "the key is absent". nil means the measured default.
+	//
+	// Measured 2026-08-20 as link recall, over the links somebody made by reading
+	// (the frozen cohort of 108 notes) and over the 586 the retroactive link pass
+	// produced:
+	//
+	//	budget   cohort              live
+	//	0        0.720 · 18% none    0.591 · 18% none
+	//	2        0.800 ·  5%         0.739 ·  0%
+	//	3        0.827 ·  5%         0.761 ·  0%
+	//	4        0.867 ·  2%         0.750 ·  2%
+	//
+	// "none" is the share of notes offered not one of the links they actually
+	// have, and that pocket is what the expansion exists for: content matching
+	// cannot reach a neighbour through an edge, however relevant it is.
+	//
+	// The two curves disagree at 4, and that is a result rather than noise. The
+	// cohort is dense old notes where a fourth neighbour is still legitimate; the
+	// live population is thin generated companions where the expansion runs out of
+	// eligible neighbours and the reservation costs content for nothing. Three is
+	// the only point that improves on both populations without turning on either.
+	//
+	// Expect this to age. The cohort curve says the right budget GROWS as the
+	// graph densifies, so 3 is right for the graph of 2026-08-20 and may be low
+	// for a denser one. That is the reason to re-measure, not a reason to raise it
+	// on a hunch.
+	LinkBudget *int `yaml:"linkBudget,omitempty"`
+}
+
+// defaultLinkBudget is the measured value LinkBudget falls back to. See the
+// curve on PlanningConfig.LinkBudget.
+const defaultLinkBudget = 3
+
+// LinkBudgetOrDefault resolves the configured budget, falling back to the
+// measured default when the key is absent. A configured 0 is honoured: it turns
+// the expansion off.
+func (p PlanningConfig) LinkBudgetOrDefault() int {
+	if p.LinkBudget == nil {
+		return defaultLinkBudget
+	}
+	if *p.LinkBudget < 0 {
+		return 0
+	}
+	return *p.LinkBudget
 }
 
 func Load(path string) (*Config, error) {

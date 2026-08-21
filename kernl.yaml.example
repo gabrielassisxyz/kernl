@@ -239,3 +239,40 @@ server:
 #   # precedent for the other. Always an absolute path, never committed as a
 #   # real one - replace this placeholder with your own.
 #   workDir: /absolute/path/to/your/notes-and-telos-repo
+
+# Retrieval tuning for the link-suggestion path.
+#
+# DO NOT CHANGE THESE PERMANENTLY WITHOUT RE-MEASURING. Every value here was
+# picked by running an experiment, and a value picked any other way is a guess
+# wearing a measured value's clothes. Sweeping is free and is what the knob is
+# for - `kernl plan --for-linking --link-budget <n> "<a note's text>"` overrides
+# it for one call, touching neither this file nor a running server - but a change
+# that STAYS needs a number behind it, and the comment on
+# config.PlanningConfig.LinkBudget has to be replaced with the numbers that
+# justified it.
+#
+# planning:
+#   # Slots reserved for notes reached by an EDGE from a content hit rather than
+#   # by matching the text. The reservation comes OUT OF the candidate budget,
+#   # never on top of it, and only for the slots the walk actually fills.
+#   #
+#   # Absent means the measured default, 3. An explicit 0 turns the expansion
+#   # off, which is why the key distinguishes "absent" from "zero" at all.
+#   #
+#   # Measured 2026-08-20 as link recall, over the links somebody made by reading
+#   # (a frozen cohort of 108 notes) and over the 586 a retroactive link pass
+#   # produced. The right-hand figure is the share of notes offered not one of
+#   # the links they actually have - the pocket the expansion exists to close,
+#   # because content matching cannot reach a neighbour through an edge:
+#   #
+#   #   budget   cohort              live
+#   #   0        0.720 · 18% none    0.591 · 18% none
+#   #   2        0.800 ·  5%         0.739 ·  0%
+#   #   3        0.827 ·  5%         0.761 ·  0%
+#   #   4        0.867 ·  2%         0.750 ·  2%
+#   #
+#   # The two curves disagree at 4 and 3 is the only point that improves on both
+#   # without turning on either. Expect it to age: the cohort curve says the
+#   # right budget GROWS as the graph densifies, which is a reason to re-measure
+#   # and not a reason to raise it on a hunch.
+#   linkBudget: 3

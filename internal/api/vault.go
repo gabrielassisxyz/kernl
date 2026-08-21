@@ -233,7 +233,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 				if fm, fmErr := frontmatter.Parse(body); fmErr == nil {
 					excludeID = fm.ID
 				}
-				suggestions, err := linksuggest.Suggest(r.Context(), a.Graph, noteBody, 8, excludeID)
+				suggestions, err := linksuggest.Suggest(r.Context(), a.Graph, noteBody, 8, excludeID, a.Config.Planning.LinkBudgetOrDefault())
 				if err != nil {
 					slog.Warn("link suggestion failed; note saved without suggestions", "path", filePath, "err", err)
 				} else {

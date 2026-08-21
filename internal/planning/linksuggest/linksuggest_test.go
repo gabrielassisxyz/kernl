@@ -68,7 +68,7 @@ func TestSuggestFiltersClaims(t *testing.T) {
 	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy for hot keys.")
 	seedClaim(t, g, "Cache claim", "Caching is done with an LRU cache.")
 
-	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "")
+	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "", 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSuggestFiltersTasksAndProjects(t *testing.T) {
 	seedNote(t, g, "Caching strategy", "We use an LRU cache with a write-through policy for hot keys.")
 	seedTask(t, g, "Cache task", "Caching is done with an LRU cache.")
 
-	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "")
+	candidates, err := linksuggest.Suggest(ctx, g, "caching strategy", 8, "", 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestSuggestExcludesOwnID(t *testing.T) {
 	body := "We use an LRU cache with a write-through policy for hot keys."
 	id := seedNote(t, g, "Caching strategy", body)
 
-	candidates, err := linksuggest.Suggest(ctx, g, body, 8, id)
+	candidates, err := linksuggest.Suggest(ctx, g, body, 8, id, 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestSuggestEmptyExcludeChangesNothing(t *testing.T) {
 	body := "We use an LRU cache with a write-through policy for hot keys."
 	id := seedNote(t, g, "Caching strategy", body)
 
-	candidates, err := linksuggest.Suggest(ctx, g, body, 8, "")
+	candidates, err := linksuggest.Suggest(ctx, g, body, 8, "", 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestSuggestExclusionDoesNotCostASlot(t *testing.T) {
 	}
 
 	const limit = 3
-	withExclusion, err := linksuggest.Suggest(ctx, g, shared, limit, self)
+	withExclusion, err := linksuggest.Suggest(ctx, g, shared, limit, self, 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestCompanionSeedsFromItsEntity(t *testing.T) {
 	thin := seedNote(t, g, "Zephyr rollout", "Notes for [["+entity+"|Zephyr rollout]].\n")
 	linkCompanion(t, g, thin, entity)
 
-	got, err := linksuggest.Suggest(ctx, g, "Notes for [["+entity+"|Zephyr rollout]].\n", 8, thin)
+	got, err := linksuggest.Suggest(ctx, g, "Notes for [["+entity+"|Zephyr rollout]].\n", 8, thin, 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestSeedWithoutAnEntityIsUnchanged(t *testing.T) {
 	plain := seedNote(t, g, "Zephyr protocol", "The zephyr protocol handles retries.")
 	seedNote(t, g, "Unrelated", "Something else entirely about disks.")
 
-	got, err := linksuggest.Suggest(ctx, g, "The zephyr protocol handles retries.", 8, plain)
+	got, err := linksuggest.Suggest(ctx, g, "The zephyr protocol handles retries.", 8, plain, 3)
 	if err != nil {
 		t.Fatalf("Suggest: %v", err)
 	}

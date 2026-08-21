@@ -30,7 +30,10 @@ const briefingEdgeLabel = "briefing"
 // the user's own notes, linked to the capture with a prepared_for edge. It is
 // idempotent: a capture already prepped returns its existing note. Returns the
 // prep note id.
-func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, daSubdir, captureID string) (string, error) {
+//
+// linkBudget is the retrieval tuning config.PlanningConfig owns; it is threaded
+// rather than read here so this package keeps knowing nothing about the config.
+func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, daSubdir, captureID string, linkBudget int) (string, error) {
 	if llm == nil {
 		return "", fmt.Errorf("prep: no llm configured")
 	}
@@ -96,7 +99,7 @@ func Prep(ctx context.Context, g *graph.Graph, llm chat.LLMClient, vaultRoot, da
 	}
 
 	// Related notes (own read transaction inside Suggest).
-	notesCtx, _ := linksuggest.Suggest(ctx, g, capture.Body, 5, "")
+	notesCtx, _ := linksuggest.Suggest(ctx, g, capture.Body, 5, "", linkBudget)
 
 	resp, err := llm.Chat(ctx, []chat.Message{{Role: "user", Content: buildPrepPrompt(capture, notesCtx, bookmarkTitles, project, projectTasks)}}, nil)
 	if err != nil {
