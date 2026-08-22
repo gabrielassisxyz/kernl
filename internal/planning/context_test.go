@@ -678,14 +678,17 @@ func TestBuildContext_NoteWinsATieAgainstAnEntity(t *testing.T) {
 	}
 }
 
-// TestLinkingScoringDemotesTheLongDocument is the whole reason the two scorings
-// exist separately. A long note contains a little of everything, so against a seed
-// that is itself a note it matches more terms than the note that is genuinely
-// about the subject, and term counting hands it the top slot.
+// TestLinkingScoringDemotesTheLongDocument holds the short-seed half of
+// scoringFor: a seed narrow enough to be a question keeps term counting, so it
+// still disagrees with the linking path over the same corpus.
 //
-// Measured over the 282 links somebody made by reading: under term counting one
-// machine log was offered in 40 of 40 queries whatever the subject. Without a test
-// the two entry points look like duplication and get merged back.
+// A long note contains a little of everything, so against a wide seed it matches
+// more terms than the note that is genuinely about the subject and term counting
+// hands it the top slot. Measured over the 282 links somebody made by reading:
+// under term counting one machine log was offered in 40 of 40 queries whatever the
+// subject. The seed here is 12 salient terms, under proseSeedTerms, which is what
+// keeps the two answers apart; TestBuildContext_AProseSeedIsScoredLikeADocument
+// holds the other side, where they converge.
 func TestLinkingScoringDemotesTheLongDocument(t *testing.T) {
 	ctx := context.Background()
 	g := testutil.NewInMemoryTestGraph(t)
@@ -719,6 +722,56 @@ func TestLinkingScoringDemotesTheLongDocument(t *testing.T) {
 	}
 	if byLength[0].ID != focused {
 		t.Errorf("linking must put the note the seed is about first, got %q", byLength[0].Title)
+	}
+}
+
+// TestBuildContext_AProseSeedIsScoredLikeADocument holds the other half of
+// scoringFor, and it is the half that costs something when it breaks. Three of
+// BuildContext's callers seed with prose rather than a question - the inbox
+// classifier with a capture body, the ingest path with its payload - and against a
+// seed that wide, term counting ranks by document size: the log matches every word
+// the seed has, the note that is actually about the subject matches two.
+//
+// Measured on bin/tail-recall over 40 prose bodies: pricing document length takes
+// recall@8 from 0.333 to 0.678 and the most-offered node from 40 of 40 queries to
+// 8. Without this test the branch reads as an unexplained special case and gets
+// flattened back to one scorer, which is how the question path came to carry the
+// linking path's defect in the first place.
+func TestBuildContext_AProseSeedIsScoredLikeADocument(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	const common = "disk kernel mount network backup upgrade service unit timer package " +
+		"firewall snapshot journal socket volume daemon process memory cache"
+
+	// The note that is about zephyr, and nothing else.
+	focused := seedNote(t, g, "Zephyr protocol", "The zephyr protocol handles retries.")
+	// A log that mentions zephyr once among everything else it mentions.
+	logID := seedNote(t, g, "Machine log", "zephyr retries "+strings.Repeat(common+" ", 60))
+	for i := 0; i < 30; i++ {
+		seedNote(t, g, fmt.Sprintf("Ops note %d", i), common)
+	}
+
+	// 21 salient terms: a capture body, not a question. The same vocabulary as a
+	// question would carry, widened past proseSeedTerms and nothing else.
+	seed := "zephyr retries " + common
+	if got := len(strings.Fields(seed)); got <= 16 {
+		t.Fatalf("the seed must be wider than proseSeedTerms to exercise the branch, got %d terms", got)
+	}
+
+	notes, err := planning.BuildContext(ctx, g, seed, 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if len(notes) == 0 {
+		t.Fatalf("expected the prose seed to return something")
+	}
+	if notes[0].ID == logID {
+		t.Fatalf("a prose seed must not rank the long log first: term counting is still in play")
+	}
+	if notes[0].ID != focused {
+		t.Errorf("a prose seed must put the note the seed is about first, got %q: %+v",
+			notes[0].Title, notes)
 	}
 }
 
