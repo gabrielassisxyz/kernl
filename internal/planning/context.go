@@ -181,30 +181,67 @@ const snippetLen = 240
 // one seam where a note is retrieved as knowledge, rather than at each caller  -
 // the rule is a property of the note, not of who is asking.
 func BuildContext(ctx context.Context, g *graph.Graph, seed string, limit int) ([]ContextNote, error) {
-	return buildContext(ctx, g, seed, limit, scoreByTermCount, contextTypes, 0)
+	return buildContext(ctx, g, seed, limit, scoringFor(seed), contextTypes, 0)
 }
 
-// BuildContextForLinking is BuildContext scored for a different question, and the
-// difference is the seed rather than a preference.
-//
-// A question is a handful of words, so a long note that matches all of them is
-// usually the right answer. A note being linked is the seed itself - hundreds of
-// terms - and against that almost every long document matches something, so length
-// alone wins. Measured on 2026-08-19 over the 282 note-to-note links somebody made
-// by reading: under term counting, one machine log was offered in 40 of 40 queries
-// whatever the subject, and 40% of notes were offered none of the links they
-// actually have. Scoring by the rank FTS5 already computed - bm25, which prices
-// both rarity and document length - took that to 22% and doubled link recall from
+// BuildContextForLinking is BuildContext narrowed to what a wikilink can point
+// at, with slots reserved for the edge expansion. A note being linked is always a
+// document - the seed is the note's own body - so it never consults scoringFor and
+// always prices length. Measured on 2026-08-19 over the 282 note-to-note links
+// somebody made by reading: term counting offered one machine log in 40 of 40
+// queries whatever the subject and left 40% of notes without any of the links they
+// actually have; pricing length took that to 22% and doubled link recall from
 // 0.277 to 0.545.
 //
-// The same change measured on questions is a small loss, not a gain: an answer that
-// genuinely lives inside a large note gets buried with the noise. So the two
-// scorings stay apart, because the two questions are apart.
 // linkBudget is how many slots are reserved for the edge expansion; see
 // config.PlanningConfig, which owns the value, the curve it was measured on and
 // the warning against changing it without taking a reading.
 func BuildContextForLinking(ctx context.Context, g *graph.Graph, seed string, limit int, linkBudget int) ([]ContextNote, error) {
 	return buildContext(ctx, g, seed, limit, scoreByLengthNormalizedRank, linkTypes, linkBudget)
+}
+
+// proseSeedTerms is the query width above which a seed is treated as a document
+// rather than a question. See scoringFor for what that decides and what it cost
+// to find out.
+const proseSeedTerms = 16
+
+// scoringFor picks how a content hit is weighted, and the seed's width is the
+// only input because it is the only thing the two weightings disagree about.
+//
+// A seed of a handful of terms leaves term counting nearly binary, and the note
+// that holds the answer is often a long one - a machine log, a week plan - so
+// pricing document length buries the very answer being asked for. A seed of
+// hundreds of terms inverts it: against that vocabulary almost every long
+// document matches something, term counting degenerates into "whichever document
+// is biggest", and a handful of them win every query whatever the subject.
+//
+// Both halves are measured, on the two instruments in llm-workflow, over two
+// builds of 3c916a0 differing only in this choice.
+//
+// Short seeds, the three fixed question sets (median 11 to 12 words). Pricing
+// length is a clear loss: easy recall@5 1.000 to 0.925 and nDCG 0.978 to 0.836,
+// hard recall@5 0.500 to 0.250. Four answers that were returned at rank 1 stopped
+// being returned at all, and nine of easy's 40 questions moved down.
+//
+// Document seeds, bin/tail-recall, 40 note bodies of at least 100 tokens scored
+// against the links a reader made. Pricing length roughly doubles everything:
+// recall@8 0.333 to 0.678, nDCG 0.302 to 0.650, the share of notes offered none
+// of their links 25% to 12.5%. Concentration falls 0.634 to 0.178 - one machine
+// log was being offered in 40 of 40 queries, and the most-offered node now
+// appears in 8. Paired per seed: 23 better, 3 worse, 14 unchanged.
+//
+// The threshold itself is the part that is NOT measured, and 16 is a choice
+// rather than a reading. The two populations are 20x apart with nothing between
+// them: every question in the sets stays under it, every prose body sits far
+// above it. Anywhere in roughly 10 to 40 salient terms satisfies both
+// measurements equally, so moving it inside that band cannot be justified by
+// either instrument, and moving it outside contradicts one of them. What would
+// settle it is a set of mid-length seeds, which no instrument here produces.
+func scoringFor(seed string) scoring {
+	if len(salientTerms(seed)) > proseSeedTerms {
+		return scoreByLengthNormalizedRank
+	}
+	return scoreByTermCount
 }
 
 // linkedSeeds is how many of the best content hits get expanded. Past a few, the hits are
