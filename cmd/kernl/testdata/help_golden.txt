@@ -813,7 +813,7 @@ Flags:
 kernl note write - Create or overwrite a note from a file or stdin
 
 Usage:
-  kernl note write <path> [--file <local-path>] [--no-links-reason <text>] [--json]
+  kernl note write <path> [--file <local-path>] [--tags <a,b,c>] [--no-links-reason <text>] [--json]
 
 The body comes from --file, or from stdin when --file is omitted.
 Writing a .md note the server does not know yet gets a node id injected
@@ -836,6 +836,9 @@ instruction, and the revision log remains the record of what actually happened.
 
 Flags:
   --file <local-path>       Read the body from a local file instead of stdin
+  --tags <a,b,c>            Replace the frontmatter's tags: block outright (no merge with what is
+                            already there); '--tags ""' removes every tag. Omitting the flag
+                            leaves any existing tags untouched
   --no-links-reason <text>  Record why this note should not get link suggestions
   --json                    Emit the server's response (status, suggestions, accepted, rejected) on stdout
 

@@ -53,7 +53,7 @@ Run 'kernl note <subcommand> --help' for details on each.`,
 		{
 			Name:    "write",
 			Summary: "Create or overwrite a note from a file or stdin",
-			Usage:   "kernl note write <path> [--file <local-path>] [--no-links-reason <text>] [--json]",
+			Usage:   "kernl note write <path> [--file <local-path>] [--tags <a,b,c>] [--no-links-reason <text>] [--json]",
 			Details: `The body comes from --file, or from stdin when --file is omitted.
 Writing a .md note the server does not know yet gets a node id injected
 into its frontmatter.
@@ -80,6 +80,8 @@ Examples:
   echo "# Title" | kernl note write inbox/idea.md`,
 			Flags: []commandFlag{
 				{Name: "--file", Value: "<local-path>", Description: "Read the body from a local file instead of stdin"},
+				{Name: "--tags", Value: "<a,b,c>", Description: `Replace the frontmatter's tags: block outright (no merge with what is`,
+					Continuation: []string{`already there); '--tags ""' removes every tag. Omitting the flag`, `leaves any existing tags untouched`}},
 				{Name: "--no-links-reason", Value: "<text>", Description: "Record why this note should not get link suggestions"},
 				{Name: "--json", Description: `Emit the server's response (status, suggestions, accepted, rejected) on stdout`},
 			},
@@ -411,6 +413,10 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 	if err != nil {
 		return err
 	}
+	tags, hasTags, args, err := takeFlag("note write", args, "--tags")
+	if err != nil {
+		return err
+	}
 	path, err := notePathArg("write", args)
 	if err != nil {
 		return err
@@ -422,6 +428,13 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 	route := noteFileRoute(path)
 	if noLinksReason != "" {
 		route += "&noLinksReason=" + url.QueryEscape(noLinksReason)
+	}
+	if hasTags {
+		// Always append, even when tags == "" - that empty value is the
+		// clearing signal ('--tags ""' removes every tag), and it must stay
+		// distinguishable on the wire from the flag being omitted entirely,
+		// which leaves the note's existing tags untouched.
+		route += "&tags=" + url.QueryEscape(tags)
 	}
 	raw, err := c.postRawWithClient(ctx, route, "text/markdown", body, "cli")
 	if err != nil {

@@ -232,6 +232,56 @@ func TestNoteWriteNoLinksReasonTravelsOnTheWire(t *testing.T) {
 	}
 }
 
+// --tags must reach the server as a query param, comma-list encoded verbatim.
+func TestNoteWriteTagsTravelsOnTheWire(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"saved"}`))
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.run(t, "write", "notes/x.md", "--file", local, "--tags", "handoff,checkpoint"); err != nil {
+		t.Fatalf("note write: %v", err)
+	}
+	if !strings.Contains(api.requests[0].query, "tags=handoff%2Ccheckpoint") {
+		t.Fatalf("tags must travel as a query param, got %q", api.requests[0].query)
+	}
+}
+
+// TestNoteWriteEmptyTagsStillTravelsAsPresent is the regression this bead
+// exists for: '--tags ""' (clear every tag) must reach the server as the
+// param being PRESENT with an empty value, never as the param being absent -
+// collapsing the two is the data-loss bug this test catches.
+func TestNoteWriteEmptyTagsStillTravelsAsPresent(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"saved"}`))
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.run(t, "write", "notes/x.md", "--file", local, "--tags", ""); err != nil {
+		t.Fatalf("note write: %v", err)
+	}
+	if !strings.Contains(api.requests[0].query, "tags=") {
+		t.Fatalf("an empty --tags must still send the param, got %q", api.requests[0].query)
+	}
+}
+
+// TestNoteWriteWithoutTagsOmitsTheParam is the other half: omitting --tags
+// entirely must leave the note's existing tags untouched, which only works
+// if the param is never sent at all.
+func TestNoteWriteWithoutTagsOmitsTheParam(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"saved"}`))
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.run(t, "write", "notes/x.md", "--file", local); err != nil {
+		t.Fatalf("note write: %v", err)
+	}
+	if strings.Contains(api.requests[0].query, "tags") {
+		t.Fatalf("omitting --tags must not send the param at all, got %q", api.requests[0].query)
+	}
+}
+
 func TestNoteWriteWithoutSourceOrStdinFailsLoud(t *testing.T) {
 	api := newNoteAPI(t, jsonResponse(`{}`))
 	_, err := api.run(t, "write", "notes/x.md", "--file", "  ")
