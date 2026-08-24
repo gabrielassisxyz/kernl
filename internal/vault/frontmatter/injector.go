@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // InjectID surgically inserts an `id: <uuid>` line into a file's frontmatter
@@ -136,7 +138,11 @@ func InjectTags(raw []byte, tags []string) ([]byte, error) {
 		if len(tags) == 0 {
 			return bytes.Clone(raw), nil
 		}
-		return prependTagsBlock(bom, content, tags), nil
+		result, err := prependTagsBlock(bom, content, tags)
+		if err != nil {
+			return nil, err
+		}
+		return validateInjectedTags(result, tags)
 	}
 
 	lineEnd := 3
@@ -147,7 +153,11 @@ func InjectTags(raw []byte, tags []string) ([]byte, error) {
 		if len(tags) == 0 {
 			return bytes.Clone(raw), nil
 		}
-		return prependTagsBlock(bom, content, tags), nil
+		result, err := prependTagsBlock(bom, content, tags)
+		if err != nil {
+			return nil, err
+		}
+		return validateInjectedTags(result, tags)
 	}
 
 	nl := determineNewline(content)
@@ -169,23 +179,67 @@ func InjectTags(raw []byte, tags []string) ([]byte, error) {
 
 	start, end, found := findTagsSpan(raw, insertPos, blockEnd)
 
-	var buf bytes.Buffer
 	if found {
+		var buf bytes.Buffer
 		buf.Write(raw[:start])
 		if len(tags) > 0 {
-			buf.WriteString(renderTagsBlock(tags, nl))
+			rendered, err := renderTagsBlock(tags, nl)
+			if err != nil {
+				return nil, err
+			}
+			buf.WriteString(rendered)
 		}
 		buf.Write(raw[end:])
-		return buf.Bytes(), nil
+		return validateInjectedTags(buf.Bytes(), tags)
 	}
 
 	if len(tags) == 0 {
 		return bytes.Clone(raw), nil
 	}
+	rendered, err := renderTagsBlock(tags, nl)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
 	buf.Write(raw[:blockEnd])
-	buf.WriteString(renderTagsBlock(tags, nl))
+	buf.WriteString(rendered)
 	buf.Write(raw[blockEnd:])
-	return buf.Bytes(), nil
+	return validateInjectedTags(buf.Bytes(), tags)
+}
+
+// validateInjectedTags is the assertion that closes the hole a hand-rolled
+// renderer left open: a rendering bug that produces a bare, YAML-special
+// value (say a tag containing "# " or starting with "- ") would otherwise
+// reach disk as HTTP 200 with corrupted or vanished frontmatter, discovered
+// only later - the same id-loss shape 2026-08-01 already cost a history for.
+// Rather than trust the byte surgery, InjectTags re-parses its own output
+// and refuses to return it if the result does not parse, or if the tags it
+// parses back are not exactly the tags it was asked to write.
+func validateInjectedTags(result []byte, tags []string) ([]byte, error) {
+	fm, err := Parse(result)
+	if err != nil {
+		return nil, fmt.Errorf("frontmatter: InjectTags produced unparseable YAML: %w", err)
+	}
+	if !tagsEqual(fm.Tags, tags) {
+		return nil, fmt.Errorf("frontmatter: InjectTags produced a mismatch - wrote %v, read back %v", tags, fm.Tags)
+	}
+	return result, nil
+}
+
+// tagsEqual compares two tag lists positionally, treating nil and an empty
+// slice as equal - Parse returns nil for an absent tags: key and this
+// package's callers pass an empty (non-nil) slice to mean "no tags", and
+// those are the same intent.
+func tagsEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // findTagsSpan locates a top-level `tags:` line within raw[from:to] and
@@ -239,29 +293,44 @@ func lineEndAt(raw []byte, pos, to int) int {
 }
 
 // renderTagsBlock renders a `tags:` key as a block list, one tag per line -
-// the same style existing frontmatter in this vault already uses.
-func renderTagsBlock(tags []string, nl string) string {
-	var b strings.Builder
-	b.WriteString("tags:")
-	b.WriteString(nl)
-	for _, t := range tags {
-		b.WriteString("  - ")
-		b.WriteString(t)
-		b.WriteString(nl)
+// the same style existing frontmatter in this vault already uses. It goes
+// through the real YAML encoder rather than deciding by hand which
+// characters need escaping: a tag like "foo: bar" or "#hash" written bare
+// either breaks the parse or silently disappears as a comment, and the
+// encoder quotes exactly the values that need it while leaving an ordinary
+// tag exactly as bare as InjectID's own id: line.
+func renderTagsBlock(tags []string, nl string) (string, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(map[string]any{"tags": tags}); err != nil {
+		_ = enc.Close()
+		return "", fmt.Errorf("frontmatter: rendering tags block: %w", err)
 	}
-	return b.String()
+	if err := enc.Close(); err != nil {
+		return "", fmt.Errorf("frontmatter: rendering tags block: %w", err)
+	}
+	rendered := buf.String()
+	if nl != "\n" {
+		rendered = strings.ReplaceAll(rendered, "\n", nl)
+	}
+	return rendered, nil
 }
 
 // prependTagsBlock creates a minimal frontmatter block holding just the tags.
-func prependTagsBlock(bom, content []byte, tags []string) []byte {
+func prependTagsBlock(bom, content []byte, tags []string) ([]byte, error) {
 	nl := determineNewline(content)
+	rendered, err := renderTagsBlock(tags, nl)
+	if err != nil {
+		return nil, err
+	}
 	var buf bytes.Buffer
 	buf.Write(bom)
 	buf.WriteString("---" + nl)
-	buf.WriteString(renderTagsBlock(tags, nl))
+	buf.WriteString(rendered)
 	buf.WriteString("---" + nl)
 	buf.Write(content)
-	return buf.Bytes()
+	return buf.Bytes(), nil
 }
 
 // determineNewline probes the first 1024 bytes for CRLF anywhere, defaulting to LF.
