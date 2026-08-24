@@ -216,6 +216,23 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			if injected, injErr := frontmatter.InjectID(body, id); injErr == nil {
 				body = injected
 			}
+
+			// --tags REPLACES the frontmatter's tags: block outright - the
+			// query param must be present, not merely non-empty, because
+			// 'tags=' (present, empty) is the clearing signal and omitting
+			// the param entirely must leave whatever tags the note already
+			// has untouched. Has() is what keeps those two apart; Get() != ""
+			// would collapse the clearing case into "do nothing".
+			if r.URL.Query().Has("tags") {
+				tags, tagErr := parseNoteTags(r.URL.Query().Get("tags"))
+				if tagErr != nil {
+					http.Error(w, tagErr.Error(), http.StatusBadRequest)
+					return
+				}
+				if injected, injErr := frontmatter.InjectTags(body, tags); injErr == nil {
+					body = injected
+				}
+			}
 		}
 
 		// Refuse an unrecognised permission BEFORE the file lands. noteFromFile
@@ -469,4 +486,27 @@ func noteIDForPath(ctx context.Context, g *graph.Graph, relPath string) (string,
 		return "", fmt.Errorf("vault: resolving the id of %q: %w", relPath, err)
 	}
 	return id, nil
+}
+
+// parseNoteTags splits the --tags query value into trimmed tag names. An
+// empty string is the clearing signal ('kernl note write --tags ""') and
+// yields no tags; anything else is split on commas, each piece trimmed. A
+// piece that comes out empty (a stray leading, trailing, or doubled comma)
+// or still carries a comma is rejected rather than silently dropped or
+// silently split further - tags are taken verbatim, and a comma inside a
+// tag has no way to survive this encoding.
+func parseNoteTags(raw string) ([]string, error) {
+	if raw == "" {
+		return []string{}, nil
+	}
+	parts := strings.Split(raw, ",")
+	tags := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed == "" || strings.Contains(trimmed, ",") {
+			return nil, fmt.Errorf("invalid --tags value %q: each tag must be non-empty with no comma in it - check for a stray comma", raw)
+		}
+		tags = append(tags, trimmed)
+	}
+	return tags, nil
 }
