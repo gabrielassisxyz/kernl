@@ -111,6 +111,42 @@ func TestFetchRelevantDecisions_ReproducesRealCase(t *testing.T) {
 	}
 }
 
+// TestFetchRelevantDecisions_StillMatchesBodies guards the shared
+// search.Search against a change that narrows all callers to title-only at
+// once: a decision is found by what it says, not by its title, so a term in
+// the outcome only must still reach it.
+func TestFetchRelevantDecisions_StillMatchesBodies(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	ctx := context.Background()
+
+	bead := BeadRef{ID: "arch-restic", Title: "Rework the resticprofile backup", TrackerKind: "br", RepoPath: "/repo/archeion"}
+	runID := seedRunAtRepo(t, g, "archeion backup", "/repo/archeion", []BeadRef{bead})
+	entry := backend.DecisionRecordEntry{
+		Decision:          "Pick a backup schedule.",
+		OptionsConsidered: "1. Nightly.\n2. Weekly.",
+		TradeOffs:         "Nightly is fresher; weekly is cheaper.",
+		Rationale:         "Nightly, because resticprofile already runs nightly.",
+	}
+	decisionID := writeTestDecision(t, g, runID, bead, bead, entry)
+
+	secondBead := &backend.Bead{
+		ID:          "arch-restic-2",
+		Title:       "Tune the resticprofile retention",
+		Description: "Adjust retention so resticprofile keeps a sane number of snapshots.",
+	}
+
+	got, err := FetchRelevantDecisions(ctx, g, "/repo/archeion", secondBead)
+	if err != nil {
+		t.Fatalf("FetchRelevantDecisions: %v", err)
+	}
+	for _, d := range got {
+		if d.ID == decisionID {
+			return
+		}
+	}
+	t.Fatalf("expected body-only decision match to surface, got %+v", got)
+}
+
 // TestFetchRelevantDecisions_UnrelatedDecisionExcluded is the negative side
 // of the same criterion: a standing decision in the same repository that
 // shares no vocabulary with the bead about to run must not ride along -

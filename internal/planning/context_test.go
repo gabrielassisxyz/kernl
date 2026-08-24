@@ -121,6 +121,27 @@ func TestBuildContext_TopicalRetrieval(t *testing.T) {
 	}
 }
 
+// TestBuildContext_StillMatchesBodies guards the shared search.Search against a
+// change that narrows all callers to title-only at once: kernl plan must keep
+// matching bodies, so a note whose term lives in the body only still surfaces.
+func TestBuildContext_StillMatchesBodies(t *testing.T) {
+	ctx := context.Background()
+	g := testutil.NewInMemoryTestGraph(t)
+
+	id := seedNote(t, g, "Unrelated title", "the resticprofile backup runs nightly")
+
+	notes, err := planning.BuildContext(ctx, g, "resticprofile", 8)
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	for _, n := range notes {
+		if n.ID == id {
+			return
+		}
+	}
+	t.Fatalf("expected body-only match to surface, got %+v", notes)
+}
+
 func seedDANote(t *testing.T, g *graph.Graph, title, body string) string {
 	t.Helper()
 	ctx := context.Background()

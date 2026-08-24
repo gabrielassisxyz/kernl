@@ -10,6 +10,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/search"
+	"github.com/gabrielassisxyz/kernl/internal/planning"
 )
 
 const (
@@ -51,7 +52,7 @@ func nodeSearchHandler(a *app.App) http.HandlerFunc {
 			limit = nodeSearchMaxLimit
 		}
 
-		opts := []search.Option{search.WithPrefix()}
+		opts := []search.Option{search.WithPrefix(), search.WithTitleOnly()}
 		if typ := strings.TrimSpace(r.URL.Query().Get("type")); typ != "" {
 			opts = append(opts, search.WithTypes(typ))
 		}
@@ -95,15 +96,8 @@ func nodeSearchHandler(a *app.App) http.HandlerFunc {
 				return err
 			}
 
-			// Preserve search rank order; drop hits whose node vanished/tombstoned.
-			for _, h := range hits {
-				typ, ok := types[h.NodeID]
-				if !ok {
-					continue
-				}
-				out = append(out, nodeSearchResult{ID: h.NodeID, Title: h.Title, Type: typ})
-			}
-			return nil
+			out, err = collapseCompanions(tx, hits, types)
+			return err
 		})
 		if err != nil {
 			slog.Error("node search", "error", err)
@@ -118,4 +112,33 @@ func nodeSearchHandler(a *app.App) http.HandlerFunc {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// collapseCompanions drops the companion of each node already kept, so a
+// task/project/bookmark and its companion note - two nodes about one thing -
+// occupy a single autocomplete entry. The first of a pair in rank order is
+// kept; its partner is marked seen and skipped when reached later. Hits whose
+// node vanished or was tombstoned are dropped, preserving rank order.
+func collapseCompanions(tx *graph.ReadTx, hits []search.Hit, types map[string]string) ([]nodeSearchResult, error) {
+	out := make([]nodeSearchResult, 0, len(hits))
+	seen := make(map[string]bool, len(hits))
+	for _, h := range hits {
+		typ, ok := types[h.NodeID]
+		if !ok {
+			continue
+		}
+		if seen[h.NodeID] {
+			continue
+		}
+		partner, err := planning.CompanionPartner(tx, h.NodeID, typ)
+		if err != nil {
+			return nil, err
+		}
+		seen[h.NodeID] = true
+		if partner != "" {
+			seen[partner] = true
+		}
+		out = append(out, nodeSearchResult{ID: h.NodeID, Title: h.Title, Type: typ})
+	}
+	return out, nil
 }

@@ -36,10 +36,11 @@ narrow it with 'kernl graph search' rather than expecting flags here.
 		},
 		{
 			Name:    "search",
-			Summary: "Prefix-search node titles",
+			Summary: "Search node titles",
 			Usage:   "kernl graph search <query> [--type <node-type>] [--limit <n>] [--json]",
-			Details: `Matches title prefixes (this is the editor's wikilink autocomplete),
-not full-text over bodies.
+			Details: `Matches node titles only, not bodies or tags (this is the editor's
+wikilink autocomplete). The last word is matched as a prefix, so a
+partial word still matches.
 
 {{flags}}
 
@@ -199,7 +200,7 @@ func runGraphSearch(v verbContext, asJSON bool, args []string) error {
 		return emitJSON(v.stdout(), raw)
 	}
 	return printGraphNodes(v.stdout(), raw, "GET /api/nodes/search",
-		"No matches. Search is over title prefixes only - try a shorter prefix.")
+		"No matches. Search is over node titles only - try a different word.")
 }
 
 func runGraphRelated(v verbContext, asJSON bool, args []string) error {

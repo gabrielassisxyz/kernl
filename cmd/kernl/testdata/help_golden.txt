@@ -1254,7 +1254,7 @@ Usage:
 
 Subcommands:
   nodes          List every live node in the graph
-  search         Prefix-search node titles
+  search         Search node titles
   related        Show the nodes a node is related to
   briefing       Print the DA briefing note attached to a node
   edges          List stored edges: the whole graph, or one node's
@@ -1278,13 +1278,14 @@ Flags:
   --json  Emit [{"id","title","type"}] verbatim on stdout
 
 ### kernl graph search
-kernl graph search - Prefix-search node titles
+kernl graph search - Search node titles
 
 Usage:
   kernl graph search <query> [--type <node-type>] [--limit <n>] [--json]
 
-Matches title prefixes (this is the editor's wikilink autocomplete),
-not full-text over bodies.
+Matches node titles only, not bodies or tags (this is the editor's
+wikilink autocomplete). The last word is matched as a prefix, so a
+partial word still matches.
 
 Flags:
   --type <node-type>  Restrict to one node type, e.g. note, task, project

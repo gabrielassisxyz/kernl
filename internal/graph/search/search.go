@@ -19,9 +19,10 @@ type Hit struct {
 
 // options holds optional filters for a search query.
 type options struct {
-	tags   []string
-	types  []string
-	prefix bool
+	tags      []string
+	types     []string
+	prefix    bool
+	titleOnly bool
 }
 
 // Option modifies search behaviour.
@@ -33,6 +34,15 @@ type Option func(*options)
 func WithPrefix() Option {
 	return func(o *options) {
 		o.prefix = true
+	}
+}
+
+// WithTitleOnly restricts the FTS5 match to the title column, dropping body
+// and tag matches. The editor's wikilink autocomplete uses this: a completion
+// list is scanned by title, so a body match cannot be scanned.
+func WithTitleOnly() Option {
+	return func(o *options) {
+		o.titleOnly = true
 	}
 }
 
@@ -141,7 +151,7 @@ func buildQuery(cleaned string, o options) (string, []any) {
 
 	b.WriteString(`SELECT n.id, n.title, rank`)
 	b.WriteString(` FROM nodes_fts(?) ft`)
-	args = append(args, buildMatchExpr(cleaned, o.prefix))
+	args = append(args, buildMatchExpr(cleaned, o.prefix, o.titleOnly))
 
 	b.WriteString(` JOIN nodes n ON n.fts_rowid = ft.rowid`)
 
@@ -202,14 +212,21 @@ func buildQuery(cleaned string, o options) (string, []any) {
 // user is still typing matches by prefix while earlier words match exactly.
 // The '*' is added here, after sanitizeFTSQuery has already stripped any
 // user-supplied '*', so it cannot be injected.
-func buildMatchExpr(cleaned string, prefix bool) string {
+//
+// When titleOnly is set, every token is qualified to the title column, so the
+// match never reaches the attrs column (body and tags).
+func buildMatchExpr(cleaned string, prefix, titleOnly bool) string {
+	qualifier := ""
+	if titleOnly {
+		qualifier = "title : "
+	}
 	if !prefix {
-		return `"` + cleaned + `"`
+		return qualifier + `"` + cleaned + `"`
 	}
 	tokens := strings.Fields(cleaned)
 	parts := make([]string, len(tokens))
 	for i, tok := range tokens {
-		parts[i] = `"` + tok + `"`
+		parts[i] = qualifier + `"` + tok + `"`
 		if i == len(tokens)-1 {
 			parts[i] += "*"
 		}
