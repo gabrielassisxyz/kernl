@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gabrielassisxyz/kernl/internal/chat"
 	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/edges"
 	"github.com/gabrielassisxyz/kernl/internal/graph/nodes"
@@ -194,5 +196,59 @@ func TestLooksLikeQuestion(t *testing.T) {
 		if got := looksLikeQuestion(body); got != want {
 			t.Errorf("looksLikeQuestion(%q) = %v, want %v", body, got, want)
 		}
+	}
+}
+
+// capturingLLM records the user prompt it was asked to complete, so a test can
+// assert what context Prep gathered without depending on the model's answer.
+type capturingLLM struct {
+	prompt string
+}
+
+func (m *capturingLLM) Chat(ctx context.Context, messages []chat.Message, tools []chat.Tool) (*chat.ChatResponse, error) {
+	for _, msg := range messages {
+		if msg.Role == "user" {
+			m.prompt = msg.Content
+		}
+	}
+	return &chat.ChatResponse{Content: "primer"}, nil
+}
+
+// TestPrep_StillMatchesBodies guards the shared search.Search against a change
+// that narrows all callers to title-only at once: a bookmark is found by what
+// it says, not by its title, so a term in the description only must still reach
+// the prep prompt.
+func TestPrep_StillMatchesBodies(t *testing.T) {
+	ctx := context.Background()
+	vaultRoot := t.TempDir()
+	g, err := graph.Open(ctx, graph.Config{Path: filepath.Join(t.TempDir(), "graph.db")})
+	if err != nil {
+		t.Fatalf("graph.Open: %v", err)
+	}
+	defer g.Close()
+
+	var captureID string
+	if err := g.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		id, err := nodes.CreateCapture(ctx, tx, nodes.Capture{Body: "resticprofile backup", Tags: []string{"pending"}}, nodes.Author{Name: "t"})
+		if err != nil {
+			return err
+		}
+		captureID = id
+		_, err = nodes.CreateBookmark(ctx, tx, nodes.Bookmark{
+			Title:       "Unrelated bookmark",
+			URL:         "https://example.com",
+			Description: "resticprofile backs up to a remote repository.",
+		}, nodes.Author{Name: "t"})
+		return err
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	llm := &capturingLLM{}
+	if _, err := Prep(ctx, g, llm, vaultRoot, "DA", captureID, 3); err != nil {
+		t.Fatalf("Prep: %v", err)
+	}
+	if !strings.Contains(llm.prompt, "Unrelated bookmark") {
+		t.Errorf("expected the body-only bookmark match in the prep prompt, got:\n%s", llm.prompt)
 	}
 }

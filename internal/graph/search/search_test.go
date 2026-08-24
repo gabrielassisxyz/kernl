@@ -25,9 +25,17 @@ func setupSearchNode(t *testing.T, g *graph.Graph, id, nodeType, title, body str
 			return fmt.Errorf("insert node: %w", err)
 		}
 
+		// Mirror production: the FTS attrs column holds body then tags.
+		ftsAttrs := body
+		if len(tags) > 0 {
+			if ftsAttrs != "" {
+				ftsAttrs += " "
+			}
+			ftsAttrs += strings.Join(tags, " ")
+		}
 		_, err = wtx.Exec(
 			`INSERT INTO nodes_fts(title, attrs) VALUES (?, ?)`,
-			title, body,
+			title, ftsAttrs,
 		)
 		if err != nil {
 			return fmt.Errorf("insert fts: %w", err)
@@ -380,5 +388,66 @@ func TestSearchWithoutPrefixDoesNotMatchPartialToken(t *testing.T) {
 	}
 	if len(hits) != 0 {
 		t.Fatalf("expected 0 hits without prefix, got %d", len(hits))
+	}
+}
+
+// searchHits runs Search with the given options and returns the hits, failing
+// the test on any error.
+func searchHits(t *testing.T, g *graph.Graph, query string, opts ...search.Option) []search.Hit {
+	t.Helper()
+	var hits []search.Hit
+	err := g.DoRead(context.Background(), func(rtx *graph.ReadTx) error {
+		var serr error
+		hits, serr = search.Search(context.Background(), rtx, query, opts...)
+		return serr
+	})
+	if err != nil {
+		t.Fatalf("Search(%q): %v", query, err)
+	}
+	return hits
+}
+
+// TestSearchTitleOnlyExcludesBodyMatch proves the title-only option drops a
+// node whose term lives in the body only, in both directions: present without
+// the option, absent with it. Only the pair proves the option changed the
+// outcome, so the fixture must not carry the term in its title.
+func TestSearchTitleOnlyExcludesBodyMatch(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "n1", "note", "Unrelated Title", "the resticprofile backup runs nightly", nil)
+
+	if got := searchHits(t, g, "resticprofile"); len(got) != 1 || got[0].NodeID != "n1" {
+		t.Fatalf("expected body match without title-only, got %+v", got)
+	}
+	if got := searchHits(t, g, "resticprofile", search.WithTitleOnly()); len(got) != 0 {
+		t.Fatalf("expected no hits with title-only, got %+v", got)
+	}
+}
+
+// TestSearchTitleOnlyExcludesTagMatch proves the title-only option drops a
+// node whose term lives in the tag only. The tag shares the FTS attrs column
+// with the body, so without this case the option could qualify nothing and
+// still pass the body test by accident.
+func TestSearchTitleOnlyExcludesTagMatch(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "n1", "note", "Unrelated Title", "unrelated body", []string{"resticprofile"})
+
+	if got := searchHits(t, g, "resticprofile"); len(got) != 1 || got[0].NodeID != "n1" {
+		t.Fatalf("expected tag match without title-only, got %+v", got)
+	}
+	if got := searchHits(t, g, "resticprofile", search.WithTitleOnly()); len(got) != 0 {
+		t.Fatalf("expected no hits with title-only, got %+v", got)
+	}
+}
+
+// TestSearchTitleOnlyMatchesTokenAnywhereInTitle pins the per-token contract:
+// the match is over title tokens, not the beginning of the title, so a term
+// mid-title still surfaces under the option.
+func TestSearchTitleOnlyMatchesTokenAnywhereInTitle(t *testing.T) {
+	g := testutil.NewInMemoryTestGraph(t)
+	setupSearchNode(t, g, "n1", "note", "Escrever um coletor omarchy-agent-usage para os providers que faltam", "unrelated body", nil)
+
+	got := searchHits(t, g, "omarchy", search.WithTitleOnly())
+	if len(got) != 1 || got[0].NodeID != "n1" {
+		t.Fatalf("expected title token match, got %+v", got)
 	}
 }
