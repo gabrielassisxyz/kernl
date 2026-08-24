@@ -23,7 +23,7 @@ func TestCapabilitiesCoversEveryDispatchableVerb(t *testing.T) {
 	for _, c := range out.Commands {
 		names[c.Name] = true
 	}
-	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "capabilities", "version"} {
+	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "search", "plan", "capabilities", "version"} {
 		if !names[verb] {
 			t.Errorf("capabilities missing verb %q", verb)
 		}

@@ -249,6 +249,8 @@ func Dispatch(args []string) error {
 		return bookmarkFn(configPath, args[1:])
 	case "capture":
 		return captureFn(configPath, args[1:])
+	case "search":
+		return planFn(configPath, args[1:])
 	case "plan":
 		return planFn(configPath, args[1:])
 	case "task":
@@ -323,7 +325,7 @@ Subcommands:
 Automation:
   kernl capabilities       machine-readable contract (JSON)
   kernl robot-docs guide   agent handbook
-  --json                   on epic list, plan, doctor, version, and every
+  --json                   on epic list, search, doctor, version, and every
                            task/project/note/inbox subcommand
 
 Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.`)

@@ -359,3 +359,24 @@ func TestGraphBriefingJSONEmitsNullWhenMissing(t *testing.T) {
 		t.Errorf("expected a null briefing, got %v", *doc.Briefing)
 	}
 }
+
+// TestGraphSearchHelpPointsToContentSearch pins the split between the two
+// search verbs: graph search is the editor's title-prefix autocomplete, and
+// kernl search is the content-search verb. If the help ever loses the pointer,
+// an agent reaches the wrong verb for body-text search again.
+func TestGraphSearchHelpPointsToContentSearch(t *testing.T) {
+	graph := findCommand(commandTable, "graph")
+	if graph == nil {
+		t.Fatal(`no "graph" command in the table`)
+	}
+	s := findCommand(graph.Subs, "search")
+	if s == nil {
+		t.Fatal(`no "search" sub under "graph"`)
+	}
+	if !strings.Contains(s.Details, "kernl search") {
+		t.Errorf("graph search help must point to kernl search for content search, got: %q", s.Details)
+	}
+	if !strings.Contains(s.Details, "not the content-search verb") {
+		t.Errorf("graph search help must state it is not the content-search verb, got: %q", s.Details)
+	}
+}
