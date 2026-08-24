@@ -217,3 +217,38 @@ func TestVaultWriteEmptyTagsParamClearsExistingTags(t *testing.T) {
 		t.Fatalf("node tags = %v, want none", note.Tags)
 	}
 }
+
+// TestVaultWriteRejectsUnwritableTagsRatherThanDropThem is the fix for a
+// handler that used to swallow InjectTags' error the same way InjectID's is
+// swallowed: 'if injected, injErr := ...; injErr == nil { body = injected }'.
+// InjectID is genuinely best-effort - it runs on every write whether or not
+// the caller asked for it. InjectTags only ever runs because --tags was
+// explicitly passed, so an error there must fail the request loudly: a 200
+// that quietly wrote the note WITHOUT the tags the caller believes it sent
+// is a request the caller has no way to know went wrong.
+func TestVaultWriteRejectsUnwritableTagsRatherThanDropThem(t *testing.T) {
+	root := t.TempDir()
+	g := testutil.NewInMemoryTestGraph(t)
+	a := &app.App{Config: &config.Config{Vault: config.VaultConfig{Root: root}}, Graph: g}
+
+	mux := http.NewServeMux()
+	api.RegisterVaultRoutes(mux, a)
+
+	const path = "malformed.md"
+	// Frontmatter that fails to parse before InjectTags ever gets to run.
+	body := "---\n\t\tt\n---\n"
+	req := httptest.NewRequest("POST", "/api/vault/file?path="+path+"&tags=alpha,beta", bytes.NewBufferString(body))
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code == http.StatusOK {
+		t.Fatalf("a write whose --tags could not be applied must not return 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Nothing must land on disk: a caller who sees a non-200 for a write
+	// error has no reason to think the file exists at all, so a half-write
+	// (body saved, tags silently missing) would be its own way of lying.
+	if _, err := os.Stat(filepath.Join(root, path)); err == nil {
+		t.Fatalf("the file must not be written when --tags could not be applied")
+	}
+}

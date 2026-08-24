@@ -229,9 +229,20 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 					http.Error(w, tagErr.Error(), http.StatusBadRequest)
 					return
 				}
-				if injected, injErr := frontmatter.InjectTags(body, tags); injErr == nil {
-					body = injected
+				// Unlike InjectID above, this is never best-effort: InjectID
+				// runs on every write whether or not the caller cares, but
+				// InjectTags only runs because --tags was explicitly asked
+				// for. Swallowing its error the same way InjectID's is
+				// swallowed would report success on a write the caller
+				// believes tagged the note and did not - nothing on disk
+				// changes, and nothing said so. The body is what failed to
+				// parse, so 400 names the note the caller was writing.
+				injected, injErr := frontmatter.InjectTags(body, tags)
+				if injErr != nil {
+					http.Error(w, fmt.Sprintf("%s: %s", filePath, injErr.Error()), http.StatusBadRequest)
+					return
 				}
+				body = injected
 			}
 		}
 
