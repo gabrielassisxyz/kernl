@@ -270,13 +270,13 @@ Examples:
   kernl capture -- --help   (captures the literal text "--help")`,
 	},
 	{
-		Name:    "plan",
-		Summary: "Show the vault notes relevant to a topic (substrate-aware planning)",
-		Usage:   "kernl plan [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>",
+		Name:    "search",
+		Summary: "Search the vault for notes relevant to a topic",
+		Usage:   "kernl search [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>",
 		Details: `{{flags}}
 
 Example:
-  kernl plan "caching strategy"`,
+  kernl search "caching strategy"`,
 		Flags: []commandFlag{
 			{Name: "--json", Description: `Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout`,
 				Continuation: []string{`path is null for via=claim (a claim has no file on disk)`}},
@@ -297,6 +297,13 @@ Example:
 					"densifies, so the config value ages and has to be re-measured.",
 				}},
 		},
+	},
+	{
+		Name:    "plan",
+		Summary: "Alias for kernl search (retained for compatibility)",
+		Usage:   "kernl plan [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>",
+		Details: `Retained for compatibility; use kernl search instead - the two are
+the same verb. Run 'kernl search --help' for the flags.`,
 	},
 	{
 		Name:    "capabilities",

@@ -42,6 +42,9 @@ narrow it with 'kernl graph search' rather than expecting flags here.
 wikilink autocomplete). The last word is matched as a prefix, so a
 partial word still matches.
 
+This is not the content-search verb: to find notes by a phrase in
+their body, use 'kernl search <topic>' instead.
+
 {{flags}}
 
 Example:

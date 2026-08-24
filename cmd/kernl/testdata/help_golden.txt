@@ -14,7 +14,8 @@ Subcommands:
   orchestrator Compare agents by their recorded stage-attempt history
   bookmark     Manage bookmarks
   capture      Capture a quick note/idea into the inbox (text arg or stdin)
-  plan         Show the vault notes relevant to a topic (substrate-aware planning)
+  search       Search the vault for notes relevant to a topic
+  plan         Alias for kernl search (retained for compatibility)
   capabilities Print the machine-readable CLI contract (JSON)
   robot-docs   Print the agent handbook (paste-ready, generated from metadata)
   version      Print version and build information
@@ -47,7 +48,7 @@ Exit codes:
 Automation:
   kernl capabilities       machine-readable contract (JSON)
   kernl robot-docs guide   agent handbook
-  --json                   on epic list, plan, doctor, version, and every
+  --json                   on epic list, search, doctor, version, and every
                            task/project/note/inbox subcommand
 
 Run 'kernl <subcommand> --help' (or 'kernl help <subcommand>') for details.
@@ -526,11 +527,11 @@ Examples:
   echo "idea: robot mode for the CLI" | kernl capture
   kernl capture -- --help   (captures the literal text "--help")
 
-### kernl plan
-kernl plan - Show the vault notes relevant to a topic (substrate-aware planning)
+### kernl search
+kernl search - Search the vault for notes relevant to a topic
 
 Usage:
-  kernl plan [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>
+  kernl search [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>
 
 Flags:
   --json             Emit {"topic","notes":[{"id","title","via","snippet","path"}]} on stdout
@@ -549,7 +550,16 @@ Flags:
                      densifies, so the config value ages and has to be re-measured.
 
 Example:
-  kernl plan "caching strategy"
+  kernl search "caching strategy"
+
+### kernl plan
+kernl plan - Alias for kernl search (retained for compatibility)
+
+Usage:
+  kernl plan [--json] [--limit <n>] [--for-linking] [--link-budget <n>] <topic>
+
+Retained for compatibility; use kernl search instead - the two are
+the same verb. Run 'kernl search --help' for the flags.
 
 ### kernl capabilities
 kernl capabilities - Print the machine-readable CLI contract (JSON)
@@ -1286,6 +1296,9 @@ Usage:
 Matches node titles only, not bodies or tags (this is the editor's
 wikilink autocomplete). The last word is matched as a prefix, so a
 partial word still matches.
+
+This is not the content-search verb: to find notes by a phrase in
+their body, use 'kernl search <topic>' instead.
 
 Flags:
   --type <node-type>  Restrict to one node type, e.g. note, task, project

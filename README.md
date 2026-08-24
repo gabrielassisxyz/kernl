@@ -14,7 +14,7 @@ Kernl is opinionated out of the box and deeply configurable when you need it. Th
 | --- | --- |
 | Knowledge graph | Notes, captures, bookmarks, tasks, projects, memory claims, sessions, and workflow runs in one SQLite-backed graph. |
 | Markdown vault | Plain `.md` files remain human-owned; Kernl indexes them, injects stable UUIDs, and preserves revision history. |
-| Substrate-aware planning | `kernl plan "topic"` and the planner API retrieve relevant vault notes automatically before work starts. |
+| Substrate-aware planning | `kernl search "topic"` and the planner API retrieve relevant vault notes automatically before work starts. |
 | Inbox and capture | Quick captures enter the graph as pending items and can be converted into durable notes with provenance. |
 | Bookmarks | Add or import bookmarks, archive readable HTML, and connect them to the rest of the graph. |
 | Multi-agent orchestration | Execute bead DAGs with isolated git worktrees, agent pools, review stages, integration, and PR shipment. |
@@ -118,7 +118,7 @@ kernl serve
 kernl capture "Investigate semantic relevance for converted captures"
 
 # 6. Ask Kernl which vault notes are relevant before planning work.
-kernl plan "semantic relevance"
+kernl search "semantic relevance"
 ```
 
 The server defaults to `http://localhost:8080`. Override it with `--port` or the `server.port` value in `kernl.yaml`.
@@ -155,7 +155,7 @@ printf "text from stdin" | kernl capture
 Create a pending capture in the graph-backed inbox.
 
 ```bash
-kernl plan "topic"
+kernl search "topic"
 ```
 
 Show the vault notes Kernl would bring into scope for planning that topic.
@@ -204,7 +204,7 @@ Print build metadata.
 kernl capabilities       # machine-readable CLI contract (JSON)
 kernl robot-docs guide   # agent handbook, generated from the same metadata
 kernl doctor --json      # env checks with a recommendedAction
-kernl plan --json "topic"
+kernl search --json "topic"
 ```
 
 Agent/automation surface. Every verb answers `--help`; exit codes are `0` success, `1` runtime error, `2` usage error.
@@ -240,7 +240,7 @@ kernl health
 | `ingest` | paste, upload, source, trigger, queue list/resolve/merge-plan |
 | `settings`, `health` | get/set, server health and update check |
 
-They need the server up, and say so when it is not. Point them elsewhere with `--server <url>` or `KERNL_SERVER`; the default is the port in `kernl.yaml`. `capture`, `bookmark add|import` and `plan` are the exception: they write the graph directly and work with no server running.
+They need the server up, and say so when it is not. Point them elsewhere with `--server <url>` or `KERNL_SERVER`; the default is the port in `kernl.yaml`. `capture`, `bookmark add|import` and `search` are the exception: they write the graph directly and work with no server running.
 
 Every subcommand takes `--json`, and destructive ones require `--yes`: without it they print what would happen and exit `0` without contacting the server.
 
@@ -336,7 +336,7 @@ exists to avoid.
           v                                   v
 +-------------------+              +-------------------+
 | Embedded Nuxt UI  |              | CLI commands      |
-| graph, tasks      |              | capture, plan,    |
+| graph, tasks      |              | capture, search,  |
 | orchestrator      |              | epic, bead        |
 +---------+---------+              +---------+---------+
           |                                  |

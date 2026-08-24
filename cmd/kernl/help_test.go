@@ -61,7 +61,7 @@ func TestHelpInterceptsEveryVerb(t *testing.T) {
 	invocations := [][]string{
 		{"serve", "--help"}, {"doctor", "--help"}, {"epic", "--help"},
 		{"bead", "--help"}, {"sweep", "--help"}, {"bookmark", "--help"},
-		{"capture", "--help"}, {"plan", "--help"}, {"version", "--help"},
+		{"capture", "--help"}, {"search", "--help"}, {"plan", "--help"}, {"version", "--help"},
 		{"epic", "run", "--help"}, {"epic", "list", "-h"}, {"epic", "merge", "--help"},
 		{"epic", "abort", "--help"}, {"bead", "run", "--help"},
 		{"bookmark", "add", "--help"}, {"bookmark", "import", "-h"},
@@ -120,7 +120,7 @@ func TestHelpTopicDetection(t *testing.T) {
 func TestCommandTableCoversDispatch(t *testing.T) {
 	// Every dispatchable verb must have a help entry; the table is the single
 	// source of truth and this pins them together.
-	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "plan", "capabilities", "robot-docs", "version",
+	for _, verb := range []string{"serve", "doctor", "epic", "bead", "sweep", "bookmark", "capture", "search", "plan", "capabilities", "robot-docs", "version",
 		"task", "project", "note", "inbox",
 		"memory", "graph", "settings", "health",
 		"approval", "session", "ingest"} {
@@ -136,6 +136,7 @@ func TestHelpAfterFreeTextShowsVerbHelp(t *testing.T) {
 	// never an error built from the user's own words.
 	for _, argv := range [][]string{
 		{"capture", "quick", "note", "--help"},
+		{"search", "caching", "strategy", "-h"},
 		{"plan", "caching", "strategy", "-h"},
 	} {
 		if err := Dispatch(argv); err != nil {

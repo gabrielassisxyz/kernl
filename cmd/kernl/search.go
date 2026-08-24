@@ -43,7 +43,7 @@ func parsePlanArgs(args []string) (planArgs, error) {
 			p.forLinking = true
 		case arg == "--limit":
 			if i+1 >= len(args) {
-				return p, usagef("KERNL DISPATCH FAILURE: --limit requires a value - run: kernl plan --help")
+				return p, usagef("KERNL DISPATCH FAILURE: --limit requires a value - run: kernl search --help")
 			}
 			i++
 			n, err := strconv.Atoi(args[i])
@@ -56,7 +56,7 @@ func parsePlanArgs(args []string) (planArgs, error) {
 			p.limit = n
 		case arg == "--link-budget":
 			if i+1 >= len(args) {
-				return p, usagef("KERNL DISPATCH FAILURE: --link-budget requires a value - run: kernl plan --help")
+				return p, usagef("KERNL DISPATCH FAILURE: --link-budget requires a value - run: kernl search --help")
 			}
 			i++
 			n, err := strconv.Atoi(args[i])
@@ -71,7 +71,7 @@ func parsePlanArgs(args []string) (planArgs, error) {
 			}
 			p.linkBudget = &n
 		case strings.HasPrefix(arg, "-"):
-			return p, usagef("KERNL DISPATCH FAILURE: unknown plan flag %q%s - valid: --json, --limit <n>, --for-linking, --link-budget <n>",
+			return p, usagef("KERNL DISPATCH FAILURE: unknown search flag %q%s - valid: --json, --limit <n>, --for-linking, --link-budget <n>",
 				arg, didYouMean(arg, []string{"--json", "--limit", "--for-linking", "--link-budget"}))
 		default:
 			topicWords = append(topicWords, arg)
@@ -91,7 +91,7 @@ func runPlan(configPath string, args []string) error {
 		return err
 	}
 	if pa.topic == "" {
-		return usagef("KERNL DISPATCH FAILURE: plan requires a topic - run: kernl plan \"caching strategy\"")
+		return usagef("KERNL DISPATCH FAILURE: search requires a topic - run: kernl search \"caching strategy\"")
 	}
 	seed := pa.topic
 
