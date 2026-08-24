@@ -503,9 +503,9 @@ func noteIDForPath(ctx context.Context, g *graph.Graph, relPath string) (string,
 // empty string is the clearing signal ('kernl note write --tags ""') and
 // yields no tags; anything else is split on commas, each piece trimmed. A
 // piece that comes out empty (a stray leading, trailing, or doubled comma)
-// or still carries a comma is rejected rather than silently dropped or
-// silently split further - tags are taken verbatim, and a comma inside a
-// tag has no way to survive this encoding.
+// is rejected rather than silently dropped. A tag containing a comma is out
+// of scope and unreachable by construction: splitting on the comma cannot
+// leave one inside a piece, so it needs no check of its own.
 func parseNoteTags(raw string) ([]string, error) {
 	if raw == "" {
 		return []string{}, nil
@@ -514,8 +514,8 @@ func parseNoteTags(raw string) ([]string, error) {
 	tags := make([]string, 0, len(parts))
 	for _, p := range parts {
 		trimmed := strings.TrimSpace(p)
-		if trimmed == "" || strings.Contains(trimmed, ",") {
-			return nil, fmt.Errorf("invalid --tags value %q: each tag must be non-empty with no comma in it - check for a stray comma", raw)
+		if trimmed == "" {
+			return nil, fmt.Errorf("invalid --tags value %q: each tag must be non-empty - check for a stray comma", raw)
 		}
 		tags = append(tags, trimmed)
 	}
