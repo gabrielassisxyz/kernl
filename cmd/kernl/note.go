@@ -438,13 +438,83 @@ func runNoteWrite(ctx context.Context, c *apiClient, out io.Writer, asJSON bool,
 	}
 	raw, err := c.postRawWithClient(ctx, route, "text/markdown", body, "cli")
 	if err != nil {
+		if asJSON {
+			return noteWriteJSONFailure(out, raw, err)
+		}
 		return err
 	}
 	if asJSON {
-		return emitJSON(out, raw)
+		return noteWriteJSON(out, raw)
 	}
 	_, err = fmt.Fprintf(out, "Wrote %s (%d bytes).\n", path, len(body))
 	return err
+}
+
+// noteWriteResponseHasStatus reports whether a response is a JSON document
+// carrying a non-empty status - the one fact every note write answer must
+// carry. Anything else (empty body, plain text, status absent) is not a write
+// outcome and must never be passed through as one.
+func noteWriteResponseHasStatus(raw json.RawMessage) bool {
+	var doc struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false
+	}
+	return doc.Status != ""
+}
+
+// noteWriteJSON passes a successful write's response through untouched, but
+// only when it actually carries a status. A 200 whose body does not say what
+// happened would be a silent outcome: the caller could not tell "the write
+// failed" from "the response was malformed", which is exactly the failure
+// this bead exists for. Such a response becomes a synthesized document saying
+// the outcome is unknown and that a retry is safe (note write replaces the
+// whole file, so a second write cannot duplicate or corrupt) and exits
+// non-zero instead of pretending success.
+func noteWriteJSON(out io.Writer, raw json.RawMessage) error {
+	if noteWriteResponseHasStatus(raw) {
+		return emitJSON(out, raw)
+	}
+	detail := string(raw)
+	if len(detail) > 200 {
+		detail = detail[:200] + "…"
+	}
+	msg := fmt.Sprintf("the server answered 200 with a response that carries no status (%q); the note may or may not have been written, and retrying is safe because note write replaces the whole file", detail)
+	return noteWriteJSONFailure(out, nil, fmt.Errorf("KERNL DISPATCH FAILURE: note write answered 200 with a response carrying no status: %s", msg))
+}
+
+// noteWriteJSONFailure renders the failure half of the --json contract: a
+// document a caller can act on, while the process still exits non-zero (the
+// returned error keeps the exit-code mapping: 4xx is 2, 5xx and transport
+// failures are 1). The server's own status document passes through verbatim
+// when present; anything else is synthesized from the error so stdout is
+// never an empty or statusless document. The error is marked already-reported
+// so main does not overwrite stdout with its ok:false envelope, which carries
+// no status field.
+func noteWriteJSONFailure(out io.Writer, raw json.RawMessage, err error) error {
+	if noteWriteResponseHasStatus(raw) {
+		if emitErr := emitJSON(out, raw); emitErr != nil {
+			return emitErr
+		}
+	} else if synthErr := noteWriteJSONSynth(out, "error", err.Error()); synthErr != nil {
+		return synthErr
+	}
+	return reportedElsewhere(err)
+}
+
+// noteWriteJSONSynth builds a status document on the client when the server
+// could not produce one - a response the caller can act on, in the same shape
+// the server's own documents use.
+func noteWriteJSONSynth(out io.Writer, status, message string) error {
+	doc, err := json.Marshal(struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}{Status: status, Error: message})
+	if err != nil {
+		return err
+	}
+	return emitJSON(out, doc)
 }
 
 // notePositions are the placements 'note append' accepts, each with the line it
@@ -751,7 +821,10 @@ func (c *apiClient) postRawWithClient(ctx context.Context, path, contentType str
 		return nil, wrapLoud("reading response", err)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, httpStatusError(http.MethodPost, path, resp.StatusCode, raw)
+		// Return the body with the error: note write --json must be able to
+		// pass the server's status document through, and every other caller
+		// ignores the body when the error is non-nil.
+		return raw, httpStatusError(http.MethodPost, path, resp.StatusCode, raw)
 	}
 	return raw, nil
 }

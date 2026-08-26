@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -177,6 +179,169 @@ func TestNoteReadJSONWrapsTheTextBody(t *testing.T) {
 	}
 	if decoded["content"] != "hello" || decoded["path"] != "x.md" {
 		t.Fatalf("unexpected envelope: %v", decoded)
+	}
+}
+
+// A successful write's --json output is the server's own document, status
+// field included - a caller must be able to read the outcome from the
+// response alone.
+func TestNoteWriteJSONCarriesStatusOnSuccess(t *testing.T) {
+	api := newNoteAPI(t, jsonResponse(`{"status":"saved","suggestions":[],"accepted":[{"id":"a"}],"rejected":[]}`))
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "write", "notes/x.md", "--file", local, "--json")
+	if err != nil {
+		t.Fatalf("note write --json: %v", err)
+	}
+	var doc struct {
+		Status   string `json:"status"`
+		Accepted []any  `json:"accepted"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("--json must emit JSON, got %q", out)
+	}
+	if doc.Status != "saved" {
+		t.Fatalf("status = %q, want %q", doc.Status, "saved")
+	}
+	if len(doc.Accepted) != 1 {
+		t.Fatalf("the server's document must pass through untouched, got accepted = %v", doc.Accepted)
+	}
+}
+
+// The regression this bead exists for: a 200 response whose body carries no
+// status must not be printed as a success document with exit 0 - that is
+// exactly the "the response did not say what happened" failure observed in
+// the wild. The CLI turns it into a document whose status says the outcome is
+// unknown and exits non-zero, so no caller can mistake it for a landed write.
+func TestNoteWriteJSONStatusless200IsNeverASilentSuccess(t *testing.T) {
+	for _, body := range []string{`{}`, ``} {
+		t.Run(fmt.Sprintf("body=%q", body), func(t *testing.T) {
+			api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			})
+			local := filepath.Join(t.TempDir(), "draft.md")
+			if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, err := api.run(t, "write", "notes/x.md", "--file", local, "--json")
+			if err == nil {
+				t.Fatalf("a statusless response must not exit 0, got %q", out)
+			}
+			var doc struct {
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(out), &doc); err != nil {
+				t.Fatalf("--json must emit a JSON document, got %q", out)
+			}
+			if doc.Status == "" || doc.Status == "saved" {
+				t.Fatalf("a statusless response must not claim saved; got status %q, error %q", doc.Status, doc.Error)
+			}
+			if !strings.Contains(doc.Error, "retry") {
+				t.Errorf("the document must tell the caller a retry is safe, got: %q", doc.Error)
+			}
+			// The document is the whole story: main must not print the ok:false
+			// envelope (which carries no status) on top of it.
+			var reported alreadyReported
+			if !errors.As(err, &reported) {
+				t.Error("the failure must be marked already-reported so main does not overwrite stdout")
+			}
+		})
+	}
+}
+
+// The server's failure document (a status-carrying JSON error) passes through
+// on stdout, and the process still exits non-zero: a caller that reads only
+// stdout learns the write failed, a caller that checks the exit code learns
+// it too.
+func TestNoteWriteJSONServerErrorDocumentPassesThrough(t *testing.T) {
+	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"status":"error","error":"boom"}`)
+	})
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "write", "notes/x.md", "--file", local, "--json")
+	if err == nil {
+		t.Fatal("a failed write must not exit 0")
+	}
+	var doc struct {
+		Status string `json:"status"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("--json must emit the server's document, got %q", out)
+	}
+	if doc.Status != "error" || !strings.Contains(doc.Error, "boom") {
+		t.Fatalf("the server's error document must pass through, got %q", out)
+	}
+	if exitCode(err) != 1 {
+		t.Errorf("a 5xx write must exit 1, got %d", exitCode(err))
+	}
+	var reported alreadyReported
+	if !errors.As(err, &reported) {
+		t.Error("the failure must be marked already-reported so main does not overwrite stdout")
+	}
+}
+
+// A failure whose body is not a status document (the older plain-text error
+// shape, or a proxy page) must still produce a document a caller can act on -
+// synthesized from the error, never an empty stdout or a statusless one.
+func TestNoteWriteJSONPlainTextErrorSynthesizesDocument(t *testing.T) {
+	api := newNoteAPI(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, "disk full\n")
+	})
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err := api.run(t, "write", "notes/x.md", "--file", local, "--json")
+	if err == nil {
+		t.Fatal("a failed write must not exit 0")
+	}
+	var doc struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("--json must emit a JSON document, got %q", out)
+	}
+	if doc.Status != "error" {
+		t.Fatalf("status = %q, want %q", doc.Status, "error")
+	}
+}
+
+// A write that cannot reach the server at all still speaks the contract: a
+// synthesized error document on stdout, exit 1 - never a silent success.
+func TestNoteWriteJSONUnreachableSynthesizesDocument(t *testing.T) {
+	// A port nothing listens on: dial fails, no response ever exists.
+	var out bytes.Buffer
+	local := filepath.Join(t.TempDir(), "draft.md")
+	if err := os.WriteFile(local, []byte("# Draft\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runNote(verbContext{server: "http://127.0.0.1:1", out: &out},
+		[]string{"write", "notes/x.md", "--file", local, "--json"})
+	if err == nil {
+		t.Fatal("an unreachable server must not exit 0")
+	}
+	var doc struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+		t.Fatalf("--json must emit a JSON document, got %q", out.String())
+	}
+	if doc.Status != "error" {
+		t.Fatalf("status = %q, want %q", doc.Status, "error")
+	}
+	if exitCode(err) != 1 {
+		t.Errorf("an unreachable server must exit 1, got %d", exitCode(err))
 	}
 }
 

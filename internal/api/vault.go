@@ -49,12 +49,32 @@ var appendPositions = []string{appendPositionStart, appendPositionEnd, appendPos
 // vaultFileWriteResponse is what POST /api/vault/file answers with. The
 // suggestions are the links offered for this write; accepted and rejected are
 // derived from the previous write's suggestions against the body's wikilinks,
-// so the writer learns which of its earlier offers it took.
+// so the writer learns which links it took.
+//
+// Status is the contract every answer carries - saved on success, error when
+// the write did not land - so a caller can tell the outcome from the document
+// alone, without reading the note back. The server never answers this route
+// without a status: the write handler refuses every failure before the file
+// lands, so a non-2xx answer always means "not written, retry is safe" and a
+// 200 always means "written".
 type vaultFileWriteResponse struct {
 	Status      string                `json:"status"`
+	Error       string                `json:"error,omitempty"`
 	Suggestions []nodes.LinkCandidate `json:"suggestions"`
 	Accepted    []nodes.LinkCandidate `json:"accepted"`
 	Rejected    []nodes.LinkCandidate `json:"rejected"`
+}
+
+// vaultFileWriteError answers a failed POST /api/vault/file with the same
+// document shape as a success - a status field saying error - so a --json
+// caller sees a parseable verdict instead of a bare text body it cannot read
+// the outcome from. The status code keeps its meaning: 4xx is a bad
+// invocation, 5xx is the backend failing, and every one of them is written
+// before the file lands, so a non-200 answer means the write did not apply.
+func vaultFileWriteError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(vaultFileWriteResponse{Status: "error", Error: message})
 }
 
 func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
@@ -166,23 +186,23 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 
 		filePath := r.URL.Query().Get("path")
 		if filePath == "" {
-			http.Error(w, "missing path", http.StatusBadRequest)
+			vaultFileWriteError(w, http.StatusBadRequest, "missing path")
 			return
 		}
 
 		fullPath, err := resolveVaultFilePath(root, filePath)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			vaultFileWriteError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			vaultFileWriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			vaultFileWriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
@@ -202,12 +222,12 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		if strings.HasSuffix(fullPath, ".md") {
 			relPath, relErr := filepath.Rel(root, fullPath)
 			if relErr != nil {
-				http.Error(w, relErr.Error(), http.StatusInternalServerError)
+				vaultFileWriteError(w, http.StatusInternalServerError, relErr.Error())
 				return
 			}
 			id, err := noteIDForPath(r.Context(), a.Graph, relPath)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				vaultFileWriteError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			if id == "" {
@@ -226,7 +246,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 			if r.URL.Query().Has("tags") {
 				tags, tagErr := parseNoteTags(r.URL.Query().Get("tags"))
 				if tagErr != nil {
-					http.Error(w, tagErr.Error(), http.StatusBadRequest)
+					vaultFileWriteError(w, http.StatusBadRequest, tagErr.Error())
 					return
 				}
 				// Unlike InjectID above, this is never best-effort: InjectID
@@ -239,7 +259,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 				// parse, so 400 names the note the caller was writing.
 				injected, injErr := frontmatter.InjectTags(body, tags)
 				if injErr != nil {
-					http.Error(w, fmt.Sprintf("%s: %s", filePath, injErr.Error()), http.StatusBadRequest)
+					vaultFileWriteError(w, http.StatusBadRequest, fmt.Sprintf("%s: %s", filePath, injErr.Error()))
 					return
 				}
 				body = injected
@@ -254,7 +274,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 		if strings.HasSuffix(fullPath, ".md") {
 			if fm, fmErr := frontmatter.Parse(body); fmErr == nil {
 				if _, permErr := reconcile.ResolvePermission(fm.Permission, fm.Author); permErr != nil {
-					http.Error(w, permErr.Error(), http.StatusBadRequest)
+					vaultFileWriteError(w, http.StatusBadRequest, permErr.Error())
 					return
 				}
 			}
@@ -262,7 +282,7 @@ func RegisterVaultRoutes(mux *http.ServeMux, a *app.App) {
 
 		err = os.WriteFile(fullPath, body, 0644)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			vaultFileWriteError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
