@@ -344,7 +344,7 @@ func TestNoteWriteJSONUnreachableSynthesizesDocument(t *testing.T) {
 	var doc struct {
 		Status string `json:"status"`
 	}
-	if err := json.Unmarshal([]byte(out.String()), &doc); err != nil {
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
 		t.Fatalf("--json must emit a JSON document, got %q", out.String())
 	}
 	if doc.Status != "error" {
