@@ -243,6 +243,9 @@ func TestNoteWriteJSONStatusless200IsNeverASilentSuccess(t *testing.T) {
 			if !strings.Contains(doc.Error, "retry") {
 				t.Errorf("the document must tell the caller a retry is safe, got: %q", doc.Error)
 			}
+			if exitCode(err) != 1 {
+				t.Errorf("a statusless response must exit 1, got %d", exitCode(err))
+			}
 			// The document is the whole story: main must not print the ok:false
 			// envelope (which carries no status) on top of it.
 			var reported alreadyReported
@@ -280,6 +283,13 @@ func TestNoteWriteJSONServerErrorDocumentPassesThrough(t *testing.T) {
 	}
 	if doc.Status != "error" || !strings.Contains(doc.Error, "boom") {
 		t.Fatalf("the server's error document must pass through, got %q", out)
+	}
+	// The pass-through is verbatim: the caller gets the server's own document,
+	// not a client-wrapped rehash of it (which would carry the CLI's envelope
+	// text). A mutation that drops the body on error would otherwise slip
+	// through, because the synthesized fallback happens to echo the body too.
+	if strings.Contains(doc.Error, "KERNL DISPATCH FAILURE") {
+		t.Fatalf("the server's document must not be re-wrapped by the CLI, got %q", out)
 	}
 	if exitCode(err) != 1 {
 		t.Errorf("a 5xx write must exit 1, got %d", exitCode(err))
