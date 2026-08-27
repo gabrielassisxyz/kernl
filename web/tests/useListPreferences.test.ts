@@ -4,6 +4,30 @@ import { useListPreferences } from '../composables/useListPreferences'
 describe('useListPreferences', () => {
   beforeEach(() => window.localStorage.clear())
 
+  it('seeds the Projects lifecycle defaults without collapsing pinned or active sections', () => {
+    const preferences = useListPreferences('kernl:projects-list-preferences', {
+      paused: true,
+      done: true,
+      archived: true,
+    })
+
+    expect(preferences.collapsed.value).toEqual({ paused: true, done: true, archived: true })
+  })
+
+  it('keeps a stored Projects section preference instead of reseeding its defaults', () => {
+    window.localStorage.setItem('kernl:projects-list-preferences', JSON.stringify({
+      collapsed: { paused: false, done: false, archived: false },
+    }))
+
+    const preferences = useListPreferences('kernl:projects-list-preferences', {
+      paused: true,
+      done: true,
+      archived: true,
+    })
+
+    expect(preferences.collapsed.value).toEqual({ paused: false, done: false, archived: false })
+  })
+
   it('restores collapsed sections and sorting after a reload', () => {
     const first = useListPreferences('kernl:test-list', { done: true })
     first.toggleSection('active')

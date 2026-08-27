@@ -132,7 +132,7 @@ const VIEWS: { id: View; icon: string; title: string }[] = [
 ]
 const view = ref<View>('list')
 const { collapsed, sortField, sortDir, sortLabel, toggleSection, setSortField, toggleSortDir } =
-  useListPreferences('kernl:projects-list-preferences')
+  useListPreferences('kernl:projects-list-preferences', { paused: true, done: true, archived: true })
 
 const query = ref('')
 const confirmId = ref<string | null>(null)
