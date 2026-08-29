@@ -466,13 +466,17 @@ Flags:
 kernl bookmark - Manage bookmarks
 
 Usage:
-  kernl bookmark <add|import|retitle|rm> [args...]
+  kernl bookmark <add|import|retitle|rm|list|tag|archive|unarchive> [args...]
 
 Subcommands:
   add            Add a bookmark by URL (archives the page HTML)
   import         Bulk-import bookmarks from an export file
   retitle        Change a bookmark's title
   rm             Delete a bookmark
+  list           List bookmarks, filterable by tag and archive state
+  tag            Set, add or remove tags on a bookmark
+  archive        Mark a bookmark archived
+  unarchive      Clear a bookmark's archived state
 
 ### kernl bookmark add
 kernl bookmark add - Add a bookmark by URL (archives the page HTML)
@@ -512,6 +516,55 @@ Usage:
 Deletes the bookmark and any generated companion note that describes it.
 The companion markdown file is removed with the graph node so the vault
 watcher cannot adopt or revive an orphaned note on the next pass.
+
+### kernl bookmark list
+kernl bookmark list - List bookmarks, filterable by tag and archive state
+
+Usage:
+  kernl bookmark list [--tags <tags>] [--archived <true|false>] [--json]
+
+--tags is match-any: a bookmark matching at least one listed tag is
+shown. --archived narrows to one state; omitted, both archived and
+unarchived bookmarks are listed - archiving is success, not removal.
+
+Flags:
+  --tags <tags>            Comma-separated; matches a bookmark carrying any of them
+  --archived <true|false>  Show only archived (true) or only unarchived (false) bookmarks
+  --json                   Emit {"bookmarks":[{"id","title","url","tags","archived"}]} on stdout
+
+### kernl bookmark tag
+kernl bookmark tag - Set, add or remove tags on a bookmark
+
+Usage:
+  kernl bookmark tag <id> [--set <tags>] [--add <tags>] [--remove <tags>]
+
+The three flags compose in order - set (replaces the tag list), then
+add, then remove - so a call can replace the whole list and still drop
+one tag from it in a single invocation. At least one is required.
+
+Flags:
+  --set <tags>     Comma-separated; replaces the bookmark's tag list
+  --add <tags>     Comma-separated; adds to the current (or just-set) tag list
+  --remove <tags>  Comma-separated; drops from the current (or just-set) tag list
+
+### kernl bookmark archive
+kernl bookmark archive - Mark a bookmark archived
+
+Usage:
+  kernl bookmark archive <id>
+
+Idempotent: archiving an already-archived bookmark reports its state
+and writes nothing. Archived bookmarks stay in the default listing;
+'bookmark list --archived=false' is what stops showing them.
+
+### kernl bookmark unarchive
+kernl bookmark unarchive - Clear a bookmark's archived state
+
+Usage:
+  kernl bookmark unarchive <id>
+
+Idempotent: unarchiving a bookmark that is not archived reports its
+state and writes nothing.
 
 ### kernl capture
 kernl capture - Capture a quick note/idea into the inbox (text arg or stdin)

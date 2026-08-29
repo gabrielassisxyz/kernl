@@ -219,7 +219,7 @@ Without --yes this is a dry-run preview: nothing is closed.
 	{
 		Name:    "bookmark",
 		Summary: "Manage bookmarks",
-		Usage:   "kernl bookmark <add|import|retitle|rm> [args...]",
+		Usage:   "kernl bookmark <add|import|retitle|rm|list|tag|archive|unarchive> [args...]",
 		Subs: []commandMeta{
 			{
 				Name:    "add",
@@ -254,6 +254,51 @@ ones stored as their own URL. Does not re-fetch the page.`,
 				Details: `Deletes the bookmark and any generated companion note that describes it.
 The companion markdown file is removed with the graph node so the vault
 watcher cannot adopt or revive an orphaned note on the next pass.`,
+			},
+			{
+				Name:    "list",
+				Summary: "List bookmarks, filterable by tag and archive state",
+				Usage:   "kernl bookmark list [--tags <tags>] [--archived <true|false>] [--json]",
+				Details: `--tags is match-any: a bookmark matching at least one listed tag is
+shown. --archived narrows to one state; omitted, both archived and
+unarchived bookmarks are listed - archiving is success, not removal.
+
+{{flags}}`,
+				Flags: []commandFlag{
+					{Name: "--tags", Value: "<tags>", Description: "Comma-separated; matches a bookmark carrying any of them"},
+					{Name: "--archived", Value: "<true|false>", Description: "Show only archived (true) or only unarchived (false) bookmarks"},
+					{Name: "--json", Description: `Emit {"bookmarks":[{"id","title","url","tags","archived"}]} on stdout`},
+				},
+			},
+			{
+				Name:    "tag",
+				Summary: "Set, add or remove tags on a bookmark",
+				Usage:   "kernl bookmark tag <id> [--set <tags>] [--add <tags>] [--remove <tags>]",
+				Details: `The three flags compose in order - set (replaces the tag list), then
+add, then remove - so a call can replace the whole list and still drop
+one tag from it in a single invocation. At least one is required.
+
+{{flags}}`,
+				Flags: []commandFlag{
+					{Name: "--set", Value: "<tags>", Description: "Comma-separated; replaces the bookmark's tag list"},
+					{Name: "--add", Value: "<tags>", Description: "Comma-separated; adds to the current (or just-set) tag list"},
+					{Name: "--remove", Value: "<tags>", Description: "Comma-separated; drops from the current (or just-set) tag list"},
+				},
+			},
+			{
+				Name:    "archive",
+				Summary: "Mark a bookmark archived",
+				Usage:   "kernl bookmark archive <id>",
+				Details: `Idempotent: archiving an already-archived bookmark reports its state
+and writes nothing. Archived bookmarks stay in the default listing;
+'bookmark list --archived=false' is what stops showing them.`,
+			},
+			{
+				Name:    "unarchive",
+				Summary: "Clear a bookmark's archived state",
+				Usage:   "kernl bookmark unarchive <id>",
+				Details: `Idempotent: unarchiving a bookmark that is not archived reports its
+state and writes nothing.`,
 			},
 		},
 	},
