@@ -19,6 +19,34 @@ import (
 // makes them redundant on this path now. They are left in place: other code may
 // serialize a Bookmark directly, and removing them is churn with no upside.
 
+// bookmarkCreateRequest is the wire shape of POST /api/bookmarks. Tags is
+// optional and, when present, is written onto the bookmark in the same
+// transaction that creates it - the only surface besides the bulk importer
+// that can put a tag on a bookmark at all.
+type bookmarkCreateRequest struct {
+	URL  string   `json:"url"`
+	Tags []string `json:"tags,omitempty"`
+}
+
+// bookmarkPatchRequest is the wire shape of PATCH /api/bookmarks/{id}. Every
+// field is a pointer so a caller can omit what it does not mean to touch;
+// omitted (nil) fields are left unchanged, and Tags replaces the whole tag
+// list rather than adding to it, matching the shape GET already returns.
+//
+// Archive state travels as a boolean, not a nullable archivedAt. The
+// alternative - taking a client-supplied timestamp - hands the client a
+// decision it has no reason to make (which instant "now" is) and opens the
+// door to a caller archiving a bookmark into the future or the past; a bool
+// says only what the caller actually knows ("this is done" / "this is not"),
+// and the server, which already owns every other timestamp on this node,
+// keeps owning this one.
+type bookmarkPatchRequest struct {
+	Title       *string   `json:"title"`
+	Description *string   `json:"description"`
+	Tags        *[]string `json:"tags"`
+	Archived    *bool     `json:"archived"`
+}
+
 // highlightResponse is the wire shape of a saved passage.
 type highlightResponse struct {
 	Text      string    `json:"text"`

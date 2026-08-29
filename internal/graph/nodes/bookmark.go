@@ -71,8 +71,22 @@ func (b Bookmark) FTSFields() FTSFields {
 }
 
 // BookmarkFilter narrows ListBookmarks results.
+//
+// Archive state is a tri-state read off two bools rather than one enum, kept
+// additive on top of the field GET /api/bookmarks already shipped with:
+// IncludeArchived=false, ArchivedOnly=false is "unarchived only" (the
+// pre-existing meaning), IncludeArchived=true is "both kinds" (today's
+// default), and ArchivedOnly=true is the new "archived only" state -
+// evaluated ahead of IncludeArchived in ListBookmarks so the two can never
+// disagree.
+//
+// Tags is match-any: a bookmark matches if it carries at least one of the
+// listed tags (`t.name IN (...)` below). Kept as-is rather than switched to
+// match-all - this is the decision the bead asked to be recorded, not a
+// default nobody considered.
 type BookmarkFilter struct {
 	IncludeArchived bool
+	ArchivedOnly    bool
 	Tags            []string
 	Limit           int
 }
@@ -145,7 +159,10 @@ func ListBookmarks(ctx context.Context, tx *graph.ReadTx, f BookmarkFilter) ([]*
 	query := `SELECT id, title, attrs, created_at, updated_at FROM nodes WHERE type = 'bookmark' AND deleted_at IS NULL`
 	var args []any
 
-	if !f.IncludeArchived {
+	switch {
+	case f.ArchivedOnly:
+		query += ` AND json_extract(attrs, '$.archived_at') IS NOT NULL`
+	case !f.IncludeArchived:
 		query += ` AND json_extract(attrs, '$.archived_at') IS NULL`
 	}
 

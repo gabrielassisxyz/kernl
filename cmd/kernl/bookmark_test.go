@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -257,6 +259,238 @@ func TestBookmarkUsageErrorsTeachAndExitTwo(t *testing.T) {
 	if !strings.Contains(err.Error(), "KERNL DISPATCH FAILURE") {
 		t.Errorf("bookmark errors must carry the marker, got: %v", err)
 	}
+}
+
+func TestRunBookmarkListPlainTextAndJSON(t *testing.T) {
+	a := newBookmarkTestApp(t)
+	if err := runBookmarkAdd(a, []string{"http://localhost:1/one"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	id := onlyBookmark(t, a).ID
+	if err := runBookmarkTag(a, []string{id, "--add", "reading,go"}); err != nil {
+		t.Fatalf("tag: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := runBookmarkList(a, &out, nil); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	text := out.String()
+	if !strings.Contains(text, id) || !strings.Contains(text, "go") {
+		t.Errorf("plain-text list = %q, want it to name the bookmark and its tag", text)
+	}
+
+	out.Reset()
+	if err := runBookmarkList(a, &out, []string{"--json"}); err != nil {
+		t.Fatalf("list --json: %v", err)
+	}
+	var parsed bookmarkListOutput
+	if err := json.Unmarshal(out.Bytes(), &parsed); err != nil {
+		t.Fatalf("decode --json output: %v, body: %s", err, out.String())
+	}
+	if len(parsed.Bookmarks) != 1 {
+		t.Fatalf("expected 1 bookmark in --json output, got %d", len(parsed.Bookmarks))
+	}
+	if parsed.Bookmarks[0].ID != id {
+		t.Errorf("json id = %q, want %q", parsed.Bookmarks[0].ID, id)
+	}
+	if len(parsed.Bookmarks[0].Tags) != 2 {
+		t.Errorf("json tags = %v, want 2 entries", parsed.Bookmarks[0].Tags)
+	}
+}
+
+func TestRunBookmarkListFiltersByTagsAndArchived(t *testing.T) {
+	a := newBookmarkTestApp(t)
+	if err := runBookmarkAdd(a, []string{"http://localhost:1/one"}); err != nil {
+		t.Fatalf("add one: %v", err)
+	}
+	oneID := onlyBookmarkMatching(t, a, "http://localhost:1/one").ID
+	if err := runBookmarkTag(a, []string{oneID, "--set", "go"}); err != nil {
+		t.Fatalf("tag one: %v", err)
+	}
+
+	if err := runBookmarkAdd(a, []string{"http://localhost:1/two"}); err != nil {
+		t.Fatalf("add two: %v", err)
+	}
+	twoID := onlyBookmarkMatching(t, a, "http://localhost:1/two").ID
+	if err := runBookmarkTag(a, []string{twoID, "--set", "python"}); err != nil {
+		t.Fatalf("tag two: %v", err)
+	}
+	if err := runBookmarkArchive(a, []string{twoID}, true); err != nil {
+		t.Fatalf("archive two: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := runBookmarkList(a, &out, []string{"--tags", "go", "--json"}); err != nil {
+		t.Fatalf("list --tags go: %v", err)
+	}
+	var byTag bookmarkListOutput
+	if err := json.Unmarshal(out.Bytes(), &byTag); err != nil {
+		t.Fatal(err)
+	}
+	if len(byTag.Bookmarks) != 1 || byTag.Bookmarks[0].ID != oneID {
+		t.Errorf("--tags go = %+v, want only bookmark %s", byTag.Bookmarks, oneID)
+	}
+
+	out.Reset()
+	if err := runBookmarkList(a, &out, []string{"--archived", "false", "--json"}); err != nil {
+		t.Fatalf("list --archived false: %v", err)
+	}
+	var unarchived bookmarkListOutput
+	if err := json.Unmarshal(out.Bytes(), &unarchived); err != nil {
+		t.Fatal(err)
+	}
+	if len(unarchived.Bookmarks) != 1 || unarchived.Bookmarks[0].ID != oneID {
+		t.Errorf("--archived false = %+v, want only bookmark %s", unarchived.Bookmarks, oneID)
+	}
+
+	out.Reset()
+	if err := runBookmarkList(a, &out, []string{"--archived", "true", "--json"}); err != nil {
+		t.Fatalf("list --archived true: %v", err)
+	}
+	var archived bookmarkListOutput
+	if err := json.Unmarshal(out.Bytes(), &archived); err != nil {
+		t.Fatal(err)
+	}
+	if len(archived.Bookmarks) != 1 || archived.Bookmarks[0].ID != twoID {
+		t.Errorf("--archived true = %+v, want only bookmark %s", archived.Bookmarks, twoID)
+	}
+
+	out.Reset()
+	if err := runBookmarkList(a, &out, nil); err != nil {
+		t.Fatalf("list (default): %v", err)
+	}
+	// Default listing still contains the archived bookmark, matching the API's
+	// "archiving is success, not removal" rule.
+	if !strings.Contains(out.String(), twoID) {
+		t.Errorf("default list = %q, want it to still include archived bookmark %s", out.String(), twoID)
+	}
+}
+
+func TestRunBookmarkTagSetAddRemove(t *testing.T) {
+	a := newBookmarkTestApp(t)
+	if err := runBookmarkAdd(a, []string{"http://localhost:1/unreachable"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	id := onlyBookmark(t, a).ID
+
+	if err := runBookmarkTag(a, []string{id, "--set", "go, reading"}); err != nil {
+		t.Fatalf("set: %v", err)
+	}
+	if got := onlyBookmark(t, a).Tags; !hasExactly(got, "go", "reading") {
+		t.Fatalf("after --set: tags = %v", got)
+	}
+
+	if err := runBookmarkTag(a, []string{id, "--add", "cli"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if got := onlyBookmark(t, a).Tags; !hasExactly(got, "go", "reading", "cli") {
+		t.Fatalf("after --add: tags = %v", got)
+	}
+
+	if err := runBookmarkTag(a, []string{id, "--remove", "reading"}); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if got := onlyBookmark(t, a).Tags; !hasExactly(got, "go", "cli") {
+		t.Fatalf("after --remove: tags = %v", got)
+	}
+}
+
+func TestRunBookmarkTagUsageErrors(t *testing.T) {
+	a := newBookmarkTestApp(t)
+
+	if err := runBookmarkTag(a, nil); err == nil || exitCode(err) != 2 {
+		t.Errorf("missing id is a usage error, got: %v", err)
+	}
+	if err := runBookmarkTag(a, []string{"bkm-1"}); err == nil || exitCode(err) != 2 {
+		t.Errorf("no --set/--add/--remove is a usage error, got: %v", err)
+	}
+}
+
+func TestRunBookmarkArchiveAndUnarchiveAreIdempotent(t *testing.T) {
+	a := newBookmarkTestApp(t)
+	if err := runBookmarkAdd(a, []string{"http://localhost:1/unreachable"}); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	id := onlyBookmark(t, a).ID
+
+	if err := runBookmarkArchive(a, []string{id}, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	if onlyBookmark(t, a).ArchivedAt == nil {
+		t.Fatal("expected bookmark to be archived")
+	}
+	// Archiving again must not error and must not clear/reset the state.
+	if err := runBookmarkArchive(a, []string{id}, true); err != nil {
+		t.Fatalf("second archive: %v", err)
+	}
+	if onlyBookmark(t, a).ArchivedAt == nil {
+		t.Fatal("second archive call cleared the archived state")
+	}
+
+	if err := runBookmarkArchive(a, []string{id}, false); err != nil {
+		t.Fatalf("unarchive: %v", err)
+	}
+	if onlyBookmark(t, a).ArchivedAt != nil {
+		t.Fatal("expected bookmark to be unarchived")
+	}
+	// Unarchiving again must not error.
+	if err := runBookmarkArchive(a, []string{id}, false); err != nil {
+		t.Fatalf("second unarchive: %v", err)
+	}
+	if onlyBookmark(t, a).ArchivedAt != nil {
+		t.Fatal("second unarchive call re-archived the bookmark")
+	}
+}
+
+func TestRunBookmarkArchiveUsageErrorsAndUnknownID(t *testing.T) {
+	a := newBookmarkTestApp(t)
+
+	if err := runBookmarkArchive(a, nil, true); err == nil || exitCode(err) != 2 {
+		t.Errorf("missing id is a usage error, got: %v", err)
+	}
+	if err := runBookmarkArchive(a, []string{"no-such-id"}, true); err == nil || !strings.Contains(err.Error(), "no bookmark with id no-such-id") {
+		t.Errorf("unknown id must name the id, got: %v", err)
+	}
+}
+
+// onlyBookmarkMatching finds the one bookmark in a with the given URL, among
+// possibly several - onlyBookmark only works while exactly one exists.
+func onlyBookmarkMatching(t *testing.T, a *app.App, url string) *nodes.Bookmark {
+	t.Helper()
+	var list []*nodes.Bookmark
+	err := a.Graph.DoRead(context.Background(), func(tx *graph.ReadTx) error {
+		var err error
+		list, err = nodes.ListBookmarks(context.Background(), tx, nodes.BookmarkFilter{IncludeArchived: true})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range list {
+		if b.URL == url {
+			return b
+		}
+	}
+	t.Fatalf("no bookmark with url %s among %d", url, len(list))
+	return nil
+}
+
+// hasExactly reports whether got holds exactly the given tags, in any order.
+func hasExactly(got []string, want ...string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	seen := make(map[string]bool, len(got))
+	for _, t := range got {
+		seen[t] = true
+	}
+	for _, w := range want {
+		if !seen[w] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestBookmarkImportUnknownFormatHints(t *testing.T) {
