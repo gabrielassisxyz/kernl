@@ -271,9 +271,9 @@ func triageTasks(ctx context.Context, c *apiClient) triageSlice {
 // list` draws that distinction: /api/approvals returns every approval RECORD, and a
 // record outlives its decision by design. An always_approve answer is a standing
 // grant keyed on session, bead and tool, not a transaction that ends when it is
-// answered. Counting records instead announced four grants — decided inside a minute
-// on 2026-08-12, expired the same hour, belonging to a session that no longer exists —
-// as approvals waiting on a human for the next seventeen days, on a machine where
+// answered. Counting records instead announced four grants, decided inside a minute
+// on 2026-08-12, expired the same hour and belonging to a session that no longer
+// exists, as approvals waiting on a human for the next seventeen days, on a machine where
 // `kernl approval list` printed "0 waiting on you" in the same second. That is the
 // same wrong answer the 501 case above exists to avoid, arriving from the other side:
 // a gate reported where none is waiting costs the reader's trust in the section, and a
