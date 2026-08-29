@@ -266,6 +266,23 @@ func triageTasks(ctx context.Context, c *apiClient) triageSlice {
 // as "0 pending" would tell the human the one thing they must never be told
 // wrongly: that no judgment gate is waiting on them. Unavailable-with-a-reason
 // is the honest answer, and it is why the slice carries Reason at all.
+//
+// It counts what isApprovalWaiting counts, and for the same reason `kernl approval
+// list` draws that distinction: /api/approvals returns every approval RECORD, and a
+// record outlives its decision by design. An always_approve answer is a standing
+// grant keyed on session, bead and tool, not a transaction that ends when it is
+// answered. Counting records instead announced four grants, decided inside a minute
+// on 2026-08-12, expired the same hour and belonging to a session that no longer
+// exists, as approvals waiting on a human for the next seventeen days, on a machine where
+// `kernl approval list` printed "0 waiting on you" in the same second. That is the
+// same wrong answer the 501 case above exists to avoid, arriving from the other side:
+// a gate reported where none is waiting costs the reader's trust in the section, and a
+// section nobody believes is a section nobody reads when it finally is right.
+//
+// approvalView and isApprovalWaiting are shared with `kernl approval list` rather than
+// restated here, so the two readers cannot drift into disagreeing about what a gate is.
+// The anonymous struct this replaced decoded `summary` and `state`, which the API does
+// not emit under those names, so every item also carried an empty title.
 func triageApprovals(ctx context.Context, c *apiClient) triageSlice {
 	slice := triageSlice{Command: "kernl approval list", Items: []triageItem{}}
 	raw, err := c.get(ctx, "/api/approvals")
@@ -273,22 +290,21 @@ func triageApprovals(ctx context.Context, c *apiClient) triageSlice {
 		slice.Reason = triageReason(err)
 		return slice
 	}
-	var rows []struct {
-		ID      string `json:"id"`
-		Summary string `json:"summary"`
-		State   string `json:"state"`
-	}
+	var rows []approvalView
 	if err := decodeInto(raw, "GET /api/approvals", &rows); err != nil {
 		slice.Reason = triageReason(err)
 		return slice
 	}
 	slice.Available = true
-	slice.Count = len(rows)
 	for _, row := range rows {
-		if len(slice.Items) == triageItemLimit {
-			break
+		if !isApprovalWaiting(row) {
+			continue
 		}
-		slice.Items = append(slice.Items, triageItem{ID: row.ID, Title: row.Summary, State: row.State})
+		slice.Count++
+		if len(slice.Items) == triageItemLimit {
+			continue
+		}
+		slice.Items = append(slice.Items, triageItem{ID: row.ID, Title: row.ToolName, State: row.Status})
 	}
 	return slice
 }

@@ -42,8 +42,16 @@ func fullTriageRoutes() map[string]string {
 		"/api/inbox/pending": `[{"id":"cap-1","title":"buy milk\nand eggs","subtitle":"raw"},{"id":"cap-2","title":"","subtitle":"call the bank"}]`,
 		"/api/ingest/queue":  `[{"id":"rv-1","title":"Paper on caching","action":"create-page"}]`,
 		"/api/tasks":         `[{"id":"t-1","title":"Write the handoff","status":"open"},{"id":"t-2","title":"Old thing","status":"done"}]`,
-		"/api/approvals":     `[{"id":"apr-1","summary":"Merge epic z4","state":"pending"}]`,
-		"/api/health":        `{"status":"ok"}`,
+		// Spelled the way approvalDTO spells it, which the previous fixture was not:
+		// `summary` and `state` are names the server does not emit, so the decoder
+		// placed nothing and every item came back with a blank title - the exact
+		// failure the comment above this function describes, one route further along.
+		// The second row is a DECIDED grant. It is here so a reader that counts records
+		// rather than gates fails, and it is shaped after the four live ones that were
+		// announced as waiting for seventeen days after being answered in under a minute.
+		"/api/approvals": `[{"id":"apr-1","toolName":"bash","status":"pending","actionable":true,"createdAt":"2026-08-12T02:51:02Z"},
+		                    {"id":"apr-2","toolName":"read","status":"always_approved","actionable":false,"createdAt":"2026-08-12T02:50:34Z"}]`,
+		"/api/health": `{"status":"ok"}`,
 		"/api/beads": `[{"id":"kn-1","title":"Running now","state":"implementation","assignee":"agent","priority":2},
 		                {"id":"kn-2","title":"Free to start","state":"ready_for_implementation","priority":3},
 		                {"id":"kn-3","title":"Already done","state":"closed","priority":1}]`,
@@ -97,6 +105,18 @@ func TestTriageReportsEverySliceInOneCall(t *testing.T) {
 	if got.Health.Status != "ok" {
 		t.Errorf("health slice wrong: %+v", got.Health)
 	}
+	// One of the two approval records is a decided grant, and a decided grant is not a
+	// gate: /api/approvals returns every record, and a record outlives its decision
+	// because an always_approve answer is a standing grant rather than a transaction.
+	if got.Approvals.Count != 1 {
+		t.Errorf("approvals must count only what is waiting, got %d: %+v", got.Approvals.Count, got.Approvals)
+	}
+	if len(got.Approvals.Items) != 1 || got.Approvals.Items[0].ID != "apr-1" {
+		t.Errorf("approvals must list the pending record and only it: %+v", got.Approvals.Items)
+	}
+	if got.Approvals.Items[0].Title == "" {
+		t.Error("an approval item with a blank title is the decoder naming a field the server does not emit")
+	}
 	// Every slice names the command that shows the rest - the whole point of a
 	// mega-command is that its output tells you where to go next.
 	for name, cmd := range map[string]string{
@@ -107,6 +127,40 @@ func TestTriageReportsEverySliceInOneCall(t *testing.T) {
 		if !strings.HasPrefix(cmd, "kernl ") {
 			t.Errorf("%s slice must carry a runnable follow-up command, got %q", name, cmd)
 		}
+	}
+}
+
+// A fleet whose every approval has been answered has no gate waiting, and must say so
+// as a zero rather than as an unavailable slice - the mirror of the case below. The four
+// records that prompted this were decided within a minute on 2026-08-12 and expired the
+// same hour; triage announced them as "4 approval(s) waiting on you" for the next
+// seventeen days, on a machine where `kernl approval list` printed "0 waiting on you" in
+// the same second. `bin/whats-open` in the llm-workflow repository printed that 4 at the
+// top of its digest, which is the cost of the wrong number: it led the section a reader
+// consults first.
+func TestTriageCountsGatesNotApprovalRecords(t *testing.T) {
+	routes := fullTriageRoutes()
+	routes["/api/approvals"] = `[{"id":"apr-1","toolName":"read","status":"always_approved","actionable":false},
+	                             {"id":"apr-2","toolName":"bash","status":"always_approved","actionable":false},
+	                             {"id":"apr-3","toolName":"edit","status":"declined","actionable":false}]`
+	ts := triageServer(t, routes)
+
+	out, err := runTriageAgainst(t, ts, "--json")
+	if err != nil {
+		t.Fatalf("triage failed: %v", err)
+	}
+	var got triageReport
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("triage --json is not JSON: %v", err)
+	}
+	if !got.Approvals.Available {
+		t.Fatalf("a readable approvals route must stay available: %+v", got.Approvals)
+	}
+	if got.Approvals.Count != 0 {
+		t.Errorf("every approval decided means no gate waiting, got %d: %+v", got.Approvals.Count, got.Approvals)
+	}
+	if len(got.Approvals.Items) != 0 {
+		t.Errorf("a decided approval must not be listed as waiting: %+v", got.Approvals.Items)
 	}
 }
 
