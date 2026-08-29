@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -23,15 +25,19 @@ func RegisterBookmarkRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("GET /api/bookmarks", func(w http.ResponseWriter, r *http.Request) {
 		listBookmarksHandler(w, r, a)
 	})
+	mux.HandleFunc("GET /api/bookmarks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		getBookmarkHandler(w, r, a)
+	})
+	mux.HandleFunc("PATCH /api/bookmarks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		patchBookmarkHandler(w, r, a)
+	})
 	mux.HandleFunc("POST /api/bookmarks/{id}/highlights", func(w http.ResponseWriter, r *http.Request) {
 		addHighlightHandler(w, r, a)
 	})
 }
 
 func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
-	var req struct {
-		URL string `json:"url"`
-	}
+	var req bookmarkCreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -47,7 +53,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		// one. It is a poor title but a true one, which a placeholder word is
 		// not: "Pending" outlived every bookmark that ever carried it, because
 		// nothing downstream could tell it apart from a title someone meant.
-		b := nodes.Bookmark{URL: req.URL, Title: req.URL}
+		b := nodes.Bookmark{URL: req.URL, Title: req.URL, Tags: req.Tags}
 
 		var err error
 		id, err = nodes.CreateBookmark(ctx, tx, b, author)
@@ -91,17 +97,29 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 }
 
 func listBookmarksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	// Absent keeps today's default of archived and unarchived alike (archiving
+	// is success, not removal); "true"/"false" narrow to one state.
+	archived := r.URL.Query().Get("archived")
+	filter := nodes.BookmarkFilter{IncludeArchived: true}
+	switch archived {
+	case "":
+	case "true":
+		filter.ArchivedOnly = true
+	case "false":
+		filter.IncludeArchived = false
+	default:
+		http.Error(w, fmt.Sprintf("invalid archived value %q: must be true or false", archived), http.StatusBadRequest)
+		return
+	}
+	// tags is match-any: a bookmark matching at least one listed tag is
+	// included (BookmarkFilter.Tags, documented at its declaration).
+	if tags := r.URL.Query().Get("tags"); tags != "" {
+		filter.Tags = strings.Split(tags, ",")
+	}
+
 	ctx := r.Context()
 	var list []*nodes.Bookmark
-
 	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
-		// Include archived bookmarks - archiving is success, not removal; the
-		// reader should show them (default filter would hide archived ones).
-		filter := nodes.BookmarkFilter{IncludeArchived: true}
-		if tags := r.URL.Query().Get("tags"); tags != "" {
-			filter.Tags = strings.Split(tags, ",")
-		}
-
 		var err error
 		list, err = nodes.ListBookmarks(ctx, tx, filter)
 		return err
@@ -114,6 +132,93 @@ func listBookmarksHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(newBookmarkResponses(list))
+}
+
+func getBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+	ctx := r.Context()
+
+	var b *nodes.Bookmark
+	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		b, err = nodes.GetBookmark(ctx, tx, id)
+		return err
+	})
+	if errors.Is(err, graph.ErrNotFound) {
+		http.Error(w, "bookmark not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(newBookmarkResponse(b))
+}
+
+// patchBookmarkHandler updates title, description, tags and archive state.
+// Every field is optional; an omitted one is left exactly as it was read,
+// which is why the update reads the current bookmark first rather than
+// building one from the request body alone.
+func patchBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
+	id := r.PathValue("id")
+
+	var req bookmarkPatchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	var b *nodes.Bookmark
+	err := a.Graph.DoRead(ctx, func(tx *graph.ReadTx) error {
+		var err error
+		b, err = nodes.GetBookmark(ctx, tx, id)
+		return err
+	})
+	if errors.Is(err, graph.ErrNotFound) {
+		http.Error(w, "bookmark not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if req.Title != nil {
+		b.Title = *req.Title
+	}
+	if req.Description != nil {
+		b.Description = *req.Description
+	}
+	if req.Tags != nil {
+		b.Tags = *req.Tags
+	}
+	if req.Archived != nil {
+		switch {
+		case *req.Archived && b.ArchivedAt == nil:
+			now := time.Now()
+			b.ArchivedAt = &now
+		case !*req.Archived:
+			b.ArchivedAt = nil
+		}
+	}
+
+	err = a.Graph.DoWrite(ctx, func(tx *graph.WriteTx) error {
+		return nodes.UpdateBookmark(ctx, tx, *b, nodes.Author{Name: "api"})
+	})
+	if errors.Is(err, graph.ErrNotFound) {
+		http.Error(w, "bookmark not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(newBookmarkResponse(b))
 }
 
 func addHighlightHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
