@@ -18,6 +18,18 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/vault/layout"
 )
 
+// startBookmarkArchive keeps page fetching off the create request's critical
+// path. Tests replace it with a synchronous recorder so they do not leave a
+// writer racing the temporary vault's cleanup.
+var startBookmarkArchive = func(g *graph.Graph, vaultRoot, id string) {
+	archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(vaultRoot))
+	go func() {
+		if err := bookmarks.ArchiveAndPersist(context.Background(), g, archiver, id); err != nil {
+			slog.Warn("bookmark archive failed", "id", id, "error", err)
+		}
+	}()
+}
+
 func RegisterBookmarkRoutes(mux *http.ServeMux, a *app.App) {
 	mux.HandleFunc("POST /api/bookmarks", func(w http.ResponseWriter, r *http.Request) {
 		createBookmarkHandler(w, r, a)
@@ -83,14 +95,7 @@ func createBookmarkHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 
-	// Archive (raw HTML + excerpt) in the background so the response is fast,
-	// matching the CLI/inbox paths which also archive.
-	archiver := bookmarks.NewArchiver(nil, bookmarks.ArchiveDir(a.Config.Vault.Root))
-	go func() {
-		if err := bookmarks.ArchiveAndPersist(context.Background(), a.Graph, archiver, id); err != nil {
-			slog.Warn("bookmark archive failed", "id", id, "error", err)
-		}
-	}()
+	startBookmarkArchive(a.Graph, a.Config.Vault.Root, id)
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"id": id})

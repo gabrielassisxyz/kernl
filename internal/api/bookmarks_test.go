@@ -1,4 +1,4 @@
-package api_test
+package api
 
 import (
 	"bytes"
@@ -7,17 +7,23 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gabrielassisxyz/kernl/internal/api"
 	"github.com/gabrielassisxyz/kernl/internal/app"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/graph"
 	"github.com/gabrielassisxyz/kernl/internal/graph/testutil"
 )
 
 func TestBookmarkAPI(t *testing.T) {
-	// Vault.Root must point at a temp dir: the create handler archives in the
-	// background to <Vault.Root>/.kernl/archives, and an empty root resolves to a
-	// path relative to the test's cwd - polluting internal/api/.kernl in the repo.
+	oldStartBookmarkArchive := startBookmarkArchive
+	var archivedIDs []string
+	startBookmarkArchive = func(_ *graph.Graph, _ string, id string) {
+		archivedIDs = append(archivedIDs, id)
+	}
+	t.Cleanup(func() { startBookmarkArchive = oldStartBookmarkArchive })
+
+	// Vault.Root must point at a temp dir: an empty root resolves to a path
+	// relative to the test's cwd, polluting internal/api/.kernl in the repo.
 	cfg := &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}}
 	a := &app.App{
 		Config:  cfg,
@@ -26,7 +32,7 @@ func TestBookmarkAPI(t *testing.T) {
 	a.Graph = testutil.NewInMemoryTestGraph(t)
 
 	mux := http.NewServeMux()
-	api.RegisterBookmarkRoutes(mux, a)
+	RegisterBookmarkRoutes(mux, a)
 
 	body := `{"url":"https://example.com"}`
 	req := httptest.NewRequest("POST", "/api/bookmarks", bytes.NewBufferString(body))
@@ -45,6 +51,9 @@ func TestBookmarkAPI(t *testing.T) {
 	}
 	if resp.ID == "" {
 		t.Error("expected bookmark ID")
+	}
+	if len(archivedIDs) != 1 || archivedIDs[0] != resp.ID {
+		t.Errorf("archive requested for %v, want created bookmark %q", archivedIDs, resp.ID)
 	}
 
 	req = httptest.NewRequest("GET", "/api/bookmarks", nil)
