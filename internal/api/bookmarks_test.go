@@ -77,6 +77,14 @@ func TestBookmarkAPI(t *testing.T) {
 // TestBookmarkAPI's setup, for the write-path tests below.
 func newTestBookmarkMux(t *testing.T) *http.ServeMux {
 	t.Helper()
+
+	// Same isolation TestBookmarkAPI takes: the create handler kicks off a
+	// background fetch of the real URL, which these tests neither need nor
+	// should perform.
+	oldStartBookmarkArchive := startBookmarkArchive
+	startBookmarkArchive = func(*graph.Graph, string, string) {}
+	t.Cleanup(func() { startBookmarkArchive = oldStartBookmarkArchive })
+
 	cfg := &config.Config{Vault: config.VaultConfig{Root: t.TempDir()}}
 	a := &app.App{
 		Config:  cfg,
@@ -85,7 +93,7 @@ func newTestBookmarkMux(t *testing.T) *http.ServeMux {
 	a.Graph = testutil.NewInMemoryTestGraph(t)
 
 	mux := http.NewServeMux()
-	api.RegisterBookmarkRoutes(mux, a)
+	RegisterBookmarkRoutes(mux, a)
 	return mux
 }
 
