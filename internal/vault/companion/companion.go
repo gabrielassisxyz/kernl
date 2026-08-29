@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -138,6 +139,19 @@ func pathTaken(vaultRoot string, tx *graph.WriteTx, relPath string) (bool, error
 // a new name from a new title would re-couple the two. Deleting an entity does
 // remove its companion; renaming deliberately does not.
 func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder, label, description string, tags ...string) (File, error) {
+	return create(ctx, tx, vaultRoot, entityID, folder, label, description, cleanCompanionTags(tags))
+}
+
+// CreateTask creates a companion whose tags exactly mirror the task tag set,
+// plus the task marker supplied by the caller. Unlike generic companion input,
+// task tags are already stored values: trimming them here would make markdown
+// disagree with the task node.
+// Example: CreateTask(ctx, tx, root, id, folder, title, description, "task").
+func CreateTask(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder, label, description string, tags ...string) (File, error) {
+	return create(ctx, tx, vaultRoot, entityID, folder, label, description, tags)
+}
+
+func create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder, label, description string, tags []string) (File, error) {
 	noteID := uuid.Must(uuid.NewV7()).String()
 	title := strings.TrimSpace(label)
 	if title == "" {
@@ -145,22 +159,11 @@ func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder,
 	}
 	body := fmt.Sprintf("Notes for [[%s|%s]].\n", entityID, title)
 
-	// Tags belong in YAML frontmatter (and on the note node), not as literal
-	// "#tag" text appended to the body - the body form never reached the tag
-	// index and read as noise in the note. Leading '#' is tolerated for callers.
-	cleanTags := make([]string, 0, len(tags))
-	for _, t := range tags {
-		t = strings.TrimPrefix(strings.TrimSpace(t), "#")
-		if t != "" {
-			cleanTags = append(cleanTags, t)
-		}
-	}
-
 	if _, err := nodes.CreateNote(ctx, tx, nodes.Note{
 		ID:    noteID,
 		Title: title,
 		Body:  body,
-		Tags:  cleanTags,
+		Tags:  tags,
 	}, nodes.Author{Name: "companion"}); err != nil {
 		return File{}, fmt.Errorf("companion: create note: %w", err)
 	}
@@ -178,8 +181,19 @@ func Create(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID, folder,
 		ID:          noteID,
 		Title:       title,
 		Description: description,
-		Tags:        cleanTags,
+		Tags:        tags,
 	}, body)
+}
+
+func cleanCompanionTags(tags []string) []string {
+	clean := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimPrefix(strings.TrimSpace(tag), "#")
+		if tag != "" {
+			clean = append(clean, tag)
+		}
+	}
+	return clean
 }
 
 // PrepareNote renders a note's markdown file and inserts its note_paths row
@@ -277,6 +291,89 @@ func SyncDescription(ctx context.Context, tx *graph.WriteTx, vaultRoot, entityID
 	return File{relPath: note.relPath, bytes: updated}, nil
 }
 
+// SyncTaskFields mirrors a task's title into its companion frontmatter, plus
+// whichever of description and tags the caller passes, rendering ONE file for a
+// PATCH that changes several of them at once. The title always follows the task
+// node; a nil description or tags pointer leaves that field as the file has it.
+// Tags, when given, replace the file's wholesale, so a tag hand-added to a
+// companion does not survive a tag edit - the node owns that field.
+//
+// The note path stays frozen and lookup always follows the describes edge.
+// SyncDescription remains the description-only path.
+// Example: SyncTaskFields(ctx, tx, vaultRoot, taskID, nil, &tags).
+func SyncTaskFields(
+	ctx context.Context,
+	tx *graph.WriteTx,
+	vaultRoot, entityID string,
+	description *string,
+	tags *[]string,
+) (File, error) {
+	return syncTaskFields(ctx, tx, vaultRoot, entityID, description, tags)
+}
+
+func syncTaskFields(
+	ctx context.Context,
+	tx *graph.WriteTx,
+	vaultRoot, entityID string,
+	description *string,
+	tags *[]string,
+) (File, error) {
+	note, taskTitle, raw, found, err := taskSyncSource(tx, vaultRoot, entityID)
+	if err != nil || !found {
+		return File{}, err
+	}
+	updated, ok := rewriteTaskFields(raw, note, taskTitle, description, tags)
+	if !ok {
+		slog.Warn("companion: task metadata not synced, file is not one kernl can rewrite", "note_id", note.id, "path", note.relPath)
+		return File{}, nil
+	}
+	if bytes.Equal(updated, raw) {
+		slog.Debug("companion: task metadata already matches", "note_id", note.id, "path", note.relPath)
+		return File{}, nil
+	}
+	if _, err := tx.Exec(
+		`UPDATE note_paths SET content_hash = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE uuid = ?`,
+		reconcile.HashBytes(updated), note.id,
+	); err != nil {
+		return File{}, fmt.Errorf("companion: refresh note_paths hash: %w", err)
+	}
+	return File{relPath: note.relPath, bytes: updated}, nil
+}
+
+func taskSyncSource(tx *graph.WriteTx, vaultRoot, entityID string) (noteRef, string, []byte, bool, error) {
+	if vaultRoot == "" {
+		slog.Warn("companion: task metadata not synced, no vault configured", "entity_id", entityID)
+		return noteRef{}, "", nil, false, nil
+	}
+	note, found, err := noteFor(tx, entityID)
+	if err != nil {
+		return noteRef{}, "", nil, false, err
+	}
+	if !found {
+		slog.Warn("companion: task metadata not synced, no companion", "entity_id", entityID)
+		return noteRef{}, "", nil, false, nil
+	}
+	var taskTitle string
+	switch err := tx.QueryRow(
+		`SELECT title FROM nodes WHERE id = ? AND type = 'task' AND deleted_at IS NULL`, entityID,
+	).Scan(&taskTitle); {
+	case err == sql.ErrNoRows:
+		// Refusing rather than erroring keeps this in line with every other
+		// condition here: an entity that is not a live task leaves its companion
+		// alone instead of rolling back the caller's whole write.
+		slog.Warn("companion: task metadata not synced, no live task", "entity_id", entityID)
+		return noteRef{}, "", nil, false, nil
+	case err != nil:
+		return noteRef{}, "", nil, false, fmt.Errorf("companion: lookup task title: %w", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(vaultRoot, filepath.FromSlash(note.relPath)))
+	if err != nil {
+		slog.Warn("companion: task metadata not synced, file unreadable", "note_id", note.id, "path", note.relPath, "error", err)
+		return noteRef{}, "", nil, false, nil
+	}
+	return note, taskTitle, raw, true, nil
+}
+
 // noteRef is the companion note of an entity, as the graph knows it.
 type noteRef struct {
 	id      string
@@ -347,6 +444,57 @@ func rewriteDescription(raw []byte, note noteRef, description string) ([]byte, b
 		Description: description,
 		Tags:        fm.Tags,
 	}, body), true
+}
+
+func rewriteTaskFields(raw []byte, note noteRef, taskTitle string, description *string, tags *[]string) ([]byte, bool) {
+	block, body := notes.SplitFrontmatter(string(raw))
+	if block == "" {
+		return nil, false
+	}
+	parsed, err := frontmatter.Parse(raw)
+	if err != nil || (parsed.ID != "" && parsed.ID != note.id) {
+		return nil, false
+	}
+
+	// Parsed a second time, into the writer's struct: the reader's
+	// frontmatter.Frontmatter carries no description, and a sync that leaves the
+	// description alone still has to render the one already in the file.
+	var current NoteFrontmatter
+	if err := yaml.Unmarshal([]byte(block), &current); err != nil {
+		return nil, false
+	}
+	if fieldsMatch(current, note.id, taskTitle, description, tags) {
+		return bytes.Clone(raw), true
+	}
+	fm := NoteFrontmatter{
+		ID:          note.id,
+		Title:       taskTitle,
+		Description: current.Description,
+		Tags:        current.Tags,
+	}
+	if description != nil {
+		fm.Description = *description
+	}
+	if tags != nil {
+		fm.Tags = *tags
+	}
+	return renderMarkdown(fm, body), true
+}
+
+func fieldsMatch(fm NoteFrontmatter, noteID, taskTitle string, description *string, tags *[]string) bool {
+	// A file that lost its id is not a match even when every mirrored field
+	// agrees: re-rendering puts the id back, which is what lets reconcile match
+	// the node instead of creating a duplicate.
+	if fm.ID != noteID || fm.Title != taskTitle {
+		return false
+	}
+	if description != nil && fm.Description != *description {
+		return false
+	}
+	if tags != nil && !slices.Equal(fm.Tags, *tags) {
+		return false
+	}
+	return true
 }
 
 // NoteFrontmatter is the YAML block kernl writes at the top of a note file it

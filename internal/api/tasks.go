@@ -155,7 +155,7 @@ func createTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		if err := wikilink.ResolveDescriptionInTx(ctx, tx, id, req.Description); err != nil {
 			return err
 		}
-		companionFile, err = companion.Create(ctx, tx, a.Config.Vault.Root, id, layout.TasksFolder, title, req.Description, "task")
+		companionFile, err = companion.CreateTask(ctx, tx, a.Config.Vault.Root, id, layout.TasksFolder, title, req.Description, taskCompanionTags(req.Tags)...)
 		return err
 	})
 	if unknownProject {
@@ -255,10 +255,6 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			if err := nodes.SetTaskDescription(ctx, tx, id, *req.Description, author); err != nil {
 				return err
 			}
-			var err error
-			if companionFile, err = companion.SyncDescription(ctx, tx, a.Config.Vault.Root, id, *req.Description); err != nil {
-				return err
-			}
 		}
 		if req.Status != nil {
 			if err := nodes.SetTaskStatus(ctx, tx, id, *req.Status, author); err != nil {
@@ -291,7 +287,29 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 			}
 		}
 		if req.Tags != nil {
-			return nodes.SetTaskTags(ctx, tx, id, *req.Tags, author)
+			if err := nodes.SetTaskTags(ctx, tx, id, *req.Tags, author); err != nil {
+				return err
+			}
+		}
+		if req.Title != nil || req.Tags != nil {
+			var syncTags *[]string
+			if req.Tags != nil {
+				tags := taskCompanionTags(*req.Tags)
+				syncTags = &tags
+			}
+			var err error
+			companionFile, err = companion.SyncTaskFields(
+				ctx, tx, a.Config.Vault.Root, id, req.Description, syncTags,
+			)
+			if err != nil {
+				return err
+			}
+		} else if req.Description != nil {
+			var err error
+			companionFile, err = companion.SyncDescription(ctx, tx, a.Config.Vault.Root, id, *req.Description)
+			if err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -314,6 +332,19 @@ func patchTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func taskCompanionTags(tags []string) []string {
+	out := make([]string, 0, len(tags)+1)
+	seen := make(map[string]struct{}, len(tags)+1)
+	for _, tag := range append([]string{"task"}, tags...) {
+		if _, found := seen[tag]; found || tag == "" {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	return out
 }
 
 func deleteTaskHandler(w http.ResponseWriter, r *http.Request, a *app.App) {
