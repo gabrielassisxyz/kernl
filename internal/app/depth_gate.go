@@ -215,8 +215,11 @@ type depthGateOutcome struct {
 // than carrying a budget of its own. A bead whose shape was already put to
 // the DA and then hands a fork over mid-implementation is one bead consuming
 // two consultations, and the budget exists to bound exactly that.
-func handleDepthGate(ctx context.Context, deps DriveBeadDeps, bead *backend.Bead, epicID, artifactDir, activeState string, forkGateCalls int) (depthGateOutcome, error) {
-	classification := dispatch.ClassifyDepth(*bead)
+//
+// The caller is expected to have already classified the bead and, for
+// non-gate depths, selected a profile. This function handles only the
+// DepthGate branch; passing a non-gate classification is a no-op.
+func handleDepthGate(ctx context.Context, deps DriveBeadDeps, bead *backend.Bead, classification dispatch.DepthProposal, epicID, artifactDir, activeState string, forkGateCalls int) (depthGateOutcome, error) {
 	if classification.Depth != dispatch.DepthGate {
 		return depthGateOutcome{ForkGateCalls: forkGateCalls}, nil
 	}

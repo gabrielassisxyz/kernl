@@ -30,17 +30,16 @@ func TestClassifyDepth_GateOnOpenDesignLanguage(t *testing.T) {
 	}
 }
 
-// TestClassifyDepth_FullPipelineWhenOnlyHowIsOpen is the contrasting case:
-// a bead whose correct behaviour is already determined - its acceptance
-// criteria could be written without choosing anything - but whose
-// implementation approach is genuinely open. That openness is real design
-// work for a planner, not grounds to refuse the bead outright.
-func TestClassifyDepth_FullPipelineWhenOnlyHowIsOpen(t *testing.T) {
+// TestClassifyDepth_FullPipelineWhenNoAcceptanceStated is the positive
+// condition for DepthFullPipeline: no acceptance criteria are stated at
+// all, so what "correct" means for this bead was never settled - that is
+// real design work for a planner, not something a default can paper over.
+func TestClassifyDepth_FullPipelineWhenNoAcceptanceStated(t *testing.T) {
 	b := backend.Bead{
 		ID:          "arch-hkk",
 		Type:        "task",
 		Title:       "Bring the retry backoff in line with the documented contract",
-		Description: "The existing design doc already specifies the required backoff behaviour end to end.",
+		Description: "The existing design doc describes the intent, but no acceptance criteria are written down yet.",
 	}
 
 	got := ClassifyDepth(b)
@@ -48,24 +47,59 @@ func TestClassifyDepth_FullPipelineWhenOnlyHowIsOpen(t *testing.T) {
 	if got.Depth != DepthFullPipeline {
 		t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", b.ID, got.Depth, DepthFullPipeline)
 	}
+	if got.Reason == "" {
+		t.Fatal("ClassifyDepth returned DepthFullPipeline with no reason")
+	}
 }
 
-// TestClassifyDepth_ShortFlowForBugWithAcceptance covers the other named
-// depth: a localized defect where a failing test already defines what
-// correct means needs one implementer, not a planner.
-func TestClassifyDepth_ShortFlowForBugWithAcceptance(t *testing.T) {
-	b := backend.Bead{
-		ID:          "bug-off-by-one",
-		Type:        "bug",
-		Title:       "Paginator drops the last page",
-		Description: "The last page of results never renders.",
-		Acceptance:  "TestPaginator_LastPageRenders passes",
+// TestClassifyDepth_ShortFlowIsTheDefaultWhenAcceptanceIsStated pins the new
+// default: a bead that exists has already been planned, so once it states
+// its own acceptance criteria and does not declare its design open, one
+// implementer can go straight to it - regardless of bead type.
+func TestClassifyDepth_ShortFlowIsTheDefaultWhenAcceptanceIsStated(t *testing.T) {
+	cases := []struct {
+		name string
+		bead backend.Bead
+	}{
+		{
+			name: "bug with acceptance",
+			bead: backend.Bead{
+				ID:          "bug-off-by-one",
+				Type:        "bug",
+				Title:       "Paginator drops the last page",
+				Description: "The last page of results never renders.",
+				Acceptance:  "TestPaginator_LastPageRenders passes",
+			},
+		},
+		{
+			name: "task with acceptance",
+			bead: backend.Bead{
+				ID:          "task-with-acceptance",
+				Type:        "task",
+				Title:       "Rename the export endpoint",
+				Description: "The endpoint's name no longer matches what it does.",
+				Acceptance:  "GET /api/export-v2 returns the same payload the old /api/export did",
+			},
+		},
+		{
+			name: "feature with acceptance",
+			bead: backend.Bead{
+				ID:          "feature-with-acceptance",
+				Type:        "feature",
+				Title:       "Add a dark mode toggle",
+				Description: "Users have asked for a dark theme.",
+				Acceptance:  "A toggle in settings switches the whole app to a dark palette",
+			},
+		},
 	}
 
-	got := ClassifyDepth(b)
-
-	if got.Depth != DepthShortFlow {
-		t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", b.ID, got.Depth, DepthShortFlow)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifyDepth(tc.bead)
+			if got.Depth != DepthShortFlow {
+				t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", tc.bead.ID, got.Depth, DepthShortFlow)
+			}
+		})
 	}
 }
 
@@ -88,11 +122,11 @@ func TestClassifyDepth_BugWithoutAcceptanceIsNotShortFlow(t *testing.T) {
 	}
 }
 
-// TestClassifyDepth_GateBeatsBugAcceptance pins the order the two rules are
-// checked in: a bug with acceptance criteria that still declares its own
+// TestClassifyDepth_GateBeatsAcceptance pins the order the two rules are
+// checked in: a bead with acceptance criteria that still declares its own
 // design open must gate, not short-flow. Acceptance criteria describing the
 // desired outcome does not resolve an undecided approach.
-func TestClassifyDepth_GateBeatsBugAcceptance(t *testing.T) {
+func TestClassifyDepth_GateBeatsAcceptance(t *testing.T) {
 	b := backend.Bead{
 		ID:          "bug-with-open-design",
 		Type:        "bug",
@@ -105,6 +139,75 @@ func TestClassifyDepth_GateBeatsBugAcceptance(t *testing.T) {
 
 	if got.Depth != DepthGate {
 		t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", b.ID, got.Depth, DepthGate)
+	}
+}
+
+// TestClassifyDepth_ShortFlowWhenAcceptanceIsInDescription guards the case
+// that motivated broadening the acceptance check: a hand-planned backlog
+// often states acceptance criteria inside the description rather than in the
+// dedicated field. The bead still has a concrete definition of "correct",
+// so it does not need a planner.
+func TestClassifyDepth_ShortFlowWhenAcceptanceIsInDescription(t *testing.T) {
+	cases := []struct {
+		name string
+		bead backend.Bead
+	}{
+		{
+			name: "done when in description",
+			bead: backend.Bead{
+				ID:          "arch-done-when",
+				Type:        "task",
+				Title:       "Reduce per-page fetch overhead",
+				Description: "Each standalone fetch builds a fresh runtime.\n\nDone when: a single fetch path reuses the same runtime for the whole batch.",
+			},
+		},
+		{
+			name: "acceptance criteria heading in description",
+			bead: backend.Bead{
+				ID:          "arch-acc-heading",
+				Type:        "feature",
+				Title:       "Collect addresses without archiving",
+				Description: "A pass that lists what a crawl would reach.\n\n## Acceptance criteria\n- Nothing is written to disk.\n- Every guard a normal crawl applies still applies.",
+			},
+		},
+		{
+			name: "acceptance criteria in notes",
+			bead: backend.Bead{
+				ID:          "arch-notes",
+				Type:        "docs",
+				Title:       "Fix served-document example",
+				Description: "The JSON example omits fields.",
+				Notes:       "Done when: the example matches serde_json output for that record.",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifyDepth(tc.bead)
+			if got.Depth != DepthShortFlow {
+				t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", tc.bead.ID, got.Depth, DepthShortFlow)
+			}
+		})
+	}
+}
+
+// TestClassifyDepth_FullPipelineStillRequiresRealCriteria asserts that the
+// broadened acceptance check does not catch a bead that merely mentions
+// acceptance criteria to say they are missing. The positive full_pipeline
+// condition stays checkable: no criteria are actually stated.
+func TestClassifyDepth_FullPipelineStillRequiresRealCriteria(t *testing.T) {
+	b := backend.Bead{
+		ID:          "arch-no-criteria",
+		Type:        "task",
+		Title:       "Bring retry backoff in line with contract",
+		Description: "The existing design doc describes the intent, but no acceptance criteria are written down yet.",
+	}
+
+	got := ClassifyDepth(b)
+
+	if got.Depth != DepthFullPipeline {
+		t.Fatalf("ClassifyDepth(%s).Depth = %q, want %q", b.ID, got.Depth, DepthFullPipeline)
 	}
 }
 

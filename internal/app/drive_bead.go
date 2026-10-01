@@ -15,6 +15,7 @@ import (
 	"github.com/gabrielassisxyz/kernl/internal/adapter"
 	"github.com/gabrielassisxyz/kernl/internal/backend"
 	"github.com/gabrielassisxyz/kernl/internal/config"
+	"github.com/gabrielassisxyz/kernl/internal/dispatch"
 	"github.com/gabrielassisxyz/kernl/internal/subprocess"
 	"github.com/gabrielassisxyz/kernl/internal/workflow"
 )
@@ -216,6 +217,16 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 			return lastResult, fmt.Errorf("KERNL DISPATCH FAILURE: bead %s not found in repo %s: %w", deps.BeadID, deps.RepoPath, err)
 		}
 
+		// Classify the bead's depth before resolving its workflow, so the
+		// selected profile shapes the states and transitions this iteration
+		// actually runs. The DepthGate branch is handled later once the active
+		// state is known; here we only apply the profile mapping for beads
+		// that have no explicit profile of their own.
+		classification := dispatch.ClassifyDepth(*bead)
+		if selected := applyDepthProfile(bead, classification); selected != "" {
+			slog.Info("DRIVE_TRACE depth selected profile", "bead", deps.BeadID, "depth", classification.Depth, "profile", selected)
+		}
+
 		wf := backend.ResolveWorkflow(bead)
 		slog.Info("DRIVE_TRACE iter top", "bead", deps.BeadID, "iter", i, "state", bead.State, "prevState", prevState, "profile", wf.ID)
 
@@ -336,8 +347,9 @@ func DriveBeadToTerminal(ctx context.Context, deps DriveBeadDeps) (RunBeadResult
 		// says its design is still open is not autonomous work, and
 		// dispatching it would have an implementer choose an approach
 		// nobody committed to. handleDepthGate is a no-op for every other
-		// bead, and asks at most once per bead (see its own doc comment).
-		gate, err := handleDepthGate(ctx, deps, bead, epicID, artifactDir, activeState, forkGateCalls)
+		// bead (classification and profile selection happened earlier), and
+		// asks at most once per bead (see its own doc comment).
+		gate, err := handleDepthGate(ctx, deps, bead, classification, epicID, artifactDir, activeState, forkGateCalls)
 		if err != nil {
 			return RunBeadResult{FinalState: activeState, Success: false}, err
 		}
@@ -1000,6 +1012,29 @@ func buildStageComment(state, agentID, sessionID, artifactPath, commitSHA string
 		commitSHA,
 		duration.Truncate(time.Millisecond).String(),
 	)
+}
+
+// applyDepthProfile maps a classified depth to a built-in profile for beads
+// that have no explicit profile of their own. It is a separate function so
+// the selection rule can be unit-tested without standing up a full
+// DriveBeadToTerminal loop. DepthGate beads get no profile here; their path
+// is handled by handleDepthGate. Beads that already carry a ProfileID or
+// WorkflowID keep it, because an explicit tracker profile is a deliberate
+// choice (e.g. wf:profile:worker for epic children) that the classifier
+// should not override.
+func applyDepthProfile(bead *backend.Bead, classification dispatch.DepthProposal) string {
+	if classification.Depth == dispatch.DepthGate {
+		return ""
+	}
+	if bead.ProfileID != "" || bead.WorkflowID != "" {
+		return ""
+	}
+	profileID, ok := dispatch.ProfileForDepth(classification.Depth)
+	if !ok {
+		return ""
+	}
+	bead.ProfileID = profileID
+	return profileID
 }
 
 func resolveArtifactRef(state string, stages map[string]backend.StageContract, beadID, artifactDir string) string {
