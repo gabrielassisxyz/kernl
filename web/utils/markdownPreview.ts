@@ -39,6 +39,10 @@ export type PreviewKind =
   | 'codeBlock'
   | 'comment'
   | 'tag'
+  // Blockquote lines, one kind per nesting depth (mirroring the heading kinds).
+  // The class pair `cm-md-quote cm-md-quote-<n>` draws one bar per level and
+  // indents the content one step past the deepest bar.
+  | 'quote1' | 'quote2' | 'quote3' | 'quote4' | 'quote5' | 'quote6'
   // Replaces the list marker with a bullet glyph.
   | 'bullet'
   // Replaces a task item's whole "- [x]" run with a clickable checkbox.
@@ -101,6 +105,15 @@ const SETEXT_LEVEL: Record<string, PreviewKind> = {
   SetextHeading1: 'h1', SetextHeading2: 'h2',
 }
 
+// The quote bar and indent are drawn per line, one bar per nesting level. The
+// cap is where the eye stops tracking nesting anyway; deeper quotes reuse
+// level 6's look. (Obsidian shows the same plateau.)
+const MAX_QUOTE_DEPTH = 6
+const QUOTE_KIND: Record<number, PreviewKind> = {
+  1: 'quote1', 2: 'quote2', 3: 'quote3',
+  4: 'quote4', 5: 'quote5', 6: 'quote6',
+}
+
 // Whether a node's line is one the cursor is on. Headings/inline marks are
 // single-line in practice, so checking the start line is sufficient and cheap.
 function lineActive(state: EditorState, pos: number, activeLines: Set<number>): boolean {
@@ -135,6 +148,11 @@ export function collectPreviewSpecs(
   // The stretch being walked right now, so a block longer than the screen only
   // decorates the part of itself that is on it.
   let bounds: PreviewRange = ranges[0] ?? { from: 0, to: doc.length }
+  // Blockquote nesting depth per covered line start, deepest wins: a nested
+  // quote's lines sit inside every ancestor quote too, and the line keeps only
+  // the deepest claim so it never carries two depth classes at once. Emitted as
+  // line decorations after the walk, once the depths are final.
+  const quoteDepthByLine = new Map<number, number>()
 
   const style = (from: number, to: number, kind: PreviewKind, href?: string) => {
     if (to <= from) return
@@ -207,6 +225,35 @@ export function collectPreviewSpecs(
         line(doc.lineAt(node.from).from, 'rule')
         hide(node.from, node.to)
       }
+      return
+    }
+
+    // A quote takes over its marker and its border: depth comes from the node's
+    // ancestor chain (counting the node itself), not from `>` characters in the
+    // line text. Every ancestor still covers a nested line, so the map keeps the
+    // deepest claim per line. Not gated on the cursor: the bar stays under the
+    // caret, only the markers on that line come back for editing.
+    if (node.name === 'Blockquote') {
+      let depth = 1
+      for (let p = node.node.parent; p; p = p.parent) {
+        if (p.name === 'Blockquote') depth++
+      }
+      depth = Math.min(depth, MAX_QUOTE_DEPTH)
+      let pos = Math.max(node.from, bounds.from)
+      const end = Math.min(node.to, bounds.to)
+      while (pos <= end) {
+        const docLine = doc.lineAt(pos)
+        if (depth > (quoteDepthByLine.get(docLine.from) ?? 0)) quoteDepthByLine.set(docLine.from, depth)
+        if (docLine.to >= doc.length) break
+        pos = docLine.to + 1
+      }
+      return
+    }
+
+    // `>`, one node per level reached on the line. Concealed like heading hashes,
+    // and released under the cursor so the marker is editable again.
+    if (node.name === 'QuoteMark') {
+      hide(node.from, node.to)
       return
     }
 
@@ -332,6 +379,11 @@ export function collectPreviewSpecs(
     tree.iterate({ from: range.from, to: range.to, enter })
     collectObsidianComments(state, tree, range, style)
     collectTags(state, tree, range, style)
+  }
+  // Quote lines last: the map holds every covered line at its final depth,
+  // so one line gets exactly one quote decoration. (Decoration.set sorts.)
+  for (const [pos, depth] of quoteDepthByLine) {
+    line(pos, QUOTE_KIND[depth])
   }
 
   return specs
@@ -471,6 +523,12 @@ const KIND_CLASS: Partial<Record<PreviewKind, string>> = {
 const LINE_CLASS: Partial<Record<PreviewKind, string>> = {
   rule: 'cm-md-rule',
   codeBlock: 'cm-md-code-block',
+  quote1: 'cm-md-quote cm-md-quote-1',
+  quote2: 'cm-md-quote cm-md-quote-2',
+  quote3: 'cm-md-quote cm-md-quote-3',
+  quote4: 'cm-md-quote cm-md-quote-4',
+  quote5: 'cm-md-quote cm-md-quote-5',
+  quote6: 'cm-md-quote cm-md-quote-6',
 }
 
 const hideDeco = Decoration.replace({})
@@ -585,6 +643,64 @@ export const livePreviewTheme = EditorView.theme({
   // Only a link that resolves to something openable offers to be clicked.
   '.cm-md-link--live': { cursor: 'pointer' },
   '.cm-md-link--live:hover': { color: 'var(--color-primary)' },
+
+  // A quote is drawn by its line: one bar and one indent step per nesting
+  // level, the way the marker characters used to do it, so hiding the `>` run
+  // leaves the shape behind instead of flattening the paragraph. The bar is the
+  // border token, the same one the rule uses - a quote is a divider, not an
+  // accent. Level 1 is the border plus a single step's clearance; each deeper
+  // level adds one background bar one 12px step further in and clears it, so a
+  // nested pair reads as two borders side by side (`borderLeft` is level 1,
+  // padding = depth * step - bar).
+  '.cm-md-quote': {
+    borderLeft: '3px solid var(--color-border-default)',
+    paddingLeft: '9px',
+  },
+  '.cm-md-quote-2': {
+    paddingLeft: '21px',
+    backgroundImage: 'linear-gradient(var(--color-border-default), var(--color-border-default))',
+    backgroundSize: '3px 100%',
+    backgroundPosition: '12px 0',
+    backgroundRepeat: 'no-repeat',
+  },
+  '.cm-md-quote-3': {
+    paddingLeft: '33px',
+    backgroundImage: 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default))',
+    backgroundSize: '3px 100%',
+    backgroundPosition: '12px 0, 24px 0',
+    backgroundRepeat: 'no-repeat',
+  },
+  '.cm-md-quote-4': {
+    paddingLeft: '45px',
+    backgroundImage: 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default))',
+    backgroundSize: '3px 100%',
+    backgroundPosition: '12px 0, 24px 0, 36px 0',
+    backgroundRepeat: 'no-repeat',
+  },
+  '.cm-md-quote-5': {
+    paddingLeft: '57px',
+    backgroundImage: 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default))',
+    backgroundSize: '3px 100%',
+    backgroundPosition: '12px 0, 24px 0, 36px 0, 48px 0',
+    backgroundRepeat: 'no-repeat',
+  },
+  '.cm-md-quote-6': {
+    paddingLeft: '69px',
+    backgroundImage: 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default)), '
+      + 'linear-gradient(var(--color-border-default), var(--color-border-default))',
+    backgroundSize: '3px 100%',
+    backgroundPosition: '12px 0, 24px 0, 36px 0, 48px 0, 60px 0',
+    backgroundRepeat: 'no-repeat',
+  },
 
   // A rule is drawn by the line, not by its characters, so the `---` can be
   // concealed without the line collapsing to nothing. 1px: DESIGN.md forbids
