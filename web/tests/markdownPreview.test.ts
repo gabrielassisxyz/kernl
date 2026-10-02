@@ -488,6 +488,99 @@ describe('collectPreviewSpecs - list bullets', () => {
   })
 })
 
+describe('collectPreviewSpecs - blockquotes', () => {
+  // A quote spec is a line decoration: from === to === the covered line's start.
+  const quoteLines = (doc: string, s: PreviewSpec[]) => ({
+    // 1-based line numbers carrying that depth's decoration.
+    byDepth: (depth: number) => styled(s, `quote${depth}` as PreviewKind)
+      .map((x) => doc.slice(0, x.from).split('\n').length),
+    all: s.filter((x) => x.kind.startsWith('quote')),
+  })
+
+  it('draws a one-level quote line at the line start', () => {
+    const doc = '> quoted\n\nafter'
+    const q = quoteLines(doc, specs(doc))
+    expect(q.byDepth(1)).toEqual([1])
+    expect(q.byDepth(2)).toEqual([])
+    expect(q.all).toHaveLength(1)
+  })
+
+  it('marks the inner line of a nested quote at depth 2, the outer at 1', () => {
+    const doc = '> outer\n> > inner\n\nafter'
+    const q = quoteLines(doc, specs(doc))
+    expect(q.byDepth(1)).toEqual([1])
+    expect(q.byDepth(2)).toEqual([2])
+    expect(q.byDepth(3)).toEqual([])
+    expect(q.all).toHaveLength(2)
+  })
+
+  it('tracks three levels, each line at the deepest quote reaching it', () => {
+    const doc = '> one\n> > two\n> > > three\n\nafter'
+    const q = quoteLines(doc, specs(doc))
+    expect(q.byDepth(1)).toEqual([1])
+    expect(q.byDepth(2)).toEqual([2])
+    expect(q.byDepth(3)).toEqual([3])
+    expect(q.all).toHaveLength(3)
+  })
+
+  it('hides QuoteMark markers when the cursor is elsewhere', () => {
+    const doc = '> hidden\n\nafter'
+    expect(hides(specs(doc)).map((h) => slice(doc, h))).toEqual(['>'])
+  })
+
+  it('shows the cursor line markers but keeps every quote line bordered', () => {
+    const doc = '> one\n> two\n\nafter'
+    const s = specs(doc, 2) // cursor on line 1
+    expect(hides(s).map((h) => slice(doc, h))).toEqual(['>'])
+    expect(quoteLines(doc, s).byDepth(1)).toEqual([1, 2])
+  })
+
+  it('keeps a list bullet inside a quote', () => {
+    const doc = '> - item\n\nafter'
+    const s = specs(doc)
+    expect(styled(s, 'bullet').map((x) => slice(doc, x))).toEqual(['-'])
+    expect(quoteLines(doc, s).byDepth(1)).toEqual([1])
+  })
+
+  it('keeps an inline code span inside a quote', () => {
+    const doc = '> run `echo` here\n\nafter'
+    const s = specs(doc)
+    expect(styled(s, 'code').map((x) => slice(doc, x))).toEqual(['echo'])
+  })
+
+  it('keeps a fenced block quoting itself: quote lines plus code lines', () => {
+    const doc = '> ```py\n> x = 1\n> ```\n\nafter'
+    const s = specs(doc)
+    expect(styled(s, 'codeBlock')).toHaveLength(3)
+    expect(quoteLines(doc, s).byDepth(1)).toEqual([1, 2, 3])
+  })
+
+  it('caps the depth at six for a seven-deep quote', () => {
+    const doc = '> 1\n> > 2\n> > > 3\n> > > > 4\n> > > > > 5\n> > > > > > 6\n> > > > > > > 7\n'
+    const q = quoteLines(doc, specs(doc))
+    for (let depth = 1; depth <= 5; depth++) {
+      expect(q.byDepth(depth)).toEqual([depth])
+    }
+    // Line 7 is inside seven nested quotes but keeps level 6's look.
+    expect(q.byDepth(6)).toEqual([6, 7])
+    expect(q.all).toHaveLength(7)
+  })
+
+  it('renders reading mode the same and never alters the document', () => {
+    const doc = '> outer\n> > inner\n> > > deep\n\nafter'
+    const state = stateFor(doc)
+    collectPreviewSpecs(state, new Set())
+    expect(state.doc.toString()).toBe(doc)
+    // Reading mode conceals every marker and keeps the quote lines: the cursor
+    // gates nothing there.
+    const reading = collectPreviewSpecs(state, new Set())
+    expect(hides(reading).map((h) => slice(doc, h))).toEqual(['>', '>', '>', '>', '>', '>'])
+    expect(quoteLines(doc, reading).byDepth(1)).toEqual([1])
+    expect(quoteLines(doc, reading).byDepth(2)).toEqual([2])
+    expect(quoteLines(doc, reading).byDepth(3)).toEqual([3])
+  })
+})
+
 describe('collectPreviewSpecs - vault tags', () => {
   const tags = (doc: string) => styled(specs(doc), 'tag').map((x) => slice(doc, x))
 
