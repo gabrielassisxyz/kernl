@@ -1,5 +1,5 @@
-// The editing behaviour of the notes editor: undo, indentation, bracket pairs
-// and selection wrapping.
+// The editing behaviour of the notes editor: undo, indentation, bracket pairs,
+// selection wrapping and the markdown format toggles (bold / italic / link).
 //
 // Until this existed the editor bound exactly one key, Mod-s. Everything else a
 // text editor is assumed to do came from the browser's contenteditable, which is
@@ -9,10 +9,11 @@
 // browser accident.
 
 import { EditorSelection, EditorState, type Extension, type Transaction, type TransactionSpec } from '@codemirror/state'
-import { EditorView, keymap } from '@codemirror/view'
+import { EditorView, keymap, type SelectionRange } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
-import { indentUnit } from '@codemirror/language'
+import { indentUnit, syntaxTree } from '@codemirror/language'
+import type { SyntaxNode } from '@lezer/common'
 
 // Characters whose open and close form are the same. They wrap a selection, but
 // they deliberately do NOT auto-close on an empty selection: `closeBrackets`
@@ -94,6 +95,178 @@ function wrapSelectionInput(): Extension {
   })
 }
 
+// Innermost node of one of the `wanted` types that covers [from, to), or null.
+// Children are walked left-to-right and taken first, so a cursor resting on the
+// seam of two touching children counts as inside the left one. Looking this up
+// in the PARSE TREE rather than in the surrounding text is the whole point:
+// `*` is both an italic marker and a list marker, and `**a** sel **b**` has
+// `**` on both sides of `sel` while `sel` sits in no span at all - only the
+// tree knows which span a pair of markers actually belongs to.
+function enclosingSpan(node: SyntaxNode, from: number, to: number, wanted: readonly string[]): SyntaxNode | null {
+  for (let child = node.firstChild; child; child = child.nextSibling) {
+    if (child.from <= from && to <= child.to) {
+      return enclosingSpan(child, from, to, wanted) ?? (wanted.includes(child.name) ? child : null)
+    }
+  }
+  return wanted.includes(node.name) && node.from <= from && to <= node.to ? node : null
+}
+
+// The word the empty cursor sits IN. `state.wordAt` also returns a word that
+// merely touches the cursor - the one just before it when the cursor rests on
+// the space after the word - which would turn every cursor in whitespace into
+// a word-wrap. Requiring the position to fall inside the range is what keeps
+// cursor-in-whitespace in the empty-pair path below.
+function wordUnderCursor(state: EditorState, pos: number): SelectionRange | null {
+  const word = state.wordAt(pos)
+  return word && word.from <= pos && pos < word.to ? word : null
+}
+
+
+// One `markup` pair around `range`, with the text left selected (direction
+// preserved) so the same chord pressed again nests the pair.
+function wrapPairSpec(range: SelectionRange, markup: string): TransactionSpec {
+  return {
+    changes: [
+      { from: range.from, insert: markup },
+      { from: range.to, insert: markup },
+    ],
+    selection: EditorSelection.range(range.anchor + markup.length, range.head + markup.length),
+    userEvent: 'input.format',
+    scrollIntoView: true,
+  }
+}
+
+/**
+ * The transaction behind Mod-b: toggles `**bold**` on the main selection. See
+ * `emphasisToggleSpec` for the wrap / unwrap / word / whitespace semantics.
+ * Exported for tests; null under `readOnly`.
+ */
+export function toggleBoldSpec(state: EditorState): TransactionSpec | null {
+  return emphasisToggleSpec(state, 'StrongEmphasis', '**')
+}
+
+/**
+ * The transaction behind Mod-i: toggles `*italic*`, same semantics with the
+ * `Emphasis` node - which is what makes toggling italic inside bold-italic
+ * (`***x***`) leave the **bold** in place. Exported for tests.
+ */
+export function toggleItalicSpec(state: EditorState): TransactionSpec | null {
+  return emphasisToggleSpec(state, 'Emphasis', '*')
+}
+
+// The shared body of both emphasis toggles. Matching on node NAME is what keeps
+// `***x***` working: Mod-i looks for an `Emphasis` node, never the nested
+// `StrongEmphasis`, so the italics unwrap while the bold stays.
+function emphasisToggleSpec(state: EditorState, nodeType: 'StrongEmphasis' | 'Emphasis', markup: string): TransactionSpec | null {
+  if (state.readOnly) return null
+  const range = state.selection.main
+  const node = enclosingSpan(syntaxTree(state).topNode, range.from, range.to, [nodeType])
+  if (node) {
+    const open = node.getChild('EmphasisMark')
+    const close = node.lastChild
+    // The markdown grammar always gives an emphasis node its open/close mark
+    // pair; the guard only keeps a hypothetical malformed branch from mangling
+    // the document.
+    if (open && close?.name === 'EmphasisMark' && close.from >= open.to) {
+      const innerFrom = open.from
+      const innerTo = close.from - markup.length
+      const backward = range.head < range.anchor
+      return {
+        changes: [
+          { from: open.from, to: open.to },
+          { from: close.from, to: close.to },
+        ],
+        selection: EditorSelection.range(backward ? innerTo : innerFrom, backward ? innerFrom : innerTo),
+        userEvent: 'input.format',
+        scrollIntoView: true,
+      }
+    }
+    return null
+  }
+  if (!range.empty) return wrapPairSpec(range, markup)
+
+  const word = wordUnderCursor(state, range.head)
+  if (word) return wrapPairSpec(EditorSelection.range(word.from, word.to), markup)
+
+  return {
+    changes: { from: range.head, insert: markup + markup },
+    selection: { anchor: range.head + markup.length },
+    userEvent: 'input.format',
+    scrollIntoView: true,
+  }
+}
+
+/**
+ * The transaction behind Mod-k: wraps the main selection as `[sel]()` with the
+ * cursor between the parentheses, leaves an empty `[]()` when the cursor is
+ * bare, and selects the URL of the link the selection sits inside so it can be
+ * inspected or retyped. Reference-style links (`[text][ref]`) parse without a
+ * URL and are left alone. Exported for tests; null under `readOnly`.
+ */
+export function insertLinkSpec(state: EditorState): TransactionSpec | null {
+  if (state.readOnly) return null
+  const range = state.selection.main
+  const link = enclosingSpan(syntaxTree(state).topNode, range.from, range.to, ['Link'])
+  if (link) {
+    const url = link.getChild('URL')
+    // Reference-style links have no URL child; claiming the chord without an
+    // action beats mangling a `[text][ref]` construct.
+    if (!url) return null
+    return {
+      selection: EditorSelection.range(url.from, url.to),
+      userEvent: 'select',
+      scrollIntoView: true,
+    }
+  }
+  if (!range.empty) {
+    return {
+      changes: [
+        { from: range.from, insert: '[' },
+        { from: range.to, insert: ']()' },
+      ],
+      // `]()` lands shifted by the lead `[`: the cursor goes just before the
+      // closing paren.
+      selection: { anchor: range.to + 3 },
+      userEvent: 'input.format',
+      scrollIntoView: true,
+    }
+  }
+  return {
+    changes: { from: range.head, insert: '[]()' },
+    selection: { anchor: range.head + 1 },
+    userEvent: 'input.format',
+    scrollIntoView: true,
+  }
+}
+
+/**
+ * Ctrl+B (Cmd on macOS) toggles `**bold**` on the main selection. Always one
+ * explicit transaction, so undo removes it in a single step. Returns true even
+ * when nothing changes (read-only), so the browser's own Ctrl+B never fires.
+ */
+export function toggleBold(view: EditorView): boolean {
+  const spec = toggleBoldSpec(view.state)
+  if (spec) view.dispatch(spec)
+  return true
+}
+
+/**
+ * Ctrl+I toggles `*italic*`, with the same semantics as toggleBold. Inside
+ * bold-italic (`***x***`) it strips the wrapping `Emphasis` and leaves the bold.
+ */
+export function toggleItalic(view: EditorView): boolean {
+  const spec = toggleItalicSpec(view.state)
+  if (spec) view.dispatch(spec)
+  return true
+}
+
+/** Ctrl+K inserts a markdown link on the main selection. */
+export function insertLink(view: EditorView): boolean {
+  const spec = insertLinkSpec(view.state)
+  if (spec) view.dispatch(spec)
+  return true
+}
+
 // True when a transaction types whitespace. Used to end the undo group there, so
 // undo walks back word by word. CodeMirror's own rule is purely temporal - it
 // merges any two adjacent edits typed less than `newGroupDelay` apart - and
@@ -126,6 +299,18 @@ export function noteEditingExtensions(): Extension {
     indentUnit.of('    '),
     closeBrackets(),
     wrapSelectionInput(),
-    keymap.of([...closeBracketsKeymap, ...historyKeymap, ...defaultKeymap, indentWithTab]),
+    keymap.of([
+      // The toggles lead and each claims its chord even when it changes nothing;
+      // a false return would let the browser's own Ctrl+B / Ctrl+K fire. They use
+      // the `input.format` user event, which history never joins across: a toggle
+      // stays one undo step even right after typing.
+      { key: 'Mod-b', run: toggleBold },
+      { key: 'Mod-i', run: toggleItalic },
+      { key: 'Mod-k', run: insertLink },
+      ...closeBracketsKeymap,
+      ...historyKeymap,
+      ...defaultKeymap,
+      indentWithTab,
+    ]),
   ]
 }
