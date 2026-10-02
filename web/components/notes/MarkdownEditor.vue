@@ -70,6 +70,7 @@ import { noteEditingExtensions } from '~/utils/noteEditing'
 import { wikilinkExtensions, wikilinkResolverUpdated } from '~/utils/wikilinkEditor'
 import { livePreviewExtensions } from '~/utils/markdownPreview'
 import { frontmatterConcealExtension } from '~/utils/frontmatterConceal'
+import { codeFencePreviewExtension } from '~/utils/codeFencePreview'
 import { typewriterExtension } from '~/utils/typewriterMode'
 import { replaceFrontmatter, splitFrontmatter } from '~/utils/frontmatter'
 import { useEditorSettings } from '~/composables/useEditorSettings'
@@ -197,7 +198,12 @@ const previewExtFor = (mode) => {
   if (mode === 'source') return []
   return livePreviewExtensions(mode === 'live') // reading → reveal=false (full conceal)
 }
-const concealExtFor = (mode) => (mode === 'source' ? [] : frontmatterConcealExtension())
+// Both conceal the raw source in live/reading modes and stand down in source
+// mode: frontmatter goes to the properties block, fenced code keeps only its
+// fence lines hidden (./codeFencePreview). One compartment for the whole
+// concealed-source layer.
+const concealExtFor = (mode) =>
+  (mode === 'source' ? [] : [frontmatterConcealExtension(), codeFencePreviewExtension()])
 const lineNumbersExtFor = (mode, on) => (on && mode !== 'reading' ? lineNumbers() : [])
 // EditorView.editable only sets contenteditable - it does NOT stop commands from
 // changing the document, and the keymap is full of commands. EditorState.readOnly
