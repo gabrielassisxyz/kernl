@@ -11,11 +11,13 @@ import { useEditorSettings } from '../composables/useEditorSettings'
 // command a keystroke can reach - and the autosave would persist the result.
 const DOC = '# Title\n'
 
-const stubVault = () => {
+// The stubbed file content is a parameter so a suite can load a note whose
+// body exercises what the mode flip has to keep working.
+const stubVault = (doc: string = DOC) => {
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.startsWith('/api/vault/file')) {
-      return new Response(DOC, {
+      return new Response(doc, {
         status: 200,
         headers: { 'Last-Modified': 'Wed, 12 Aug 2026 10:00:00 GMT' },
       })
@@ -63,6 +65,28 @@ describe('MarkdownEditor reading mode', () => {
     await setMode(wrapper, 'live')
     expect(deleteCharBackward(view)).toBe(true)
     expect(view.state.doc.toString()).not.toBe(DOC)
+
+    wrapper.unmount()
+  })
+
+  it('renders the task checkbox disabled in reading mode and a click changes nothing', async () => {
+    // The reading mode is the same document faceted uneditable, so the checkbox
+    // still renders there - showing its state, not asking to act as a control.
+    const tasks = '# Title\n\n- [ ] pending\n- [x] done\n'
+    stubVault(tasks)
+    const wrapper = await mountEditor()
+    const view = viewOf(wrapper)
+    expect(view.state.doc.toString()).toBe(tasks)
+
+    await setMode(wrapper, 'reading')
+    const box = wrapper.element.querySelector<HTMLInputElement>('.cm-md-task-check input')
+    expect(box).not.toBeNull()
+    expect(box?.disabled).toBe(true)
+
+    // happy-dom dispatches handlers even on disabled inputs; the widget guard
+    // makes the click a no-op either way. Real browsers skip a disabled control.
+    box?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    expect(view.state.doc.toString()).toBe(tasks)
 
     wrapper.unmount()
   })
