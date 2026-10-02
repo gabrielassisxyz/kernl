@@ -193,9 +193,10 @@ export function collectPreviewSpecs(
       return
     }
 
-    // Fenced and indented code alike. This tints the block; concealing the fence
-    // lines and surfacing the language belong to the pass that can replace a
-    // whole line.
+    // Fenced and indented code alike: the block tint rides here. What must
+    // replace whole lines - the fence lines and the language label - is owned
+    // by ./codeFencePreview, the StateField side of the two decoration
+    // sources, since block replacements cannot come from a viewport plugin.
     if (node.name === 'FencedCode' || node.name === 'CodeBlock') {
       linesOf(node.from, node.to, 'codeBlock')
       return
