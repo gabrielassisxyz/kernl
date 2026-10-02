@@ -20,6 +20,7 @@ import {
   type ViewUpdate,
 } from '@codemirror/view'
 import { syntaxTree } from '@codemirror/language'
+import { isolateHistory } from '@codemirror/commands'
 import type { SyntaxNodeRef } from '@lezer/common'
 
 // A decoration intent emitted by the pure pass. `hide` removes a syntax marker
@@ -40,6 +41,10 @@ export type PreviewKind =
   | 'tag'
   // Replaces the list marker with a bullet glyph.
   | 'bullet'
+  // Replaces a task item's whole "- [x]" run with a clickable checkbox.
+  | 'task'
+  // Styles a checked task item's text as done (muted, no strike).
+  | 'taskDone'
 
 export interface PreviewSpec {
   from: number
@@ -47,6 +52,9 @@ export interface PreviewSpec {
   kind: PreviewKind
   /** Where a link goes, when it goes anywhere this editor is willing to open. */
   href?: string
+  /** Task checkbox only: the box state, and where the toggled character sits. */
+  checked?: boolean
+  toggleAt?: number
 }
 
 // A link is only clickable when its target is one of the schemes a note is
@@ -140,6 +148,15 @@ export function collectPreviewSpecs(
     if (lineActive(state, from, activeLines)) return
     style(from, to, 'hide')
   }
+  // The task checkbox spec. Unlike the style kinds it carries widget data: the
+  // box state and the position of the character a click flips inside the
+  // brackets, so the widget can edit the document without re-parsing.
+  const taskSpec = (from: number, to: number, checked: boolean, toggleAt: number) => {
+    const key = `${from}:${to}:task`
+    if (seen.has(key)) return
+    seen.add(key)
+    specs.push({ from, to, kind: 'task', checked, toggleAt })
+  }
   // A line decoration is anchored at the line's start with zero width, so it
   // cannot go through style(), which drops empty spans.
   const line = (pos: number, kind: PreviewKind) => {
@@ -208,9 +225,27 @@ export function collectPreviewSpecs(
     if (node.name === 'ListMark') {
       const marker = doc.sliceString(node.from, node.to)
       if (!BULLET_MARKERS.has(marker)) return
-      // A task keeps its dash until the checkbox that replaces the whole `- [x]`
-      // exists; a bullet in front of one would just be noise beside it.
-      if (node.node.parent?.getChild('Task')) return
+      const task = node.node.parent?.getChild('Task')
+      if (task) {
+        // A task item gets a checkbox over its whole "- [x]" run, dash included:
+        // this is the one that ended the walker's task exception, where a task
+        // kept its raw dash because a bullet beside a checkbox would be noise.
+        // TaskMarker sits under the Task GRANDchild of the ListItem - looking for
+        // it among the direct children finds nothing.
+        const check = task.getChild('TaskMarker')
+        if (!check) return
+        const box = doc.sliceString(check.from + 1, check.to - 1)
+        const checked = box === 'x' || box === 'X'
+        // The checkbox is a marker: it collapses on the cursor line like every
+        // other one here, so the raw `- [x]` shows again for editing.
+        if (!lineActive(state, node.from, activeLines)) {
+          taskSpec(node.from, check.to, checked, check.from + 1)
+        }
+        // A checked item's text reads muted. Styling, so it survives the cursor
+        // arriving - the same bargain every content style in this walker makes.
+        if (checked) style(check.to, doc.lineAt(check.to).to, 'taskDone')
+        return
+      }
       style(node.from, node.to, 'bullet')
       return
     }
@@ -369,6 +404,55 @@ class BulletWidget extends WidgetType {
   eq(): boolean { return true }
 }
 
+// The checkbox standing in for a task item's "- [x]" run. Clicking it dispatches
+// ONE transaction flipping the character inside the brackets, so the change hits
+// the document (autosave persists it) and one undo step reverts it - the
+// isolateHistory annotation keeps two quick clicks from merging into a single
+// history event under the 500ms newGroupDelay.
+export class TaskCheckboxWidget extends WidgetType {
+  constructor(
+    readonly checked: boolean,
+    readonly toggleAt: number,
+    readonly editable: boolean,
+  ) { super() }
+
+  toDOM(view?: EditorView): HTMLElement {
+    const wrap = document.createElement('span')
+    wrap.className = 'cm-md-task-check'
+    const box = wrap.appendChild(document.createElement('input'))
+    box.setAttribute('type', 'checkbox')
+    box.checked = this.checked
+    // Reading mode has the document faceted uneditable: the box then only shows
+    // its state, and must never act as a control there.
+    box.disabled = !this.editable
+    // preventDefault on mousedown keeps CodeMirror from moving the caret onto
+    // the line - it skips its handlers once an event is default-prevented - which
+    // would collapse the concealment and destroy this widget mid-click. It also
+    // keeps the browser from pulling focus off the editor.
+    box.addEventListener('mousedown', (event) => event.preventDefault())
+    box.addEventListener('click', (event) => {
+      event.preventDefault()
+      if (!this.editable) return
+      // The model decides the next state; the checkbox only renders it. Unchecking
+      // normalizes to a space, checking writes lowercase x - the same flip GFM
+      // spellings accept. The dispatch re-renders this widget through eq().
+      view?.dispatch({
+        changes: { from: this.toggleAt, to: this.toggleAt + 1, insert: this.checked ? ' ' : 'x' },
+        annotations: isolateHistory.of('full'),
+        userEvent: 'input',
+      })
+    })
+    return wrap
+  }
+
+  // Identical boxes can reuse the DOM; a different state or edit target cannot.
+  eq(other: TaskCheckboxWidget): boolean {
+    return other.checked === this.checked
+      && other.toggleAt === this.toggleAt
+      && other.editable === this.editable
+  }
+}
+
 const bulletDeco = Decoration.replace({ widget: new BulletWidget() })
 
 const KIND_CLASS: Partial<Record<PreviewKind, string>> = {
@@ -380,6 +464,7 @@ const KIND_CLASS: Partial<Record<PreviewKind, string>> = {
   link: 'cm-md-link',
   comment: 'cm-md-comment',
   tag: 'cm-md-tag',
+  taskDone: 'cm-md-task-done',
 }
 
 const LINE_CLASS: Partial<Record<PreviewKind, string>> = {
@@ -389,9 +474,20 @@ const LINE_CLASS: Partial<Record<PreviewKind, string>> = {
 
 const hideDeco = Decoration.replace({})
 
-function specToDecoration(spec: PreviewSpec): Decoration {
+function specToDecoration(spec: PreviewSpec, editable: boolean): Decoration {
   if (spec.kind === 'hide') return hideDeco
   if (spec.kind === 'bullet') return bulletDeco
+  if (spec.kind === 'task') {
+    return Decoration.replace({
+      widget: new TaskCheckboxWidget(
+        spec.checked === true,
+        // The collector always sets toggleAt on 'task' specs; the fields are
+        // optional in the shared interface only so the other kinds omit them.
+        spec.toggleAt ?? spec.from,
+        editable,
+      ),
+    })
+  }
   const lineClass = LINE_CLASS[spec.kind]
   if (lineClass) return Decoration.line({ class: lineClass })
   const cls = KIND_CLASS[spec.kind] ?? ''
@@ -412,11 +508,14 @@ export function previewDecorations(
 ): DecorationSet {
   const activeLines = reveal ? computeActiveLines(state) : new Set<number>()
   const specs = collectPreviewSpecs(state, activeLines, ranges)
+  // The document's editability reaches the widget through the spec: in reading
+  // mode it renders disabled and a click must not change the document.
+  const editable = state.facet(EditorView.editable)
   // sort=true is not optional. Specs come out of a tree walk, and a heading emits
   // a mark and a replace starting at the SAME offset - which RangeSet orders by
   // startSide, not by `from`. Sorting on `from` alone throws "Ranges must be added
   // sorted", the plugin is dropped whole, and the note renders as raw markdown.
-  return Decoration.set(specs.map((s) => specToDecoration(s).range(s.from, s.to)), true)
+  return Decoration.set(specs.map((s) => specToDecoration(s, editable).range(s.from, s.to)), true)
 }
 
 function livePreviewPlugin(reveal: boolean) {
@@ -514,6 +613,30 @@ export const livePreviewTheme = EditorView.theme({
   // The glyph sits where the marker was, so nothing reflows when a line becomes
   // a list item. Muted, because a bullet is punctuation for the eye.
   '.cm-md-bullet': {
+    color: 'var(--color-text-muted)',
+  },
+
+  // A native checkbox tinted with the muted token: the box and the done text are
+  // one quiet signal, and the browser's default accent blue would break the
+  // neutral palette (DESIGN.md: no rainbow). Sized to the text so the line's
+  // rhythm holds.
+  '.cm-md-task-check': {
+    display: 'inline-block',
+  },
+  '.cm-md-task-check input': {
+    width: '0.95em',
+    height: '0.95em',
+    verticalAlign: '-0.1em',
+    accentColor: 'var(--color-text-muted)',
+    cursor: 'pointer',
+  },
+  '.cm-md-task-check input:disabled': {
+    cursor: 'default',
+  },
+  // A checked task reads as done at the same muted tone the strikethrough was
+  // moved to (too faint there). No line-through: the checkbox already carries
+  // the state, striking the text would say it twice.
+  '.cm-md-task-done': {
     color: 'var(--color-text-muted)',
   },
 

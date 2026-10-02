@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { EditorState } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { undo, history } from '@codemirror/commands'
 import { syntaxTree } from '@codemirror/language'
 import { noteMarkdown } from '../utils/noteLanguage'
 import {
   collectPreviewSpecs,
   computeActiveLines,
   previewDecorations,
+  livePreviewExtensions,
+  TaskCheckboxWidget,
   linkHref,
   type PreviewSpec,
   type PreviewKind,
@@ -318,6 +322,144 @@ describe('collectPreviewSpecs - link targets', () => {
   })
 })
 
+describe('collectPreviewSpecs - task checkboxes', () => {
+  const taskSpecs = (doc: string, cursor?: number) => styled(specs(doc, cursor), 'task')
+
+  it('replaces the whole "- [ ]" run with a checkbox spec off the cursor line', () => {
+    const doc = '- [ ] pending\nother line'
+    const s = taskSpecs(doc)
+    expect(s).toHaveLength(1)
+    // ListMark start through TaskMarker end: the dash and the brackets all go.
+    expect(slice(doc, s[0])).toBe('- [ ]')
+    expect(s[0].checked).toBe(false)
+    expect(s[0].toggleAt).toBe(doc.indexOf('[') + 1)
+    expect(styled(specs(doc), 'bullet')).toHaveLength(0)
+  })
+
+  it('keeps the raw markup when the cursor is on the item line, no widget drawn', () => {
+    const doc = '- [ ] pending\nother line'
+    // Nothing for this line: no checkbox spec, and no bullet either.
+    expect(taskSpecs(doc, 2)).toHaveLength(0)
+  })
+
+  it('reads the box state from [x], [X] and [ ]', () => {
+    const doc = '- [x] done\n- [X] ALSO DONE\n- [ ] todo\nzzz'
+    expect(taskSpecs(doc).map((x) => x.checked)).toEqual([true, true, false])
+  })
+
+  it('covers ListMark through TaskMarker for a task nested at depth 2', () => {
+    const doc = '- [ ] top\n    - [x] nested\nzzz'
+    // The TaskMarker is a grandchild of the ListItem (Task > TaskMarker); a
+    // lookup among the direct children would find nothing at any depth.
+    expect(taskSpecs(doc).map((x) => slice(doc, x))).toEqual(['- [ ]', '- [x]'])
+  })
+
+  it('reads a checked item text as done-styling through the end of its line', () => {
+    const doc = '- [x] done\nzzz'
+    const done = styled(specs(doc), 'taskDone')
+    expect(done).toHaveLength(1)
+    // From the TaskMarker's close to the line's end: the whole item text.
+    expect(slice(doc, done[0])).toBe(' done')
+    expect(done[0].to).toBe(doc.indexOf('\n'))
+  })
+
+  it('leaves a pending item without done-styling', () => {
+    expect(styled(specs('- [ ] pending\nzzz'), 'taskDone')).toHaveLength(0)
+  })
+})
+
+describe('previewDecorations - task checkbox widget', () => {
+  const taskWidgets = (doc: string, cursor?: number): TaskCheckboxWidget[] => {
+    const state = stateFor(doc, cursor)
+    const found: TaskCheckboxWidget[] = []
+    // deco.spec is the options object Decoration.replace was called with.
+    previewDecorations(state, true).between(0, doc.length, (_from, _to, deco) => {
+      if (deco.spec?.widget instanceof TaskCheckboxWidget) found.push(deco.spec.widget)
+    })
+    return found
+  }
+
+  it('renders an <input type=checkbox> whose checked follows the box character', () => {
+    const doc = '- [x] done\n- [ ] pending\nzzz'
+    const widgets = taskWidgets(doc)
+    expect(widgets).toHaveLength(2)
+    const doms = widgets.map((w) => w.toDOM())
+    for (const dom of doms) {
+      const box = dom.querySelector('input')
+      expect(box?.tagName).toBe('INPUT')
+      expect(box?.getAttribute('type')).toBe('checkbox')
+    }
+    expect(doms[0].querySelector('input')?.checked).toBe(true)
+    expect(doms[1].querySelector('input')?.checked).toBe(false)
+  })
+
+  it('draws no checkbox widget on the line the cursor sits on', () => {
+    const doc = '- [x] done\n- [ ] pending\nzzz'
+    // Only the cursor line's box collapses; the other item keeps its widget.
+    const widgets = taskWidgets(doc, 2)
+    expect(widgets).toHaveLength(1)
+    // The survivor is the pending item's box on line 2.
+    expect(widgets[0].checked).toBe(false)
+    expect(widgets[0].toggleAt).toBeGreaterThanOrEqual(doc.indexOf('\n'))
+  })
+})
+
+describe('task checkbox interactions', () => {
+  // A real view: the widget edits the document only through CodeMirror, and the
+  // undo guarantee comes from history() - the extension the app editor mounts.
+  const viewWithTasks = (doc: string) => {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    return new EditorView({
+      state: EditorState.create({
+        doc,
+        // Cursor at the end, like stateFor: position 0 would land on line 1 and
+        // collapse its checkbox before any click.
+        selection: { anchor: doc.length },
+        // The parser is load-bearing: without noteMarkdown the syntax tree has
+        // no ListMark/Task, the walker decorates nothing, and no widget is built.
+        extensions: [noteMarkdown(), livePreviewExtensions(true), history()],
+      }),
+      parent: container,
+    })
+  }
+
+  const click = (box: HTMLInputElement | null) =>
+    box?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+
+  it('flips one character per click, and one undo reverts exactly the last one', () => {
+    // The trailing filler keeps the cursor (at doc end) off both task lines -
+    // an item under the cursor shows its raw `- [x]` and has no widget.
+    const start = '- [ ] buy\n- [x] done\nzzz'
+    const view = viewWithTasks(start)
+    try {
+      const boxes = () => Array.from(view.dom.querySelectorAll<HTMLInputElement>('.cm-md-task-check input'))
+      expect(boxes()).toHaveLength(2)
+      const caret = view.state.selection.main.head
+
+      click(boxes()[0])
+      expect(view.state.doc.toString()).toBe('- [x] buy\n- [x] done\nzzz')
+      // The click must not move the caret onto the item line: that would
+      // collapse the concealment and destroy the checkbox mid-click.
+      expect(view.state.selection.main.head).toBe(caret)
+
+      click(boxes()[1])
+      expect(view.state.doc.toString()).toBe('- [x] buy\n- [ ] done\nzzz')
+
+      // One undo reverts exactly the last click: the clicks are isolated history
+      // events, not one grouped change.
+      undo(view)
+      expect(view.state.doc.toString()).toBe('- [x] buy\n- [x] done\nzzz')
+
+      undo(view)
+      expect(view.state.doc.toString()).toBe(start)
+    } finally {
+      view.destroy()
+      view.dom.remove()
+    }
+  })
+})
+
 describe('collectPreviewSpecs - list bullets', () => {
   const bullets = (doc: string, cursor?: number) =>
     specs(doc, cursor).filter((x) => x.kind === 'bullet').map((x) => slice(doc, x))
@@ -335,7 +477,9 @@ describe('collectPreviewSpecs - list bullets', () => {
     expect(bullets('1. one\n2. two\nend')).toEqual([])
   })
 
-  it('leaves a task item alone until its checkbox exists', () => {
+  it('gives a task item no bullet: its checkbox replaces the dash with it', () => {
+    // The checkbox spec spans ListMark through TaskMarker, dash included - the
+    // walker's task exception ended when the checkbox shipped.
     expect(bullets('- [x] done\n- [ ] pending\nend')).toEqual([])
   })
 
