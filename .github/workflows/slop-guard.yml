@@ -22,6 +22,11 @@ jobs:
           # --diff resolves a merge base, which a shallow clone does not contain.
           fetch-depth: 0
       - name: PR title and body
+        # Dependabot writes its body from upstream release notes, which carry whatever
+        # punctuation their authors used; judging that text judges strangers' prose and
+        # blocks every grouped bump whose changelog has an em-dash. The lines the PR adds
+        # are still checked below, and a human's PR text is still judged here.
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
