@@ -2,24 +2,30 @@ version: 2
 updates:
   # Keeps the SHA-pinned actions in .github/workflows/* current: Dependabot
   # bumps the pin and rewrites the trailing `# vX.Y.Z` comment. Without this,
-  # pinned actions silently rot. Grouped into a single weekly PR.
+  # pinned actions silently rot. Grouped into a single weekly PR. A SHA pin
+  # does not follow minor and patch releases on its own, so every update type
+  # stays in the group here, unlike a repo that pins to a major tag.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
     groups:
       actions:
         patterns: ["*"]
-
   # Go module updates, grouped weekly. Pairs with the govulncheck CI job.
+  # Only minor and patch bumps share the PR: a major (or, under 1.0, a minor)
+  # arrives as its own PR and waits for a human, which is also the line the
+  # weekly landing job draws before it merges anything.
   - package-ecosystem: "gomod"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
     groups:
-      gomod:
+      gomod-minor-patch:
         patterns: ["*"]
-
+        update-types: ["minor", "patch"]
   # Keep web dependency updates small and reviewable. Major framework/toolchain
   # migrations stay explicit because Nuxt/Vitest upgrades can carry runtime and
   # test-environment behavior changes.
@@ -27,6 +33,7 @@ updates:
     directory: "/web"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 5
     groups:
       npm-minor-patch:
         patterns: ["*"]
