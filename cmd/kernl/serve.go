@@ -295,14 +295,22 @@ func runServe(configPath string, port int, noOrchestrator bool) error {
 		}
 	}()
 
-	if !noOrchestrator && cfg.Sweep.AutoIntervalSeconds > 0 {
-		sw, err := sweeperFactory(cfg)
-		if err != nil {
-			slog.Warn("sweep auto-tick disabled", "error", err)
-		} else if sw != nil {
-			go startAutoTick(ctx, sw, time.Duration(cfg.Sweep.AutoIntervalSeconds)*time.Second)
-		}
-	}
+	// Automatic sweeping disabled on 2026-11-13. Every tick asked each registered
+	// repository for epics in awaiting_pr_review, a custom status br refuses to
+	// filter on while no issue carries it and .beads/policy.yaml does not declare
+	// it. So the sweep logged one error per repository per minute and had never
+	// closed an epic. It is disabled rather than repaired because no registered
+	// repository runs epics through the orchestrator. To restore it, uncomment the
+	// block; `kernl sweep` still runs one sweep by hand.
+	//
+	// if !noOrchestrator && cfg.Sweep.AutoIntervalSeconds > 0 {
+	// 	sw, err := sweeperFactory(cfg)
+	// 	if err != nil {
+	// 		slog.Warn("sweep auto-tick disabled", "error", err)
+	// 	} else if sw != nil {
+	// 		go startAutoTick(ctx, sw, time.Duration(cfg.Sweep.AutoIntervalSeconds)*time.Second)
+	// 	}
+	// }
 
 	// Vault watcher lifecycle - started only when vault.root is configured.
 	vault.ApplyDefaults(&cfg.Vault)
