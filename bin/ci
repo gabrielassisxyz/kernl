@@ -64,7 +64,12 @@ go vet ./... && ok || bad
 
 section "golangci-lint"
 if command -v golangci-lint >/dev/null 2>&1; then
-    golangci-lint run ./... && ok || bad
+    # The default cache is shared by every worktree and records issues under
+    # absolute paths. After a worktree is removed, another one with identical
+    # packages replays those entries, the exclusion rules cannot read the vanished
+    # files, and suppressed issues fail the run while naming the wrong tree. A
+    # cache inside the worktree goes away together with it.
+    GOLANGCI_LINT_CACHE="$REPO_ROOT/.golangci-cache" golangci-lint run ./... && ok || bad
 else
     skip "golangci-lint not installed: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
 fi
